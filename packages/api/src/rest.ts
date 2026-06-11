@@ -1,5 +1,5 @@
 import type { FastifyInstance } from "fastify";
-import { listInstances, listStrategies, listOrders, listTrades, searchEvents, equityCurve, instanceHealth, listLogs, strategyStats, type Db } from "@qkt-insights/store";
+import { listInstances, listStrategies, listOrders, listTrades, searchEvents, equityCurve, instanceHealth, listLogs, strategyStats, performanceReport, dailyNets, drawdownPeriods, postLossStats, openPositions, type Db } from "@qkt-insights/store";
 import { requireSession } from "./auth.js";
 
 export interface RestDeps { db: Db }
@@ -45,6 +45,25 @@ export function registerRest(app: FastifyInstance, deps: RestDeps): void {
     const q = req.query;
     if (!need(reply, q.instance, "instance") || !need(reply, q.strategy, "strategy")) return;
     return strategyStats(deps.db, { instanceId: q.instance, strategyId: q.strategy });
+  });
+
+  // One round trip for the whole analytics view; profitFactor "inf" survives JSON as a string.
+  app.get<{ Querystring: Record<string, string> }>("/performance", guard, async (req, reply) => {
+    const q = req.query;
+    if (!need(reply, q.instance, "instance") || !need(reply, q.strategy, "strategy")) return;
+    const f = { instanceId: q.instance, strategyId: q.strategy,
+      from: q.from ? Number(q.from) : undefined, to: q.to ? Number(q.to) : undefined };
+    return {
+      report: performanceReport(deps.db, f),
+      dailyNets: dailyNets(deps.db, f),
+      drawdownPeriods: drawdownPeriods(deps.db, f),
+      postLoss: postLossStats(deps.db, f),
+    };
+  });
+
+  app.get<{ Querystring: Record<string, string> }>("/positions", guard, async (req, reply) => {
+    const q = req.query; if (!need(reply, q.instance, "instance")) return;
+    return openPositions(deps.db, { instanceId: q.instance, strategyId: q.strategy });
   });
 
   app.get<{ Querystring: Record<string, string> }>("/equity", guard, async (req, reply) => {

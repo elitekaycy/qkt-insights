@@ -86,3 +86,35 @@ describe("spec2 REST", () => {
     expect((await get("/logs")).statusCode).toBe(400);
   });
 });
+
+describe("spec3 REST", () => {
+  it("serves the performance bundle", async () => {
+    ingestEvents(db, "qkt-prod", [
+      env({ strategyId: "latch", type: "snapshot.equity", ts: 1718000000000, payload: { strategyId: "latch", realized: 0, unrealized: 0, equity: 1000, startingBalance: 1000 } }),
+      env({ strategyId: "latch", type: "snapshot.equity", ts: 1718086400000, payload: { strategyId: "latch", realized: 50, unrealized: 0, equity: 1050, startingBalance: 1000 } }),
+    ]);
+    const res = await get("/performance?instance=qkt-prod&strategy=latch");
+    expect(res.statusCode).toBe(200);
+    const body = res.json();
+    expect(body.report.wins).toBe(1);
+    expect(body.report.approximate).toBe(true);
+    expect(Array.isArray(body.dailyNets)).toBe(true);
+    expect(Array.isArray(body.drawdownPeriods)).toBe(true);
+    expect(Array.isArray(body.postLoss)).toBe(true);
+  });
+
+  it("serves open positions", async () => {
+    ingestEvents(db, "qkt-prod", [
+      env({ strategyId: "latch", type: "snapshot.position",
+        payload: { strategyId: "latch", symbol: "XAUUSD", legs: [{ side: "BUY", qty: 0.1, entryPrice: 2350, entryTs: 1718000000000 }] } }),
+    ]);
+    const rows = (await get("/positions?instance=qkt-prod")).json();
+    expect(rows).toHaveLength(1);
+    expect(rows[0].symbol).toBe("XAUUSD");
+  });
+
+  it("requires instance and strategy on /performance", async () => {
+    expect((await get("/performance?instance=qkt-prod")).statusCode).toBe(400);
+    expect((await get("/performance")).statusCode).toBe(400);
+  });
+});
