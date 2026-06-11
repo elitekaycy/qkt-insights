@@ -1,0 +1,81 @@
+import type { Db } from "./db.js";
+import type { Envelope } from "@qkt-insights/contract";
+
+function ftsText(e: Envelope): string {
+  const p: any = e.payload;
+  return [e.type, e.strategyId, p.symbol, p.side, p.orderId, p.brokerOrderId, p.reason]
+    .filter(Boolean).join(" ");
+}
+
+const ORDER_STATE: Record<string, string> = {
+  "order.submit": "SUBMITTED",
+  "order.accepted": "WORKING",
+  "order.partially_filled": "PARTIALLY_FILLED",
+  "order.filled": "FILLED",
+  "order.cancelled": "CANCELLED",
+  "order.rejected": "REJECTED",
+};
+
+export function ingestEvents(db: Db, instanceId: string, events: Envelope[]): number {
+  const insEvent = db.prepare(
+    "INSERT OR IGNORE INTO events (id, instance_id, type, strategy_id, seq, ts, payload) VALUES (?,?,?,?,?,?,?)",
+  );
+  const insFts = db.prepare("INSERT INTO events_fts (text, instance_id, event_rowid) VALUES (?,?,?)");
+  const upInstance = db.prepare(
+    `INSERT INTO instances (id, first_seen, last_seen, last_seq) VALUES (@id,@ts,@ts,@seq)
+     ON CONFLICT(id) DO UPDATE SET last_seen=max(last_seen,@ts), last_seq=max(last_seq,@seq)`,
+  );
+  const upStrategy = db.prepare(
+    `INSERT INTO strategies (instance_id, strategy_id, first_seen, last_seen) VALUES (@i,@s,@ts,@ts)
+     ON CONFLICT(instance_id,strategy_id) DO UPDATE SET last_seen=max(last_seen,@ts)`,
+  );
+  const setEquity = db.prepare(
+    "UPDATE strategies SET equity=@eq, starting_balance=@sb WHERE instance_id=@i AND strategy_id=@s",
+  );
+  const insEquity = db.prepare(
+    "INSERT INTO equity_snapshots (instance_id, strategy_id, ts, realized, unrealized, equity) VALUES (?,?,?,?,?,?)",
+  );
+
+  const tx = db.transaction((evs: Envelope[]) => {
+    let accepted = 0;
+    for (const e of evs) {
+      const info = insEvent.run(e.id, instanceId, e.type, e.strategyId ?? null, e.seq, e.ts, JSON.stringify(e.payload));
+      if (info.changes === 0) continue; // duplicate id, skip the rest of the fold
+      accepted++;
+      insFts.run(ftsText(e), instanceId, info.lastInsertRowid as number);
+      upInstance.run({ id: instanceId, ts: e.ts, seq: e.seq });
+      if (e.strategyId) upStrategy.run({ i: instanceId, s: e.strategyId, ts: e.ts });
+      foldOrder(db, instanceId, e);
+      if (e.type === "snapshot.equity") {
+        const p = e.payload;
+        insEquity.run(instanceId, p.strategyId, e.ts, p.realized, p.unrealized, p.equity);
+        setEquity.run({ i: instanceId, s: p.strategyId, eq: p.equity, sb: p.startingBalance });
+      }
+    }
+    return accepted;
+  });
+  return tx(events);
+}
+
+function foldOrder(db: Db, instanceId: string, e: Envelope): void {
+  const state = ORDER_STATE[e.type];
+  if (!state) return;
+  const p: any = e.payload;
+  const orderId = p.orderId as string;
+  const existing: any = db.prepare("SELECT * FROM orders WHERE instance_id=? AND order_id=?").get(instanceId, orderId);
+  const filledQty = e.type === "order.filled" || e.type === "order.partially_filled" ? p.qty : 0;
+  const cum = (existing?.cum_qty ?? 0) + (e.type === "order.partially_filled" ? filledQty : 0);
+  const cumFinal = e.type === "order.filled" ? (p.qty ?? cum) : cum;
+  if (!existing) {
+    db.prepare(
+      `INSERT INTO orders (instance_id, order_id, strategy_id, symbol, side, type, state, qty, cum_qty, avg_price, created_ts, updated_ts)
+       VALUES (@i,@o,@s,@sym,@side,@t,@st,@qty,@cum,@avg,@ts,@ts)`,
+    ).run({ i: instanceId, o: orderId, s: e.strategyId ?? null, sym: p.symbol ?? null, side: p.side ?? null,
+      t: p.orderType ?? null, st: state, qty: p.qty ?? null, cum: cumFinal, avg: p.price ?? null, ts: e.ts });
+  } else {
+    db.prepare(
+      `UPDATE orders SET state=@st, cum_qty=@cum, avg_price=COALESCE(@avg, avg_price), symbol=COALESCE(@sym,symbol), updated_ts=@ts
+       WHERE instance_id=@i AND order_id=@o`,
+    ).run({ i: instanceId, o: orderId, st: state, cum: cumFinal, avg: p.price ?? null, sym: p.symbol ?? null, ts: e.ts });
+  }
+}
