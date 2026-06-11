@@ -5,7 +5,7 @@ COPY pnpm-lock.yaml pnpm-workspace.yaml package.json tsconfig.base.json tsconfig
 COPY packages ./packages
 COPY apps ./apps
 COPY src ./src
-RUN pnpm install --frozen-lockfile && pnpm build:all && pnpm prune --prod
+RUN pnpm install --frozen-lockfile && pnpm build:all && pnpm prune --prod --config.confirmModulesPurge=false
 
 FROM node:22-slim AS runtime
 WORKDIR /app

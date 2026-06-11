@@ -57,6 +57,10 @@ export function ingestEvents(db: Db, instanceId: string, events: Envelope[]): nu
   return tx(events);
 }
 
+// Events can reach the collector out of seq order (qkt's bus dispatch is re-entrant:
+// a paper fill publishes inside the submit's dispatch, so the sink sees the fill first).
+// The fold therefore keys authority on seq: only an event with seq >= the last applied
+// one may change state; older stragglers just backfill fields the row is missing.
 function foldOrder(db: Db, instanceId: string, e: Envelope): void {
   const state = ORDER_STATE[e.type];
   if (!state) return;
@@ -66,16 +70,27 @@ function foldOrder(db: Db, instanceId: string, e: Envelope): void {
   const filledQty = e.type === "order.filled" || e.type === "order.partially_filled" ? p.qty : 0;
   const cum = (existing?.cum_qty ?? 0) + (e.type === "order.partially_filled" ? filledQty : 0);
   const cumFinal = e.type === "order.filled" ? (p.qty ?? cum) : cum;
+  const fields = {
+    i: instanceId, o: orderId, s: e.strategyId ?? null, sym: p.symbol ?? null, side: p.side ?? null,
+    t: p.orderType ?? null, qty: e.type === "order.submit" ? (p.qty ?? null) : null, avg: p.price ?? null, ts: e.ts,
+  };
   if (!existing) {
     db.prepare(
-      `INSERT INTO orders (instance_id, order_id, strategy_id, symbol, side, type, state, qty, cum_qty, avg_price, created_ts, updated_ts)
-       VALUES (@i,@o,@s,@sym,@side,@t,@st,@qty,@cum,@avg,@ts,@ts)`,
-    ).run({ i: instanceId, o: orderId, s: e.strategyId ?? null, sym: p.symbol ?? null, side: p.side ?? null,
-      t: p.orderType ?? null, st: state, qty: p.qty ?? null, cum: cumFinal, avg: p.price ?? null, ts: e.ts });
+      `INSERT INTO orders (instance_id, order_id, strategy_id, symbol, side, type, state, qty, cum_qty, avg_price, created_ts, updated_ts, last_event_seq)
+       VALUES (@i,@o,@s,@sym,@side,@t,@st,@qty,@cum,@avg,@ts,@ts,@seq)`,
+    ).run({ ...fields, st: state, cum: cumFinal, seq: e.seq });
+  } else if (e.seq >= existing.last_event_seq) {
+    db.prepare(
+      `UPDATE orders SET state=@st, cum_qty=@cum, last_event_seq=@seq, updated_ts=@ts,
+         strategy_id=COALESCE(strategy_id,@s), symbol=COALESCE(symbol,@sym), side=COALESCE(side,@side),
+         type=COALESCE(type,@t), qty=COALESCE(qty,@qty), avg_price=COALESCE(@avg, avg_price)
+       WHERE instance_id=@i AND order_id=@o`,
+    ).run({ ...fields, st: state, cum: cumFinal, seq: e.seq });
   } else {
     db.prepare(
-      `UPDATE orders SET state=@st, cum_qty=@cum, avg_price=COALESCE(@avg, avg_price), symbol=COALESCE(@sym,symbol), updated_ts=@ts
+      `UPDATE orders SET strategy_id=COALESCE(strategy_id,@s), symbol=COALESCE(symbol,@sym),
+         side=COALESCE(side,@side), type=COALESCE(type,@t), qty=COALESCE(qty,@qty), avg_price=COALESCE(avg_price,@avg)
        WHERE instance_id=@i AND order_id=@o`,
-    ).run({ i: instanceId, o: orderId, st: state, cum: cumFinal, avg: p.price ?? null, sym: p.symbol ?? null, ts: e.ts });
+    ).run(fields);
   }
 }

@@ -74,3 +74,20 @@ describe("ingestEvents", () => {
     expect(db.prepare("SELECT COUNT(*) c FROM events").get()).toMatchObject({ c: 1 });
   });
 });
+
+describe("foldOrder out-of-order delivery", () => {
+  it("keeps FILLED state and backfills fields when submit arrives after the fill", () => {
+    const db = openDb(":memory:");
+    ingestEvents(db, "qkt-prod", [
+      env({ seq: 3, type: "order.accepted", payload: { orderId: "o1", brokerOrderId: "b1" } }),
+      env({ seq: 4, type: "order.filled", payload: { orderId: "o1", brokerOrderId: "b1", symbol: "XAUUSD", price: 2350, qty: 0.1 } }),
+      env({ seq: 2, strategyId: "latch", type: "order.submit", payload: { orderId: "o1", orderType: "Market", symbol: "XAUUSD", side: "BUY", qty: 0.1 } }),
+    ]);
+    const row: any = db.prepare("SELECT * FROM orders WHERE order_id='o1'").get();
+    expect(row.state).toBe("FILLED");
+    expect(row.side).toBe("BUY");
+    expect(row.qty).toBe(0.1);
+    expect(row.strategy_id).toBe("latch");
+    expect(row.avg_price).toBe(2350);
+  });
+});

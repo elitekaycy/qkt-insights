@@ -42,6 +42,7 @@ CREATE TABLE IF NOT EXISTS orders (
   avg_price REAL,
   created_ts INTEGER NOT NULL,
   updated_ts INTEGER NOT NULL,
+  last_event_seq INTEGER NOT NULL DEFAULT -1,
   PRIMARY KEY (instance_id, order_id)
 );
 CREATE INDEX IF NOT EXISTS idx_orders_lookup ON orders (instance_id, strategy_id, state, updated_ts);
