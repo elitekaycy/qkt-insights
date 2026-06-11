@@ -56,7 +56,9 @@ export function ingestEvents(db: Db, instanceId: string, events: Envelope[]): nu
         accepted++;
         insLogFts.run(`${p.logger} ${p.message}`, instanceId, info.lastInsertRowid as number);
         upInstance.run({ id: instanceId, ts: e.ts, seq: e.seq });
-        if (e.strategyId) upStrategy.run({ i: instanceId, s: e.strategyId, ts: e.ts });
+        // Logs never create strategy rows: their attribution is looser than trading
+        // events (qkt once shipped the deploy name in the MDC), and a mislabeled log
+        // line must not grow a ghost strategy with no equity in the dashboard.
         continue;
       }
       const info = insEvent.run(e.id, instanceId, e.type, e.strategyId ?? null, e.seq, e.ts, JSON.stringify(e.payload));
