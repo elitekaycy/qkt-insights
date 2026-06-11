@@ -81,3 +81,36 @@ export function ComparisonChart({ series, height = 320 }: { series: ComparisonSe
     </ResponsiveContainer>
   );
 }
+
+/** Underwater (drawdown %) area: 0 along the top, dips when equity sits below its running peak. */
+export function UnderwaterChart({ points, height = 180 }: { points: EquityPoint[]; height?: number }) {
+  let peak = -Infinity;
+  const data = points.map((p) => {
+    peak = Math.max(peak, p.equity);
+    return { ts: p.ts, dd: peak > 0 ? -((peak - p.equity) / peak) * 100 : 0 };
+  });
+  if (data.length === 0) {
+    return <div className="flex h-40 items-center justify-center text-sm text-faint">No equity snapshots yet</div>;
+  }
+  return (
+    <ResponsiveContainer width="100%" height={height}>
+      <AreaChart data={data} margin={{ top: 4, right: 8, bottom: 0, left: 8 }}>
+        <defs>
+          <linearGradient id="uw" x1="0" y1="0" x2="0" y2="1">
+            <stop offset="0%" stopColor="var(--color-down)" stopOpacity={0.05} />
+            <stop offset="100%" stopColor="var(--color-down)" stopOpacity={0.35} />
+          </linearGradient>
+        </defs>
+        <CartesianGrid stroke="var(--color-line)" strokeDasharray="3 3" vertical={false} />
+        <XAxis dataKey="ts" tickFormatter={timeFmt} tick={AXIS} tickLine={false} axisLine={false} minTickGap={60} />
+        <YAxis tick={AXIS} tickLine={false} axisLine={false} width={56} tickFormatter={(v) => `${Number(v).toFixed(1)}%`} />
+        <Tooltip
+          contentStyle={TOOLTIP}
+          labelFormatter={(v) => timeFmt(Number(v))}
+          formatter={(value) => [`${Math.abs(Number(value)).toFixed(2)}%`, "drawdown"]}
+        />
+        <Area type="monotone" dataKey="dd" stroke="var(--color-down)" strokeWidth={1.5} fill="url(#uw)" dot={false} />
+      </AreaChart>
+    </ResponsiveContainer>
+  );
+}

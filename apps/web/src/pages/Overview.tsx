@@ -1,8 +1,8 @@
 import { useQueries, useQuery } from "@tanstack/react-query";
-import { get, type EquityPoint, type HealthRow, type StrategyRow, type StrategyStats } from "../api";
+import { get, type EquityPoint, type HealthRow, type OpenPositionRow, type PerformanceBundle, type StrategyRow, type StrategyStats } from "../api";
 import { ComparisonChart, type ComparisonSeries } from "../components/EquityChart";
 import { Sparkline } from "../components/Sparkline";
-import { Card, Delta, Empty, LiveDot, PageHeader, Panel, Pill, Stat } from "../components/ui";
+import { Card, Cell, Delta, Empty, LiveDot, PageHeader, Panel, Pill, Row, SideTag, Stat, Table } from "../components/ui";
 import { age, money, num, pct, ts } from "../format";
 import { useLiveStream } from "../useLiveStream";
 
@@ -49,6 +49,21 @@ export default function Overview({
 
   const live = useLiveStream(instanceId, 40);
 
+  const positions = useQuery({
+    queryKey: ["positions", instanceId],
+    queryFn: () => get<OpenPositionRow[]>(`/positions?instance=${encodeURIComponent(instanceId!)}`),
+    enabled: !!instanceId,
+    refetchInterval: 10000,
+  });
+  const perf = useQueries({
+    queries: ids.map((id) => ({
+      queryKey: ["performance", instanceId, id, "all"],
+      queryFn: () =>
+        get<PerformanceBundle>(`/performance?instance=${encodeURIComponent(instanceId!)}&strategy=${encodeURIComponent(id)}`),
+      refetchInterval: 15000,
+    })),
+  });
+
   if (!instanceId) {
     return (
       <Card className="p-10 text-center text-muted">
@@ -56,6 +71,22 @@ export default function Overview({
       </Card>
     );
   }
+
+  // Day / week P&L summed across strategies from their daily nets (UTC days).
+  const today = new Date().toISOString().slice(0, 10);
+  const monday = (() => {
+    const d = new Date();
+    const dow = (d.getUTCDay() + 6) % 7;
+    return new Date(Date.now() - dow * 86_400_000).toISOString().slice(0, 10);
+  })();
+  let dayPnl = 0, weekPnl = 0;
+  for (const q of perf) {
+    for (const dn of q.data?.dailyNets ?? []) {
+      if (dn.day === today) dayPnl += dn.net;
+      if (dn.day >= monday) weekPnl += dn.net;
+    }
+  }
+  const posRows = positions.data ?? [];
 
   const totalEquity = rows.reduce((acc, s) => acc + (s.equity ?? 0), 0);
   const totalStart = rows.reduce((acc, s) => acc + (s.startingBalance ?? 0), 0);
@@ -109,14 +140,16 @@ export default function Overview({
 
         <div className="grid content-start gap-4">
           <div className="grid grid-cols-2 gap-4">
-            <Stat label="Realized PnL" value={money(realized)} tone={realized >= 0 ? "up" : "down"} stagger={1} />
-            <Stat label="Trades" value={String(totalTrades)} stagger={1} />
-            <Stat label="Strategies" value={String(rows.length)} stagger={2} />
+            <Stat label="Day P&L" value={money(dayPnl)} tone={dayPnl > 0 ? "up" : dayPnl < 0 ? "down" : "neutral"} sub="UTC today" stagger={1} />
+            <Stat label="Week P&L" value={money(weekPnl)} tone={weekPnl > 0 ? "up" : weekPnl < 0 ? "down" : "neutral"} sub="since Monday" stagger={1} />
+            <Stat label="Realized PnL" value={money(realized)} tone={realized >= 0 ? "up" : "down"} stagger={2} />
+            <Stat label="Trades" value={String(totalTrades)} stagger={2} />
+            <Stat label="Strategies" value={String(rows.length)} stagger={3} />
             <Stat
               label="Instances live"
               value={`${liveInstances}/${(health.data ?? []).length}`}
               tone={liveInstances > 0 ? "accent" : "neutral"}
-              stagger={2}
+              stagger={3}
             />
           </div>
 
@@ -184,7 +217,29 @@ export default function Overview({
       </div>
 
       <div className="mt-8">
-        <Panel stagger={5} title="Instances" hint="every qkt box the collector has heard from">
+        <Panel stagger={5} title="Open positions" hint="latest position snapshot per strategy and symbol" scroll="max-h-[22rem]">
+          <Table head={["Strategy", "Symbol", "Side", "Qty", "Entry", "Opened"]}>
+            {posRows.flatMap((p) =>
+              p.legs.map((leg, i) => (
+                <Row key={`${p.strategyId}-${p.symbol}-${i}`}>
+                  <Cell>{p.strategyId}</Cell>
+                  <Cell className="font-semibold text-bright">{p.symbol}</Cell>
+                  <Cell>
+                    <SideTag side={leg.side} />
+                  </Cell>
+                  <Cell className="font-mono">{leg.qty}</Cell>
+                  <Cell className="font-mono text-muted">@ {leg.entryPrice}</Cell>
+                  <Cell className="text-muted">{age(leg.entryTs)}</Cell>
+                </Row>
+              )),
+            )}
+            {posRows.length === 0 && <Empty colSpan={6}>Flat — no open positions reported.</Empty>}
+          </Table>
+        </Panel>
+      </div>
+
+      <div className="mt-8">
+        <Panel stagger={6} title="Instances" hint="every qkt box the collector has heard from">
           <div className="flex flex-wrap gap-3 p-4">
             {(health.data ?? []).length === 0 && <Empty>No instances reporting yet</Empty>}
             {(health.data ?? []).map((h) => {

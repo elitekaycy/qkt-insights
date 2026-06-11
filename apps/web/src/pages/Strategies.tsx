@@ -1,10 +1,15 @@
 import { useState } from "react";
 import { useQuery } from "@tanstack/react-query";
-import { get, type EquityPoint, type LogRow, type StrategyRow, type StrategyStats, type TradeRow } from "../api";
+import { get, type EquityPoint, type LogRow, type PerformanceBundle, type StrategyRow, type StrategyStats, type TradeRow } from "../api";
+import { CalendarView } from "../components/Calendar";
 import { TradeDetail } from "../components/detail";
 import { EquityChart } from "../components/EquityChart";
+import { PerformancePanels } from "../components/Performance";
 import { Sparkline } from "../components/Sparkline";
-import { Card, Cell, Delta, Empty, LEVEL_TONE, LoadMore, PageHeader, Panel, Pill, Row, SideTag, Stat, Table } from "../components/ui";
+import {
+  Card, Cell, Delta, Empty, LEVEL_TONE, LoadMore, PageHeader, Panel, Pill, RangeSelect, rangeStart, Row, SideTag, Stat, Table,
+  type RangeKey,
+} from "../components/ui";
 import { age, money, num, pct, ts, tsDay } from "../format";
 
 export default function Strategies({
@@ -93,6 +98,18 @@ function StrategyDetail({ instanceId, strategyId, onBack }: { instanceId: string
   const [tradeCap, setTradeCap] = useState(20);
   const [logCap, setLogCap] = useState(20);
   const [openTrade, setOpenTrade] = useState<TradeRow | null>(null);
+  const [tab, setTab] = useState<"overview" | "performance" | "calendar">("overview");
+  const [range, setRange] = useState<RangeKey>("all");
+
+  const performance = useQuery({
+    queryKey: ["performance", instanceId, strategyId, range],
+    queryFn: () => {
+      const from = rangeStart(range);
+      return get<PerformanceBundle>(`/performance?${qs}${from > 0 ? `&from=${from}` : ""}`);
+    },
+    enabled: tab !== "overview",
+    refetchInterval: 15000,
+  });
 
   const s = stats.data;
   const tradeRows = trades.data ?? [];
@@ -115,6 +132,43 @@ function StrategyDetail({ instanceId, strategyId, onBack }: { instanceId: string
         </div>
       </div>
 
+      <div className="rise mt-5 flex flex-wrap items-center gap-2">
+        {(["overview", "performance", "calendar"] as const).map((t) => (
+          <button
+            key={t}
+            onClick={() => setTab(t)}
+            className={`h-9 rounded-lg px-4 text-sm font-semibold capitalize transition ${
+              tab === t ? "bg-accent text-ink" : "border border-line bg-raised text-muted hover:border-line-strong hover:text-body"
+            }`}
+          >
+            {t}
+          </button>
+        ))}
+        {tab !== "overview" && (
+          <div className="ml-auto">
+            <RangeSelect value={range} onChange={setRange} />
+          </div>
+        )}
+      </div>
+
+      {tab === "performance" && (
+        <div className="mt-5">
+          {performance.data ? <PerformancePanels bundle={performance.data} /> : <Card className="p-8 text-center text-faint">Loading…</Card>}
+        </div>
+      )}
+
+      {tab === "calendar" && (
+        <div className="mt-5">
+          {performance.data ? (
+            <CalendarView days={performance.data.dailyNets} startingBalance={s?.startingBalance ?? null} />
+          ) : (
+            <Card className="p-8 text-center text-faint">Loading…</Card>
+          )}
+        </div>
+      )}
+
+      {tab === "overview" && (
+        <>
       <div className="mt-5 grid grid-cols-2 gap-3 md:grid-cols-3 xl:grid-cols-6">
         <Stat
           label="Realized PnL"
@@ -168,6 +222,8 @@ function StrategyDetail({ instanceId, strategyId, onBack }: { instanceId: string
           <LoadMore shown={Math.min(logCap, logRows.length)} total={logRows.length} onMore={() => setLogCap((c) => c + 20)} />
         </Panel>
       </div>
+        </>
+      )}
 
       <TradeDetail trade={openTrade} instanceId={instanceId} onClose={() => setOpenTrade(null)} />
     </div>

@@ -99,3 +99,68 @@ export interface SearchHit {
   ts: number;
   payload: Record<string, unknown>;
 }
+
+export interface PerformanceReport {
+  profitFactor: number | "inf" | null;
+  expectancy: number | null;
+  avgWin: number | null;
+  avgLoss: number | null;
+  payoffRatio: number | null;
+  kelly: number | null;
+  grossProfit: number;
+  grossLoss: number;
+  largestWin: number | null;
+  largestLoss: number | null;
+  maxDrawdownPct: number | null;
+  maxDrawdownAbs: number | null;
+  drawdownDurationDays: number | null;
+  recoveryFactor: number | null;
+  sharpe: number | null;
+  sortino: number | null;
+  calmar: number | null;
+  wins: number;
+  losses: number;
+  winRate: number | null;
+  maxWinStreak: number;
+  maxLossStreak: number;
+  currentStreak: number;
+  daysTraded: number;
+  profitableDays: number;
+  bestDay: number | null;
+  worstDay: number | null;
+  avgDayPnl: number | null;
+  totalNet: number;
+  approximate: boolean;
+}
+export interface DayNet {
+  day: string;
+  net: number;
+  trades: number;
+}
+export interface DrawdownPeriod {
+  peakTs: number;
+  troughTs: number;
+  recoveryTs: number | null;
+  depth: number;
+  depthPct: number;
+  lengthDays: number;
+  recoveryDays: number | null;
+}
+export interface PostLossRow {
+  n: number;
+  sample: number;
+  nextWinRate: number;
+  nextAvg: number;
+}
+export interface PerformanceBundle {
+  report: PerformanceReport;
+  dailyNets: DayNet[];
+  drawdownPeriods: DrawdownPeriod[];
+  postLoss: PostLossRow[];
+}
+export interface OpenPositionRow {
+  strategyId: string;
+  symbol: string;
+  ts: number;
+  legs: { side: string; qty: number; entryPrice: number; entryTs: number }[];
+}
