@@ -1,5 +1,5 @@
 import type { FastifyInstance } from "fastify";
-import { listInstances, listStrategies, listOrders, listTrades, searchEvents, equityCurve, instanceHealth, listLogs, strategyStats, performanceReport, dailyNets, drawdownPeriods, postLossStats, openPositions, tradeBreakdowns, type Db } from "@qkt-insights/store";
+import { listInstances, listStrategies, listOrders, listTrades, searchEvents, equityCurve, instanceHealth, listLogs, strategyStats, performanceReport, dailyNets, drawdownPeriods, postLossStats, openPositions, tradeBreakdowns, closedTrades, type Db } from "@qkt-insights/store";
 import { requireSession } from "./auth.js";
 
 export interface RestDeps { db: Db }
@@ -59,6 +59,7 @@ export function registerRest(app: FastifyInstance, deps: RestDeps): void {
       drawdownPeriods: drawdownPeriods(deps.db, f),
       postLoss: postLossStats(deps.db, f),
       breakdowns: tradeBreakdowns(deps.db, f),
+      closes: closedTrades(deps.db, f),
     };
   });
 

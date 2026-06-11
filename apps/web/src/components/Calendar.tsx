@@ -1,12 +1,13 @@
 import { useMemo, useState } from "react";
-import type { DayNet } from "../api";
-import { money } from "../format";
-import { Cell, Empty, IconButton, Panel, Row, Table } from "./ui";
+import type { DayNet, TradeRow } from "../api";
+import { human, money, ts } from "../format";
+import { Cell, Empty, Field, IconButton, Modal, Panel, Pill, Row, SideTag, Table } from "./ui";
 
 /*
  * Calendar views over daily nets: a month grid with cells tinted by P&L
  * magnitude, and a monthly-returns table with a YTD row. All math happens on
- * the server's DayNet list; this file only buckets and paints.
+ * the server's DayNet list; this file only buckets and paints. Days and months
+ * are clickable and open breakdown modals (fills of the day, days of the month).
  */
 
 const WEEKDAYS = ["Mon", "Tue", "Wed", "Thu", "Fri", "Sat", "Sun"];
@@ -23,10 +24,27 @@ function tint(net: number, maxAbs: number): string {
   return `color-mix(in srgb, ${color} ${Math.round(k * 30)}%, transparent)`;
 }
 
-export function CalendarView({ days, startingBalance }: { days: DayNet[]; startingBalance: number | null }) {
+function netClass(net: number): string {
+  return net > 0 ? "text-up" : net < 0 ? "text-down" : "text-muted";
+}
+
+export function CalendarView({
+  days,
+  startingBalance,
+  trades = [],
+  onTrade,
+}: {
+  days: DayNet[];
+  startingBalance: number | null;
+  /** Fills used to populate the day-detail modal; pass what the page already fetched. */
+  trades?: TradeRow[];
+  onTrade?: (t: TradeRow) => void;
+}) {
   const byDay = useMemo(() => new Map(days.map((d) => [d.day, d])), [days]);
   const months = useMemo(() => [...new Set(days.map((d) => monthKey(d.day)))].sort(), [days]);
   const [month, setMonth] = useState<string>(months[months.length - 1] ?? new Date().toISOString().slice(0, 7));
+  const [openDay, setOpenDay] = useState<string | null>(null);
+  const [openMonth, setOpenMonth] = useState<string | null>(null);
 
   const idx = months.indexOf(month);
   const [y, m] = month.split("-").map(Number) as [number, number];
@@ -60,16 +78,28 @@ export function CalendarView({ days, startingBalance }: { days: DayNet[]; starti
     );
   }
 
+  const dayInfo = openDay ? byDay.get(openDay) : null;
+  const dayFills = openDay ? trades.filter((t) => new Date(t.ts).toISOString().slice(0, 10) === openDay) : [];
+  const openMonthDays = openMonth ? days.filter((d) => monthKey(d.day) === openMonth).sort((a, b) => (a.day < b.day ? -1 : 1)) : [];
+  const openMonthNet = openMonthDays.reduce((a, d) => a + d.net, 0);
+  const bestDay = openMonthDays.reduce<DayNet | null>((a, d) => (a == null || d.net > a.net ? d : a), null);
+  const worstDay = openMonthDays.reduce<DayNet | null>((a, d) => (a == null || d.net < a.net ? d : a), null);
+
   return (
     <div className="grid gap-5 xl:grid-cols-[1.4fr_1fr]">
       <Panel
         title={first.toLocaleDateString("en-GB", { month: "long", year: "numeric", timeZone: "UTC" })}
-        hint={`month net ${money(monthNet)}`}
+        hint={`month net ${money(monthNet)} · click a day`}
         stagger={0}
         right={
           <div className="flex gap-1.5">
-            <IconButton label="previous month" onClick={() => idx > 0 && setMonth(months[idx - 1]!)} d="M15 18l-6-6 6-6" />
-            <IconButton label="next month" onClick={() => idx < months.length - 1 && setMonth(months[idx + 1]!)} d="M9 6l6 6-6 6" />
+            <IconButton label="previous month" disabled={idx <= 0} onClick={() => idx > 0 && setMonth(months[idx - 1]!)} d="M15 18l-6-6 6-6" />
+            <IconButton
+              label="next month"
+              disabled={idx >= months.length - 1}
+              onClick={() => idx < months.length - 1 && setMonth(months[idx + 1]!)}
+              d="M9 6l6 6-6 6"
+            />
           </div>
         }
       >
@@ -89,32 +119,42 @@ export function CalendarView({ days, startingBalance }: { days: DayNet[]; starti
               const dayStr = `${month}-${String(i + 1).padStart(2, "0")}`;
               const d = byDay.get(dayStr);
               return (
-                <div
+                <button
+                  type="button"
                   key={dayStr}
-                  className="flex aspect-square flex-col rounded-lg border border-line/60 p-1.5"
+                  onClick={() => d && setOpenDay(dayStr)}
+                  className={`flex aspect-square flex-col rounded-lg border border-line/60 p-1.5 text-left transition ${
+                    d ? "cursor-pointer hover:border-accent/60 hover:brightness-125" : "cursor-default"
+                  }`}
                   style={{ background: d ? tint(d.net, maxAbs) : "transparent" }}
                   title={d ? `${dayStr}: ${money(d.net)} · ${d.trades} fill${d.trades === 1 ? "" : "s"}` : dayStr}
                 >
                   <span className="text-[10px] text-faint">{i + 1}</span>
                   {d && (
-                    <span className={`mt-auto truncate font-mono text-[11px] font-semibold ${d.net > 0 ? "text-up" : d.net < 0 ? "text-down" : "text-muted"}`}>
+                    <span className={`mt-auto truncate font-mono text-[11px] font-semibold ${netClass(d.net)}`}>
                       {d.net > 0 ? "+" : ""}
                       {Math.abs(d.net) >= 1000 ? `${(d.net / 1000).toFixed(1)}k` : d.net.toFixed(0)}
                     </span>
                   )}
-                </div>
+                </button>
               );
             })}
           </div>
         </div>
       </Panel>
 
-      <Panel title="Monthly returns" hint={`YTD ${money(ytd)}`} stagger={1} scroll="max-h-[30rem]">
+      <Panel title="Monthly returns" hint={`YTD ${money(ytd)} · click a month`} stagger={1} scroll="max-h-[30rem]">
         <Table head={["Month", "Net", startingBalance ? "Return" : "", "Fills"].filter(Boolean) as string[]}>
           {monthly.map(([k, v]) => (
-            <Row key={k}>
+            <Row
+              key={k}
+              onClick={() => {
+                setMonth(k);
+                setOpenMonth(k);
+              }}
+            >
               <Cell className="font-mono">{k}</Cell>
-              <Cell className={`font-mono ${v.net > 0 ? "text-up" : v.net < 0 ? "text-down" : "text-muted"}`}>{money(v.net)}</Cell>
+              <Cell className={`font-mono ${netClass(v.net)}`}>{money(v.net)}</Cell>
               {startingBalance ? (
                 <Cell className="font-mono text-muted">{((v.net / startingBalance) * 100).toFixed(2)}%</Cell>
               ) : null}
@@ -123,6 +163,102 @@ export function CalendarView({ days, startingBalance }: { days: DayNet[]; starti
           ))}
         </Table>
       </Panel>
+
+      {openDay && dayInfo && (
+        <Modal
+          open
+          onClose={() => setOpenDay(null)}
+          title={human(Date.parse(`${openDay}T12:00:00Z`)).split("·")[0]!.trim()}
+          hint={`${dayInfo.trades} fill${dayInfo.trades === 1 ? "" : "s"}`}
+          width="min(94vw, 760px)"
+        >
+          <div className="grid grid-cols-1 gap-3 p-4 sm:grid-cols-2">
+            <Field label="Day net P&L">
+              <span className={netClass(dayInfo.net)}>{money(dayInfo.net)}</span>
+            </Field>
+            <Field label="Return on starting capital">
+              {startingBalance ? `${((dayInfo.net / startingBalance) * 100).toFixed(2)}%` : "—"}
+            </Field>
+          </div>
+          <div className="px-4 pb-1 text-[11px] font-semibold uppercase tracking-[0.12em] text-muted">
+            Fills that day {onTrade && dayFills.length > 0 ? "· click one to inspect" : ""}
+          </div>
+          <Table>
+            {dayFills.map((t) => (
+              <Row key={t.id} onClick={onTrade ? () => onTrade(t) : undefined}>
+                <Cell className="whitespace-nowrap text-muted">{ts(t.ts).slice(11)}</Cell>
+                <Cell className="font-semibold text-bright">{t.payload.symbol}</Cell>
+                <Cell>
+                  <SideTag side={t.payload.side} />
+                </Cell>
+                <Cell className="font-mono">{t.payload.qty}</Cell>
+                <Cell className="font-mono text-muted">@ {t.payload.price}</Cell>
+              </Row>
+            ))}
+            {dayFills.length === 0 && <Empty colSpan={5}>No fills loaded for this day</Empty>}
+          </Table>
+        </Modal>
+      )}
+
+      {openMonth && (
+        <Modal
+          open
+          onClose={() => setOpenMonth(null)}
+          title={new Date(`${openMonth}-01T12:00:00Z`).toLocaleDateString("en-GB", { month: "long", year: "numeric", timeZone: "UTC" })}
+          hint={`net ${money(openMonthNet)}`}
+          width="min(94vw, 760px)"
+        >
+          <div className="grid grid-cols-1 gap-3 p-4 sm:grid-cols-2">
+            <Field label="Month net P&L">
+              <span className={netClass(openMonthNet)}>{money(openMonthNet)}</span>
+            </Field>
+            <Field label="Return on starting capital">
+              {startingBalance ? `${((openMonthNet / startingBalance) * 100).toFixed(2)}%` : "—"}
+            </Field>
+            <Field label="Best day">
+              {bestDay ? (
+                <>
+                  {bestDay.day} <span className="ml-2 text-up">{money(bestDay.net)}</span>
+                </>
+              ) : (
+                "—"
+              )}
+            </Field>
+            <Field label="Worst day">
+              {worstDay ? (
+                <>
+                  {worstDay.day} <span className={`ml-2 ${netClass(worstDay.net)}`}>{money(worstDay.net)}</span>
+                </>
+              ) : (
+                "—"
+              )}
+            </Field>
+            <Field label="Days traded">{openMonthDays.length}</Field>
+            <Field label="Profitable days">
+              {openMonthDays.filter((d) => d.net > 0).length}/{openMonthDays.length}{" "}
+              <Pill tone={openMonthDays.filter((d) => d.net > 0).length * 2 >= openMonthDays.length ? "up" : "down"}>
+                {openMonthDays.length ? `${Math.round((openMonthDays.filter((d) => d.net > 0).length / openMonthDays.length) * 100)}%` : "—"}
+              </Pill>
+            </Field>
+          </div>
+          <div className="px-4 pb-1 text-[11px] font-semibold uppercase tracking-[0.12em] text-muted">Day by day · click to open</div>
+          <Table head={["Day", "Net", "Fills"]}>
+            {openMonthDays.map((d) => (
+              <Row
+                key={d.day}
+                onClick={() => {
+                  setOpenMonth(null);
+                  setOpenDay(d.day);
+                }}
+              >
+                <Cell className="font-mono text-muted">{d.day}</Cell>
+                <Cell className={`font-mono ${netClass(d.net)}`}>{money(d.net)}</Cell>
+                <Cell className="font-mono text-muted">{d.trades}</Cell>
+              </Row>
+            ))}
+          </Table>
+        </Modal>
+      )}
     </div>
   );
 }

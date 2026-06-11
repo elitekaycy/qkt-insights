@@ -6,6 +6,7 @@ import {
   Cell, Empty, LiveDot, LoadMore, PageHeader, Panel, Pill, Row, SearchInput, Select, SideTag, STATE_TONE, Table,
 } from "../components/ui";
 import { ts, tsDay } from "../format";
+import { realizedLabel, useCloseMap } from "../useCloses";
 import { useLiveStream } from "../useLiveStream";
 
 export default function Orderflow({ instanceId }: { instanceId: string | null }) {
@@ -16,6 +17,7 @@ export default function Orderflow({ instanceId }: { instanceId: string | null })
   const [tradeCap, setTradeCap] = useState(20);
   const [openOrder, setOpenOrder] = useState<OrderRow | null>(null);
   const [openTrade, setOpenTrade] = useState<TradeRow | null>(null);
+  const closeMap = useCloseMap(instanceId);
 
   const strategies = useQuery({
     queryKey: ["strategies", instanceId],
@@ -142,9 +144,13 @@ export default function Orderflow({ instanceId }: { instanceId: string | null })
                   </Cell>
                   <Cell className="font-mono">{t.payload.qty}</Cell>
                   <Cell className="font-mono text-muted">@ {t.payload.price}</Cell>
+                  {(() => {
+                    const r = realizedLabel(closeMap.get(t.payload.orderId));
+                    return <Cell className={`font-mono ${r.className}`}>{r.text}</Cell>;
+                  })()}
                 </Row>
               ))}
-              {tradeRows.length === 0 && <Empty colSpan={6}>No trades yet</Empty>}
+              {tradeRows.length === 0 && <Empty colSpan={7}>No trades yet</Empty>}
             </Table>
             <LoadMore shown={Math.min(tradeCap, tradeRows.length)} total={tradeRows.length} onMore={() => setTradeCap((c) => c + 20)} />
           </Panel>
@@ -164,8 +170,8 @@ export default function Orderflow({ instanceId }: { instanceId: string | null })
         </Panel>
       </div>
 
-      {instanceId && <OrderDetail order={openOrder} instanceId={instanceId} onClose={() => setOpenOrder(null)} />}
-      {instanceId && <TradeDetail trade={openTrade} instanceId={instanceId} onClose={() => setOpenTrade(null)} />}
+      {instanceId && <OrderDetail order={openOrder} instanceId={instanceId} onClose={() => setOpenOrder(null)} close={openOrder ? closeMap.get(openOrder.orderId) : null} />}
+      {instanceId && <TradeDetail trade={openTrade} instanceId={instanceId} onClose={() => setOpenTrade(null)} close={openTrade ? closeMap.get(openTrade.payload.orderId) : null} />}
     </div>
   );
 }

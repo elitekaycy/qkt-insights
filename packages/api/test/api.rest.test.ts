@@ -101,6 +101,17 @@ describe("spec3 REST", () => {
     expect(Array.isArray(body.dailyNets)).toBe(true);
     expect(Array.isArray(body.drawdownPeriods)).toBe(true);
     expect(Array.isArray(body.postLoss)).toBe(true);
+    expect(Array.isArray(body.closes)).toBe(true);
+  });
+
+  it("includes closed trades in the performance bundle", async () => {
+    ingestEvents(db, "qkt-prod", [
+      env({ strategyId: "latch", type: "trade.closed", ts: 1718000005000,
+        payload: { orderId: "o-77", symbol: "XAUUSD", side: "SELL", qty: 0.1, price: 2360, realized: 25, ts: 1718000005000 } }),
+    ]);
+    const body = (await get("/performance?instance=qkt-prod&strategy=latch")).json();
+    expect(body.closes).toHaveLength(1);
+    expect(body.closes[0]).toMatchObject({ symbol: "XAUUSD", realized: 25, orderId: "o-77" });
   });
 
   it("serves open positions", async () => {

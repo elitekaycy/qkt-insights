@@ -11,6 +11,7 @@ import {
   type RangeKey,
 } from "../components/ui";
 import { age, money, num, pct, ts, tsDay } from "../format";
+import { realizedLabel } from "../useCloses";
 
 export default function Strategies({
   instanceId,
@@ -107,12 +108,12 @@ function StrategyDetail({ instanceId, strategyId, onBack }: { instanceId: string
       const from = rangeStart(range);
       return get<PerformanceBundle>(`/performance?${qs}${from > 0 ? `&from=${from}` : ""}`);
     },
-    enabled: tab !== "overview",
     refetchInterval: 15000,
   });
 
   const s = stats.data;
   const tradeRows = trades.data ?? [];
+  const closeByOrder = new Map((performance.data?.closes ?? []).filter((c) => c.orderId).map((c) => [c.orderId!, c]));
   const logRows = logs.data ?? [];
   return (
     <div>
@@ -161,7 +162,12 @@ function StrategyDetail({ instanceId, strategyId, onBack }: { instanceId: string
       {tab === "calendar" && (
         <div className="mt-5">
           {performance.data ? (
-            <CalendarView days={performance.data.dailyNets} startingBalance={s?.startingBalance ?? null} />
+            <CalendarView
+              days={performance.data.dailyNets}
+              startingBalance={s?.startingBalance ?? null}
+              trades={tradeRows}
+              onTrade={setOpenTrade}
+            />
           ) : (
             <Card className="p-8 text-center text-faint">Loading…</Card>
           )}
@@ -202,9 +208,13 @@ function StrategyDetail({ instanceId, strategyId, onBack }: { instanceId: string
                 </Cell>
                 <Cell className="font-mono">{t.payload.qty}</Cell>
                 <Cell className="font-mono text-muted">@ {t.payload.price}</Cell>
+                {(() => {
+                  const r = realizedLabel(closeByOrder.get(t.payload.orderId));
+                  return <Cell className={`font-mono ${r.className}`}>{r.text}</Cell>;
+                })()}
               </Row>
             ))}
-            {tradeRows.length === 0 && <Empty colSpan={5}>No trades yet</Empty>}
+            {tradeRows.length === 0 && <Empty colSpan={6}>No trades yet</Empty>}
           </Table>
           <LoadMore shown={Math.min(tradeCap, tradeRows.length)} total={tradeRows.length} onMore={() => setTradeCap((c) => c + 20)} />
         </Panel>
@@ -226,7 +236,7 @@ function StrategyDetail({ instanceId, strategyId, onBack }: { instanceId: string
         </>
       )}
 
-      <TradeDetail trade={openTrade} instanceId={instanceId} onClose={() => setOpenTrade(null)} />
+      <TradeDetail trade={openTrade} instanceId={instanceId} onClose={() => setOpenTrade(null)} close={openTrade ? closeByOrder.get(openTrade.payload.orderId) : null} />
     </div>
   );
 }

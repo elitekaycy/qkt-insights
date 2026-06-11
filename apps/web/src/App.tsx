@@ -119,11 +119,11 @@ export default function App() {
         key={n.key}
         onClick={() => goto(n.key)}
         title={n.label}
-        className={`group flex w-full items-center gap-2.5 rounded-lg px-3 py-2 text-left text-sm font-medium transition ${
-          iconsOnly ? "justify-center px-0 py-2.5" : ""
+        className={`group flex w-full items-center gap-3 rounded-lg px-3.5 py-2.5 text-left text-[15px] font-medium transition ${
+          iconsOnly ? "justify-center px-0" : ""
         } ${active ? "bg-accent text-ink" : "text-muted hover:bg-raised hover:text-body"}`}
       >
-        <NavIcon d={ICONS[n.key]} big={iconsOnly} />
+        <NavIcon d={ICONS[n.key]} big />
         {!iconsOnly && n.label}
       </button>
     );
@@ -131,10 +131,10 @@ export default function App() {
 
   const sidebar = (iconsOnly: boolean) => (
     <>
-      <div className={`flex items-center gap-2.5 px-5 pb-4 pt-5 ${iconsOnly ? "justify-center px-0" : ""}`}>
+      <div className={`flex items-center gap-3 px-5 pb-5 pt-6 ${iconsOnly ? "justify-center px-0" : ""}`}>
         <Mark />
         {!iconsOnly && (
-          <div className="text-[15px] font-extrabold tracking-tight text-bright">
+          <div className="text-lg font-extrabold tracking-tight text-bright">
             qkt<span className="text-accent">·</span>insights
           </div>
         )}
@@ -142,7 +142,7 @@ export default function App() {
 
       <div className={iconsOnly ? "px-2" : "px-4"}>
         {!iconsOnly && (
-          <div className="px-3 pb-1.5 text-[10px] font-bold uppercase tracking-[0.16em] text-faint">All strategies</div>
+          <div className="px-3.5 pb-2 text-[11px] font-bold uppercase tracking-[0.16em] text-faint">All strategies</div>
         )}
         {ALL_STRATEGIES.map((n) => navButton(n, iconsOnly))}
       </div>
@@ -153,13 +153,13 @@ export default function App() {
             <LiveDot on={live} />
           </div>
         ) : (
-          <div className="rounded-card border border-line bg-raised p-3">
+          <div className="rounded-card border border-line bg-raised p-3.5">
             <div className="flex items-center justify-between">
-              <span className="text-[10px] font-bold uppercase tracking-[0.14em] text-muted">Instance</span>
+              <span className="text-[11px] font-bold uppercase tracking-[0.14em] text-muted">Instance</span>
               <LiveDot on={live} />
             </div>
             <Select
-              className="mt-2 w-full border-line-strong bg-panel"
+              className="mt-2.5 h-10 w-full border-line-strong bg-panel text-[15px]"
               value={selected ?? ""}
               onChange={(e) => setInstance(e.target.value)}
             >
@@ -178,7 +178,7 @@ export default function App() {
         {PER_INSTANCE.map((group) => (
           <div key={group.section} className="mt-4">
             {!iconsOnly && (
-              <div className="px-3 pb-1.5 text-[10px] font-bold uppercase tracking-[0.16em] text-faint">
+              <div className="px-3.5 pb-2 text-[11px] font-bold uppercase tracking-[0.16em] text-faint">
                 {group.section}
               </div>
             )}
@@ -194,11 +194,11 @@ export default function App() {
             queryClient.invalidateQueries();
           }}
           title="Sign out"
-          className={`flex w-full items-center gap-2.5 rounded-lg px-3 py-2 text-sm font-medium text-muted transition hover:bg-raised hover:text-body ${
+          className={`flex w-full items-center gap-3 rounded-lg px-3.5 py-2.5 text-[15px] font-medium text-muted transition hover:bg-raised hover:text-body ${
             iconsOnly ? "justify-center px-0" : ""
           }`}
         >
-          <NavIcon d="M9 21H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h4M16 17l5-5-5-5M21 12H9" big={iconsOnly} />
+          <NavIcon d="M9 21H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h4M16 17l5-5-5-5M21 12H9" big />
           {!iconsOnly && "Sign out"}
         </button>
       </div>
@@ -258,7 +258,7 @@ export default function App() {
       {/* desktop sidebar */}
       <aside
         className={`relative hidden shrink-0 flex-col border-r border-line bg-panel transition-all lg:flex ${
-          collapsed ? "w-[4.25rem]" : "w-60"
+          collapsed ? "w-[4.5rem]" : "w-[17rem]"
         }`}
       >
         {sidebar(collapsed)}

@@ -1,9 +1,9 @@
 import { useState } from "react";
 import { useQueries, useQuery } from "@tanstack/react-query";
-import { get, type EquityPoint, type PerformanceBundle, type StrategyRow } from "../api";
+import { get, type DrawdownPeriod, type EquityPoint, type PerformanceBundle, type StrategyRow } from "../api";
 import { ComparisonChart, UnderwaterChart, type ComparisonSeries } from "../components/EquityChart";
-import { Card, Cell, Empty, PageHeader, Panel, Pill, Row, Select, Table } from "../components/ui";
-import { money, tsDay } from "../format";
+import { Card, Cell, Empty, Field, Modal, PageHeader, Panel, Pill, Row, Select, Table } from "../components/ui";
+import { duration, human, money, tsDay } from "../format";
 
 const PALETTE = ["#c8f74a", "#5cb8ff", "#a78bfa", "#3fe08c", "#fbbf24", "#ff6b6b", "#f472b6", "#22d3ee"];
 
@@ -25,6 +25,7 @@ export default function Equity({ instanceId }: { instanceId: string | null }) {
   });
 
   const [ddStrategy, setDdStrategy] = useState("");
+  const [openDd, setOpenDd] = useState<DrawdownPeriod | null>(null);
   const focusId = ddStrategy || ids[0] || "";
   const focusIdx = ids.indexOf(focusId);
   const focusCurve = focusIdx >= 0 ? (curves[focusIdx]?.data ?? []) : [];
@@ -92,10 +93,10 @@ export default function Equity({ instanceId }: { instanceId: string | null }) {
           </div>
         </Panel>
 
-        <Panel stagger={3} title="Drawdown periods" hint={focusId} scroll="max-h-[20rem]">
+        <Panel stagger={3} title="Drawdown periods" hint={`${focusId} · click a row to inspect`} scroll="max-h-[20rem]">
           <Table head={["Peak", "Trough", "Depth", "Length", "Recovery"]}>
             {periods.map((p) => (
-              <Row key={p.peakTs}>
+              <Row key={p.peakTs} onClick={() => setOpenDd(p)}>
                 <Cell className="whitespace-nowrap text-muted">{tsDay(p.peakTs).slice(0, 14)}</Cell>
                 <Cell className="whitespace-nowrap text-muted">{tsDay(p.troughTs).slice(0, 14)}</Cell>
                 <Cell className="font-mono text-down">
@@ -115,6 +116,29 @@ export default function Equity({ instanceId }: { instanceId: string | null }) {
           </Table>
         </Panel>
       </div>
+
+      {openDd && (
+        <Modal open onClose={() => setOpenDd(null)} title="Drawdown" hint={focusId} width="min(94vw, 720px)">
+          <div className="grid grid-cols-1 gap-3 p-4 sm:grid-cols-2 sm:p-5">
+            <Field label="Peak (equity high before the fall)">{human(openDd.peakTs)}</Field>
+            <Field label="Trough (deepest point)">{human(openDd.troughTs)}</Field>
+            <Field label="Depth">
+              <span className="text-down">{money(-openDd.depth)}</span>
+              <span className="ml-2 text-xs text-faint">{openDd.depthPct.toFixed(2)}% below the peak</span>
+            </Field>
+            <Field label="Peak to trough">{duration(openDd.troughTs - openDd.peakTs)}</Field>
+            <Field label="Recovered (back at the peak)">
+              {openDd.recoveryTs != null ? human(openDd.recoveryTs) : <Pill tone="warn">still ongoing</Pill>}
+            </Field>
+            <Field label="Time underwater">
+              {openDd.lengthDays.toFixed(1)} days
+              {openDd.recoveryDays != null && (
+                <span className="ml-2 text-xs text-faint">{openDd.recoveryDays.toFixed(1)}d of that climbing back</span>
+              )}
+            </Field>
+          </div>
+        </Modal>
+      )}
     </div>
   );
 }

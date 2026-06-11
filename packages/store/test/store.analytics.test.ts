@@ -1,5 +1,5 @@
 import { describe, it, expect } from "vitest";
-import { openDb, ingestEvents, performanceReport, dailyNets, drawdownPeriods, postLossStats, openPositions, tradeBreakdowns, type Db } from "../src/index.js";
+import { openDb, ingestEvents, performanceReport, dailyNets, drawdownPeriods, postLossStats, openPositions, tradeBreakdowns, closedTrades, type Db } from "../src/index.js";
 import type { Envelope } from "@qkt-insights/contract";
 
 const DAY = 86_400_000;
@@ -202,6 +202,24 @@ describe("trade.closed exact source", () => {
   it("falls back to deltas with no closes", () => {
     const db = seeded();
     expect(performanceReport(db, F).approximate).toBe(true);
+  });
+
+  it("lists closed trades newest-first with their fields", () => {
+    const db = openDb(":memory:");
+    ingestEvents(db, "qkt-prod", [
+      close(T0 + 1000, 30, { symbol: "XAUUSD", qty: 0.1, entryTs: T0 }),
+      close(T0 + 2000, -10, { symbol: "EURUSD", qty: 0.2 }),
+    ]);
+    const rows = closedTrades(db, F);
+    expect(rows).toHaveLength(2);
+    expect(rows[0]).toMatchObject({ ts: T0 + 2000, symbol: "EURUSD", realized: -10, entryTs: null });
+    expect(rows[1]).toMatchObject({ ts: T0 + 1000, symbol: "XAUUSD", realized: 30, entryTs: T0 });
+  });
+
+  it("returns no closed trades outside the range", () => {
+    const db = openDb(":memory:");
+    ingestEvents(db, "qkt-prod", [close(T0, 5)]);
+    expect(closedTrades(db, { ...F, from: T0 + 1 })).toHaveLength(0);
   });
 
   it("stores closes idempotently", () => {

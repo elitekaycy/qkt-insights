@@ -83,15 +83,29 @@ function realizedDeltas(snaps: SnapRow[]): number[] {
   return out;
 }
 
-interface CloseRow { ts: number; symbol: string; side: string; qty: number; price: number; realized: number; entryTs: number | null }
+export interface ClosedTradeRow {
+  ts: number;
+  symbol: string;
+  side: string;
+  qty: number;
+  price: number;
+  realized: number;
+  entryTs: number | null;
+  orderId: string | null;
+}
 
-function closes(db: Db, f: AnalyticsFilter): CloseRow[] {
+function closes(db: Db, f: AnalyticsFilter): ClosedTradeRow[] {
   const cl = ["instance_id=@instanceId", "strategy_id=@strategyId"];
   if (f.from != null) cl.push("ts>=@from");
   if (f.to != null) cl.push("ts<=@to");
   return db.prepare(
-    `SELECT ts, symbol, side, qty, price, realized, entry_ts entryTs FROM trade_closes WHERE ${cl.join(" AND ")} ORDER BY ts ASC`,
-  ).all(f) as CloseRow[];
+    `SELECT ts, symbol, side, qty, price, realized, entry_ts entryTs, order_id orderId FROM trade_closes WHERE ${cl.join(" AND ")} ORDER BY ts ASC`,
+  ).all(f) as ClosedTradeRow[];
+}
+
+/** Every closed trade in the range, newest first — the rows behind the performance numbers. */
+export function closedTrades(db: Db, f: AnalyticsFilter): ClosedTradeRow[] {
+  return closes(db, f).reverse();
 }
 
 /**
@@ -327,7 +341,7 @@ export function tradeBreakdowns(db: Db, f: AnalyticsFilter): TradeBreakdowns | n
   const rows = closes(db, f);
   if (rows.length === 0) return null;
 
-  const acc = (map: Map<string, BreakdownRow>, key: string, r: CloseRow) => {
+  const acc = (map: Map<string, BreakdownRow>, key: string, r: ClosedTradeRow) => {
     const cur = map.get(key) ?? { key, net: 0, trades: 0, wins: 0 };
     cur.net += r.realized;
     cur.trades++;
