@@ -22,6 +22,8 @@ export const payloadByType = {
   "snapshot.position": z.object({ strategyId: z.string(), symbol: z.string(),
     legs: z.array(z.object({ side, qty: z.number(), entryPrice: z.number(), entryTs: z.number() })) }),
   log: z.object({ level: z.enum(["DEBUG", "INFO", "WARN", "ERROR"]), logger: z.string(), message: z.string() }),
+  "trade.closed": z.object({ orderId: z.string(), symbol: z.string(), side, qty: z.number(), price: z.number(),
+    realized: z.number(), entryTs: z.number().optional(), ts: z.number() }),
 } as const;
 
 export type EventType = keyof typeof payloadByType;

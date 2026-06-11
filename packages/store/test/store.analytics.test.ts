@@ -1,5 +1,5 @@
 import { describe, it, expect } from "vitest";
-import { openDb, ingestEvents, performanceReport, dailyNets, drawdownPeriods, postLossStats, openPositions, type Db } from "../src/index.js";
+import { openDb, ingestEvents, performanceReport, dailyNets, drawdownPeriods, postLossStats, openPositions, tradeBreakdowns, type Db } from "../src/index.js";
 import type { Envelope } from "@qkt-insights/contract";
 
 const DAY = 86_400_000;
@@ -173,5 +173,62 @@ describe("openPositions", () => {
       env({ strategyId: "latch", ts: T0, type: "snapshot.position", payload: { strategyId: "latch", symbol: "XAUUSD", legs: [] } }),
     ]);
     expect(openPositions(db, { instanceId: "qkt-prod" })).toHaveLength(0);
+  });
+});
+
+describe("trade.closed exact source", () => {
+  function close(ts: number, realized: number, opts: { symbol?: string; qty?: number; entryTs?: number } = {}): Envelope {
+    return env({ strategyId: "latch", ts, type: "trade.closed",
+      payload: { orderId: "o" + ts, symbol: opts.symbol ?? "XAUUSD", side: "SELL", qty: opts.qty ?? 0.1,
+        price: 2000, realized, ...(opts.entryTs != null ? { entryTs: opts.entryTs } : {}), ts } });
+  }
+
+  it("switches the report to exact when closes exist", () => {
+    const db = openDb(":memory:");
+    ingestEvents(db, "qkt-prod", [
+      snap(T0, 0, 1000),
+      close(T0 + 1000, 30),
+      close(T0 + 2000, -10),
+      snap(T0 + DAY, 20, 1020),
+    ]);
+    const r = performanceReport(db, F);
+    expect(r.approximate).toBe(false);
+    expect(r.wins).toBe(1);
+    expect(r.losses).toBe(1);
+    expect(r.grossProfit).toBe(30);
+    expect(r.grossLoss).toBe(10);
+  });
+
+  it("falls back to deltas with no closes", () => {
+    const db = seeded();
+    expect(performanceReport(db, F).approximate).toBe(true);
+  });
+
+  it("stores closes idempotently", () => {
+    const db = openDb(":memory:");
+    const c = close(T0, 5);
+    ingestEvents(db, "qkt-prod", [c]);
+    ingestEvents(db, "qkt-prod", [c]);
+    expect(db.prepare("SELECT COUNT(*) c FROM trade_closes").get()).toMatchObject({ c: 1 });
+  });
+
+  it("computes breakdowns from closes only", () => {
+    const db = openDb(":memory:");
+    expect(tradeBreakdowns(db, F)).toBeNull();
+    // Tue 2026-01-06 10:00 UTC and 14:00 UTC
+    const t1 = Date.UTC(2026, 0, 6, 10);
+    const t2 = Date.UTC(2026, 0, 6, 14);
+    ingestEvents(db, "qkt-prod", [
+      close(t1, 50, { symbol: "XAUUSD", qty: 0.1, entryTs: t1 - 10 * 60_000 }),
+      close(t2, -20, { symbol: "EURUSD", qty: 0.2, entryTs: t2 - 2 * 3_600_000 }),
+    ]);
+    const b = tradeBreakdowns(db, F)!;
+    expect(b.bySymbol[0]).toMatchObject({ key: "XAUUSD", net: 50, wins: 1 });
+    expect(b.bySymbol[1]).toMatchObject({ key: "EURUSD", net: -20, wins: 0 });
+    expect(b.byHour.map((h) => h.key)).toEqual(["10", "14"]);
+    expect(b.byDow[0]).toMatchObject({ key: "Tue", trades: 2 });
+    expect(b.holdTime!.map((h) => h.key)).toEqual(["<15m", "1–4h"]);
+    expect(b.distribution).toHaveLength(11);
+    expect(b.distribution.reduce((a, x) => a + x.count, 0)).toBe(2);
   });
 });

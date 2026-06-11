@@ -40,6 +40,9 @@ export function ingestEvents(db: Db, instanceId: string, events: Envelope[]): nu
     "INSERT OR IGNORE INTO logs (id, instance_id, strategy_id, level, logger, message, ts, seq) VALUES (?,?,?,?,?,?,?,?)",
   );
   const insLogFts = db.prepare("INSERT INTO logs_fts (text, instance_id, log_rowid) VALUES (?,?,?)");
+  const insClose = db.prepare(
+    "INSERT OR IGNORE INTO trade_closes (id, instance_id, strategy_id, symbol, side, qty, price, realized, entry_ts, ts) VALUES (?,?,?,?,?,?,?,?,?,?)",
+  );
 
   const tx = db.transaction((evs: Envelope[]) => {
     let accepted = 0;
@@ -59,6 +62,10 @@ export function ingestEvents(db: Db, instanceId: string, events: Envelope[]): nu
       const info = insEvent.run(e.id, instanceId, e.type, e.strategyId ?? null, e.seq, e.ts, JSON.stringify(e.payload));
       if (info.changes === 0) continue; // duplicate id, skip the rest of the fold
       accepted++;
+      if (e.type === "trade.closed") {
+        const p = e.payload;
+        insClose.run(e.id, instanceId, e.strategyId ?? null, p.symbol, p.side, p.qty, p.price, p.realized, p.entryTs ?? null, p.ts);
+      }
       insFts.run(ftsText(e), instanceId, info.lastInsertRowid as number);
       upInstance.run({ id: instanceId, ts: e.ts, seq: e.seq });
       if (e.strategyId) upStrategy.run({ i: instanceId, s: e.strategyId, ts: e.ts });

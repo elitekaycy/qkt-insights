@@ -153,6 +153,7 @@ export interface PostLossRow {
   nextAvg: number;
 }
 export interface PerformanceBundle {
+  breakdowns: TradeBreakdowns | null;
   report: PerformanceReport;
   dailyNets: DayNet[];
   drawdownPeriods: DrawdownPeriod[];
@@ -163,4 +164,19 @@ export interface OpenPositionRow {
   symbol: string;
   ts: number;
   legs: { side: string; qty: number; entryPrice: number; entryTs: number }[];
+}
+
+export interface BreakdownRow {
+  key: string;
+  net: number;
+  trades: number;
+  wins: number;
+}
+export interface TradeBreakdowns {
+  bySymbol: BreakdownRow[];
+  byHour: BreakdownRow[];
+  byDow: BreakdownRow[];
+  byVolume: BreakdownRow[];
+  holdTime: BreakdownRow[] | null;
+  distribution: { from: number; to: number; count: number }[];
 }

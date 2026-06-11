@@ -83,6 +83,27 @@ function realizedDeltas(snaps: SnapRow[]): number[] {
   return out;
 }
 
+interface CloseRow { ts: number; symbol: string; side: string; qty: number; price: number; realized: number; entryTs: number | null }
+
+function closes(db: Db, f: AnalyticsFilter): CloseRow[] {
+  const cl = ["instance_id=@instanceId", "strategy_id=@strategyId"];
+  if (f.from != null) cl.push("ts>=@from");
+  if (f.to != null) cl.push("ts<=@to");
+  return db.prepare(
+    `SELECT ts, symbol, side, qty, price, realized, entry_ts entryTs FROM trade_closes WHERE ${cl.join(" AND ")} ORDER BY ts ASC`,
+  ).all(f) as CloseRow[];
+}
+
+/**
+ * The per-trade P&L series. Exact when this instance publishes trade.closed
+ * (qkt >= 0.41); otherwise the realized-delta approximation over snapshots.
+ */
+function tradePnls(db: Db, f: AnalyticsFilter): { pnls: number[]; exact: boolean } {
+  const exact = closes(db, f);
+  if (exact.length > 0) return { pnls: exact.map((c) => c.realized).filter((r) => r !== 0), exact: true };
+  return { pnls: realizedDeltas(snapshots(db, f)), exact: false };
+}
+
 function utcDay(ts: number): string {
   return new Date(ts).toISOString().slice(0, 10);
 }
@@ -134,7 +155,7 @@ function period(peak: number, peakTs: number, trough: number, troughTs: number, 
 }
 
 export function postLossStats(db: Db, f: AnalyticsFilter): PostLossRow[] {
-  const deltas = realizedDeltas(snapshots(db, f));
+  const { pnls: deltas } = tradePnls(db, f);
   const buckets = new Map<number, number[]>();
   for (let i = 0; i < deltas.length - 1; i++) {
     if (deltas[i]! >= 0) continue;
@@ -181,7 +202,7 @@ export function openPositions(db: Db, f: { instanceId: string; strategyId?: stri
 
 export function performanceReport(db: Db, f: AnalyticsFilter): PerformanceReport {
   const snaps = snapshots(db, f);
-  const deltas = realizedDeltas(snaps);
+  const { pnls: deltas, exact } = tradePnls(db, f);
   const wins = deltas.filter((d) => d > 0);
   const losses = deltas.filter((d) => d < 0);
   const grossProfit = wins.reduce((a, b) => a + b, 0);
@@ -276,7 +297,87 @@ export function performanceReport(db: Db, f: AnalyticsFilter): PerformanceReport
     worstDay: dayValues.length > 0 ? Math.min(...dayValues) : null,
     avgDayPnl: dayValues.length > 0 ? totalNet / dayValues.length : null,
     totalNet,
-    approximate: true,
+    approximate: !exact,
+  };
+}
+
+export interface BreakdownRow { key: string; net: number; trades: number; wins: number }
+export interface DistributionBin { from: number; to: number; count: number }
+
+export interface TradeBreakdowns {
+  bySymbol: BreakdownRow[];
+  byHour: BreakdownRow[];
+  byDow: BreakdownRow[];
+  byVolume: BreakdownRow[];
+  holdTime: BreakdownRow[] | null;
+  distribution: DistributionBin[];
+}
+
+const DOW = ["Mon", "Tue", "Wed", "Thu", "Fri", "Sat", "Sun"];
+const HOLD_BINS: { key: string; maxMs: number }[] = [
+  { key: "<15m", maxMs: 15 * 60_000 },
+  { key: "15–60m", maxMs: 60 * 60_000 },
+  { key: "1–4h", maxMs: 4 * 3_600_000 },
+  { key: "4–24h", maxMs: 24 * 3_600_000 },
+  { key: ">1d", maxMs: Infinity },
+];
+
+/** Per-close breakdowns — exact data only; null until this instance publishes trade.closed. */
+export function tradeBreakdowns(db: Db, f: AnalyticsFilter): TradeBreakdowns | null {
+  const rows = closes(db, f);
+  if (rows.length === 0) return null;
+
+  const acc = (map: Map<string, BreakdownRow>, key: string, r: CloseRow) => {
+    const cur = map.get(key) ?? { key, net: 0, trades: 0, wins: 0 };
+    cur.net += r.realized;
+    cur.trades++;
+    if (r.realized > 0) cur.wins++;
+    map.set(key, cur);
+  };
+
+  const bySymbol = new Map<string, BreakdownRow>();
+  const byHour = new Map<string, BreakdownRow>();
+  const byDow = new Map<string, BreakdownRow>();
+  const byVolume = new Map<string, BreakdownRow>();
+  const holdTime = new Map<string, BreakdownRow>();
+  let withEntry = 0;
+  for (const r of rows) {
+    const d = new Date(r.ts);
+    acc(bySymbol, r.symbol, r);
+    acc(byHour, String(d.getUTCHours()).padStart(2, "0"), r);
+    acc(byDow, DOW[(d.getUTCDay() + 6) % 7]!, r);
+    acc(byVolume, r.qty.toFixed(2), r);
+    if (r.entryTs != null) {
+      withEntry++;
+      const held = r.ts - r.entryTs;
+      acc(holdTime, HOLD_BINS.find((b) => held < b.maxMs)!.key, r);
+    }
+  }
+
+  const pnls = rows.map((r) => r.realized);
+  const min = Math.min(...pnls);
+  const max = Math.max(...pnls);
+  const BINS = 11;
+  const width = max > min ? (max - min) / BINS : 1;
+  const distribution: DistributionBin[] = Array.from({ length: BINS }, (_, i) => ({
+    from: min + i * width,
+    to: min + (i + 1) * width,
+    count: 0,
+  }));
+  for (const p of pnls) {
+    const i = Math.min(BINS - 1, Math.floor((p - min) / width));
+    distribution[i]!.count++;
+  }
+
+  const sortNet = (m: Map<string, BreakdownRow>) => [...m.values()].sort((a, b) => b.net - a.net);
+  const sortKey = (m: Map<string, BreakdownRow>) => [...m.values()].sort((a, b) => (a.key < b.key ? -1 : 1));
+  return {
+    bySymbol: sortNet(bySymbol),
+    byHour: sortKey(byHour),
+    byDow: [...byDow.values()].sort((a, b) => DOW.indexOf(a.key) - DOW.indexOf(b.key)),
+    byVolume: sortKey(byVolume),
+    holdTime: withEntry > 0 ? HOLD_BINS.map((b) => holdTime.get(b.key)).filter((x): x is BreakdownRow => !!x) : null,
+    distribution,
   };
 }
 

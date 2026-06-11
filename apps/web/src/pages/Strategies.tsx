@@ -4,7 +4,7 @@ import { get, type EquityPoint, type LogRow, type PerformanceBundle, type Strate
 import { CalendarView } from "../components/Calendar";
 import { TradeDetail } from "../components/detail";
 import { EquityChart } from "../components/EquityChart";
-import { PerformancePanels } from "../components/Performance";
+import { BreakdownPanels, PerformancePanels } from "../components/Performance";
 import { Sparkline } from "../components/Sparkline";
 import {
   Card, Cell, Delta, Empty, LEVEL_TONE, LoadMore, PageHeader, Panel, Pill, RangeSelect, rangeStart, Row, SideTag, Stat, Table,
@@ -152,8 +152,9 @@ function StrategyDetail({ instanceId, strategyId, onBack }: { instanceId: string
       </div>
 
       {tab === "performance" && (
-        <div className="mt-5">
+        <div className="mt-5 grid gap-5">
           {performance.data ? <PerformancePanels bundle={performance.data} /> : <Card className="p-8 text-center text-faint">Loading…</Card>}
+          {performance.data?.breakdowns && <BreakdownPanels b={performance.data.breakdowns} />}
         </div>
       )}
 

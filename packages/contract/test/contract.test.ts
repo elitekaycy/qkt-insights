@@ -44,3 +44,16 @@ describe("log envelope", () => {
     expect(() => EnvelopeSchema.parse(env)).toThrow();
   });
 });
+
+describe("trade.closed envelope", () => {
+  it("accepts a close with realized pnl", () => {
+    const env = { ...base, strategyId: "latch", type: "trade.closed",
+      payload: { orderId: "o1", symbol: "XAUUSD", side: "SELL", qty: 0.1, price: 2360, realized: 9.5, ts: base.ts } };
+    expect(EnvelopeSchema.parse(env).type).toBe("trade.closed");
+  });
+  it("rejects a close without realized", () => {
+    const env = { ...base, type: "trade.closed",
+      payload: { orderId: "o1", symbol: "XAUUSD", side: "SELL", qty: 0.1, price: 2360, ts: base.ts } };
+    expect(() => EnvelopeSchema.parse(env)).toThrow();
+  });
+});

@@ -1,4 +1,5 @@
-import type { PerformanceBundle, PerformanceReport } from "../api";
+import { Bar, BarChart, CartesianGrid, Cell as RechartsCell, ResponsiveContainer, Tooltip, XAxis, YAxis } from "recharts";
+import type { BreakdownRow, PerformanceBundle, PerformanceReport, TradeBreakdowns } from "../api";
 import { money, num } from "../format";
 import { Cell, Empty, Panel, Pill, Row, Stat, Table, type Tone } from "./ui";
 
@@ -113,6 +114,59 @@ export function PerformancePanels({ bundle }: { bundle: PerformanceBundle }) {
           </div>
         )}
       </Panel>
+    </div>
+  );
+}
+
+const BAR_TOOLTIP = {
+  background: "var(--color-raised)",
+  border: "1px solid var(--color-line-strong)",
+  borderRadius: 10,
+  fontSize: 12,
+  fontFamily: "var(--font-mono)",
+} as const;
+
+function BreakdownBars({ rows, title, hint, stagger }: { rows: BreakdownRow[]; title: string; hint?: string; stagger?: number }) {
+  return (
+    <Panel title={title} hint={hint} stagger={stagger}>
+      <div className="p-4">
+        <ResponsiveContainer width="100%" height={200}>
+          <BarChart data={rows} margin={{ top: 4, right: 8, bottom: 0, left: 8 }}>
+            <CartesianGrid stroke="var(--color-line)" strokeDasharray="3 3" vertical={false} />
+            <XAxis dataKey="key" tick={{ stroke: "var(--color-faint)", fontSize: 11, fontFamily: "var(--font-mono)" }} tickLine={false} axisLine={false} />
+            <YAxis tick={{ stroke: "var(--color-faint)", fontSize: 11, fontFamily: "var(--font-mono)" }} tickLine={false} axisLine={false} width={56} />
+            <Tooltip
+              contentStyle={BAR_TOOLTIP}
+              cursor={{ fill: "var(--color-raised)" }}
+              formatter={(value: unknown, name) => [name === "net" ? money(Number(value)) : String(value), String(name)]}
+            />
+            <Bar dataKey="net" radius={[4, 4, 0, 0]}>
+              {rows.map((r) => (
+                <RechartsCell key={r.key} fill={r.net >= 0 ? "var(--color-up)" : "var(--color-down)"} fillOpacity={0.75} />
+              ))}
+            </Bar>
+          </BarChart>
+        </ResponsiveContainer>
+      </div>
+    </Panel>
+  );
+}
+
+/** Exact, per-close charts — only rendered once trade.closed data exists for the range. */
+export function BreakdownPanels({ b }: { b: TradeBreakdowns }) {
+  return (
+    <div className="grid gap-5 xl:grid-cols-2">
+      <BreakdownBars rows={b.bySymbol} title="By symbol" hint="net P&L" stagger={3} />
+      <BreakdownBars rows={b.byDow} title="By day of week" hint="net P&L, UTC" stagger={3} />
+      <BreakdownBars rows={b.byHour} title="By hour" hint="net P&L, UTC entry hour" stagger={4} />
+      <BreakdownBars
+        rows={b.distribution.map((d) => ({ key: money((d.from + d.to) / 2), net: d.count, trades: d.count, wins: 0 }))}
+        title="P&L distribution"
+        hint="trade count per bucket"
+        stagger={4}
+      />
+      <BreakdownBars rows={b.byVolume} title="By lot size" hint="net P&L" stagger={5} />
+      {b.holdTime && <BreakdownBars rows={b.holdTime} title="By hold time" hint="net P&L" stagger={5} />}
     </div>
   );
 }
