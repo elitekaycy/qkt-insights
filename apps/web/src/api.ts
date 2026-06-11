@@ -60,3 +60,38 @@ export interface TradeRow {
   ts: number;
   payload: { orderId: string; symbol: string; side: string; price: number; qty: number; ts: number };
 }
+
+export interface LogRow {
+  id: string;
+  strategyId: string | null;
+  level: "DEBUG" | "INFO" | "WARN" | "ERROR";
+  logger: string;
+  message: string;
+  ts: number;
+}
+export interface StrategyStats {
+  tradeCount: number;
+  buyCount: number;
+  sellCount: number;
+  volume: number;
+  realizedPnl: number | null;
+  equity: number | null;
+  startingBalance: number | null;
+  returnPct: number | null;
+  winRate: number | null;
+  maxDrawdownPct: number | null;
+  sharpe: number | null;
+}
+export interface EquityPoint {
+  ts: number;
+  equity: number;
+  realized: number;
+  unrealized: number;
+}
+export interface SearchHit {
+  id: string;
+  instanceId: string;
+  type: string;
+  ts: number;
+  payload: Record<string, unknown>;
+}

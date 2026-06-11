@@ -4,15 +4,23 @@ import { get, Unauthorized, type InstanceRow } from "./api";
 import Login from "./pages/Login";
 import Health from "./pages/Health";
 import Orderflow from "./pages/Orderflow";
+import Strategies from "./pages/Strategies";
+import Trades from "./pages/Trades";
+import Logs from "./pages/Logs";
+import Search from "./pages/Search";
+import Equity from "./pages/Equity";
 
-type Page = "health" | "orderflow";
+type Page = "health" | "strategies" | "orderflow" | "trades" | "equity" | "logs" | "search";
 
 const NAV: { key: Page; label: string }[] = [
   { key: "health", label: "Health" },
+  { key: "strategies", label: "Strategies" },
   { key: "orderflow", label: "Orderflow" },
+  { key: "trades", label: "Trades" },
+  { key: "equity", label: "Equity" },
+  { key: "logs", label: "Logs" },
+  { key: "search", label: "Search" },
 ];
-
-const STUBS = ["Strategies", "Trades", "Logs", "Search", "Equity"];
 
 export default function App() {
   const queryClient = useQueryClient();
@@ -61,16 +69,16 @@ export default function App() {
               {n.label}
             </button>
           ))}
-          {STUBS.map((s) => (
-            <div key={s} className="cursor-not-allowed px-3 py-2 text-sm text-zinc-700">
-              {s}
-            </div>
-          ))}
         </nav>
       </aside>
       <main className="flex-1 overflow-auto p-6">
         {page === "health" && <Health />}
+        {page === "strategies" && <Strategies instanceId={selected} />}
         {page === "orderflow" && <Orderflow instanceId={selected} />}
+        {page === "trades" && <Trades instanceId={selected} />}
+        {page === "equity" && <Equity instanceId={selected} />}
+        {page === "logs" && <Logs instanceId={selected} />}
+        {page === "search" && <Search instanceId={selected} />}
       </main>
     </div>
   );
