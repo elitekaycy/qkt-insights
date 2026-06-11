@@ -1,3 +1,4 @@
+import "@fastify/cookie";
 import type { FastifyInstance, FastifyRequest, FastifyReply } from "fastify";
 import { createHmac, timingSafeEqual } from "node:crypto";
 import argon2 from "argon2";

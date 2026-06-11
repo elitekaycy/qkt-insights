@@ -1,3 +1,4 @@
+import "@fastify/websocket";
 import type { FastifyInstance } from "fastify";
 import type { LiveBus } from "@qkt-insights/store";
 import type { Envelope } from "@qkt-insights/contract";

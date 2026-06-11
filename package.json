@@ -13,7 +13,7 @@
     ]
   },
   "scripts": {
-    "build": "tsc -b",
+    "build": "tsc -b && mkdir -p packages/store/dist/migrations && cp packages/store/src/migrations/*.sql packages/store/dist/migrations/",
     "test": "vitest run",
     "lint": "eslint . --ext .ts",
     "start": "node dist/src/server.js"

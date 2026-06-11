@@ -8,7 +8,7 @@ const LIMIT = (q: Record<string, string | undefined>) => Math.min(Number(q.limit
 
 export function registerRest(app: FastifyInstance, deps: RestDeps): void {
   const guard = { preHandler: requireSession };
-  const need = (reply: any, v: string | undefined, name: string) => {
+  const need = (reply: any, v: string | undefined, name: string): v is string => {
     if (!v) { reply.code(400).send({ error: `${name} required` }); return false; }
     return true;
   };
