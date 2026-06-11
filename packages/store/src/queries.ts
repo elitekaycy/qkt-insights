@@ -54,13 +54,42 @@ export function searchEvents(db: Db, f: { q: string; instanceId?: string; limit:
   return rows.map((r) => ({ ...r, payload: JSON.parse(r.payload) }));
 }
 
-export function equityCurve(db: Db, f: { instanceId: string; strategyId: string; from?: number; to?: number }): EquityPoint[] {
+/**
+ * The equity series, downsampled for charting. qkt heartbeats a snapshot every few
+ * seconds, so a day is tens of thousands of rows — shipping them all freezes the
+ * browser. When the range holds more than [points] rows (default 1000), the range is
+ * cut into [points] equal time buckets and the LAST snapshot of each bucket is kept;
+ * every returned point is a real stored snapshot, never an average. Intra-bucket
+ * wiggles are invisible at chart resolution; analytics (drawdown, Sharpe) always read
+ * the full table server-side, so the numbers stay exact.
+ */
+export function equityCurve(
+  db: Db,
+  f: { instanceId: string; strategyId: string; from?: number; to?: number; points?: number },
+): EquityPoint[] {
   const cl: string[] = ["instance_id=@instanceId", "strategy_id=@strategyId"];
   if (f.from != null) cl.push("ts>=@from");
   if (f.to != null) cl.push("ts<=@to");
+  const where = cl.join(" AND ");
+  const points = Math.max(2, f.points ?? 1000);
+
+  const span: any = db.prepare(
+    `SELECT COUNT(*) n, MIN(ts) lo, MAX(ts) hi FROM equity_snapshots WHERE ${where}`,
+  ).get(f);
+  if (!span || span.n <= points) {
+    return db.prepare(
+      `SELECT ts, equity, realized, unrealized FROM equity_snapshots WHERE ${where} ORDER BY ts ASC`,
+    ).all(f) as EquityPoint[];
+  }
+
+  const bucket = Math.max(1, Math.ceil((span.hi - span.lo + 1) / points));
   return db.prepare(
-    `SELECT ts, equity, realized, unrealized FROM equity_snapshots WHERE ${cl.join(" AND ")} ORDER BY ts ASC`,
-  ).all(f) as EquityPoint[];
+    `SELECT ts, equity, realized, unrealized FROM equity_snapshots
+     WHERE ${where} AND ts IN (
+       SELECT MAX(ts) FROM equity_snapshots WHERE ${where} GROUP BY CAST((ts - @lo) / @bucket AS INTEGER)
+     )
+     ORDER BY ts ASC`,
+  ).all({ ...f, lo: span.lo, bucket }) as EquityPoint[];
 }
 
 export function instanceHealth(db: Db): HealthRow[] {

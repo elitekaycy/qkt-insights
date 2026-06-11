@@ -72,6 +72,7 @@ export function registerRest(app: FastifyInstance, deps: RestDeps): void {
     const q = req.query;
     if (!need(reply, q.instance, "instance") || !need(reply, q.strategy, "strategy")) return;
     return equityCurve(deps.db, { instanceId: q.instance, strategyId: q.strategy,
-      from: q.from ? Number(q.from) : undefined, to: q.to ? Number(q.to) : undefined });
+      from: q.from ? Number(q.from) : undefined, to: q.to ? Number(q.to) : undefined,
+      points: q.points ? Math.min(Number(q.points), 5000) : undefined });
   });
 }

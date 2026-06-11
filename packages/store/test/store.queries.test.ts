@@ -52,4 +52,37 @@ describe("queries", () => {
     expect(prod.lastSeq).toBeGreaterThanOrEqual(1);
     expect(prod.strategies).toBe(1);
   });
+
+  it("downsamples a dense equity curve to real bucketed snapshots", () => {
+    const T0 = 1718100000000;
+    for (let batch = 0; batch < 3; batch++) {
+      ingestEvents(db, "qkt-prod", Array.from({ length: 1000 }, (_, j) => {
+        const i = batch * 1000 + j;
+        return env({ strategyId: "dense", type: "snapshot.equity", ts: T0 + i * 5000,
+          payload: { strategyId: "dense", realized: i, unrealized: 0, equity: 1000 + i, startingBalance: 1000 } });
+      }));
+    }
+    const pts = equityCurve(db, { instanceId: "qkt-prod", strategyId: "dense", points: 500 });
+    expect(pts.length).toBeLessThanOrEqual(501);
+    expect(pts.length).toBeGreaterThanOrEqual(400);
+    // Endpoints survive: the newest snapshot is always the last bucket's last row.
+    expect(pts[pts.length - 1]).toMatchObject({ ts: T0 + 2999 * 5000, equity: 3999 });
+    // Every point is a stored row, never an interpolation.
+    for (const p of pts) expect(p.equity - 1000).toBe((p.ts - T0) / 5000);
+    // Order preserved.
+    for (let i = 1; i < pts.length; i++) expect(pts[i]!.ts).toBeGreaterThan(pts[i - 1]!.ts);
+  });
+
+  it("returns the full curve when under the point budget", () => {
+    const pts = equityCurve(db, { instanceId: "qkt-prod", strategyId: "latch", points: 1000 });
+    expect(pts).toHaveLength(1);
+  });
+
+  it("does not grow strategy rows from log envelopes", () => {
+    ingestEvents(db, "qkt-prod", [
+      env({ strategyId: "latch-deploy-name", type: "log", ts: 1718000003000,
+        payload: { level: "INFO", logger: "com.qkt.x", message: "hello", ts: 1718000003000 } }),
+    ]);
+    expect(listStrategies(db, "qkt-prod").map((s) => s.strategyId)).toEqual(["latch"]);
+  });
 });
