@@ -7,7 +7,44 @@ settings:
 importers:
 
   .:
+    dependencies:
+      '@fastify/cookie':
+        specifier: ^11.0.2
+        version: 11.0.2
+      '@fastify/static':
+        specifier: ^8.3.0
+        version: 8.3.0
+      '@fastify/websocket':
+        specifier: ^11.2.0
+        version: 11.2.0
+      '@qkt-insights/api':
+        specifier: workspace:*
+        version: link:packages/api
+      '@qkt-insights/collector':
+        specifier: workspace:*
+        version: link:packages/collector
+      '@qkt-insights/contract':
+        specifier: workspace:*
+        version: link:packages/contract
+      '@qkt-insights/store':
+        specifier: workspace:*
+        version: link:packages/store
+      argon2:
+        specifier: ^0.41.1
+        version: 0.41.1
+      better-sqlite3:
+        specifier: ^11.10.0
+        version: 11.10.0
+      fastify:
+        specifier: ^5.8.5
+        version: 5.8.5
+      zod:
+        specifier: ^3.25.76
+        version: 3.25.76
     devDependencies:
+      '@types/better-sqlite3':
+        specifier: ^7.6.13
+        version: 7.6.13
       '@types/node':
         specifier: ^22.0.0
         version: 22.19.21
