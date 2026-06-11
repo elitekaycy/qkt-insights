@@ -21,10 +21,10 @@ beforeEach(async () => {
   app = Fastify();
   await app.register(cookie);
   const hash = await argon2.hash("pw");
-  registerAuth(app, { passwordHash: hash, sessionSecret: "session-secret-key-at-least-32-chars!!" });
+  registerAuth(app, { username: "admin", passwordHash: hash, sessionSecret: "session-secret-key-at-least-32-chars!!" });
   registerRest(app, { db });
   await app.ready();
-  const login = await app.inject({ method: "POST", url: "/auth/login", payload: { password: "pw" } });
+  const login = await app.inject({ method: "POST", url: "/auth/login", payload: { username: "admin", password: "pw" } });
   session = String(login.headers["set-cookie"]).split(";")[0]!;
 });
 afterEach(async () => { await app.close(); });

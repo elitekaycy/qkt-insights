@@ -1,5 +1,4 @@
 import { describe, it, expect, beforeAll, afterAll } from "vitest";
-import argon2 from "argon2";
 import { mkdtempSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
@@ -11,7 +10,8 @@ const token = "ingest-secret";
 beforeAll(async () => {
   process.env.INSIGHTS_DB = join(mkdtempSync(join(tmpdir(), "qkti-")), "e2e.db");
   process.env.INGEST_TOKEN = token;
-  process.env.ADMIN_PASSWORD_HASH = await argon2.hash("admin-pw");
+  process.env.ADMIN_USERNAME = "admin-user";
+  process.env.ADMIN_PASSWORD = "admin-pw";
   process.env.SESSION_SECRET = "session-secret-key-at-least-32-chars!!";
   const { buildServer } = await import("../src/server.js");
   app = await buildServer("serve");
@@ -36,7 +36,7 @@ describe("spine e2e", () => {
 
     const login = await fetch(`${base}/auth/login`, {
       method: "POST", headers: { "content-type": "application/json" },
-      body: JSON.stringify({ password: "admin-pw" }),
+      body: JSON.stringify({ username: "admin-user", password: "admin-pw" }),
     });
     expect(login.status).toBe(200);
     const session = String(login.headers.get("set-cookie")).split(";")[0]!;
@@ -53,6 +53,14 @@ describe("spine e2e", () => {
 
   it("rejects API access without a session", async () => {
     const res = await fetch(`${base}/instances`);
+    expect(res.status).toBe(401);
+  });
+
+  it("rejects login with a wrong username even when the password is right", async () => {
+    const res = await fetch(`${base}/auth/login`, {
+      method: "POST", headers: { "content-type": "application/json" },
+      body: JSON.stringify({ username: "intruder", password: "admin-pw" }),
+    });
     expect(res.status).toBe(401);
   });
 });

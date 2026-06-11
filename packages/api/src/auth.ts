@@ -3,7 +3,7 @@ import type { FastifyInstance, FastifyRequest, FastifyReply } from "fastify";
 import { createHmac, timingSafeEqual } from "node:crypto";
 import argon2 from "argon2";
 
-export interface AuthDeps { passwordHash: string; sessionSecret: string }
+export interface AuthDeps { username: string; passwordHash: string; sessionSecret: string }
 
 const COOKIE = "qkt_insights_session";
 
@@ -27,10 +27,12 @@ let activeSecret = "";
 
 export function registerAuth(app: FastifyInstance, deps: AuthDeps): void {
   activeSecret = deps.sessionSecret;
-  app.post<{ Body: { password?: string } }>("/auth/login", async (req, reply) => {
+  app.post<{ Body: { username?: string; password?: string } }>("/auth/login", async (req, reply) => {
+    const username = req.body?.username ?? "";
     const password = req.body?.password ?? "";
-    const ok = await argon2.verify(deps.passwordHash, password).catch(() => false);
-    if (!ok) return reply.code(401).send({ error: "invalid credentials" });
+    // Verify the password even on a wrong username so both failures take the same time.
+    const passwordOk = await argon2.verify(deps.passwordHash, password).catch(() => false);
+    if (!passwordOk || username !== deps.username) return reply.code(401).send({ error: "invalid credentials" });
     const token = sign("admin", deps.sessionSecret);
     reply.setCookie(COOKIE, token, { httpOnly: true, sameSite: "strict", path: "/", secure: false });
     return reply.send({ ok: true });

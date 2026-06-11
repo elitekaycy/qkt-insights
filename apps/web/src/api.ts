@@ -11,11 +11,11 @@ export async function get<T>(url: string): Promise<T> {
   return (await res.json()) as T;
 }
 
-export async function login(password: string): Promise<boolean> {
+export async function login(username: string, password: string): Promise<boolean> {
   const res = await fetch("/auth/login", {
     method: "POST",
     headers: { "content-type": "application/json" },
-    body: JSON.stringify({ password }),
+    body: JSON.stringify({ username, password }),
     credentials: "same-origin",
   });
   return res.ok;

@@ -1,4 +1,5 @@
 import Fastify from "fastify";
+import argon2 from "argon2";
 import cookie from "@fastify/cookie";
 import websocket from "@fastify/websocket";
 import fastifyStatic from "@fastify/static";
@@ -33,7 +34,11 @@ export async function buildServer(mode: Mode) {
   if (mode === "serve" || mode === "run") {
     await app.register(cookie);
     await app.register(websocket);
-    registerAuth(app, { passwordHash: env("ADMIN_PASSWORD_HASH"), sessionSecret: env("SESSION_SECRET", env("INGEST_TOKEN")) });
+    registerAuth(app, {
+      username: env("ADMIN_USERNAME"),
+      passwordHash: await argon2.hash(env("ADMIN_PASSWORD")),
+      sessionSecret: env("SESSION_SECRET", env("INGEST_TOKEN")),
+    });
     registerRest(app, { db });
     registerLive(app, { bus, authenticate: hasSession });
   }

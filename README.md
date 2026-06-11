@@ -1,73 +1,125 @@
-# qkt-insights
+<p align="center">
+  <picture>
+    <source media="(prefers-color-scheme: dark)" srcset="docs/assets/qkt-insights-logo-dark.svg">
+    <img alt="qkt-insights" src="docs/assets/qkt-insights-logo-light.svg" width="380">
+  </picture>
+</p>
 
-Observability dashboard for the qkt trading engine family. qkt instances stream
-their bus events here (opt-in, best-effort, never blocking the engine); this
-service persists them in SQLite and serves a queryable REST + WebSocket API and
-a React dashboard behind a single admin login.
+<h3 align="center">A self-hosted observability dashboard for the <a href="https://github.com/elitekaycy/qkt">qkt</a> trading engine.<br/>Every trade, order, log line, and equity curve — from every instance — in one place.</h3>
 
-## Architecture
+<p align="center">
+  <a href="https://github.com/elitekaycy/qkt-insights/actions/workflows/ci.yml"><img src="https://github.com/elitekaycy/qkt-insights/actions/workflows/ci.yml/badge.svg" alt="ci"></a>
+  <a href="LICENSE"><img src="https://img.shields.io/badge/license-Apache%202.0-blue.svg" alt="license"></a>
+  <a href="https://github.com/elitekaycy/qkt-insights/pkgs/container/qkt-insights"><img src="https://img.shields.io/badge/ghcr.io-qkt--insights-2496ED?logo=docker&logoColor=white" alt="container"></a>
+</p>
+
+---
+
+> Live dashboard for [qkt](https://github.com/elitekaycy/qkt). Sibling project — same brand, same engineering style.
+
+**qkt-insights** ingests the event stream a running [qkt](https://github.com/elitekaycy/qkt) instance already produces — signals, order lifecycle, fills, risk halts, equity snapshots, engine logs — persists it in SQLite, and serves a clean React dashboard behind a single admin login. Point any number of qkt instances (different accounts, different boxes) at one collector and switch between them from the sidebar.
+
+The design promise: **observability never touches the trading hot path.** The qkt side enqueues onto a bounded in-memory queue and a background thread ships batches; if the collector is slow or down, events are dropped and the engine keeps trading. Telemetry is a best-effort tap, not a dependency.
 
 ```
-qkt instance(s)              qkt-insights (one Node process)               browser
-EventBus tap ── batched ──▶  collector → store (SQLite+FTS5) → api(+WS) ──▶ React app
-InsightsSink    POST /ingest          single writer, one file
+qkt instance(s)               qkt-insights (one Node process)                browser
+EventBus tap ── batched ───▶  collector → store (SQLite + FTS5) → api(+WS) ──▶ React app
+InsightsSink   POST /ingest             single writer, one file
 ```
 
-- `packages/contract` — Zod event schema, the shared truth for validation and types.
-- `packages/store` — the only SQLite writer: WAL, FTS5 search, migrations, order-state folding, queries.
-- `packages/collector` — `POST /ingest` (bearer token, Zod-validated, idempotent on event id).
-- `packages/api` — REST + WS `/live` behind an argon2 admin login with a signed session cookie.
-- `apps/web` — React + Vite dashboard (login, health, live orderflow).
-- `src/server.ts` — one entry, three modes.
+## Features
 
-## Run-modes
+- **Health** — every reporting instance, last-event age, sequence position, live/idle status.
+- **Strategies** — per-strategy drill-down: equity chart, Sharpe, win rate, max drawdown, return, trades, recent logs.
+- **Orderflow** — folded order state (submitted → working → filled/cancelled/rejected) with a live WebSocket tail.
+- **Trades** — every fill, filterable by strategy and symbol.
+- **Logs** — engine logs shipped from qkt with level filters, full-text search, and a live tail.
+- **Search** — FTS5 full-text search across all events and logs: symbols, order ids, halt reasons, log text.
+- **Equity** — all strategies on one normalized comparison chart.
+- **Single-admin auth** — username + password from env, hashed with argon2 at startup, signed httpOnly session cookie; ingest guarded by a bearer token.
 
-| mode | what runs |
-|---|---|
-| `collect` | store + `/ingest` only — headless recorder |
-| `serve` | collect + REST/WS API |
-| `run` | serve + the built web app (default) |
-
-## Quick start
+## Quick start (Docker)
 
 ```bash
-pnpm install
-pnpm build:all
-ADMIN_PASSWORD_HASH=$(node -e 'import("argon2").then(a=>a.hash(process.argv[1]).then(console.log))' 'your-password')
-INSIGHTS_DB=./insights.db INGEST_TOKEN=changeme \
-  ADMIN_PASSWORD_HASH="$ADMIN_PASSWORD_HASH" SESSION_SECRET=a-long-random-string \
-  node dist/src/server.js run
-# open http://localhost:8420
+# 1. Run it
+docker run -d --name qkt-insights \
+  -p 8420:8420 \
+  -v insights-data:/data \
+  -e INSIGHTS_DB=/data/insights.db \
+  -e INGEST_TOKEN=change-me \
+  -e ADMIN_USERNAME=admin \
+  -e ADMIN_PASSWORD='<your password>' \
+  -e SESSION_SECRET='<long random string>' \
+  ghcr.io/elitekaycy/qkt-insights:latest run
+
+# 2. Open http://localhost:8420 and sign in
 ```
 
-Docker:
+Or with compose: copy `docker-compose.yml`, set the four env vars, `docker compose up -d`.
 
-```bash
-docker build -t qkt-insights .
-INGEST_TOKEN=changeme ADMIN_PASSWORD_HASH='...' SESSION_SECRET='...' docker compose up
-```
+## Run modes
 
-## Pointing a qkt instance here
+One image, one entrypoint, three shapes — pick with the container command:
 
-In `qkt.config.yaml`:
+| mode | what runs | use it for |
+|---|---|---|
+| `collect` | store + `POST /ingest` | headless recorder on a separate box |
+| `serve` | collect + REST/WS API | API-only, UI hosted elsewhere |
+| `run` *(default)* | serve + the web app | the full thing on one port |
+
+## Connecting a qkt instance
+
+In your `qkt.config.yaml` (requires qkt ≥ 0.40.0):
 
 ```yaml
 insights:
   enabled: true
   url: "http://insights-host:8420/ingest"
-  instance_id: "qkt-prod"
+  instance_id: "qkt-prod"          # how this instance appears in the sidebar
   token: "${INGEST_TOKEN}"
-  events: [trade, order, signal, risk, position, snapshot]
+  events: [trade, order, signal, risk, position, snapshot, log]
 ```
 
-The qkt engine thread only enqueues onto a bounded in-memory queue; a daemon
-thread batches and POSTs. If this service is down, qkt drops events and keeps
-trading — egress is an observability control, never a trading dependency.
+Each family is opt-in. `snapshot` adds periodic equity/position snapshots (computed on
+the engine thread, shipped off it); `log` attaches a logback appender that streams
+INFO+ engine logs. Omit `enabled` or set it `false` and qkt wires nothing — no thread,
+no queue, zero overhead.
+
+## Architecture
+
+A pnpm workspace of small, single-purpose packages:
+
+| package | responsibility |
+|---|---|
+| `packages/contract` | the wire truth — Zod schemas for every envelope type; validation at the boundary, types everywhere else |
+| `packages/store` | the only SQLite writer — WAL, FTS5, forward-only migrations, order-state folding, stats (Sharpe, drawdown, win rate) |
+| `packages/collector` | `POST /ingest` — bearer auth, Zod-validated, idempotent on event id, seq-aware against out-of-order delivery |
+| `packages/api` | REST + WS `/live` behind the session guard |
+| `apps/web` | React + Vite + Tailwind dashboard |
+| `src/server.ts` | one entry, boots subsystems by mode |
+
+Design notes live in [`docs/specs/`](docs/specs/) and the implementation plans in [`docs/plans/`](docs/plans/).
 
 ## Development
 
 ```bash
-pnpm test          # vitest, real SQLite + real HTTP, no mocks
-pnpm build:all     # tsc project references + vite web build
-pnpm --filter @qkt-insights/web dev   # web dev server proxying to :8420
+pnpm install
+pnpm test            # vitest — real SQLite, real HTTP, no mocks
+pnpm build:all       # tsc project references + vite web build
+pnpm --filter @qkt-insights/web dev    # web dev server proxying to :8420
+node dist/src/server.js serve          # backend against ./insights.db
 ```
+
+Conventions: TypeScript strict, smallest reasonable change, no mocks in e2e tests,
+commit subjects only. CI runs the full suite on every push and PR; merges to `main`
+publish `ghcr.io/elitekaycy/qkt-insights:latest`.
+
+## Contributing
+
+Issues and PRs welcome. Branch off `dev` (the default branch), keep PRs focused, and
+make sure `pnpm test` and `pnpm build:all` pass. If you're adding an event type,
+start in `packages/contract` — the schema is the contract both sides compile against.
+
+## License
+
+[Apache 2.0](LICENSE) © Dickson Anyaele
