@@ -3,10 +3,11 @@ import { useQuery } from "@tanstack/react-query";
 import { get, type StrategyRow, type TradeRow } from "../api";
 import { TradeDetail } from "../components/detail";
 import {
-  Card, Cell, Empty, LoadMore, PageHeader, Panel, RangeSelect, rangeStart, Row, SearchInput, Select, SideTag, Table,
+  Card, Cell, Empty, LoadMore, PageHeader, Panel, QueryError, RangeSelect, rangeStart, Row, SearchInput, Select, SideTag, Table,
   type RangeKey,
 } from "../components/ui";
 import { tsDay } from "../format";
+import { realizedLabel, useCloseMap } from "../useCloses";
 
 export default function Trades({ instanceId }: { instanceId: string | null }) {
   const [strategy, setStrategy] = useState("");
@@ -14,6 +15,7 @@ export default function Trades({ instanceId }: { instanceId: string | null }) {
   const [range, setRange] = useState<RangeKey>("all");
   const [cap, setCap] = useState(30);
   const [open, setOpen] = useState<TradeRow | null>(null);
+  const closeMap = useCloseMap(instanceId);
 
   const strategies = useQuery({
     queryKey: ["strategies", instanceId],
@@ -49,6 +51,7 @@ export default function Trades({ instanceId }: { instanceId: string | null }) {
   return (
     <div>
       <PageHeader title="Trades" sub={`Every fill recorded for ${instanceId}. Click a row for the full story.`} />
+      <QueryError on={strategies.isError || trades.isError} what="trades" />
 
       <Panel
         className="mt-5"
@@ -90,7 +93,7 @@ export default function Trades({ instanceId }: { instanceId: string | null }) {
           </>
         }
       >
-        <Table head={["Time", "Strategy", "Symbol", "Side", "Qty", "Price", "Order"]}>
+        <Table head={["Time", "Strategy", "Symbol", "Side", "Qty", "Price", "P&L", "Order"]}>
           {shown.map((t) => (
             <Row key={t.id} onClick={() => setOpen(t)}>
               <Cell className="whitespace-nowrap text-muted">{tsDay(t.ts)}</Cell>
@@ -101,15 +104,19 @@ export default function Trades({ instanceId }: { instanceId: string | null }) {
               </Cell>
               <Cell className="font-mono">{t.payload.qty}</Cell>
               <Cell className="font-mono">{t.payload.price}</Cell>
+              {(() => {
+                const r = realizedLabel(closeMap.get(t.payload.orderId));
+                return <Cell className={`font-mono ${r.className}`}>{r.text}</Cell>;
+              })()}
               <Cell className="font-mono text-xs text-faint">{t.payload.orderId}</Cell>
             </Row>
           ))}
-          {shown.length === 0 && <Empty colSpan={7}>No trades match</Empty>}
+          {shown.length === 0 && <Empty colSpan={8}>No trades match</Empty>}
         </Table>
         <LoadMore shown={shown.length} total={filtered.length} onMore={() => setCap((c) => c + 30)} />
       </Panel>
 
-      <TradeDetail trade={open} instanceId={instanceId} onClose={() => setOpen(null)} />
+      <TradeDetail trade={open} instanceId={instanceId} onClose={() => setOpen(null)} close={open ? closeMap.get(open.payload.orderId) : null} />
     </div>
   );
 }

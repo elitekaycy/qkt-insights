@@ -83,25 +83,55 @@ function realizedDeltas(snaps: SnapRow[]): number[] {
   return out;
 }
 
-interface CloseRow { ts: number; symbol: string; side: string; qty: number; price: number; realized: number; entryTs: number | null }
+export interface ClosedTradeRow {
+  ts: number;
+  symbol: string;
+  side: string;
+  qty: number;
+  price: number;
+  realized: number;
+  entryTs: number | null;
+  orderId: string | null;
+}
 
-function closes(db: Db, f: AnalyticsFilter): CloseRow[] {
+function closes(db: Db, f: AnalyticsFilter): ClosedTradeRow[] {
   const cl = ["instance_id=@instanceId", "strategy_id=@strategyId"];
   if (f.from != null) cl.push("ts>=@from");
   if (f.to != null) cl.push("ts<=@to");
   return db.prepare(
-    `SELECT ts, symbol, side, qty, price, realized, entry_ts entryTs FROM trade_closes WHERE ${cl.join(" AND ")} ORDER BY ts ASC`,
-  ).all(f) as CloseRow[];
+    `SELECT ts, symbol, side, qty, price, realized, entry_ts entryTs, order_id orderId FROM trade_closes WHERE ${cl.join(" AND ")} ORDER BY ts ASC`,
+  ).all(f) as ClosedTradeRow[];
+}
+
+/** Every closed trade in the range, newest first — the rows behind the performance numbers. */
+export function closedTrades(db: Db, f: AnalyticsFilter): ClosedTradeRow[] {
+  return closes(db, f).reverse();
 }
 
 /**
  * The per-trade P&L series. Exact when this instance publishes trade.closed
- * (qkt >= 0.41); otherwise the realized-delta approximation over snapshots.
+ * (qkt >= 0.41) AND the stored closes span the whole queried history; an
+ * instance upgraded mid-stream has older trades only the snapshots saw, and
+ * labeling that partial list exact would be a lie. Otherwise the realized-delta
+ * approximation over snapshots. Range filters self-heal: a window that starts
+ * after the first close is fully covered and reports exact.
  */
-function tradePnls(db: Db, f: AnalyticsFilter): { pnls: number[]; exact: boolean } {
+export function tradePnls(db: Db, f: AnalyticsFilter): { pnls: number[]; exact: boolean } {
   const exact = closes(db, f);
-  if (exact.length > 0) return { pnls: exact.map((c) => c.realized).filter((r) => r !== 0), exact: true };
+  if (exact.length > 0 && closesCoverRange(db, f, exact[0]!.ts)) {
+    return { pnls: exact.map((c) => c.realized).filter((r) => r !== 0), exact: true };
+  }
   return { pnls: realizedDeltas(snapshots(db, f)), exact: false };
+}
+
+/** True when no realized P&L moved before the first stored close — nothing traded before trade.closed coverage began. */
+function closesCoverRange(db: Db, f: AnalyticsFilter, firstCloseTs: number): boolean {
+  const snaps = snapshots(db, f);
+  for (let i = 1; i < snaps.length; i++) {
+    if (snaps[i]!.ts >= firstCloseTs) return true;
+    if (snaps[i]!.realized !== snaps[i - 1]!.realized) return false;
+  }
+  return true;
 }
 
 function utcDay(ts: number): string {
@@ -207,7 +237,10 @@ export function performanceReport(db: Db, f: AnalyticsFilter): PerformanceReport
   const losses = deltas.filter((d) => d < 0);
   const grossProfit = wins.reduce((a, b) => a + b, 0);
   const grossLoss = Math.abs(losses.reduce((a, b) => a + b, 0));
-  const totalNet = snaps.length > 0 ? snaps[snaps.length - 1]!.realized - snaps[0]!.realized : 0;
+  // Summed from the same series the trade counts come from — never mix the
+  // snapshot span (numerator) with the close count (denominator). In the
+  // approximate mode the delta sum telescopes to last - first anyway.
+  const totalNet = deltas.reduce((a, b) => a + b, 0);
 
   const avgWin = wins.length > 0 ? grossProfit / wins.length : null;
   const avgLoss = losses.length > 0 ? grossLoss / losses.length : null;
@@ -327,7 +360,7 @@ export function tradeBreakdowns(db: Db, f: AnalyticsFilter): TradeBreakdowns | n
   const rows = closes(db, f);
   if (rows.length === 0) return null;
 
-  const acc = (map: Map<string, BreakdownRow>, key: string, r: CloseRow) => {
+  const acc = (map: Map<string, BreakdownRow>, key: string, r: ClosedTradeRow) => {
     const cur = map.get(key) ?? { key, net: 0, trades: 0, wins: 0 };
     cur.net += r.realized;
     cur.trades++;

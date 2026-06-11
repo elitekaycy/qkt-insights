@@ -152,12 +152,23 @@ export interface PostLossRow {
   nextWinRate: number;
   nextAvg: number;
 }
+export interface ClosedTradeRow {
+  ts: number;
+  symbol: string;
+  side: string;
+  qty: number;
+  price: number;
+  realized: number;
+  entryTs: number | null;
+  orderId: string | null;
+}
 export interface PerformanceBundle {
   breakdowns: TradeBreakdowns | null;
   report: PerformanceReport;
   dailyNets: DayNet[];
   drawdownPeriods: DrawdownPeriod[];
   postLoss: PostLossRow[];
+  closes: ClosedTradeRow[];
 }
 export interface OpenPositionRow {
   strategyId: string;

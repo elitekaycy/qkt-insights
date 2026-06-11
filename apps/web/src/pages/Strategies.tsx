@@ -7,10 +7,11 @@ import { EquityChart } from "../components/EquityChart";
 import { BreakdownPanels, PerformancePanels } from "../components/Performance";
 import { Sparkline } from "../components/Sparkline";
 import {
-  Card, Cell, Delta, Empty, LEVEL_TONE, LoadMore, PageHeader, Panel, Pill, RangeSelect, rangeStart, Row, SideTag, Stat, Table,
+  Card, Cell, Delta, Empty, LEVEL_TONE, LoadMore, PageHeader, Panel, Pill, QueryError, RangeSelect, rangeStart, Row, SideTag, Stat, Table,
   type RangeKey,
 } from "../components/ui";
 import { age, money, num, pct, ts, tsDay } from "../format";
+import { realizedLabel } from "../useCloses";
 
 export default function Strategies({
   instanceId,
@@ -47,6 +48,7 @@ export default function Strategies({
   return (
     <div>
       <PageHeader title="Strategies" sub={`Every strategy ${instanceId} has reported. Click one to drill in.`} />
+      <QueryError on={strategies.isError} what="strategies" />
       <div className="mt-6 grid grid-cols-1 gap-4 md:grid-cols-2 xl:grid-cols-3">
         {rows.length === 0 && <Card className="p-8 text-center text-faint md:col-span-2 xl:col-span-3">No strategies yet.</Card>}
         {rows.map((s, i) => {
@@ -107,12 +109,12 @@ function StrategyDetail({ instanceId, strategyId, onBack }: { instanceId: string
       const from = rangeStart(range);
       return get<PerformanceBundle>(`/performance?${qs}${from > 0 ? `&from=${from}` : ""}`);
     },
-    enabled: tab !== "overview",
     refetchInterval: 15000,
   });
 
   const s = stats.data;
   const tradeRows = trades.data ?? [];
+  const closeByOrder = new Map((performance.data?.closes ?? []).filter((c) => c.orderId).map((c) => [c.orderId!, c]));
   const logRows = logs.data ?? [];
   return (
     <div>
@@ -131,6 +133,11 @@ function StrategyDetail({ instanceId, strategyId, onBack }: { instanceId: string
           <Sparkline points={equity.data ?? []} height={56} />
         </div>
       </div>
+
+      <QueryError
+        on={stats.isError || equity.isError || trades.isError || logs.isError || performance.isError}
+        what="strategy data"
+      />
 
       <div className="rise mt-5 flex flex-wrap items-center gap-2">
         {(["overview", "performance", "calendar"] as const).map((t) => (
@@ -161,7 +168,12 @@ function StrategyDetail({ instanceId, strategyId, onBack }: { instanceId: string
       {tab === "calendar" && (
         <div className="mt-5">
           {performance.data ? (
-            <CalendarView days={performance.data.dailyNets} startingBalance={s?.startingBalance ?? null} />
+            <CalendarView
+              days={performance.data.dailyNets}
+              startingBalance={s?.startingBalance ?? null}
+              trades={tradeRows}
+              onTrade={setOpenTrade}
+            />
           ) : (
             <Card className="p-8 text-center text-faint">Loading…</Card>
           )}
@@ -180,7 +192,12 @@ function StrategyDetail({ instanceId, strategyId, onBack }: { instanceId: string
         <Stat label="Sharpe" value={num(s?.sharpe)} stagger={1} />
         <Stat label="Win rate" value={pct(s?.winRate)} stagger={2} />
         <Stat label="Max drawdown" value={pct(s?.maxDrawdownPct)} tone={s?.maxDrawdownPct ? "down" : "neutral"} stagger={3} />
-        <Stat label="Trades" value={String(s?.tradeCount ?? "—")} sub={`${s?.buyCount ?? 0} buys · ${s?.sellCount ?? 0} sells`} stagger={4} />
+        <Stat
+          label="Trades"
+          value={String(s?.tradeCount ?? "—")}
+          sub={s ? `${s.buyCount} buys · ${s.sellCount} sells` : undefined}
+          stagger={4}
+        />
         <Stat label="Volume" value={num(s?.volume)} stagger={5} />
       </div>
 
@@ -202,9 +219,13 @@ function StrategyDetail({ instanceId, strategyId, onBack }: { instanceId: string
                 </Cell>
                 <Cell className="font-mono">{t.payload.qty}</Cell>
                 <Cell className="font-mono text-muted">@ {t.payload.price}</Cell>
+                {(() => {
+                  const r = realizedLabel(closeByOrder.get(t.payload.orderId));
+                  return <Cell className={`font-mono ${r.className}`}>{r.text}</Cell>;
+                })()}
               </Row>
             ))}
-            {tradeRows.length === 0 && <Empty colSpan={5}>No trades yet</Empty>}
+            {tradeRows.length === 0 && <Empty colSpan={6}>No trades yet</Empty>}
           </Table>
           <LoadMore shown={Math.min(tradeCap, tradeRows.length)} total={tradeRows.length} onMore={() => setTradeCap((c) => c + 20)} />
         </Panel>
@@ -226,7 +247,7 @@ function StrategyDetail({ instanceId, strategyId, onBack }: { instanceId: string
         </>
       )}
 
-      <TradeDetail trade={openTrade} instanceId={instanceId} onClose={() => setOpenTrade(null)} />
+      <TradeDetail trade={openTrade} instanceId={instanceId} onClose={() => setOpenTrade(null)} close={openTrade ? closeByOrder.get(openTrade.payload.orderId) : null} />
     </div>
   );
 }

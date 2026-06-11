@@ -1,7 +1,29 @@
 import { useQuery } from "@tanstack/react-query";
-import { get, type EquityPoint, type OrderRow, type TradeRow } from "../api";
+import { get, type ClosedTradeRow, type EquityPoint, type OrderRow, type TradeRow } from "../api";
 import { duration, human, money, ts } from "../format";
 import { Delta, Field, Modal, Pill, SideTag, STATE_TONE } from "./ui";
+
+/** Realized dollar result of the close matching this order, with the win/loss verdict. */
+function OutcomeFields({ close }: { close: ClosedTradeRow | null | undefined }) {
+  return (
+    <Field label="Realized P&L" wide>
+      {close ? (
+        <span className="flex items-center gap-2.5">
+          <span className={close.realized > 0 ? "text-up" : close.realized < 0 ? "text-down" : "text-muted"}>
+            {close.realized > 0 ? "+" : ""}
+            {money(close.realized)}
+          </span>
+          <Pill tone={close.realized > 0 ? "up" : close.realized < 0 ? "down" : "neutral"}>
+            {close.realized > 0 ? "WIN" : close.realized < 0 ? "LOSS" : "FLAT"}
+          </Pill>
+          {close.entryTs != null && <span className="text-xs text-faint">held {duration(close.ts - close.entryTs)}</span>}
+        </span>
+      ) : (
+        <span className="text-faint">— position not closed yet, or this qkt version doesn't report trade.closed</span>
+      )}
+    </Field>
+  );
+}
 
 /*
  * Row-level drill-down modals: everything about one trade or one order that
@@ -52,10 +74,12 @@ export function TradeDetail({
   trade,
   instanceId,
   onClose,
+  close,
 }: {
   trade: TradeRow | null;
   instanceId: string;
   onClose: () => void;
+  close?: ClosedTradeRow | null;
 }) {
   if (!trade) return null;
   const p = trade.payload;
@@ -65,6 +89,7 @@ export function TradeDetail({
         <Field label="Executed" wide>
           {human(trade.ts)}
         </Field>
+        <OutcomeFields close={close} />
         <Field label="Symbol">{p.symbol}</Field>
         <Field label="Side">
           <SideTag side={p.side} />
@@ -85,16 +110,19 @@ export function OrderDetail({
   order,
   instanceId,
   onClose,
+  close,
 }: {
   order: OrderRow | null;
   instanceId: string;
   onClose: () => void;
+  close?: ClosedTradeRow | null;
 }) {
   if (!order) return null;
   const notional = order.avgPrice != null ? (order.qty ?? order.cumQty) * order.avgPrice : null;
   return (
     <Modal open onClose={onClose} title="Order" hint={order.orderId} width="min(94vw, 720px)">
       <div className="grid grid-cols-1 gap-3 p-4 sm:grid-cols-2 sm:p-5">
+        <OutcomeFields close={close} />
         <Field label="Submitted">{human(order.createdTs)}</Field>
         <Field label="Last update">{human(order.updatedTs)}</Field>
         <Field label="Lifetime">{duration(order.updatedTs - order.createdTs)}</Field>

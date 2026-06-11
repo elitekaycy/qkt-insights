@@ -41,7 +41,7 @@ export function ingestEvents(db: Db, instanceId: string, events: Envelope[]): nu
   );
   const insLogFts = db.prepare("INSERT INTO logs_fts (text, instance_id, log_rowid) VALUES (?,?,?)");
   const insClose = db.prepare(
-    "INSERT OR IGNORE INTO trade_closes (id, instance_id, strategy_id, symbol, side, qty, price, realized, entry_ts, ts) VALUES (?,?,?,?,?,?,?,?,?,?)",
+    "INSERT OR IGNORE INTO trade_closes (id, instance_id, strategy_id, symbol, side, qty, price, realized, entry_ts, ts, order_id) VALUES (?,?,?,?,?,?,?,?,?,?,?)",
   );
 
   const tx = db.transaction((evs: Envelope[]) => {
@@ -64,7 +64,7 @@ export function ingestEvents(db: Db, instanceId: string, events: Envelope[]): nu
       accepted++;
       if (e.type === "trade.closed") {
         const p = e.payload;
-        insClose.run(e.id, instanceId, e.strategyId ?? null, p.symbol, p.side, p.qty, p.price, p.realized, p.entryTs ?? null, p.ts);
+        insClose.run(e.id, instanceId, e.strategyId ?? null, p.symbol, p.side, p.qty, p.price, p.realized, p.entryTs ?? null, p.ts, p.orderId);
       }
       insFts.run(ftsText(e), instanceId, info.lastInsertRowid as number);
       upInstance.run({ id: instanceId, ts: e.ts, seq: e.seq });

@@ -1,4 +1,5 @@
 import { useEffect, useState, type ReactNode } from "react";
+import { createPortal } from "react-dom";
 
 /*
  * The component kit every page is built from. Pages compose these and never
@@ -45,7 +46,7 @@ export function Modal({
   hint,
   toolbar,
   children,
-  width = "min(96vw, 1100px)",
+  width = "min(96vw, 1240px)",
 }: {
   open: boolean;
   onClose: () => void;
@@ -65,9 +66,11 @@ export function Modal({
   }, [open, onClose]);
 
   if (!open) return null;
-  return (
+  // Portal to <body>: ancestors with a transform (e.g. the .rise entrance) would
+  // otherwise become the containing block and trap this fixed overlay inside a card.
+  return createPortal(
     <div
-      className="fixed inset-0 z-50 flex items-center justify-center bg-ink/70 p-6 backdrop-blur-md"
+      className="fixed inset-0 z-50 flex items-center justify-center bg-ink/70 p-3 backdrop-blur-md sm:p-6"
       onMouseDown={(e) => {
         if (e.target === e.currentTarget) onClose();
       }}
@@ -88,7 +91,8 @@ export function Modal({
         </div>
         <div className="min-h-0 flex-1 overflow-auto">{children}</div>
       </div>
-    </div>
+    </div>,
+    document.body,
   );
 }
 
@@ -145,14 +149,15 @@ export function Panel({
   );
 }
 
-export function IconButton({ label, onClick, d }: { label: string; onClick: () => void; d: string }) {
+export function IconButton({ label, onClick, d, disabled }: { label: string; onClick: () => void; d: string; disabled?: boolean }) {
   return (
     <button
       type="button"
       aria-label={label}
       title={label}
       onClick={onClick}
-      className="rounded-lg border border-line bg-raised p-1.5 text-muted transition hover:border-line-strong hover:text-body"
+      disabled={disabled}
+      className="rounded-lg border border-line bg-raised p-1.5 text-muted transition hover:border-line-strong hover:text-body disabled:cursor-not-allowed disabled:opacity-35 disabled:hover:border-line disabled:hover:text-muted"
     >
       <svg viewBox="0 0 24 24" className="h-3.5 w-3.5" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
         <path d={d} />
@@ -187,19 +192,51 @@ export function Stat({
   tone = "neutral",
   sub,
   stagger,
+  expand,
 }: {
   label: string;
   value: string;
   tone?: Tone;
   sub?: string;
   stagger?: number;
+  /** Breakdown shown in a modal; reveals a hover-only expand icon so the card design stays intact. */
+  expand?: { hint?: string; width?: string; content: ReactNode };
 }) {
+  const [open, setOpen] = useState(false);
   return (
-    <Card className="px-4 py-3.5" stagger={stagger}>
-      <div className="text-[11px] font-semibold uppercase tracking-[0.12em] text-muted">{label}</div>
-      <div className={`mt-1.5 font-mono text-xl font-semibold ${TONE_TEXT[tone]}`}>{value}</div>
-      {sub && <div className="mt-0.5 text-xs text-faint">{sub}</div>}
-    </Card>
+    <>
+      <Card className="group relative px-4 py-3.5" stagger={stagger}>
+        <div className="text-[11px] font-semibold uppercase tracking-[0.12em] text-muted">{label}</div>
+        <div className={`mt-1.5 font-mono text-xl font-semibold ${TONE_TEXT[tone]}`}>{value}</div>
+        {sub && <div className="mt-0.5 text-xs text-faint">{sub}</div>}
+        {expand && <HoverExpand label={`expand ${label}`} onClick={() => setOpen(true)} />}
+      </Card>
+      {expand && (
+        <Modal open={open} onClose={() => setOpen(false)} title={label} hint={expand.hint} width={expand.width ?? "min(94vw, 760px)"}>
+          {expand.content}
+        </Modal>
+      )}
+    </>
+  );
+}
+
+/** Expand icon that fades in when its parent `.group` card is hovered. */
+export function HoverExpand({ label, onClick }: { label: string; onClick: () => void }) {
+  return (
+    <button
+      type="button"
+      aria-label={label}
+      title={label}
+      onClick={(e) => {
+        e.stopPropagation();
+        onClick();
+      }}
+      className="absolute right-2.5 top-2.5 rounded-lg border border-line bg-raised p-1.5 text-muted opacity-0 transition hover:border-line-strong hover:text-body focus:opacity-100 group-hover:opacity-100"
+    >
+      <svg viewBox="0 0 24 24" className="h-3.5 w-3.5" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+        <path d="M15 3h6v6M9 21H3v-6M21 3l-7 7M3 21l7-7" />
+      </svg>
+    </button>
   );
 }
 
@@ -420,6 +457,20 @@ export function Field({ label, children, wide }: { label: string; children: Reac
     <div className={`rounded-lg border border-line bg-raised px-4 py-3 ${wide ? "sm:col-span-2" : ""}`}>
       <div className="text-[10px] font-bold uppercase tracking-[0.14em] text-muted">{label}</div>
       <div className="mt-1 break-all font-mono text-sm text-bright">{children}</div>
+    </div>
+  );
+}
+
+/**
+ * A failed-fetch banner. Pages render data with `query.data ?? []`, which makes
+ * an outage look like a calm empty dashboard — this says the quiet part out loud.
+ * e.g. `<QueryError on={trades.isError || logs.isError} what="trades and logs" />`
+ */
+export function QueryError({ on, what }: { on: boolean; what: string }) {
+  if (!on) return null;
+  return (
+    <div className="rise mt-4 rounded-lg border border-down/40 bg-down/10 px-4 py-2.5 text-sm text-down">
+      Failed to load {what} — what is shown below may be stale or incomplete.
     </div>
   );
 }

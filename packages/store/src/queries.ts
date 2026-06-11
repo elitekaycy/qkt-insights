@@ -1,4 +1,5 @@
 import type { Db } from "./db.js";
+import { tradePnls } from "./analytics.js";
 
 export interface InstanceRow { id: string; name: string | null; firstSeen: number; lastSeen: number; lastSeq: number }
 export interface StrategyRow { strategyId: string; firstSeen: number; lastSeen: number; equity: number | null; startingBalance: number | null }
@@ -110,8 +111,10 @@ export interface StrategyStats {
 /**
  * Per-strategy performance summary derived from stored trades and equity snapshots.
  *
- * - winRate: share of positive realized-PnL changes between consecutive snapshots
- *   (qkt emits a snapshot after every fill, so each nonzero delta is a close).
+ * - winRate: share of winning trades, from the same per-trade P&L series the
+ *   performance report uses (exact trade.closed rows when they cover the whole
+ *   history, realized-delta approximation otherwise) — the overview and
+ *   performance tabs must never disagree on the same number.
  * - sharpe: annualized from end-of-day equity returns (sqrt(252)); null when fewer
  *   than 5 daily points exist — too little data to pretend.
  * - maxDrawdownPct: largest peak-to-trough equity drop over the snapshot series.
@@ -133,13 +136,9 @@ export function strategyStats(db: Db, f: { instanceId: string; strategyId: strin
     "SELECT equity, starting_balance sb FROM strategies WHERE instance_id=@instanceId AND strategy_id=@strategyId",
   ).get(f);
 
-  let wins = 0, losses = 0;
-  for (let i = 1; i < snaps.length; i++) {
-    const d = snaps[i]!.realized - snaps[i - 1]!.realized;
-    if (d > 0) wins++;
-    else if (d < 0) losses++;
-  }
-  const winRate = wins + losses > 0 ? wins / (wins + losses) : null;
+  const { pnls } = tradePnls(db, f);
+  const wins = pnls.filter((d) => d > 0).length;
+  const winRate = pnls.length > 0 ? wins / pnls.length : null;
 
   let peak = -Infinity, maxDd = 0;
   for (const s of snaps) {
