@@ -1,5 +1,5 @@
 import type { FastifyInstance } from "fastify";
-import { listInstances, listStrategies, listOrders, listTrades, searchEvents, equityCurve, instanceHealth, type Db } from "@qkt-insights/store";
+import { listInstances, listStrategies, listOrders, listTrades, searchEvents, equityCurve, instanceHealth, listLogs, strategyStats, type Db } from "@qkt-insights/store";
 import { requireSession } from "./auth.js";
 
 export interface RestDeps { db: Db }
@@ -34,6 +34,17 @@ export function registerRest(app: FastifyInstance, deps: RestDeps): void {
   app.get<{ Querystring: Record<string, string> }>("/search", guard, async (req, reply) => {
     const q = req.query; if (!need(reply, q.q, "q")) return;
     return searchEvents(deps.db, { q: q.q, instanceId: q.instance, limit: LIMIT(q) });
+  });
+
+  app.get<{ Querystring: Record<string, string> }>("/logs", guard, async (req, reply) => {
+    const q = req.query; if (!need(reply, q.instance, "instance")) return;
+    return listLogs(deps.db, { instanceId: q.instance, strategyId: q.strategy, level: q.level, q: q.q, limit: LIMIT(q) });
+  });
+
+  app.get<{ Querystring: Record<string, string> }>("/stats", guard, async (req, reply) => {
+    const q = req.query;
+    if (!need(reply, q.instance, "instance") || !need(reply, q.strategy, "strategy")) return;
+    return strategyStats(deps.db, { instanceId: q.instance, strategyId: q.strategy });
   });
 
   app.get<{ Querystring: Record<string, string> }>("/equity", guard, async (req, reply) => {
