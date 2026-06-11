@@ -1,0 +1,31 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 1280 640" width="1280" height="640">
+  <rect width="1280" height="640" fill="#0d1117"/>
+
+  <g transform="translate(85 215) scale(1.05)">
+    <g fill="none" stroke-width="14">
+      <g stroke="#a78bfa" stroke-linejoin="miter">
+        <path d="M96 35H74v100h22"/>
+        <path d="M349 35h22v100h-22"/>
+      </g>
+      <g stroke="#e5e7eb" stroke-linecap="round" stroke-linejoin="round">
+        <circle cx="152" cy="100" r="35"/>
+        <path d="M187 65v100"/>
+        <path d="M215 35v100"/>
+        <path d="M260 35l-45 65 35 35"/>
+        <path d="M308 50v85M288 65h40"/>
+      </g>
+      <path d="M405 135L430 35" stroke="#6b7280" stroke-linecap="round"/>
+    </g>
+    <text x="457" y="135"
+      font-family="ui-monospace, 'JetBrains Mono', 'SF Mono', 'Cascadia Code', Menlo, 'DejaVu Sans Mono', monospace"
+      font-size="120" font-weight="600" fill="#e5e7eb">insights</text>
+  </g>
+
+  <text x="640" y="510" text-anchor="middle"
+    font-family="DejaVu Sans, Liberation Sans, Helvetica, sans-serif"
+    font-size="32" fill="#8b949e" letter-spacing="2">live dashboard for the qkt trading engine</text>
+
+  <text x="1240" y="600" text-anchor="end"
+    font-family="DejaVu Sans Mono, Liberation Mono, monospace"
+    font-size="20" fill="#484f58">github.com/elitekaycy/qkt-insights</text>
+</svg>
