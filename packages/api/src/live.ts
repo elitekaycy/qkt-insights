@@ -3,7 +3,12 @@ import type { FastifyInstance } from "fastify";
 import type { LiveBus } from "@qkt-insights/store";
 import type { Envelope } from "@qkt-insights/contract";
 
-export interface LiveDeps { bus: LiveBus }
+export interface LiveDeps {
+  bus: LiveBus;
+  // Returns whether the upgrading request carries a valid session. Omitted = open
+  // (unit tests); the server always passes the session check.
+  authenticate?: (req: { cookies?: Record<string, string | undefined> }) => boolean;
+}
 
 interface Filter { instance?: string; strategy?: string; types?: Set<string> }
 
@@ -16,6 +21,10 @@ function matches(e: Envelope, f: Filter): boolean {
 
 export function registerLive(app: FastifyInstance, deps: LiveDeps): void {
   app.get("/live", { websocket: true }, (socket, req) => {
+    if (deps.authenticate && !deps.authenticate(req as { cookies?: Record<string, string | undefined> })) {
+      socket.close(1008, "unauthorized");
+      return;
+    }
     const q = req.query as Record<string, string>;
     const filter: Filter = {
       instance: q.instance,

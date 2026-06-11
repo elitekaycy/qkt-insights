@@ -48,3 +48,7 @@ export async function requireSession(req: FastifyRequest, reply: FastifyReply): 
     await reply.code(401).send({ error: "unauthorized" });
   }
 }
+
+export function hasSession(req: { cookies?: Record<string, string | undefined> }): boolean {
+  return verify(req.cookies?.[COOKIE], activeSecret);
+}

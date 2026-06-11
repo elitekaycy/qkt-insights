@@ -2,6 +2,7 @@
   "name": "qkt-insights",
   "private": true,
   "type": "module",
+  "packageManager": "pnpm@10.32.1",
   "engines": {
     "node": ">=22"
   },
@@ -14,6 +15,8 @@
   },
   "scripts": {
     "build": "tsc -b && mkdir -p packages/store/dist/migrations && cp packages/store/src/migrations/*.sql packages/store/dist/migrations/",
+    "build:web": "pnpm --filter @qkt-insights/web build",
+    "build:all": "pnpm build && pnpm build:web",
     "test": "vitest run",
     "lint": "eslint . --ext .ts",
     "start": "node dist/src/server.js"

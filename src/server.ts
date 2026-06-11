@@ -4,7 +4,7 @@ import websocket from "@fastify/websocket";
 import fastifyStatic from "@fastify/static";
 import { openDb, LiveBus } from "@qkt-insights/store";
 import { registerCollector } from "@qkt-insights/collector";
-import { registerAuth, registerRest, registerLive } from "@qkt-insights/api";
+import { registerAuth, registerRest, registerLive, hasSession } from "@qkt-insights/api";
 import { existsSync } from "node:fs";
 import { join, dirname } from "node:path";
 import { fileURLToPath } from "node:url";
@@ -35,7 +35,7 @@ export async function buildServer(mode: Mode) {
     await app.register(websocket);
     registerAuth(app, { passwordHash: env("ADMIN_PASSWORD_HASH"), sessionSecret: env("SESSION_SECRET", env("INGEST_TOKEN")) });
     registerRest(app, { db });
-    registerLive(app, { bus });
+    registerLive(app, { bus, authenticate: hasSession });
   }
 
   if (mode === "run") {
