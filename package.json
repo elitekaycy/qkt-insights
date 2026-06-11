@@ -19,7 +19,7 @@
     "build:all": "pnpm build && pnpm build:web",
     "test": "vitest run",
     "lint": "eslint . --ext .ts",
-    "start": "node dist/src/server.js"
+    "start": "node --env-file-if-exists=.env dist/src/server.js"
   },
   "devDependencies": {
     "@types/better-sqlite3": "^7.6.13",
