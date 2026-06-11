@@ -2,7 +2,7 @@ import { useState } from "react";
 import { useQueries, useQuery } from "@tanstack/react-query";
 import { get, type DrawdownPeriod, type EquityPoint, type PerformanceBundle, type StrategyRow } from "../api";
 import { ComparisonChart, UnderwaterChart, type ComparisonSeries } from "../components/EquityChart";
-import { Card, Cell, Empty, Field, Modal, PageHeader, Panel, Pill, Row, Select, Table } from "../components/ui";
+import { Card, Cell, Empty, Field, Modal, PageHeader, Panel, Pill, QueryError, Row, Select, Table } from "../components/ui";
 import { duration, human, money, tsDay } from "../format";
 
 const PALETTE = ["#c8f74a", "#5cb8ff", "#a78bfa", "#3fe08c", "#fbbf24", "#ff6b6b", "#f472b6", "#22d3ee"];
@@ -79,6 +79,7 @@ export default function Equity({ instanceId }: { instanceId: string | null }) {
           </div>
         }
       />
+      <QueryError on={strategies.isError || curves.some((c) => c.isError) || performance.isError} what="equity curves" />
 
       <Panel className="mt-5" stagger={1} title="All strategies" hint="% change from first snapshot">
         <div className="p-4">

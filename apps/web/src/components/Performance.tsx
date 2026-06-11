@@ -315,7 +315,7 @@ export function PerformancePanels({ bundle }: { bundle: PerformanceBundle }) {
         </div>
       </Panel>
 
-      <Panel title="Risk" stagger={1}>
+      <Panel title="Risk" stagger={1} right={<Approx on={r.approximate} />}>
         <div className="grid grid-cols-2 gap-3 p-4 md:grid-cols-4">
           <MStat
             label="Max drawdown"

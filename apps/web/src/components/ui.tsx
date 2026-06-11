@@ -460,3 +460,17 @@ export function Field({ label, children, wide }: { label: string; children: Reac
     </div>
   );
 }
+
+/**
+ * A failed-fetch banner. Pages render data with `query.data ?? []`, which makes
+ * an outage look like a calm empty dashboard — this says the quiet part out loud.
+ * e.g. `<QueryError on={trades.isError || logs.isError} what="trades and logs" />`
+ */
+export function QueryError({ on, what }: { on: boolean; what: string }) {
+  if (!on) return null;
+  return (
+    <div className="rise mt-4 rounded-lg border border-down/40 bg-down/10 px-4 py-2.5 text-sm text-down">
+      Failed to load {what} — what is shown below may be stale or incomplete.
+    </div>
+  );
+}

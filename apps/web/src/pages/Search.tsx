@@ -1,7 +1,7 @@
 import { useState } from "react";
 import { useQuery } from "@tanstack/react-query";
 import { get, type LogRow, type SearchHit } from "../api";
-import { Button, Card, Empty, LEVEL_TONE, PageHeader, Panel, Pill, SearchInput } from "../components/ui";
+import { Button, Card, Empty, LEVEL_TONE, PageHeader, Panel, Pill, QueryError, SearchInput } from "../components/ui";
 import { ts } from "../format";
 
 export default function Search({ instanceId }: { instanceId: string | null }) {
@@ -27,6 +27,7 @@ export default function Search({ instanceId }: { instanceId: string | null }) {
   return (
     <div>
       <PageHeader title="Search" sub={`Full-text search across every event and log line of ${instanceId}.`} />
+      <QueryError on={events.isError || logs.isError} what="search results" />
 
       <form
         className="rise mt-5 flex gap-2"

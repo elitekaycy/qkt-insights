@@ -3,7 +3,7 @@ import { useQuery } from "@tanstack/react-query";
 import { get, type StrategyRow, type TradeRow } from "../api";
 import { TradeDetail } from "../components/detail";
 import {
-  Card, Cell, Empty, LoadMore, PageHeader, Panel, RangeSelect, rangeStart, Row, SearchInput, Select, SideTag, Table,
+  Card, Cell, Empty, LoadMore, PageHeader, Panel, QueryError, RangeSelect, rangeStart, Row, SearchInput, Select, SideTag, Table,
   type RangeKey,
 } from "../components/ui";
 import { tsDay } from "../format";
@@ -51,6 +51,7 @@ export default function Trades({ instanceId }: { instanceId: string | null }) {
   return (
     <div>
       <PageHeader title="Trades" sub={`Every fill recorded for ${instanceId}. Click a row for the full story.`} />
+      <QueryError on={strategies.isError || trades.isError} what="trades" />
 
       <Panel
         className="mt-5"

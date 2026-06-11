@@ -3,7 +3,7 @@ import { useQuery } from "@tanstack/react-query";
 import { get, type OrderRow, type StrategyRow, type TradeRow } from "../api";
 import { OrderDetail, TradeDetail } from "../components/detail";
 import {
-  Cell, Empty, LiveDot, LoadMore, PageHeader, Panel, Pill, Row, SearchInput, Select, SideTag, STATE_TONE, Table,
+  Cell, Empty, LiveDot, LoadMore, PageHeader, Panel, Pill, QueryError, Row, SearchInput, Select, SideTag, STATE_TONE, Table,
 } from "../components/ui";
 import { ts, tsDay } from "../format";
 import { realizedLabel, useCloseMap } from "../useCloses";
@@ -90,6 +90,7 @@ export default function Orderflow({ instanceId }: { instanceId: string | null })
   return (
     <div>
       <PageHeader title="Orderflow" sub={`Orders and fills for ${instanceId ?? "—"}, live tail alongside. Click a row to inspect.`} />
+      <QueryError on={strategies.isError || orders.isError || trades.isError} what="orders and fills" />
 
       <div className="mt-5 grid grid-cols-1 gap-5 xl:grid-cols-2">
         <div className="grid content-start gap-5">

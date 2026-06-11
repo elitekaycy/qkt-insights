@@ -3,7 +3,7 @@ import { useQueries, useQuery } from "@tanstack/react-query";
 import { get, type EquityPoint, type HealthRow, type OpenPositionRow, type PerformanceBundle, type StrategyRow, type StrategyStats } from "../api";
 import { ComparisonChart, type ComparisonSeries } from "../components/EquityChart";
 import { Sparkline } from "../components/Sparkline";
-import { Card, Cell, Delta, Empty, HoverExpand, LiveDot, Modal, PageHeader, Panel, Pill, Row, SideTag, Stat, Table } from "../components/ui";
+import { Card, Cell, Delta, Empty, HoverExpand, LiveDot, Modal, PageHeader, Panel, Pill, QueryError, Row, SideTag, Stat, Table } from "../components/ui";
 import { age, money, num, pct, ts } from "../format";
 import { useLiveStream } from "../useLiveStream";
 
@@ -81,13 +81,18 @@ export default function Overview({
     const dow = (d.getUTCDay() + 6) % 7;
     return new Date(Date.now() - dow * 86_400_000).toISOString().slice(0, 10);
   })();
-  let dayPnl = 0, weekPnl = 0;
+  // Sums only claim a number once every strategy's bundle has loaded —
+  // a partial sum rendered as "$0" reads as a fact, not a gap.
+  const perfReady = ids.length === 0 || (perf.length === ids.length && perf.every((q) => q.data));
+  let daySum = 0, weekSum = 0;
   for (const q of perf) {
     for (const dn of q.data?.dailyNets ?? []) {
-      if (dn.day === today) dayPnl += dn.net;
-      if (dn.day >= monday) weekPnl += dn.net;
+      if (dn.day === today) daySum += dn.net;
+      if (dn.day >= monday) weekSum += dn.net;
     }
   }
+  const dayPnl = perfReady ? daySum : null;
+  const weekPnl = perfReady ? weekSum : null;
   const posRows = positions.data ?? [];
 
   // Per-strategy slice of everything the stat cards aggregate, for their breakdown modals.
@@ -153,11 +158,14 @@ export default function Overview({
     </div>
   );
 
-  const totalEquity = rows.reduce((acc, s) => acc + (s.equity ?? 0), 0);
-  const totalStart = rows.reduce((acc, s) => acc + (s.startingBalance ?? 0), 0);
-  const totalReturn = totalStart > 0 ? (totalEquity - totalStart) / totalStart : null;
-  const totalTrades = stats.reduce((acc, q) => acc + (q.data?.tradeCount ?? 0), 0);
-  const realized = stats.reduce((acc, q) => acc + (q.data?.realizedPnl ?? 0), 0);
+  const totalEquity = rows.length > 0 && rows.every((s) => s.equity != null)
+    ? rows.reduce((acc, s) => acc + s.equity!, 0) : null;
+  const totalStart = rows.length > 0 && rows.every((s) => s.startingBalance != null)
+    ? rows.reduce((acc, s) => acc + s.startingBalance!, 0) : null;
+  const totalReturn = totalEquity != null && totalStart ? (totalEquity - totalStart) / totalStart : null;
+  const statsReady = stats.length === ids.length && stats.every((q) => q.data);
+  const totalTrades = statsReady ? stats.reduce((acc, q) => acc + q.data!.tradeCount, 0) : null;
+  const realized = statsReady ? stats.reduce((acc, q) => acc + (q.data!.realizedPnl ?? 0), 0) : null;
   const liveInstances = (health.data ?? []).filter((h) => Date.now() - h.lastSeen < 30_000).length;
 
   const series: ComparisonSeries[] = ids
@@ -175,6 +183,13 @@ export default function Overview({
   return (
     <div>
       <PageHeader title="Overview" sub={`Everything ${instanceId} is doing, right now.`} />
+      <QueryError
+        on={
+          strategies.isError || health.isError || positions.isError ||
+          curves.some((q) => q.isError) || stats.some((q) => q.isError) || perf.some((q) => q.isError)
+        }
+        what="live data"
+      />
 
       <div className="mt-6 grid grid-cols-1 gap-4 xl:grid-cols-3">
         <Card className="group relative flex flex-col p-6 xl:col-span-2" stagger={0}>
@@ -218,7 +233,7 @@ export default function Overview({
                   <Cell>
                     <Delta value={ret} />
                   </Cell>
-                  <Cell className={`font-mono ${(p.stats?.realizedPnl ?? 0) >= 0 ? "text-up" : "text-down"}`}>{money(p.stats?.realizedPnl)}</Cell>
+                  <Cell className={`font-mono ${p.stats?.realizedPnl == null ? "text-muted" : p.stats.realizedPnl >= 0 ? "text-up" : "text-down"}`}>{money(p.stats?.realizedPnl)}</Cell>
                   <Cell className={`font-mono ${p.dayNet > 0 ? "text-up" : p.dayNet < 0 ? "text-down" : "text-muted"}`}>{money(p.dayNet)}</Cell>
                   <Cell className={`font-mono ${p.weekNet > 0 ? "text-up" : p.weekNet < 0 ? "text-down" : "text-muted"}`}>{money(p.weekNet)}</Cell>
                 </Row>
@@ -232,7 +247,7 @@ export default function Overview({
             <Stat
               label="Day P&L"
               value={money(dayPnl)}
-              tone={dayPnl > 0 ? "up" : dayPnl < 0 ? "down" : "neutral"}
+              tone={dayPnl == null ? "neutral" : dayPnl > 0 ? "up" : dayPnl < 0 ? "down" : "neutral"}
               sub="UTC today"
               stagger={1}
               expand={{ hint: `UTC ${today}`, content: pnlBreakdown("day") }}
@@ -240,7 +255,7 @@ export default function Overview({
             <Stat
               label="Week P&L"
               value={money(weekPnl)}
-              tone={weekPnl > 0 ? "up" : weekPnl < 0 ? "down" : "neutral"}
+              tone={weekPnl == null ? "neutral" : weekPnl > 0 ? "up" : weekPnl < 0 ? "down" : "neutral"}
               sub="since Monday"
               stagger={1}
               expand={{ hint: `since ${monday}`, content: pnlBreakdown("week") }}
@@ -248,7 +263,7 @@ export default function Overview({
             <Stat
               label="Realized PnL"
               value={money(realized)}
-              tone={realized >= 0 ? "up" : "down"}
+              tone={realized == null ? "neutral" : realized >= 0 ? "up" : "down"}
               stagger={2}
               expand={{
                 hint: "closed P&L per strategy, all time",
@@ -259,7 +274,7 @@ export default function Overview({
                       return (
                         <Row key={p.id} onClick={() => onOpenStrategy(p.id)}>
                           <Cell className="font-semibold text-bright">{p.id}</Cell>
-                          <Cell className={`font-mono ${(p.stats?.realizedPnl ?? 0) >= 0 ? "text-up" : "text-down"}`}>{money(p.stats?.realizedPnl)}</Cell>
+                          <Cell className={`font-mono ${p.stats?.realizedPnl == null ? "text-muted" : p.stats.realizedPnl >= 0 ? "text-up" : "text-down"}`}>{money(p.stats?.realizedPnl)}</Cell>
                           <Cell className="font-mono">{money(p.row.equity)}</Cell>
                           <Cell>
                             <Delta value={ret} />
@@ -273,7 +288,7 @@ export default function Overview({
             />
             <Stat
               label="Trades"
-              value={String(totalTrades)}
+              value={totalTrades == null ? "—" : String(totalTrades)}
               stagger={2}
               expand={{
                 hint: "fills per strategy",
