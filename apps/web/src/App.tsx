@@ -25,7 +25,7 @@ const ICONS: Record<Page, string> = {
   search: "M11 19a8 8 0 1 0 0-16 8 8 0 0 0 0 16zM21 21l-4.35-4.35",
 };
 
-/** Nav groups; "All strategies" renders above the instance selector. */
+/** Nav groups; "All strategies" renders right below the instance selector. */
 const ALL_STRATEGIES: { key: Page; label: string }[] = [
   { key: "overview", label: "Overview" },
   { key: "equity", label: "Equity" },
@@ -141,13 +141,6 @@ export default function App() {
       </div>
 
       <div className={iconsOnly ? "px-2" : "px-4"}>
-        {!iconsOnly && (
-          <div className="px-3.5 pb-2 text-[11px] font-bold uppercase tracking-[0.16em] text-faint">All strategies</div>
-        )}
-        {ALL_STRATEGIES.map((n) => navButton(n, iconsOnly))}
-      </div>
-
-      <div className={`mt-3 ${iconsOnly ? "px-2" : "px-4"}`}>
         {iconsOnly ? (
           <div className="flex justify-center py-2" title={selected ?? "no instance"}>
             <LiveDot on={live} />
@@ -172,6 +165,13 @@ export default function App() {
             </Select>
           </div>
         )}
+      </div>
+
+      <div className={`mt-4 ${iconsOnly ? "px-2" : "px-4"}`}>
+        {!iconsOnly && (
+          <div className="px-3.5 pb-2 text-[11px] font-bold uppercase tracking-[0.16em] text-faint">All strategies</div>
+        )}
+        {ALL_STRATEGIES.map((n) => navButton(n, iconsOnly))}
       </div>
 
       <nav className={`mt-1 flex-1 overflow-y-auto pb-4 ${iconsOnly ? "px-2" : "px-4"}`}>

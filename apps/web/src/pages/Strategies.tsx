@@ -7,7 +7,7 @@ import { EquityChart } from "../components/EquityChart";
 import { BreakdownPanels, PerformancePanels } from "../components/Performance";
 import { Sparkline } from "../components/Sparkline";
 import {
-  Card, Cell, Delta, Empty, LEVEL_TONE, LoadMore, PageHeader, Panel, Pill, QueryError, RangeSelect, rangeStart, Row, SideTag, Stat, Table,
+  Card, Cell, Delta, Empty, LEVEL_TONE, LoadMore, PageHeader, Panel, Pill, QueryError, RangeSelect, rangeStart, Row, SearchInput, Select, SideTag, Stat, Table,
   type RangeKey,
 } from "../components/ui";
 import { age, money, num, pct, ts, tsDay } from "../format";
@@ -99,6 +99,9 @@ function StrategyDetail({ instanceId, strategyId, onBack }: { instanceId: string
   });
   const [tradeCap, setTradeCap] = useState(20);
   const [logCap, setLogCap] = useState(20);
+  const [tradeQ, setTradeQ] = useState("");
+  const [tradeSide, setTradeSide] = useState("");
+  const [tradeSort, setTradeSort] = useState<"newest" | "oldest" | "qty" | "price" | "pnl">("newest");
   const [openTrade, setOpenTrade] = useState<TradeRow | null>(null);
   const [tab, setTab] = useState<"overview" | "performance" | "calendar">("overview");
   const [range, setRange] = useState<RangeKey>("all");
@@ -113,8 +116,29 @@ function StrategyDetail({ instanceId, strategyId, onBack }: { instanceId: string
   });
 
   const s = stats.data;
-  const tradeRows = trades.data ?? [];
   const closeByOrder = new Map((performance.data?.closes ?? []).filter((c) => c.orderId).map((c) => [c.orderId!, c]));
+  const tradeNeedle = tradeQ.trim().toUpperCase();
+  const tradeRows = (trades.data ?? [])
+    .filter(
+      (t) =>
+        (!tradeSide || t.payload.side === tradeSide) &&
+        (!tradeNeedle ||
+          t.payload.symbol.toUpperCase().includes(tradeNeedle) ||
+          t.payload.orderId.toUpperCase().includes(tradeNeedle)),
+    )
+    .sort((a, b) => {
+      switch (tradeSort) {
+        case "oldest": return a.ts - b.ts;
+        case "qty": return b.payload.qty - a.payload.qty;
+        case "price": return b.payload.price - a.payload.price;
+        case "pnl": {
+          const ra = closeByOrder.get(a.payload.orderId)?.realized ?? -Infinity;
+          const rb = closeByOrder.get(b.payload.orderId)?.realized ?? -Infinity;
+          return rb - ra;
+        }
+        default: return b.ts - a.ts;
+      }
+    });
   const logRows = logs.data ?? [];
   return (
     <div>
@@ -208,7 +232,43 @@ function StrategyDetail({ instanceId, strategyId, onBack }: { instanceId: string
       </Panel>
 
       <div className="mt-6 grid grid-cols-1 gap-6 xl:grid-cols-2">
-        <Panel stagger={3} title="Trades" hint="click a row to inspect" scroll="max-h-[26rem]">
+        <Panel
+          stagger={3}
+          title="Trades"
+          hint="click a row to inspect"
+          scroll="max-h-[26rem]"
+          toolbar={
+            <>
+              <SearchInput
+                value={tradeQ}
+                onChange={(e) => {
+                  setTradeQ(e.target.value);
+                  setTradeCap(20);
+                }}
+                placeholder="search symbol, order id…"
+                className="w-56"
+              />
+              <Select
+                value={tradeSide}
+                onChange={(e) => {
+                  setTradeSide(e.target.value);
+                  setTradeCap(20);
+                }}
+              >
+                <option value="">any side</option>
+                <option value="BUY">BUY</option>
+                <option value="SELL">SELL</option>
+              </Select>
+              <Select value={tradeSort} onChange={(e) => setTradeSort(e.target.value as typeof tradeSort)}>
+                <option value="newest">newest first</option>
+                <option value="oldest">oldest first</option>
+                <option value="qty">biggest qty</option>
+                <option value="price">highest price</option>
+                <option value="pnl">best P&L</option>
+              </Select>
+            </>
+          }
+        >
           <Table>
             {tradeRows.slice(0, tradeCap).map((t) => (
               <Row key={t.id} onClick={() => setOpenTrade(t)}>

@@ -57,7 +57,7 @@ export default function Trades({ instanceId }: { instanceId: string | null }) {
         className="mt-5"
         stagger={1}
         title="Fills"
-        scroll="max-h-[34rem]"
+        scroll="max-h-[calc(100vh-15rem)]"
         toolbar={
           <>
             <SearchInput
