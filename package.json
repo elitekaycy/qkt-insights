@@ -1,0 +1,22 @@
+{
+  "name": "qkt-insights",
+  "private": true,
+  "type": "module",
+  "engines": { "node": ">=22" },
+  "pnpm": { "onlyBuiltDependencies": ["argon2", "better-sqlite3", "esbuild"] },
+  "scripts": {
+    "build": "tsc -b",
+    "test": "vitest run",
+    "lint": "eslint . --ext .ts",
+    "start": "node dist/src/server.js"
+  },
+  "devDependencies": {
+    "typescript": "^5.6.0",
+    "vitest": "^2.1.0",
+    "@types/node": "^22.0.0",
+    "eslint": "^9.0.0",
+    "@typescript-eslint/eslint-plugin": "^8.0.0",
+    "@typescript-eslint/parser": "^8.0.0",
+    "prettier": "^3.3.0"
+  }
+}

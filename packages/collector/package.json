@@ -1,0 +1,13 @@
+{
+  "name": "@qkt-insights/collector",
+  "version": "0.0.0",
+  "type": "module",
+  "main": "dist/index.js",
+  "types": "dist/index.d.ts",
+  "exports": { ".": "./dist/index.js" },
+  "dependencies": {
+    "@qkt-insights/contract": "workspace:*",
+    "@qkt-insights/store": "workspace:*",
+    "fastify": "^5.0.0"
+  }
+}

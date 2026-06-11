@@ -1,0 +1,13 @@
+{
+  "name": "@qkt-insights/store",
+  "version": "0.0.0",
+  "type": "module",
+  "main": "dist/index.js",
+  "types": "dist/index.d.ts",
+  "exports": { ".": "./dist/index.js" },
+  "dependencies": {
+    "@qkt-insights/contract": "workspace:*",
+    "better-sqlite3": "^11.3.0"
+  },
+  "devDependencies": { "@types/better-sqlite3": "^7.6.0" }
+}

@@ -1,0 +1,17 @@
+{
+  "name": "@qkt-insights/api",
+  "version": "0.0.0",
+  "type": "module",
+  "main": "dist/index.js",
+  "types": "dist/index.d.ts",
+  "exports": { ".": "./dist/index.js" },
+  "dependencies": {
+    "@qkt-insights/contract": "workspace:*",
+    "@qkt-insights/store": "workspace:*",
+    "fastify": "^5.0.0",
+    "@fastify/websocket": "^11.0.0",
+    "@fastify/cookie": "^11.0.0",
+    "@fastify/static": "^8.0.0",
+    "argon2": "^0.41.0"
+  }
+}
