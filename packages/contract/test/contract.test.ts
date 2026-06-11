@@ -32,3 +32,15 @@ describe("EnvelopeSchema", () => {
     expect(res.ok).toBe(false);
   });
 });
+
+describe("log envelope", () => {
+  it("accepts a valid log envelope", () => {
+    const env = { ...base, strategyId: "latch", type: "log",
+      payload: { level: "WARN", logger: "com.qkt.app.LiveSession", message: "stale symbol XAUUSD" } };
+    expect(EnvelopeSchema.parse(env).type).toBe("log");
+  });
+  it("rejects an unknown log level", () => {
+    const env = { ...base, type: "log", payload: { level: "TRACE", logger: "x", message: "m" } };
+    expect(() => EnvelopeSchema.parse(env)).toThrow();
+  });
+});

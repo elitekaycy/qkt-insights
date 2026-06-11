@@ -58,3 +58,31 @@ describe("REST", () => {
     expect((await get("/orders")).statusCode).toBe(400);
   });
 });
+
+describe("spec2 REST", () => {
+  it("serves logs with level filter and search", async () => {
+    ingestEvents(db, "qkt-prod", [
+      env({ strategyId: "latch", type: "log", payload: { level: "WARN", logger: "com.qkt.x", message: "stale symbol XAUUSD" } }),
+      env({ strategyId: "latch", type: "log", payload: { level: "INFO", logger: "com.qkt.x", message: "engine started" } }),
+    ]);
+    const all = (await get("/logs?instance=qkt-prod")).json();
+    expect(all).toHaveLength(2);
+    const warns = (await get("/logs?instance=qkt-prod&level=WARN")).json();
+    expect(warns).toHaveLength(1);
+    const hits = (await get("/logs?instance=qkt-prod&q=stale")).json();
+    expect(hits).toHaveLength(1);
+  });
+
+  it("serves strategy stats", async () => {
+    const res = await get("/stats?instance=qkt-prod&strategy=latch");
+    expect(res.statusCode).toBe(200);
+    const s = res.json();
+    expect(s.tradeCount).toBe(1);
+    expect(s).toHaveProperty("sharpe");
+    expect(s).toHaveProperty("winRate");
+  });
+
+  it("requires instance on /logs", async () => {
+    expect((await get("/logs")).statusCode).toBe(400);
+  });
+});

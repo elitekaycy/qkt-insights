@@ -36,9 +36,26 @@ export function ingestEvents(db: Db, instanceId: string, events: Envelope[]): nu
     "INSERT INTO equity_snapshots (instance_id, strategy_id, ts, realized, unrealized, equity) VALUES (?,?,?,?,?,?)",
   );
 
+  const insLog = db.prepare(
+    "INSERT OR IGNORE INTO logs (id, instance_id, strategy_id, level, logger, message, ts, seq) VALUES (?,?,?,?,?,?,?,?)",
+  );
+  const insLogFts = db.prepare("INSERT INTO logs_fts (text, instance_id, log_rowid) VALUES (?,?,?)");
+
   const tx = db.transaction((evs: Envelope[]) => {
     let accepted = 0;
     for (const e of evs) {
+      // Logs are high-volume operational data, not trading history: they get their
+      // own table + FTS index and stay out of the events record.
+      if (e.type === "log") {
+        const p = e.payload;
+        const info = insLog.run(e.id, instanceId, e.strategyId ?? null, p.level, p.logger, p.message, e.ts, e.seq);
+        if (info.changes === 0) continue;
+        accepted++;
+        insLogFts.run(`${p.logger} ${p.message}`, instanceId, info.lastInsertRowid as number);
+        upInstance.run({ id: instanceId, ts: e.ts, seq: e.seq });
+        if (e.strategyId) upStrategy.run({ i: instanceId, s: e.strategyId, ts: e.ts });
+        continue;
+      }
       const info = insEvent.run(e.id, instanceId, e.type, e.strategyId ?? null, e.seq, e.ts, JSON.stringify(e.payload));
       if (info.changes === 0) continue; // duplicate id, skip the rest of the fold
       accepted++;
