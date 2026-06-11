@@ -110,12 +110,28 @@ export function closedTrades(db: Db, f: AnalyticsFilter): ClosedTradeRow[] {
 
 /**
  * The per-trade P&L series. Exact when this instance publishes trade.closed
- * (qkt >= 0.41); otherwise the realized-delta approximation over snapshots.
+ * (qkt >= 0.41) AND the stored closes span the whole queried history; an
+ * instance upgraded mid-stream has older trades only the snapshots saw, and
+ * labeling that partial list exact would be a lie. Otherwise the realized-delta
+ * approximation over snapshots. Range filters self-heal: a window that starts
+ * after the first close is fully covered and reports exact.
  */
-function tradePnls(db: Db, f: AnalyticsFilter): { pnls: number[]; exact: boolean } {
+export function tradePnls(db: Db, f: AnalyticsFilter): { pnls: number[]; exact: boolean } {
   const exact = closes(db, f);
-  if (exact.length > 0) return { pnls: exact.map((c) => c.realized).filter((r) => r !== 0), exact: true };
+  if (exact.length > 0 && closesCoverRange(db, f, exact[0]!.ts)) {
+    return { pnls: exact.map((c) => c.realized).filter((r) => r !== 0), exact: true };
+  }
   return { pnls: realizedDeltas(snapshots(db, f)), exact: false };
+}
+
+/** True when no realized P&L moved before the first stored close — nothing traded before trade.closed coverage began. */
+function closesCoverRange(db: Db, f: AnalyticsFilter, firstCloseTs: number): boolean {
+  const snaps = snapshots(db, f);
+  for (let i = 1; i < snaps.length; i++) {
+    if (snaps[i]!.ts >= firstCloseTs) return true;
+    if (snaps[i]!.realized !== snaps[i - 1]!.realized) return false;
+  }
+  return true;
 }
 
 function utcDay(ts: number): string {
@@ -221,7 +237,10 @@ export function performanceReport(db: Db, f: AnalyticsFilter): PerformanceReport
   const losses = deltas.filter((d) => d < 0);
   const grossProfit = wins.reduce((a, b) => a + b, 0);
   const grossLoss = Math.abs(losses.reduce((a, b) => a + b, 0));
-  const totalNet = snaps.length > 0 ? snaps[snaps.length - 1]!.realized - snaps[0]!.realized : 0;
+  // Summed from the same series the trade counts come from — never mix the
+  // snapshot span (numerator) with the close count (denominator). In the
+  // approximate mode the delta sum telescopes to last - first anyway.
+  const totalNet = deltas.reduce((a, b) => a + b, 0);
 
   const avgWin = wins.length > 0 ? grossProfit / wins.length : null;
   const avgLoss = losses.length > 0 ? grossLoss / losses.length : null;

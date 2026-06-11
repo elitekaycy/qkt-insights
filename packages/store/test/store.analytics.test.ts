@@ -1,5 +1,5 @@
 import { describe, it, expect } from "vitest";
-import { openDb, ingestEvents, performanceReport, dailyNets, drawdownPeriods, postLossStats, openPositions, tradeBreakdowns, closedTrades, type Db } from "../src/index.js";
+import { openDb, ingestEvents, performanceReport, dailyNets, drawdownPeriods, postLossStats, openPositions, tradeBreakdowns, closedTrades, strategyStats, type Db } from "../src/index.js";
 import type { Envelope } from "@qkt-insights/contract";
 
 const DAY = 86_400_000;
@@ -202,6 +202,63 @@ describe("trade.closed exact source", () => {
   it("falls back to deltas with no closes", () => {
     const db = seeded();
     expect(performanceReport(db, F).approximate).toBe(true);
+  });
+
+  it("stays approximate when closes start mid-history", () => {
+    const db = openDb(":memory:");
+    ingestEvents(db, "qkt-prod", [
+      snap(T0, 0, 1000),
+      snap(T0 + DAY, 50, 1050), // realized moved before any stored close
+      close(T0 + 2 * DAY, 30),
+      snap(T0 + 2 * DAY, 80, 1080),
+    ]);
+    const r = performanceReport(db, F);
+    expect(r.approximate).toBe(true);
+    expect(r.wins).toBe(2); // both deltas count, not just the lone close
+  });
+
+  it("reports exact for a range that starts after close coverage began", () => {
+    const db = openDb(":memory:");
+    ingestEvents(db, "qkt-prod", [
+      snap(T0, 0, 1000),
+      snap(T0 + DAY, 50, 1050), // pre-coverage trade
+      close(T0 + 2 * DAY, 30),
+      snap(T0 + 2 * DAY, 80, 1080),
+    ]);
+    const r = performanceReport(db, { ...F, from: T0 + DAY + 1 });
+    expect(r.approximate).toBe(false);
+    expect(r.wins).toBe(1);
+  });
+
+  it("sums totalNet from the same series the trade counts use", () => {
+    const db = openDb(":memory:");
+    ingestEvents(db, "qkt-prod", [
+      snap(T0, 0, 1000),
+      close(T0 + 1000, 30),
+      close(T0 + 2000, -10),
+      snap(T0 + DAY, 20, 1020),
+      close(T0 + DAY + 1000, 15), // not yet reflected in any snapshot
+    ]);
+    const r = performanceReport(db, F);
+    expect(r.approximate).toBe(false);
+    expect(r.totalNet).toBeCloseTo(35);
+    expect(r.expectancy).toBeCloseTo(35 / 3);
+  });
+
+  it("keeps strategyStats winRate on the same source as the report", () => {
+    const db = openDb(":memory:");
+    ingestEvents(db, "qkt-prod", [
+      snap(T0, 0, 1000),
+      close(T0 + 1000, 30),
+      close(T0 + 2000, -10),
+      close(T0 + 3000, 20),
+      snap(T0 + DAY, 40, 1040),
+    ]);
+    const r = performanceReport(db, F);
+    const s = strategyStats(db, F);
+    // strategyStats keeps the 0-1 scale; the report returns 0-100.
+    expect(s.winRate).toBeCloseTo(r.winRate! / 100);
+    expect(s.winRate).toBeCloseTo(2 / 3);
   });
 
   it("lists closed trades newest-first with their fields", () => {
