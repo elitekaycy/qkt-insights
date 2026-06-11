@@ -1,1 +1,95 @@
 @import "tailwindcss";
+
+/*
+ * Design tokens. Every color, font, and radius the app uses lives here —
+ * change a value once and the whole UI follows.
+ */
+@theme {
+  --font-sans: "Archivo", system-ui, sans-serif;
+  --font-mono: "JetBrains Mono", ui-monospace, monospace;
+
+  /* surfaces, darkest to lightest */
+  --color-ink: #0a0c0e;
+  --color-panel: #121518;
+  --color-raised: #191d21;
+  --color-line: #22272d;
+  --color-line-strong: #2f363e;
+
+  /* text */
+  --color-bright: #f2f4f6;
+  --color-body: #c4cad1;
+  --color-muted: #79828c;
+  --color-faint: #4d545c;
+
+  /* signal */
+  --color-accent: #c8f74a;
+  --color-accent-dim: #98c426;
+  --color-up: #3fe08c;
+  --color-down: #ff6b6b;
+  --color-warn: #fbbf24;
+  --color-info: #5cb8ff;
+
+  --radius-card: 1rem;
+}
+
+html {
+  background: var(--color-ink);
+  color-scheme: dark;
+}
+
+body {
+  font-family: var(--font-sans);
+  -webkit-font-smoothing: antialiased;
+}
+
+/* numbers line up everywhere by default */
+* {
+  font-variant-numeric: tabular-nums;
+}
+
+::selection {
+  background: var(--color-accent);
+  color: var(--color-ink);
+}
+
+*::-webkit-scrollbar {
+  width: 10px;
+  height: 10px;
+}
+*::-webkit-scrollbar-thumb {
+  background: var(--color-line-strong);
+  border-radius: 5px;
+  border: 2px solid var(--color-ink);
+}
+*::-webkit-scrollbar-track {
+  background: transparent;
+}
+
+/* one-shot page entrance: panels rise and fade in, staggered via --stagger */
+@keyframes rise {
+  from {
+    opacity: 0;
+    transform: translateY(8px);
+  }
+  to {
+    opacity: 1;
+    transform: translateY(0);
+  }
+}
+.rise {
+  animation: rise 0.45s cubic-bezier(0.22, 1, 0.36, 1) both;
+  animation-delay: calc(var(--stagger, 0) * 60ms);
+}
+
+@keyframes pulse-dot {
+  0%,
+  100% {
+    box-shadow: 0 0 0 0 color-mix(in srgb, var(--color-up) 50%, transparent);
+  }
+  50% {
+    box-shadow: 0 0 0 5px transparent;
+  }
+}
+.live-dot {
+  animation: pulse-dot 2s ease-out infinite;
+}

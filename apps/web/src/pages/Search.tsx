@@ -1,7 +1,7 @@
 import { useState } from "react";
 import { useQuery } from "@tanstack/react-query";
 import { get, type LogRow, type SearchHit } from "../api";
-import { LEVEL_COLOR } from "../components/StatCard";
+import { Button, Card, Empty, LEVEL_TONE, PageHeader, Panel, Pill, SearchInput } from "../components/ui";
 import { ts } from "../format";
 
 export default function Search({ instanceId }: { instanceId: string | null }) {
@@ -19,66 +19,60 @@ export default function Search({ instanceId }: { instanceId: string | null }) {
     enabled: !!instanceId && q.length > 0,
   });
 
-  if (!instanceId) return <p className="text-zinc-500">No instance selected.</p>;
+  if (!instanceId) return <Card className="p-8 text-center text-faint">No instance selected.</Card>;
 
   const eventHits = events.data ?? [];
   const logHits = logs.data ?? [];
 
   return (
     <div>
-      <h2 className="text-xl font-semibold">Search</h2>
-      <p className="mt-1 text-sm text-zinc-500">Full-text search across every event and log line of {instanceId}.</p>
+      <PageHeader title="Search" sub={`Full-text search across every event and log line of ${instanceId}.`} />
 
       <form
-        className="mt-4 flex gap-2"
+        className="rise mt-5 flex gap-2"
+        style={{ "--stagger": 1 } as React.CSSProperties}
         onSubmit={(e) => {
           e.preventDefault();
           setQ(input.trim());
         }}
       >
-        <input
+        <SearchInput
           value={input}
           autoFocus
           onChange={(e) => setInput(e.target.value)}
           placeholder="symbol, order id, reason, log text…"
-          className="w-96 rounded bg-zinc-800 p-2 text-sm outline-none focus:ring-1 focus:ring-zinc-600"
+          className="w-full max-w-xl"
         />
-        <button type="submit" className="rounded bg-zinc-100 px-4 text-sm font-medium text-zinc-900">
+        <Button type="submit" variant="primary">
           Search
-        </button>
+        </Button>
       </form>
 
       {q && (
-        <div className="mt-6 grid grid-cols-1 gap-6 xl:grid-cols-2">
-          <section>
-            <h3 className="text-sm font-semibold text-zinc-400">
-              Events <span className="text-zinc-600">({eventHits.length})</span>
-            </h3>
-            <div className="mt-2 overflow-hidden rounded-lg border border-zinc-800">
+        <div className="mt-6 grid grid-cols-1 gap-5 xl:grid-cols-2">
+          <Panel stagger={0} title="Events" hint={`${eventHits.length} hits`} scroll="max-h-[30rem]">
+            <div className="p-2">
               {eventHits.map((h) => (
-                <div key={h.id} className="border-t border-zinc-800/70 px-3 py-2 text-xs first:border-t-0">
-                  <span className="text-zinc-500">{ts(h.ts)}</span> <span className="text-sky-400">{h.type}</span>{" "}
-                  <span className="break-all font-mono text-zinc-300">{JSON.stringify(h.payload)}</span>
+                <div key={h.id} className="border-b border-line/50 px-2 py-2 font-mono text-xs last:border-b-0">
+                  <span className="text-faint">{ts(h.ts)}</span> <span className="text-info">{h.type}</span>{" "}
+                  <span className="break-all text-body">{JSON.stringify(h.payload)}</span>
                 </div>
               ))}
-              {eventHits.length === 0 && <div className="p-4 text-center text-sm text-zinc-600">No event hits</div>}
+              {eventHits.length === 0 && <Empty>No event hits</Empty>}
             </div>
-          </section>
-          <section>
-            <h3 className="text-sm font-semibold text-zinc-400">
-              Logs <span className="text-zinc-600">({logHits.length})</span>
-            </h3>
-            <div className="mt-2 overflow-hidden rounded-lg border border-zinc-800">
+          </Panel>
+          <Panel stagger={1} title="Logs" hint={`${logHits.length} hits`} scroll="max-h-[30rem]">
+            <div className="p-2">
               {logHits.map((l) => (
-                <div key={l.id} className="flex items-start gap-2 border-t border-zinc-800/70 px-3 py-2 text-xs first:border-t-0">
-                  <span className="whitespace-nowrap text-zinc-500">{ts(l.ts)}</span>
-                  <span className={`rounded-full px-1.5 ${LEVEL_COLOR[l.level] ?? ""}`}>{l.level}</span>
-                  <span className="break-all text-zinc-300">{l.message}</span>
+                <div key={l.id} className="flex items-start gap-2 border-b border-line/50 px-2 py-2 font-mono text-xs last:border-b-0">
+                  <span className="whitespace-nowrap text-faint">{ts(l.ts)}</span>
+                  <Pill tone={LEVEL_TONE[l.level] ?? "neutral"}>{l.level}</Pill>
+                  <span className="break-all text-body">{l.message}</span>
                 </div>
               ))}
-              {logHits.length === 0 && <div className="p-4 text-center text-sm text-zinc-600">No log hits</div>}
+              {logHits.length === 0 && <Empty>No log hits</Empty>}
             </div>
-          </section>
+          </Panel>
         </div>
       )}
     </div>

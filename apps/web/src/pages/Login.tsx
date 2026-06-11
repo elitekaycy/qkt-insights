@@ -1,5 +1,6 @@
 import { useState } from "react";
 import { login } from "../api";
+import { Button, Input } from "../components/ui";
 
 export default function Login({ onLoggedIn }: { onLoggedIn: () => void }) {
   const [username, setUsername] = useState("");
@@ -17,11 +18,20 @@ export default function Login({ onLoggedIn }: { onLoggedIn: () => void }) {
   };
 
   return (
-    <div className="flex h-screen items-center justify-center bg-zinc-950">
-      <form onSubmit={submit} className="w-80 rounded-lg border border-zinc-800 bg-zinc-900 p-6">
-        <h1 className="text-lg font-semibold text-zinc-100">qkt insights</h1>
-        <p className="mt-1 text-sm text-zinc-500">Sign in to continue</p>
-        <input
+    <div className="relative flex h-screen items-center justify-center overflow-hidden bg-ink">
+      <div
+        className="pointer-events-none absolute inset-0"
+        style={{
+          background:
+            "radial-gradient(60rem 30rem at 70% -10%, color-mix(in srgb, var(--color-accent) 7%, transparent), transparent), radial-gradient(40rem 24rem at 10% 110%, color-mix(in srgb, #a78bfa 6%, transparent), transparent)",
+        }}
+      />
+      <form onSubmit={submit} className="rise relative w-[22rem] rounded-card border border-line bg-panel p-7">
+        <div className="text-xl font-extrabold tracking-tight text-bright">
+          qkt<span className="text-accent">·</span>insights
+        </div>
+        <p className="mt-1 text-sm text-muted">Sign in to continue</p>
+        <Input
           type="text"
           autoFocus
           value={username}
@@ -29,27 +39,23 @@ export default function Login({ onLoggedIn }: { onLoggedIn: () => void }) {
             setUsername(e.target.value);
             setError(false);
           }}
-          className="mt-4 w-full rounded bg-zinc-800 p-2 text-sm text-zinc-100 outline-none focus:ring-1 focus:ring-zinc-600"
+          className="mt-5 w-full"
           placeholder="username"
         />
-        <input
+        <Input
           type="password"
           value={password}
           onChange={(e) => {
             setPassword(e.target.value);
             setError(false);
           }}
-          className="mt-2 w-full rounded bg-zinc-800 p-2 text-sm text-zinc-100 outline-none focus:ring-1 focus:ring-zinc-600"
+          className="mt-2.5 w-full"
           placeholder="password"
         />
-        {error && <p className="mt-2 text-sm text-red-400">Wrong username or password</p>}
-        <button
-          type="submit"
-          disabled={busy || username.length === 0 || password.length === 0}
-          className="mt-4 w-full rounded bg-zinc-100 p-2 text-sm font-medium text-zinc-900 disabled:opacity-50"
-        >
+        {error && <p className="mt-2.5 text-sm text-down">Wrong username or password</p>}
+        <Button type="submit" variant="primary" disabled={busy || username.length === 0 || password.length === 0} className="mt-5 w-full py-2">
           {busy ? "Signing in…" : "Sign in"}
-        </button>
+        </Button>
       </form>
     </div>
   );

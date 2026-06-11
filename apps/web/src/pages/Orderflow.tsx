@@ -1,25 +1,21 @@
 import { useMemo, useState } from "react";
 import { useQuery } from "@tanstack/react-query";
 import { get, type OrderRow, type StrategyRow, type TradeRow } from "../api";
+import { OrderDetail, TradeDetail } from "../components/detail";
+import {
+  Cell, Empty, LiveDot, LoadMore, PageHeader, Panel, Pill, Row, SearchInput, Select, SideTag, STATE_TONE, Table,
+} from "../components/ui";
+import { ts, tsDay } from "../format";
 import { useLiveStream } from "../useLiveStream";
-
-const STATE_COLOR: Record<string, string> = {
-  FILLED: "bg-emerald-900/60 text-emerald-300",
-  WORKING: "bg-sky-900/60 text-sky-300",
-  SUBMITTED: "bg-sky-900/60 text-sky-300",
-  PARTIALLY_FILLED: "bg-amber-900/60 text-amber-300",
-  CANCELLED: "bg-zinc-800 text-zinc-400",
-  REJECTED: "bg-red-900/60 text-red-300",
-};
-
-function ts(ms: number): string {
-  return new Date(ms).toISOString().replace("T", " ").slice(0, 19);
-}
 
 export default function Orderflow({ instanceId }: { instanceId: string | null }) {
   const [strategy, setStrategy] = useState("");
-  const [symbol, setSymbol] = useState("");
+  const [q, setQ] = useState("");
   const [state, setState] = useState("");
+  const [orderCap, setOrderCap] = useState(20);
+  const [tradeCap, setTradeCap] = useState(20);
+  const [openOrder, setOpenOrder] = useState<OrderRow | null>(null);
+  const [openTrade, setOpenTrade] = useState<TradeRow | null>(null);
 
   const strategies = useQuery({
     queryKey: ["strategies", instanceId],
@@ -29,12 +25,11 @@ export default function Orderflow({ instanceId }: { instanceId: string | null })
 
   const ordersUrl = useMemo(() => {
     if (!instanceId) return null;
-    const p = new URLSearchParams({ instance: instanceId });
+    const p = new URLSearchParams({ instance: instanceId, limit: "1000" });
     if (strategy) p.set("strategy", strategy);
-    if (symbol) p.set("symbol", symbol.toUpperCase());
     if (state) p.set("state", state);
     return `/orders?${p}`;
-  }, [instanceId, strategy, symbol, state]);
+  }, [instanceId, strategy, state]);
 
   const orders = useQuery({
     queryKey: ["orders", ordersUrl],
@@ -44,11 +39,10 @@ export default function Orderflow({ instanceId }: { instanceId: string | null })
   });
 
   const trades = useQuery({
-    queryKey: ["trades", instanceId, strategy, symbol],
+    queryKey: ["trades", instanceId, strategy],
     queryFn: () => {
-      const p = new URLSearchParams({ instance: instanceId!, limit: "50" });
+      const p = new URLSearchParams({ instance: instanceId!, limit: "1000" });
       if (strategy) p.set("strategy", strategy);
-      if (symbol) p.set("symbol", symbol.toUpperCase());
       return get<TradeRow[]>(`/trades?${p}`);
     },
     enabled: !!instanceId,
@@ -56,126 +50,122 @@ export default function Orderflow({ instanceId }: { instanceId: string | null })
   });
 
   const live = useLiveStream(instanceId);
+  const needle = q.trim().toUpperCase();
+  const matchText = (...parts: (string | null | undefined)[]) =>
+    !needle || parts.some((x) => (x ?? "").toUpperCase().includes(needle));
+
+  const orderRows = (orders.data ?? []).filter((o) => matchText(o.symbol, o.orderId, o.strategyId));
+  const tradeRows = (trades.data ?? []).filter((t) => matchText(t.payload.symbol, t.payload.orderId, t.strategyId));
   const liveFiltered = live.filter(
     (e) =>
       (!strategy || e.strategyId === strategy) &&
-      (!symbol || String(e.payload.symbol ?? "").toUpperCase().includes(symbol.toUpperCase())),
+      matchText(String(e.payload.symbol ?? ""), String(e.payload.orderId ?? ""), e.strategyId),
+  );
+
+  const filterBar = (
+    <>
+      <SearchInput
+        value={q}
+        onChange={(e) => {
+          setQ(e.target.value);
+          setOrderCap(20);
+          setTradeCap(20);
+        }}
+        placeholder="search symbol, order id…"
+        className="w-64"
+      />
+      <Select value={strategy} onChange={(e) => setStrategy(e.target.value)}>
+        <option value="">all strategies</option>
+        {(strategies.data ?? []).map((s) => (
+          <option key={s.strategyId} value={s.strategyId}>
+            {s.strategyId}
+          </option>
+        ))}
+      </Select>
+    </>
   );
 
   return (
     <div>
-      <h2 className="text-xl font-semibold">Orderflow</h2>
-      <p className="mt-1 text-sm text-zinc-500">Orders and fills for {instanceId ?? "—"}, live tail below.</p>
+      <PageHeader title="Orderflow" sub={`Orders and fills for ${instanceId ?? "—"}, live tail alongside. Click a row to inspect.`} />
 
-      <div className="mt-4 flex gap-2">
-        <select value={strategy} onChange={(e) => setStrategy(e.target.value)} className="rounded bg-zinc-800 p-1.5 text-sm">
-          <option value="">all strategies</option>
-          {(strategies.data ?? []).map((s) => (
-            <option key={s.strategyId} value={s.strategyId}>
-              {s.strategyId}
-            </option>
-          ))}
-        </select>
-        <input
-          value={symbol}
-          onChange={(e) => setSymbol(e.target.value)}
-          placeholder="symbol filter"
-          className="rounded bg-zinc-800 p-1.5 text-sm outline-none"
-        />
-        <select value={state} onChange={(e) => setState(e.target.value)} className="rounded bg-zinc-800 p-1.5 text-sm">
-          <option value="">any state</option>
-          {Object.keys(STATE_COLOR).map((s) => (
-            <option key={s} value={s}>
-              {s}
-            </option>
-          ))}
-        </select>
-      </div>
+      <div className="mt-5 grid grid-cols-1 gap-5 xl:grid-cols-2">
+        <div className="grid content-start gap-5">
+          <Panel
+            stagger={0}
+            title="Orders"
+            scroll="max-h-[24rem]"
+            toolbar={
+              <>
+                {filterBar}
+                <Select value={state} onChange={(e) => setState(e.target.value)}>
+                  <option value="">any state</option>
+                  {Object.keys(STATE_TONE).map((s) => (
+                    <option key={s} value={s}>
+                      {s}
+                    </option>
+                  ))}
+                </Select>
+              </>
+            }
+          >
+            <Table head={["Time", "Strategy", "Symbol", "Side", "Qty", "Avg px", "State"]}>
+              {orderRows.slice(0, orderCap).map((o) => (
+                <Row key={o.orderId} onClick={() => setOpenOrder(o)}>
+                  <Cell className="whitespace-nowrap text-muted">{tsDay(o.updatedTs)}</Cell>
+                  <Cell>{o.strategyId ?? "—"}</Cell>
+                  <Cell className="font-semibold text-bright">{o.symbol ?? "—"}</Cell>
+                  <Cell>
+                    <SideTag side={o.side} />
+                  </Cell>
+                  <Cell className="font-mono">{o.qty ?? o.cumQty}</Cell>
+                  <Cell className="font-mono">{o.avgPrice ?? "—"}</Cell>
+                  <Cell>
+                    <Pill tone={STATE_TONE[o.state] ?? "neutral"}>{o.state}</Pill>
+                  </Cell>
+                </Row>
+              ))}
+              {orderRows.length === 0 && <Empty colSpan={7}>No orders yet</Empty>}
+            </Table>
+            <LoadMore shown={Math.min(orderCap, orderRows.length)} total={orderRows.length} onMore={() => setOrderCap((c) => c + 20)} />
+          </Panel>
 
-      <div className="mt-6 grid grid-cols-1 gap-6 xl:grid-cols-2">
-        <section>
-          <h3 className="text-sm font-semibold text-zinc-400">Orders</h3>
-          <div className="mt-2 overflow-hidden rounded-lg border border-zinc-800">
-            <table className="w-full text-sm">
-              <thead className="bg-zinc-900 text-left text-zinc-400">
-                <tr>
-                  <th className="p-2">Time</th>
-                  <th className="p-2">Strategy</th>
-                  <th className="p-2">Symbol</th>
-                  <th className="p-2">Side</th>
-                  <th className="p-2">Qty</th>
-                  <th className="p-2">Avg px</th>
-                  <th className="p-2">State</th>
-                </tr>
-              </thead>
-              <tbody>
-                {(orders.data ?? []).map((o) => (
-                  <tr key={o.orderId} className="border-t border-zinc-800">
-                    <td className="p-2 text-zinc-500">{ts(o.updatedTs)}</td>
-                    <td className="p-2">{o.strategyId ?? "—"}</td>
-                    <td className="p-2">{o.symbol ?? "—"}</td>
-                    <td className={`p-2 ${o.side === "BUY" ? "text-emerald-400" : "text-red-400"}`}>{o.side}</td>
-                    <td className="p-2">{o.qty ?? o.cumQty}</td>
-                    <td className="p-2">{o.avgPrice ?? "—"}</td>
-                    <td className="p-2">
-                      <span className={`rounded-full px-2 py-0.5 text-xs ${STATE_COLOR[o.state] ?? "bg-zinc-800"}`}>
-                        {o.state}
-                      </span>
-                    </td>
-                  </tr>
-                ))}
-                {(orders.data ?? []).length === 0 && (
-                  <tr>
-                    <td colSpan={7} className="p-4 text-center text-zinc-600">
-                      No orders yet
-                    </td>
-                  </tr>
-                )}
-              </tbody>
-            </table>
-          </div>
+          <Panel stagger={1} title="Recent trades" toolbar={filterBar} scroll="max-h-[24rem]">
+            <Table>
+              {tradeRows.slice(0, tradeCap).map((t) => (
+                <Row key={t.id} onClick={() => setOpenTrade(t)}>
+                  <Cell className="whitespace-nowrap text-muted">{tsDay(t.ts)}</Cell>
+                  <Cell>{t.strategyId ?? "—"}</Cell>
+                  <Cell className="font-semibold text-bright">{t.payload.symbol}</Cell>
+                  <Cell>
+                    <SideTag side={t.payload.side} />
+                  </Cell>
+                  <Cell className="font-mono">{t.payload.qty}</Cell>
+                  <Cell className="font-mono text-muted">@ {t.payload.price}</Cell>
+                </Row>
+              ))}
+              {tradeRows.length === 0 && <Empty colSpan={6}>No trades yet</Empty>}
+            </Table>
+            <LoadMore shown={Math.min(tradeCap, tradeRows.length)} total={tradeRows.length} onMore={() => setTradeCap((c) => c + 20)} />
+          </Panel>
+        </div>
 
-          <h3 className="mt-6 text-sm font-semibold text-zinc-400">Recent trades</h3>
-          <div className="mt-2 overflow-hidden rounded-lg border border-zinc-800">
-            <table className="w-full text-sm">
-              <tbody>
-                {(trades.data ?? []).map((t) => (
-                  <tr key={t.id} className="border-t border-zinc-800 first:border-t-0">
-                    <td className="p-2 text-zinc-500">{ts(t.ts)}</td>
-                    <td className="p-2">{t.strategyId ?? "—"}</td>
-                    <td className="p-2">{t.payload.symbol}</td>
-                    <td className={`p-2 ${t.payload.side === "BUY" ? "text-emerald-400" : "text-red-400"}`}>
-                      {t.payload.side}
-                    </td>
-                    <td className="p-2">{t.payload.qty}</td>
-                    <td className="p-2">@ {t.payload.price}</td>
-                  </tr>
-                ))}
-                {(trades.data ?? []).length === 0 && (
-                  <tr>
-                    <td className="p-4 text-center text-zinc-600">No trades yet</td>
-                  </tr>
-                )}
-              </tbody>
-            </table>
-          </div>
-        </section>
-
-        <section>
-          <h3 className="text-sm font-semibold text-zinc-400">Live tail</h3>
-          <div className="mt-2 h-[32rem] overflow-auto rounded-lg border border-zinc-800 bg-zinc-900/50 p-2 font-mono text-xs">
-            {liveFiltered.length === 0 && <div className="p-2 text-zinc-600">Waiting for events…</div>}
+        <Panel stagger={2} title="Live tail" right={<LiveDot on={liveFiltered.length > 0} />} scroll="max-h-[34rem]">
+          <div className="p-2 font-mono text-xs">
+            {liveFiltered.length === 0 && <div className="p-3 text-faint">Waiting for events…</div>}
             {liveFiltered.map((e) => (
-              <div key={`${e.instanceId}-${e.id}`} className="border-b border-zinc-800/60 py-1">
-                <span className="text-zinc-500">{ts(e.ts)}</span>{" "}
-                <span className="text-sky-400">{e.type}</span>{" "}
-                {e.strategyId && <span className="text-zinc-400">[{e.strategyId}]</span>}{" "}
-                <span className="text-zinc-300">{JSON.stringify(e.payload)}</span>
+              <div key={`${e.instanceId}-${e.id}`} className="border-b border-line/50 px-2 py-1.5 last:border-b-0">
+                <span className="text-faint">{ts(e.ts)}</span> <span className="text-info">{e.type}</span>{" "}
+                {e.strategyId && <span className="text-muted">[{e.strategyId}]</span>}{" "}
+                <span className="break-all text-body/80">{JSON.stringify(e.payload)}</span>
               </div>
             ))}
           </div>
-        </section>
+        </Panel>
       </div>
+
+      {instanceId && <OrderDetail order={openOrder} instanceId={instanceId} onClose={() => setOpenOrder(null)} />}
+      {instanceId && <TradeDetail trade={openTrade} instanceId={instanceId} onClose={() => setOpenTrade(null)} />}
     </div>
   );
 }

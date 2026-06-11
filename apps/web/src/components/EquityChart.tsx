@@ -1,7 +1,14 @@
 import { Area, AreaChart, CartesianGrid, Line, LineChart, ResponsiveContainer, Tooltip, XAxis, YAxis } from "recharts";
 import type { EquityPoint } from "../api";
 
-const AXIS = { stroke: "#52525b", fontSize: 11 };
+const AXIS = { stroke: "var(--color-faint)", fontSize: 11, fontFamily: "var(--font-mono)" };
+const TOOLTIP = {
+  background: "var(--color-raised)",
+  border: "1px solid var(--color-line-strong)",
+  borderRadius: 10,
+  fontSize: 12,
+  fontFamily: "var(--font-mono)",
+};
 
 function timeFmt(ms: number): string {
   return new Date(ms).toLocaleString("en-GB", { month: "short", day: "2-digit", hour: "2-digit", minute: "2-digit" });
@@ -9,10 +16,10 @@ function timeFmt(ms: number): string {
 
 export function EquityChart({ points, height = 260 }: { points: EquityPoint[]; height?: number }) {
   if (points.length === 0) {
-    return <div className="flex h-40 items-center justify-center text-sm text-zinc-600">No equity snapshots yet</div>;
+    return <div className="flex h-40 items-center justify-center text-sm text-faint">No equity snapshots yet</div>;
   }
   const up = points[points.length - 1]!.equity >= points[0]!.equity;
-  const color = up ? "#34d399" : "#f87171";
+  const color = up ? "var(--color-up)" : "var(--color-down)";
   return (
     <ResponsiveContainer width="100%" height={height}>
       <AreaChart data={points} margin={{ top: 8, right: 8, bottom: 0, left: 8 }}>
@@ -22,11 +29,11 @@ export function EquityChart({ points, height = 260 }: { points: EquityPoint[]; h
             <stop offset="100%" stopColor={color} stopOpacity={0} />
           </linearGradient>
         </defs>
-        <CartesianGrid stroke="#27272a" strokeDasharray="3 3" vertical={false} />
+        <CartesianGrid stroke="var(--color-line)" strokeDasharray="3 3" vertical={false} />
         <XAxis dataKey="ts" tickFormatter={timeFmt} tick={AXIS} tickLine={false} axisLine={false} minTickGap={60} />
         <YAxis domain={["auto", "auto"]} tick={AXIS} tickLine={false} axisLine={false} width={70} />
         <Tooltip
-          contentStyle={{ background: "#18181b", border: "1px solid #3f3f46", borderRadius: 8, fontSize: 12 }}
+          contentStyle={TOOLTIP}
           labelFormatter={(v) => timeFmt(Number(v))}
           formatter={(value) => [Number(value).toFixed(2), "equity"]}
         />
@@ -54,16 +61,16 @@ export function ComparisonChart({ series, height = 320 }: { series: ComparisonSe
   }
   const data = [...merged.entries()].sort((a, b) => a[0] - b[0]).map(([t, row]) => ({ ts: t, ...row }));
   if (data.length === 0) {
-    return <div className="flex h-40 items-center justify-center text-sm text-zinc-600">No equity snapshots yet</div>;
+    return <div className="flex h-40 items-center justify-center text-sm text-faint">No equity snapshots yet</div>;
   }
   return (
     <ResponsiveContainer width="100%" height={height}>
       <LineChart data={data} margin={{ top: 8, right: 8, bottom: 0, left: 8 }}>
-        <CartesianGrid stroke="#27272a" strokeDasharray="3 3" vertical={false} />
+        <CartesianGrid stroke="var(--color-line)" strokeDasharray="3 3" vertical={false} />
         <XAxis dataKey="ts" tickFormatter={timeFmt} tick={AXIS} tickLine={false} axisLine={false} minTickGap={60} />
         <YAxis tick={AXIS} tickLine={false} axisLine={false} width={56} tickFormatter={(v) => `${Number(v).toFixed(1)}%`} />
         <Tooltip
-          contentStyle={{ background: "#18181b", border: "1px solid #3f3f46", borderRadius: 8, fontSize: 12 }}
+          contentStyle={TOOLTIP}
           labelFormatter={(v) => timeFmt(Number(v))}
           formatter={(value: unknown, name) => [`${Number(value).toFixed(2)}%`, name]}
         />

@@ -1,12 +1,22 @@
 import { useState } from "react";
 import { useQuery } from "@tanstack/react-query";
 import { get, type EquityPoint, type LogRow, type StrategyRow, type StrategyStats, type TradeRow } from "../api";
+import { TradeDetail } from "../components/detail";
 import { EquityChart } from "../components/EquityChart";
-import { LEVEL_COLOR, SidePill, StatCard } from "../components/StatCard";
-import { age, money, num, pct, ts } from "../format";
+import { Sparkline } from "../components/Sparkline";
+import { Card, Cell, Delta, Empty, LEVEL_TONE, LoadMore, PageHeader, Panel, Pill, Row, SideTag, Stat, Table } from "../components/ui";
+import { age, money, num, pct, ts, tsDay } from "../format";
 
-export default function Strategies({ instanceId }: { instanceId: string | null }) {
-  const [selected, setSelected] = useState<string | null>(null);
+export default function Strategies({
+  instanceId,
+  focus = null,
+  onClearFocus,
+}: {
+  instanceId: string | null;
+  focus?: string | null;
+  onClearFocus?: () => void;
+}) {
+  const [selected, setSelected] = useState<string | null>(focus);
 
   const strategies = useQuery({
     queryKey: ["strategies", instanceId],
@@ -15,39 +25,41 @@ export default function Strategies({ instanceId }: { instanceId: string | null }
     refetchInterval: 10000,
   });
 
-  if (!instanceId) return <p className="text-zinc-500">No instance selected.</p>;
-  if (selected) return <StrategyDetail instanceId={instanceId} strategyId={selected} onBack={() => setSelected(null)} />;
+  if (!instanceId) return <Card className="p-8 text-center text-faint">No instance selected.</Card>;
+  if (selected)
+    return (
+      <StrategyDetail
+        instanceId={instanceId}
+        strategyId={selected}
+        onBack={() => {
+          setSelected(null);
+          onClearFocus?.();
+        }}
+      />
+    );
 
   const rows = strategies.data ?? [];
   return (
     <div>
-      <h2 className="text-xl font-semibold">Strategies</h2>
-      <p className="mt-1 text-sm text-zinc-500">Every strategy {instanceId} has reported. Click one to drill in.</p>
+      <PageHeader title="Strategies" sub={`Every strategy ${instanceId} has reported. Click one to drill in.`} />
       <div className="mt-6 grid grid-cols-1 gap-4 md:grid-cols-2 xl:grid-cols-3">
-        {rows.length === 0 && <p className="text-zinc-600">No strategies yet.</p>}
-        {rows.map((s) => {
+        {rows.length === 0 && <Card className="p-8 text-center text-faint md:col-span-2 xl:col-span-3">No strategies yet.</Card>}
+        {rows.map((s, i) => {
           const ret =
             s.equity != null && s.startingBalance ? (s.equity - s.startingBalance) / s.startingBalance : null;
           return (
-            <button
-              key={s.strategyId}
-              onClick={() => setSelected(s.strategyId)}
-              className="rounded-lg border border-zinc-800 bg-zinc-900/60 p-4 text-left transition hover:border-zinc-600"
-            >
-              <div className="flex items-baseline justify-between">
-                <span className="font-semibold">{s.strategyId}</span>
-                <span className="text-xs text-zinc-500">{age(s.lastSeen)}</span>
-              </div>
-              <div className="mt-3 flex items-baseline gap-3">
-                <span className="text-2xl font-semibold tabular-nums">{money(s.equity)}</span>
-                {ret != null && (
-                  <span className={`text-sm tabular-nums ${ret >= 0 ? "text-emerald-400" : "text-red-400"}`}>
-                    {ret >= 0 ? "+" : ""}
-                    {pct(ret)}
-                  </span>
-                )}
-              </div>
-              <div className="mt-1 text-xs text-zinc-500">from {money(s.startingBalance)} starting</div>
+            <button key={s.strategyId} onClick={() => setSelected(s.strategyId)} className="group text-left">
+              <Card className="p-5 transition group-hover:border-accent/50 group-hover:bg-raised" stagger={i}>
+                <div className="flex items-baseline justify-between">
+                  <span className="font-bold text-bright">{s.strategyId}</span>
+                  <span className="text-xs text-faint">{age(s.lastSeen)}</span>
+                </div>
+                <div className="mt-2.5 flex items-baseline gap-3">
+                  <span className="font-mono text-2xl font-semibold text-bright">{money(s.equity)}</span>
+                  <Delta value={ret} />
+                </div>
+                <div className="mt-1 text-xs text-faint">from {money(s.startingBalance)} starting</div>
+              </Card>
             </button>
           );
         })}
@@ -70,88 +82,94 @@ function StrategyDetail({ instanceId, strategyId, onBack }: { instanceId: string
   });
   const trades = useQuery({
     queryKey: ["trades", instanceId, strategyId],
-    queryFn: () => get<TradeRow[]>(`/trades?${qs}&limit=30`),
+    queryFn: () => get<TradeRow[]>(`/trades?${qs}&limit=500`),
     refetchInterval: 10000,
   });
   const logs = useQuery({
     queryKey: ["logs", instanceId, strategyId],
-    queryFn: () => get<LogRow[]>(`/logs?${qs}&limit=30`),
+    queryFn: () => get<LogRow[]>(`/logs?${qs}&limit=500`),
     refetchInterval: 10000,
   });
+  const [tradeCap, setTradeCap] = useState(20);
+  const [logCap, setLogCap] = useState(20);
+  const [openTrade, setOpenTrade] = useState<TradeRow | null>(null);
 
   const s = stats.data;
+  const tradeRows = trades.data ?? [];
+  const logRows = logs.data ?? [];
   return (
     <div>
-      <button onClick={onBack} className="text-sm text-zinc-500 hover:text-zinc-300">
+      <button onClick={onBack} className="rise text-sm text-muted transition hover:text-body">
         ← strategies
       </button>
-      <h2 className="mt-1 text-xl font-semibold">{strategyId}</h2>
+      <div className="mt-2 flex flex-wrap items-end justify-between gap-4">
+        <div className="rise">
+          <h2 className="text-2xl font-extrabold tracking-tight text-bright">{strategyId}</h2>
+          <div className="mt-2 flex items-baseline gap-3">
+            <span className="font-mono text-4xl font-bold text-bright">{money(s?.equity)}</span>
+            <Delta value={s?.returnPct} />
+          </div>
+        </div>
+        <div className="rise -mb-1 w-64">
+          <Sparkline points={equity.data ?? []} height={56} />
+        </div>
+      </div>
 
-      <div className="mt-4 grid grid-cols-2 gap-3 md:grid-cols-4 xl:grid-cols-8">
-        <StatCard label="Equity" value={money(s?.equity)} />
-        <StatCard
-          label="Return"
-          value={pct(s?.returnPct)}
-          tone={s?.returnPct == null ? "neutral" : s.returnPct >= 0 ? "good" : "bad"}
-        />
-        <StatCard
+      <div className="mt-5 grid grid-cols-2 gap-3 md:grid-cols-3 xl:grid-cols-6">
+        <Stat
           label="Realized PnL"
           value={money(s?.realizedPnl)}
-          tone={s?.realizedPnl == null ? "neutral" : s.realizedPnl >= 0 ? "good" : "bad"}
+          tone={s?.realizedPnl == null ? "neutral" : s.realizedPnl >= 0 ? "up" : "down"}
+          stagger={0}
         />
-        <StatCard label="Sharpe" value={num(s?.sharpe)} />
-        <StatCard label="Win rate" value={pct(s?.winRate)} />
-        <StatCard label="Max DD" value={pct(s?.maxDrawdownPct)} tone={s?.maxDrawdownPct ? "bad" : "neutral"} />
-        <StatCard label="Trades" value={String(s?.tradeCount ?? "—")} />
-        <StatCard label="Volume" value={num(s?.volume)} />
+        <Stat label="Sharpe" value={num(s?.sharpe)} stagger={1} />
+        <Stat label="Win rate" value={pct(s?.winRate)} stagger={2} />
+        <Stat label="Max drawdown" value={pct(s?.maxDrawdownPct)} tone={s?.maxDrawdownPct ? "down" : "neutral"} stagger={3} />
+        <Stat label="Trades" value={String(s?.tradeCount ?? "—")} sub={`${s?.buyCount ?? 0} buys · ${s?.sellCount ?? 0} sells`} stagger={4} />
+        <Stat label="Volume" value={num(s?.volume)} stagger={5} />
       </div>
 
-      <section className="mt-6 rounded-lg border border-zinc-800 bg-zinc-900/40 p-4">
-        <h3 className="text-sm font-semibold text-zinc-400">Equity</h3>
-        <EquityChart points={equity.data ?? []} />
-      </section>
+      <Panel className="mt-6" stagger={2} title="Equity" hint={`from ${money(s?.startingBalance)} starting`}>
+        <div className="p-4">
+          <EquityChart points={equity.data ?? []} />
+        </div>
+      </Panel>
 
       <div className="mt-6 grid grid-cols-1 gap-6 xl:grid-cols-2">
-        <section>
-          <h3 className="text-sm font-semibold text-zinc-400">Trades</h3>
-          <div className="mt-2 overflow-hidden rounded-lg border border-zinc-800">
-            <table className="w-full text-sm">
-              <tbody>
-                {(trades.data ?? []).map((t) => (
-                  <tr key={t.id} className="border-t border-zinc-800 first:border-t-0">
-                    <td className="p-2 text-zinc-500">{ts(t.ts)}</td>
-                    <td className="p-2">{t.payload.symbol}</td>
-                    <td className="p-2">
-                      <SidePill side={t.payload.side} />
-                    </td>
-                    <td className="p-2 tabular-nums">{t.payload.qty}</td>
-                    <td className="p-2 tabular-nums">@ {t.payload.price}</td>
-                  </tr>
-                ))}
-                {(trades.data ?? []).length === 0 && (
-                  <tr>
-                    <td className="p-4 text-center text-zinc-600">No trades yet</td>
-                  </tr>
-                )}
-              </tbody>
-            </table>
-          </div>
-        </section>
+        <Panel stagger={3} title="Trades" hint="click a row to inspect" scroll="max-h-[26rem]">
+          <Table>
+            {tradeRows.slice(0, tradeCap).map((t) => (
+              <Row key={t.id} onClick={() => setOpenTrade(t)}>
+                <Cell className="whitespace-nowrap text-muted">{tsDay(t.ts)}</Cell>
+                <Cell className="font-semibold text-bright">{t.payload.symbol}</Cell>
+                <Cell>
+                  <SideTag side={t.payload.side} />
+                </Cell>
+                <Cell className="font-mono">{t.payload.qty}</Cell>
+                <Cell className="font-mono text-muted">@ {t.payload.price}</Cell>
+              </Row>
+            ))}
+            {tradeRows.length === 0 && <Empty colSpan={5}>No trades yet</Empty>}
+          </Table>
+          <LoadMore shown={Math.min(tradeCap, tradeRows.length)} total={tradeRows.length} onMore={() => setTradeCap((c) => c + 20)} />
+        </Panel>
 
-        <section>
-          <h3 className="text-sm font-semibold text-zinc-400">Recent logs</h3>
-          <div className="mt-2 overflow-hidden rounded-lg border border-zinc-800">
-            {(logs.data ?? []).map((l) => (
-              <div key={l.id} className="flex items-start gap-2 border-t border-zinc-800 p-2 text-xs first:border-t-0">
-                <span className="whitespace-nowrap text-zinc-500">{ts(l.ts)}</span>
-                <span className={`rounded-full px-1.5 ${LEVEL_COLOR[l.level] ?? ""}`}>{l.level}</span>
-                <span className="text-zinc-300">{l.message}</span>
+        <Panel stagger={4} title="Recent logs" scroll="max-h-[26rem]">
+          <div className="p-2">
+            {logRows.slice(0, logCap).map((l) => (
+              <div key={l.id} className="flex items-start gap-2 border-b border-line/50 px-2 py-1.5 font-mono text-xs last:border-b-0">
+                <span className="whitespace-nowrap text-faint">{ts(l.ts)}</span>
+                <Pill tone={LEVEL_TONE[l.level] ?? "neutral"}>{l.level}</Pill>
+                <span className="break-all text-body">{l.message}</span>
               </div>
             ))}
-            {(logs.data ?? []).length === 0 && <div className="p-4 text-center text-sm text-zinc-600">No logs yet</div>}
+            {logRows.length === 0 && <Empty>No logs yet</Empty>}
           </div>
-        </section>
+          <LoadMore shown={Math.min(logCap, logRows.length)} total={logRows.length} onMore={() => setLogCap((c) => c + 20)} />
+        </Panel>
       </div>
+
+      <TradeDetail trade={openTrade} instanceId={instanceId} onClose={() => setOpenTrade(null)} />
     </div>
   );
 }

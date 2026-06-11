@@ -2,6 +2,12 @@ export function ts(ms: number): string {
   return new Date(ms).toISOString().replace("T", " ").slice(0, 19);
 }
 
+/** Timestamp with the weekday, e.g. "Wed 2026-06-11 13:26:33". */
+export function tsDay(ms: number): string {
+  const day = new Date(ms).toLocaleDateString("en-GB", { weekday: "short" });
+  return `${day} ${ts(ms)}`;
+}
+
 export function money(v: number | null | undefined): string {
   if (v == null) return "—";
   return v.toLocaleString("en-US", { minimumFractionDigits: 2, maximumFractionDigits: 2 });
@@ -15,6 +21,23 @@ export function pct(v: number | null | undefined): string {
 export function num(v: number | null | undefined, digits = 2): string {
   if (v == null) return "—";
   return v.toFixed(digits);
+}
+
+/** Full human-readable timestamp, e.g. "Wed, 11 Jun 2026 · 13:45:09". */
+export function human(ms: number): string {
+  const d = new Date(ms);
+  const date = d.toLocaleDateString("en-GB", { weekday: "short", day: "2-digit", month: "short", year: "numeric" });
+  const time = d.toLocaleTimeString("en-GB", { hour: "2-digit", minute: "2-digit", second: "2-digit" });
+  return `${date} · ${time}`;
+}
+
+/** Compact duration, e.g. 83_000 → "1m 23s". */
+export function duration(ms: number): string {
+  if (ms < 0) return "—";
+  const s = Math.floor(ms / 1000);
+  if (s < 60) return `${s}s`;
+  if (s < 3600) return `${Math.floor(s / 60)}m ${s % 60}s`;
+  return `${Math.floor(s / 3600)}h ${Math.floor((s % 3600) / 60)}m`;
 }
 
 export function age(ms: number): string {

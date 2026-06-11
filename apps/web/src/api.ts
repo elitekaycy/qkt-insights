@@ -21,6 +21,10 @@ export async function login(username: string, password: string): Promise<boolean
   return res.ok;
 }
 
+export async function logout(): Promise<void> {
+  await fetch("/auth/logout", { method: "POST", credentials: "same-origin" });
+}
+
 export interface InstanceRow {
   id: string;
   name: string | null;

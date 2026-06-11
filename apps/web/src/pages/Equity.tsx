@@ -1,8 +1,9 @@
 import { useQueries, useQuery } from "@tanstack/react-query";
 import { get, type EquityPoint, type StrategyRow } from "../api";
 import { ComparisonChart, type ComparisonSeries } from "../components/EquityChart";
+import { Card, PageHeader, Panel, Pill } from "../components/ui";
 
-const PALETTE = ["#34d399", "#60a5fa", "#f59e0b", "#f87171", "#a78bfa", "#22d3ee", "#f472b6", "#a3e635"];
+const PALETTE = ["#c8f74a", "#5cb8ff", "#a78bfa", "#3fe08c", "#fbbf24", "#ff6b6b", "#f472b6", "#22d3ee"];
 
 export default function Equity({ instanceId }: { instanceId: string | null }) {
   const strategies = useQuery({
@@ -21,7 +22,7 @@ export default function Equity({ instanceId }: { instanceId: string | null }) {
     })),
   });
 
-  if (!instanceId) return <p className="text-zinc-500">No instance selected.</p>;
+  if (!instanceId) return <Card className="p-8 text-center text-faint">No instance selected.</Card>;
 
   const series: ComparisonSeries[] = ids
     .map((id, i) => {
@@ -37,23 +38,26 @@ export default function Equity({ instanceId }: { instanceId: string | null }) {
 
   return (
     <div>
-      <h2 className="text-xl font-semibold">Equity</h2>
-      <p className="mt-1 text-sm text-zinc-500">
-        All strategies on {instanceId}, normalized to % change from their first snapshot so different capital sizes compare fairly.
-      </p>
+      <PageHeader
+        title="Equity"
+        sub={`All strategies on ${instanceId}, normalized to % change from their first snapshot so different capital sizes compare fairly.`}
+        right={
+          <div className="flex flex-wrap gap-2">
+            {series.map((s) => (
+              <Pill key={s.strategyId}>
+                <span className="inline-block h-2 w-2 rounded-full" style={{ background: s.color }} />
+                {s.strategyId}
+              </Pill>
+            ))}
+          </div>
+        }
+      />
 
-      <div className="mt-4 flex flex-wrap gap-3">
-        {series.map((s) => (
-          <span key={s.strategyId} className="flex items-center gap-1.5 text-sm text-zinc-300">
-            <span className="inline-block h-2.5 w-2.5 rounded-full" style={{ background: s.color }} />
-            {s.strategyId}
-          </span>
-        ))}
-      </div>
-
-      <section className="mt-4 rounded-lg border border-zinc-800 bg-zinc-900/40 p-4">
-        <ComparisonChart series={series} />
-      </section>
+      <Panel className="mt-5" stagger={1} title="All strategies" hint="% change from first snapshot">
+        <div className="p-4">
+          <ComparisonChart series={series} height={420} />
+        </div>
+      </Panel>
     </div>
   );
 }

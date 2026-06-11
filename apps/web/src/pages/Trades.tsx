@@ -1,12 +1,19 @@
 import { useState } from "react";
 import { useQuery } from "@tanstack/react-query";
 import { get, type StrategyRow, type TradeRow } from "../api";
-import { SidePill } from "../components/StatCard";
-import { ts } from "../format";
+import { TradeDetail } from "../components/detail";
+import {
+  Card, Cell, Empty, LoadMore, PageHeader, Panel, RangeSelect, rangeStart, Row, SearchInput, Select, SideTag, Table,
+  type RangeKey,
+} from "../components/ui";
+import { tsDay } from "../format";
 
 export default function Trades({ instanceId }: { instanceId: string | null }) {
   const [strategy, setStrategy] = useState("");
-  const [symbol, setSymbol] = useState("");
+  const [q, setQ] = useState("");
+  const [range, setRange] = useState<RangeKey>("all");
+  const [cap, setCap] = useState(30);
+  const [open, setOpen] = useState<TradeRow | null>(null);
 
   const strategies = useQuery({
     queryKey: ["strategies", instanceId],
@@ -15,79 +22,94 @@ export default function Trades({ instanceId }: { instanceId: string | null }) {
   });
 
   const trades = useQuery({
-    queryKey: ["trades-page", instanceId, strategy, symbol],
+    queryKey: ["trades-page", instanceId, strategy],
     queryFn: () => {
-      const p = new URLSearchParams({ instance: instanceId!, limit: "200" });
+      const p = new URLSearchParams({ instance: instanceId!, limit: "1000" });
       if (strategy) p.set("strategy", strategy);
-      if (symbol) p.set("symbol", symbol.toUpperCase());
       return get<TradeRow[]>(`/trades?${p}`);
     },
     enabled: !!instanceId,
     refetchInterval: 5000,
   });
 
-  if (!instanceId) return <p className="text-zinc-500">No instance selected.</p>;
+  if (!instanceId) return <Card className="p-8 text-center text-faint">No instance selected.</Card>;
 
-  const rows = trades.data ?? [];
+  const needle = q.trim().toUpperCase();
+  const start = rangeStart(range);
+  const filtered = (trades.data ?? []).filter(
+    (t) =>
+      t.ts >= start &&
+      (!needle ||
+        t.payload.symbol.toUpperCase().includes(needle) ||
+        t.payload.orderId.toUpperCase().includes(needle) ||
+        (t.strategyId ?? "").toUpperCase().includes(needle)),
+  );
+  const shown = filtered.slice(0, cap);
+
   return (
     <div>
-      <h2 className="text-xl font-semibold">Trades</h2>
-      <p className="mt-1 text-sm text-zinc-500">Every fill recorded for {instanceId}.</p>
+      <PageHeader title="Trades" sub={`Every fill recorded for ${instanceId}. Click a row for the full story.`} />
 
-      <div className="mt-4 flex gap-2">
-        <select value={strategy} onChange={(e) => setStrategy(e.target.value)} className="rounded bg-zinc-800 p-1.5 text-sm">
-          <option value="">all strategies</option>
-          {(strategies.data ?? []).map((s) => (
-            <option key={s.strategyId} value={s.strategyId}>
-              {s.strategyId}
-            </option>
+      <Panel
+        className="mt-5"
+        stagger={1}
+        title="Fills"
+        scroll="max-h-[34rem]"
+        toolbar={
+          <>
+            <SearchInput
+              value={q}
+              onChange={(e) => {
+                setQ(e.target.value);
+                setCap(30);
+              }}
+              placeholder="search symbol, order id, strategy…"
+              className="w-72"
+            />
+            <Select
+              value={strategy}
+              onChange={(e) => {
+                setStrategy(e.target.value);
+                setCap(30);
+              }}
+            >
+              <option value="">all strategies</option>
+              {(strategies.data ?? []).map((s) => (
+                <option key={s.strategyId} value={s.strategyId}>
+                  {s.strategyId}
+                </option>
+              ))}
+            </Select>
+            <RangeSelect
+              value={range}
+              onChange={(v) => {
+                setRange(v);
+                setCap(30);
+              }}
+            />
+          </>
+        }
+      >
+        <Table head={["Time", "Strategy", "Symbol", "Side", "Qty", "Price", "Order"]}>
+          {shown.map((t) => (
+            <Row key={t.id} onClick={() => setOpen(t)}>
+              <Cell className="whitespace-nowrap text-muted">{tsDay(t.ts)}</Cell>
+              <Cell>{t.strategyId ?? "—"}</Cell>
+              <Cell className="font-semibold text-bright">{t.payload.symbol}</Cell>
+              <Cell>
+                <SideTag side={t.payload.side} />
+              </Cell>
+              <Cell className="font-mono">{t.payload.qty}</Cell>
+              <Cell className="font-mono">{t.payload.price}</Cell>
+              <Cell className="font-mono text-xs text-faint">{t.payload.orderId}</Cell>
+            </Row>
           ))}
-        </select>
-        <input
-          value={symbol}
-          onChange={(e) => setSymbol(e.target.value)}
-          placeholder="symbol filter"
-          className="rounded bg-zinc-800 p-1.5 text-sm outline-none"
-        />
-      </div>
+          {shown.length === 0 && <Empty colSpan={7}>No trades match</Empty>}
+        </Table>
+        <LoadMore shown={shown.length} total={filtered.length} onMore={() => setCap((c) => c + 30)} />
+      </Panel>
 
-      <div className="mt-4 overflow-hidden rounded-lg border border-zinc-800">
-        <table className="w-full text-sm">
-          <thead className="bg-zinc-900 text-left text-zinc-400">
-            <tr>
-              <th className="p-3">Time</th>
-              <th className="p-3">Strategy</th>
-              <th className="p-3">Symbol</th>
-              <th className="p-3">Side</th>
-              <th className="p-3">Qty</th>
-              <th className="p-3">Price</th>
-              <th className="p-3">Order</th>
-            </tr>
-          </thead>
-          <tbody>
-            {rows.map((t) => (
-              <tr key={t.id} className="border-t border-zinc-800">
-                <td className="p-3 text-zinc-500">{ts(t.ts)}</td>
-                <td className="p-3">{t.strategyId ?? "—"}</td>
-                <td className="p-3">{t.payload.symbol}</td>
-                <td className="p-3">
-                  <SidePill side={t.payload.side} />
-                </td>
-                <td className="p-3 tabular-nums">{t.payload.qty}</td>
-                <td className="p-3 tabular-nums">{t.payload.price}</td>
-                <td className="p-3 font-mono text-xs text-zinc-500">{t.payload.orderId}</td>
-              </tr>
-            ))}
-            {rows.length === 0 && (
-              <tr>
-                <td colSpan={7} className="p-6 text-center text-zinc-600">
-                  No trades match
-                </td>
-              </tr>
-            )}
-          </tbody>
-        </table>
-      </div>
+      <TradeDetail trade={open} instanceId={instanceId} onClose={() => setOpen(null)} />
     </div>
   );
 }
