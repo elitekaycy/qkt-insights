@@ -26,7 +26,7 @@ function env(name: string, fallback?: string): string {
 export async function buildServer(mode: Mode) {
   const db = openDb(env("INSIGHTS_DB", "/data/insights.db"));
   const bus = new LiveBus();
-  const app = Fastify({ logger: true });
+  const app = Fastify({ logger: process.env.NODE_ENV !== "test" });
 
   registerCollector(app, { db, bus, ingestToken: env("INGEST_TOKEN") });
 
