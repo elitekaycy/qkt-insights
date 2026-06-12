@@ -40,7 +40,7 @@ export async function buildServer(mode: Mode) {
       passwordHash: await argon2.hash(env("ADMIN_PASSWORD")),
       sessionSecret: env("SESSION_SECRET", env("INGEST_TOKEN")),
     });
-    registerRest(app, { db });
+    registerRest(app, { db, liveState });
     registerLive(app, { bus, authenticate: hasSession });
     // Persist the in-memory account state once a minute so the equity curve
     // survives restarts; unref so the timer never holds the process open.

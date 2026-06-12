@@ -1,5 +1,5 @@
 import { describe, it, expect, beforeEach } from "vitest";
-import { openDb, ingestEvents, listInstances, listStrategies, listOrders, listTrades, searchEvents, equityCurve, instanceHealth } from "../src/index.js";
+import { openDb, ingestEvents, listInstances, listStrategies, listOrders, listTrades, searchEvents, equityCurve, instanceHealth, listDeals, accountEquity, strategyStats } from "../src/index.js";
 import type { Db } from "../src/index.js";
 import type { Envelope } from "@qkt-insights/contract";
 
@@ -84,5 +84,61 @@ describe("queries", () => {
         payload: { level: "INFO", logger: "com.qkt.x", message: "hello", ts: 1718000003000 } }),
     ]);
     expect(listStrategies(db, "qkt-prod").map((s) => s.strategyId)).toEqual(["latch"]);
+  });
+});
+
+describe("deals and account equity", () => {
+  const deal = (id: string, ts: number, opts: { strategyId?: string | null; entry?: string; profit?: number; commission?: number; swap?: number } = {}) =>
+    env({ id, ts, type: "broker.deal", payload: {
+      broker: "EXNESS", dealTicket: id.replace("deal-EXNESS-", ""), symbol: "EXNESS:XAUUSD", side: "SELL",
+      entry: opts.entry ?? "OUT", qty: 0.01, price: 2310.2, profit: opts.profit ?? 9.7,
+      commission: opts.commission ?? -0.07, swap: opts.swap ?? -0.12, ts,
+      strategyId: opts.strategyId === undefined ? "hedge_straddle" : opts.strategyId } });
+
+  it("listDeals returns newest first with strategy, limit, and before filters", () => {
+    ingestEvents(db, "qkt-prod", [
+      deal("deal-EXNESS-1", 1718000001000, { entry: "IN" }),
+      deal("deal-EXNESS-2", 1718000002000),
+      deal("deal-EXNESS-3", 1718000003000, { strategyId: null }),
+    ]);
+    const all = listDeals(db, { instanceId: "qkt-prod", limit: 50 });
+    expect(all.map((d) => d.dealTicket)).toEqual(["3", "2", "1"]);
+    expect(all[1]).toMatchObject({ broker: "EXNESS", symbol: "EXNESS:XAUUSD", side: "SELL",
+      entry: "OUT", qty: 0.01, price: 2310.2, profit: 9.7, commission: -0.07, swap: -0.12,
+      strategyId: "hedge_straddle", ts: 1718000002000 });
+    expect(listDeals(db, { instanceId: "qkt-prod", strategyId: "hedge_straddle", limit: 50 })).toHaveLength(2);
+    expect(listDeals(db, { instanceId: "qkt-prod", limit: 1 }).map((d) => d.dealTicket)).toEqual(["3"]);
+    expect(listDeals(db, { instanceId: "qkt-prod", limit: 50, before: 1718000003000 }).map((d) => d.dealTicket)).toEqual(["2", "1"]);
+  });
+
+  it("accountEquity returns minute rows ascending within the range", () => {
+    const ins = db.prepare("INSERT INTO account_equity (instance_id, broker, minute_ts, balance, equity, open_profit) VALUES (?,?,?,?,?,?)");
+    ins.run("qkt-prod", "EXNESS", 1718000040000, 7824.05, 7676.54, -147.51);
+    ins.run("qkt-prod", "EXNESS", 1718000100000, 7824.05, 7700.0, -124.05);
+    ins.run("qkt-prod", "EXNESS", 1718000160000, 7824.05, 7650.0, -174.05);
+    ins.run("other", "EXNESS", 1718000100000, 1, 1, 0);
+    const all = accountEquity(db, { instanceId: "qkt-prod" });
+    expect(all.map((r) => r.minuteTs)).toEqual([1718000040000, 1718000100000, 1718000160000]);
+    expect(all[0]).toMatchObject({ broker: "EXNESS", balance: 7824.05, equity: 7676.54, openProfit: -147.51 });
+    const ranged = accountEquity(db, { instanceId: "qkt-prod", from: 1718000100000, to: 1718000100000 });
+    expect(ranged.map((r) => r.minuteTs)).toEqual([1718000100000]);
+  });
+
+  it("strategyStats computes trades, realized, and winRate from deals when out-deals exist", () => {
+    ingestEvents(db, "qkt-prod", [
+      deal("deal-EXNESS-10", 1718000001000, { strategyId: "latch", entry: "IN", profit: 0 }),
+      deal("deal-EXNESS-11", 1718000002000, { strategyId: "latch", profit: 10, commission: -1, swap: -0.5 }),
+      deal("deal-EXNESS-12", 1718000003000, { strategyId: "latch", profit: -5, commission: -1, swap: 0 }),
+    ]);
+    const s = strategyStats(db, { instanceId: "qkt-prod", strategyId: "latch" });
+    expect(s.tradeCount).toBe(2);
+    expect(s.realizedPnl).toBeCloseTo(2.5);
+    expect(s.winRate).toBeCloseTo(0.5);
+  });
+
+  it("strategyStats keeps the ledger behavior when the strategy has no deals", () => {
+    const s = strategyStats(db, { instanceId: "qkt-prod", strategyId: "latch" });
+    expect(s.tradeCount).toBe(1);
+    expect(s.realizedPnl).toBe(5);
   });
 });

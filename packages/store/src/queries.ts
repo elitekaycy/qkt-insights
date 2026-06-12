@@ -123,6 +123,36 @@ export function listLogs(db: Db, f: { instanceId: string; strategyId?: string; l
   ).all(f) as LogRow[];
 }
 
+export interface DealRow {
+  id: string; broker: string; dealTicket: string; positionTicket: string | null; orderTicket: string | null;
+  symbol: string | null; side: string | null; entry: string | null; qty: number | null; price: number | null;
+  profit: number | null; commission: number | null; swap: number | null; magic: number | null;
+  comment: string | null; strategyId: string | null; ts: number;
+}
+
+export function listDeals(db: Db, f: { instanceId: string; strategyId?: string; limit: number; before?: number }): DealRow[] {
+  const cl: string[] = ["instance_id=@instanceId"];
+  if (f.strategyId) cl.push("strategy_id=@strategyId");
+  if (f.before != null) cl.push("ts<@before");
+  return db.prepare(
+    `SELECT id, broker, deal_ticket dealTicket, position_ticket positionTicket, order_ticket orderTicket,
+            symbol, side, entry, qty, price, profit, commission, swap, magic, comment, strategy_id strategyId, ts
+     FROM deals WHERE ${cl.join(" AND ")} ORDER BY ts DESC LIMIT @limit`,
+  ).all(f) as DealRow[];
+}
+
+export interface AccountEquityPoint { broker: string; minuteTs: number; balance: number | null; equity: number | null; openProfit: number | null }
+
+export function accountEquity(db: Db, f: { instanceId: string; from?: number; to?: number }): AccountEquityPoint[] {
+  const cl: string[] = ["instance_id=@instanceId"];
+  if (f.from != null) cl.push("minute_ts>=@from");
+  if (f.to != null) cl.push("minute_ts<=@to");
+  return db.prepare(
+    `SELECT broker, minute_ts minuteTs, balance, equity, open_profit openProfit
+     FROM account_equity WHERE ${cl.join(" AND ")} ORDER BY minute_ts ASC`,
+  ).all(f) as AccountEquityPoint[];
+}
+
 export interface StrategyStats {
   tradeCount: number;
   buyCount: number;
@@ -165,9 +195,18 @@ export function strategyStats(db: Db, f: { instanceId: string; strategyId: strin
     "SELECT equity, starting_balance sb FROM strategies WHERE instance_id=@instanceId AND strategy_id=@strategyId",
   ).get(f);
 
+  // Broker deals are ground truth when they exist: each closing leg carries the
+  // venue's realized profit plus the commission and swap the ledger never sees.
+  const d: any = db.prepare(
+    `SELECT COUNT(*) c,
+            COALESCE(SUM(profit + COALESCE(commission,0) + COALESCE(swap,0)),0) realized,
+            SUM(CASE WHEN profit + COALESCE(commission,0) + COALESCE(swap,0) > 0 THEN 1 ELSE 0 END) wins
+     FROM deals WHERE instance_id=@instanceId AND strategy_id=@strategyId AND entry IN ('OUT','INOUT','OUT_BY')`,
+  ).get(f);
+
   const { pnls } = tradePnls(db, f);
-  const wins = pnls.filter((d) => d > 0).length;
-  const winRate = pnls.length > 0 ? wins / pnls.length : null;
+  const wins = pnls.filter((x) => x > 0).length;
+  const winRate = d.c > 0 ? d.wins / d.c : pnls.length > 0 ? wins / pnls.length : null;
 
   let peak = -Infinity, maxDd = 0;
   for (const s of snaps) {
@@ -194,11 +233,11 @@ export function strategyStats(db: Db, f: { instanceId: string; strategyId: strin
   const sb = strat?.sb ?? null;
   const equity = strat?.equity ?? last?.equity ?? null;
   return {
-    tradeCount: t?.c ?? 0,
+    tradeCount: d.c > 0 ? d.c : t?.c ?? 0,
     buyCount: t?.buys ?? 0,
     sellCount: t?.sells ?? 0,
     volume: t?.vol ?? 0,
-    realizedPnl: last?.realized ?? null,
+    realizedPnl: d.c > 0 ? d.realized : last?.realized ?? null,
     equity,
     startingBalance: sb,
     returnPct: sb && equity != null && sb !== 0 ? (equity - sb) / sb : null,

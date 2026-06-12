@@ -51,7 +51,7 @@ export class LiveStateStore {
       const p = e.payload;
       const key = `${instanceId}:${p.broker}`;
       const prev = this.positions.get(key);
-      const list: LivePosition[] = p.positions.map((x) => ({ ticket: x.ticket, symbol: x.symbol, side: x.side,
+      const list: LivePosition[] = p.positions.map((x: LivePosition) => ({ ticket: x.ticket, symbol: x.symbol, side: x.side,
         qty: x.qty, entryPrice: x.entryPrice, currentPrice: x.currentPrice, profit: x.profit, swap: x.swap,
         openedAt: x.openedAt, strategyId: x.strategyId }));
       this.positions.set(key, { at: e.ts, list });
