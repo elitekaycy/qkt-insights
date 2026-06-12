@@ -2,7 +2,7 @@ import { useState } from "react";
 import { useQueries, useQuery } from "@tanstack/react-query";
 import { get, type AccountEquityPoint, type DrawdownPeriod, type EquityPoint, type PerformanceBundle, type StrategyRow } from "../api";
 import { ComparisonChart, EquityChart, UnderwaterChart, type ComparisonSeries } from "../components/EquityChart";
-import { Card, Cell, Empty, Field, Modal, PageHeader, Panel, Pill, QueryError, Row, Select, Table } from "../components/ui";
+import { Card, Cell, Empty, Field, Loadable, Modal, PageHeader, Panel, Pill, Row, Select, Table } from "../components/ui";
 import { duration, human, money, tsDay } from "../format";
 
 const PALETTE = ["#c8f74a", "#5cb8ff", "#a78bfa", "#3fe08c", "#fbbf24", "#ff6b6b", "#f472b6", "#22d3ee"];
@@ -96,37 +96,62 @@ export default function Equity({ instanceId }: { instanceId: string | null }) {
           </div>
         }
       />
-      <QueryError on={strategies.isError || account.isError || curves.some((c) => c.isError) || performance.isError} what="equity curves" />
-
       <Panel className="mt-5" stagger={1} title="Account equity" hint="broker-reported, 1-minute rollup">
-        {accountByBroker.size === 0 ? (
-          <Empty>No account history yet — waiting for the broker state poller.</Empty>
-        ) : (
-          [...accountByBroker.entries()].map(([broker, pts]) => (
-            <div key={broker} className="p-4">
-              {accountByBroker.size > 1 && (
-                <div className="mb-2 text-[11px] font-semibold uppercase tracking-[0.12em] text-muted">{broker}</div>
-              )}
-              <EquityChart points={pts} height={320} />
-            </div>
-          ))
-        )}
+        <Loadable loading={account.isPending} error={account.isError} retry={() => account.refetch()} what="the account curve" lines={4}>
+          {accountByBroker.size === 0 ? (
+            <Empty>No account history yet — waiting for the broker state poller.</Empty>
+          ) : (
+            [...accountByBroker.entries()].map(([broker, pts]) => (
+              <div key={broker} className="p-4">
+                {accountByBroker.size > 1 && (
+                  <div className="mb-2 text-[11px] font-semibold uppercase tracking-[0.12em] text-muted">{broker}</div>
+                )}
+                <EquityChart points={pts} height={320} />
+              </div>
+            ))
+          )}
+        </Loadable>
       </Panel>
 
       <Panel className="mt-5" stagger={2} title="Strategy ledgers" hint="paper ledgers, % change from first snapshot">
-        <div className="p-4">
-          <ComparisonChart series={series} height={360} />
-        </div>
+        <Loadable
+          loading={strategies.isPending || curves.some((c) => c.isPending)}
+          error={strategies.isError || curves.some((c) => c.isError)}
+          retry={() => {
+            void strategies.refetch();
+            curves.forEach((c) => void c.refetch());
+          }}
+          what="strategy ledgers"
+          lines={4}
+        >
+          <div className="p-4">
+            <ComparisonChart series={series} height={360} />
+          </div>
+        </Loadable>
       </Panel>
 
       <div className="mt-5 grid grid-cols-1 gap-5 xl:grid-cols-2">
         <Panel stagger={2} title="Underwater" hint="distance below the running equity peak" toolbar={ddSelect}>
-          <div className="p-4">
-            <UnderwaterChart points={focusCurve} />
-          </div>
+          <Loadable
+            loading={strategies.isPending || (focusIdx >= 0 && (curves[focusIdx]?.isPending ?? false))}
+            error={focusIdx >= 0 && (curves[focusIdx]?.isError ?? false)}
+            retry={() => void curves[focusIdx]?.refetch()}
+            what="the underwater curve"
+            lines={4}
+          >
+            <div className="p-4">
+              <UnderwaterChart points={focusCurve} />
+            </div>
+          </Loadable>
         </Panel>
 
         <Panel stagger={3} title="Drawdown periods" hint={`${focusId} · click a row to inspect`} scroll="max-h-[20rem]">
+          <Loadable
+            loading={!!focusId && performance.isPending}
+            error={performance.isError}
+            retry={() => performance.refetch()}
+            what="drawdown periods"
+          >
           <Table head={["Peak", "Trough", "Depth", "Length", "Recovery"]}>
             {periods.map((p) => (
               <Row key={p.peakTs} onClick={() => setOpenDd(p)}>
@@ -147,6 +172,7 @@ export default function Equity({ instanceId }: { instanceId: string | null }) {
             ))}
             {periods.length === 0 && <Empty colSpan={5}>No drawdowns recorded — flat or rising equity.</Empty>}
           </Table>
+          </Loadable>
         </Panel>
       </div>
 

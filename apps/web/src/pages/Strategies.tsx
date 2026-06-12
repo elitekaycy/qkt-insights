@@ -7,11 +7,23 @@ import { EquityChart } from "../components/EquityChart";
 import { BreakdownPanels, PerformancePanels } from "../components/Performance";
 import { Sparkline } from "../components/Sparkline";
 import {
-  Card, Cell, Delta, Empty, LEVEL_TONE, LoadMore, PageHeader, Panel, Pill, QueryError, RangeSelect, rangeStart, Row, SearchInput, Select, SideTag, Stat, Table,
+  Card, Cell, Empty, LEVEL_TONE, Loadable, LoadMore, MoneyDelta, PageHeader, Panel, Pill, RangeSelect, rangeStart, Row, SearchInput, Select, SideTag, Stat, Table,
   type RangeKey,
 } from "../components/ui";
 import { age, money, num, pct, ts, tsDay } from "../format";
 import { realizedLabel } from "../useCloses";
+import { useLiveState } from "../useLiveState";
+
+/** Open P&L per strategy from the live broker positions of one instance, with a staleness flag. */
+function useOpenByStrategy(instanceId: string | null) {
+  const liveState = useLiveState();
+  const groups = (liveState.data?.positions ?? []).filter((g) => g.instanceId === instanceId);
+  const open = new Map<string, number>();
+  for (const g of groups)
+    for (const p of g.list)
+      if (p.strategyId) open.set(p.strategyId, (open.get(p.strategyId) ?? 0) + (p.profit ?? 0));
+  return { open, hasState: groups.length > 0, stale: groups.length > 0 && groups.every((g) => g.stale) };
+}
 
 export default function Strategies({
   instanceId,
@@ -30,6 +42,7 @@ export default function Strategies({
     enabled: !!instanceId,
     refetchInterval: 10000,
   });
+  const live = useOpenByStrategy(instanceId);
 
   if (!instanceId) return <Card className="p-8 text-center text-faint">No instance selected.</Card>;
   if (selected)
@@ -48,12 +61,13 @@ export default function Strategies({
   return (
     <div>
       <PageHeader title="Strategies" sub={`Every strategy ${instanceId} has reported. Click one to drill in.`} />
-      <QueryError on={strategies.isError} what="strategies" />
+      <Loadable loading={strategies.isPending} error={strategies.isError} retry={() => strategies.refetch()} what="strategies">
       <div className="mt-6 grid grid-cols-1 gap-4 md:grid-cols-2 xl:grid-cols-3">
         {rows.length === 0 && <Card className="p-8 text-center text-faint md:col-span-2 xl:col-span-3">No strategies yet.</Card>}
         {rows.map((s, i) => {
-          const ret =
-            s.equity != null && s.startingBalance ? (s.equity - s.startingBalance) / s.startingBalance : null;
+          const realized = s.realizedNet;
+          const open = live.open.get(s.strategyId) ?? (live.hasState ? 0 : null);
+          const net = realized == null && open == null ? null : (realized ?? 0) + (open ?? 0);
           return (
             <button key={s.strategyId} onClick={() => setSelected(s.strategyId)} className="group text-left">
               <Card className="p-5 transition group-hover:border-accent/50 group-hover:bg-raised" stagger={i}>
@@ -61,16 +75,19 @@ export default function Strategies({
                   <span className="font-bold text-bright">{s.strategyId}</span>
                   <span className="text-xs text-faint">{age(s.lastSeen)}</span>
                 </div>
-                <div className="mt-2.5 flex items-baseline gap-3">
-                  <span className="font-mono text-2xl font-semibold text-bright">{money(s.equity)}</span>
-                  <Delta value={ret} />
+                <div className="mt-2.5 flex items-baseline gap-3" title="realized + open">
+                  <span className="font-mono text-2xl font-semibold text-bright">{money(realized)}</span>
+                  <MoneyDelta value={net} dim={live.stale} />
                 </div>
-                <div className="mt-1 text-xs text-faint">from {money(s.startingBalance)} starting</div>
+                <div className={`mt-1 text-xs ${live.stale ? "text-faint" : "text-muted"}`}>
+                  open {money(open)} · {s.dealCount} deal{s.dealCount === 1 ? "" : "s"}
+                </div>
               </Card>
             </button>
           );
         })}
       </div>
+      </Loadable>
     </div>
   );
 }
@@ -115,7 +132,11 @@ function StrategyDetail({ instanceId, strategyId, onBack }: { instanceId: string
     refetchInterval: 15000,
   });
 
+  const live = useOpenByStrategy(instanceId);
+
   const s = stats.data;
+  const openPnl = live.open.get(strategyId) ?? (live.hasState ? 0 : null);
+  const heroNet = s?.realizedPnl == null && openPnl == null ? null : (s?.realizedPnl ?? 0) + (openPnl ?? 0);
   const closeByOrder = new Map((performance.data?.closes ?? []).filter((c) => c.orderId).map((c) => [c.orderId!, c]));
   const tradeNeedle = tradeQ.trim().toUpperCase();
   const tradeRows = (trades.data ?? [])
@@ -148,20 +169,20 @@ function StrategyDetail({ instanceId, strategyId, onBack }: { instanceId: string
       <div className="mt-2 flex flex-wrap items-end justify-between gap-4">
         <div className="rise">
           <h2 className="text-2xl font-extrabold tracking-tight text-bright">{strategyId}</h2>
-          <div className="mt-2 flex items-baseline gap-3">
-            <span className="font-mono text-4xl font-bold text-bright">{money(s?.equity)}</span>
-            <Delta value={s?.returnPct} />
+          <div className="mt-2 flex items-baseline gap-3" title="realized + open">
+            <span className={`font-mono text-4xl font-bold ${heroNet == null ? "text-faint" : heroNet >= 0 ? "text-up" : "text-down"}`}>
+              {money(heroNet)}
+            </span>
+            <MoneyDelta value={openPnl} dim={live.stale} />
+          </div>
+          <div className={`mt-1 text-xs ${live.stale ? "text-faint" : "text-muted"}`}>
+            realized {money(s?.realizedPnl)} + open {money(openPnl)}
           </div>
         </div>
         <div className="rise -mb-1 w-64">
           <Sparkline points={equity.data ?? []} height={56} />
         </div>
       </div>
-
-      <QueryError
-        on={stats.isError || equity.isError || trades.isError || logs.isError || performance.isError}
-        what="strategy data"
-      />
 
       <div className="rise mt-5 flex flex-wrap items-center gap-2">
         {(["overview", "performance", "calendar"] as const).map((t) => (
@@ -184,29 +205,33 @@ function StrategyDetail({ instanceId, strategyId, onBack }: { instanceId: string
 
       {tab === "performance" && (
         <div className="mt-5 grid gap-5">
-          {performance.data ? <PerformancePanels bundle={performance.data} /> : <Card className="p-8 text-center text-faint">Loading…</Card>}
-          {performance.data?.breakdowns && <BreakdownPanels b={performance.data.breakdowns} />}
+          <Loadable loading={!performance.data} error={performance.isError} retry={() => performance.refetch()} what="performance" lines={6}>
+            {performance.data && <PerformancePanels bundle={performance.data} />}
+            {performance.data?.breakdowns && <BreakdownPanels b={performance.data.breakdowns} />}
+          </Loadable>
         </div>
       )}
 
       {tab === "calendar" && (
         <div className="mt-5">
-          {performance.data ? (
-            <CalendarView
-              days={performance.data.dailyNets}
-              startingBalance={s?.startingBalance ?? null}
-              trades={tradeRows}
-              onTrade={setOpenTrade}
-            />
-          ) : (
-            <Card className="p-8 text-center text-faint">Loading…</Card>
-          )}
+          <Loadable loading={!performance.data} error={performance.isError} retry={() => performance.refetch()} what="the calendar" lines={6}>
+            {performance.data && (
+              <CalendarView
+                days={performance.data.dailyNets}
+                startingBalance={s?.startingBalance ?? null}
+                trades={tradeRows}
+                onTrade={setOpenTrade}
+              />
+            )}
+          </Loadable>
         </div>
       )}
 
       {tab === "overview" && (
         <>
-      <div className="mt-5 grid grid-cols-2 gap-3 md:grid-cols-3 xl:grid-cols-6">
+      <div className="mt-5">
+        <Loadable loading={stats.isPending} error={stats.isError} retry={() => stats.refetch()} what="strategy stats" lines={2}>
+      <div className="grid grid-cols-2 gap-3 md:grid-cols-3 xl:grid-cols-6">
         <Stat
           label="Realized PnL"
           value={money(s?.realizedPnl)}
@@ -224,11 +249,15 @@ function StrategyDetail({ instanceId, strategyId, onBack }: { instanceId: string
         />
         <Stat label="Volume" value={num(s?.volume)} stagger={5} />
       </div>
+        </Loadable>
+      </div>
 
-      <Panel className="mt-6" stagger={2} title="Equity" hint={`from ${money(s?.startingBalance)} starting`}>
-        <div className="p-4">
-          <EquityChart points={equity.data ?? []} />
-        </div>
+      <Panel className="mt-6" stagger={2} title="Equity" hint="paper ledger snapshots">
+        <Loadable loading={equity.isPending} error={equity.isError} retry={() => equity.refetch()} what="the equity curve" lines={4}>
+          <div className="p-4">
+            <EquityChart points={equity.data ?? []} />
+          </div>
+        </Loadable>
       </Panel>
 
       <div className="mt-6 grid grid-cols-1 gap-6 xl:grid-cols-2">
@@ -269,6 +298,7 @@ function StrategyDetail({ instanceId, strategyId, onBack }: { instanceId: string
             </>
           }
         >
+          <Loadable loading={trades.isPending} error={trades.isError} retry={() => trades.refetch()} what="trades">
           <Table>
             {tradeRows.slice(0, tradeCap).map((t) => (
               <Row key={t.id} onClick={() => setOpenTrade(t)}>
@@ -288,9 +318,11 @@ function StrategyDetail({ instanceId, strategyId, onBack }: { instanceId: string
             {tradeRows.length === 0 && <Empty colSpan={6}>No trades yet</Empty>}
           </Table>
           <LoadMore shown={Math.min(tradeCap, tradeRows.length)} total={tradeRows.length} onMore={() => setTradeCap((c) => c + 20)} />
+          </Loadable>
         </Panel>
 
         <Panel stagger={4} title="Recent logs" scroll="max-h-[26rem]">
+          <Loadable loading={logs.isPending} error={logs.isError} retry={() => logs.refetch()} what="logs">
           <div className="p-2">
             {logRows.slice(0, logCap).map((l) => (
               <div key={l.id} className="flex items-start gap-2 border-b border-line/50 px-2 py-1.5 font-mono text-xs last:border-b-0">
@@ -302,6 +334,7 @@ function StrategyDetail({ instanceId, strategyId, onBack }: { instanceId: string
             {logRows.length === 0 && <Empty>No logs yet</Empty>}
           </div>
           <LoadMore shown={Math.min(logCap, logRows.length)} total={logRows.length} onMore={() => setLogCap((c) => c + 20)} />
+          </Loadable>
         </Panel>
       </div>
         </>

@@ -14,11 +14,14 @@ export interface LiveEnvelope {
 /**
  * Subscribes to the collector's WS /live feed for one instance and keeps the
  * most recent events in memory (newest first, capped). Reconnects with a short
- * delay if the socket drops.
+ * delay if the socket drops. `types` narrows the subscription server-side
+ * (e.g. ["log"] for the logs page), so unrelated envelopes never hit the wire.
  */
-export function useLiveStream(instanceId: string | null, cap = 500): LiveEnvelope[] {
+export function useLiveStream(instanceId: string | null, cap = 500, types?: string[]): LiveEnvelope[] {
   const [events, setEvents] = useState<LiveEnvelope[]>([]);
   const wsRef = useRef<WebSocket | null>(null);
+  // Joined once so an inline array literal does not re-open the socket every render.
+  const typesKey = types?.join(",");
 
   useEffect(() => {
     setEvents([]);
@@ -28,7 +31,8 @@ export function useLiveStream(instanceId: string | null, cap = 500): LiveEnvelop
 
     const connect = () => {
       const proto = location.protocol === "https:" ? "wss" : "ws";
-      const ws = new WebSocket(`${proto}://${location.host}/live?instance=${encodeURIComponent(instanceId)}`);
+      const url = `${proto}://${location.host}/live?instance=${encodeURIComponent(instanceId)}${typesKey ? `&types=${encodeURIComponent(typesKey)}` : ""}`;
+      const ws = new WebSocket(url);
       wsRef.current = ws;
       ws.onmessage = (ev) => {
         const env = JSON.parse(String(ev.data)) as LiveEnvelope;
@@ -45,7 +49,7 @@ export function useLiveStream(instanceId: string | null, cap = 500): LiveEnvelop
       clearTimeout(retry);
       wsRef.current?.close();
     };
-  }, [instanceId, cap]);
+  }, [instanceId, cap, typesKey]);
 
   return events;
 }

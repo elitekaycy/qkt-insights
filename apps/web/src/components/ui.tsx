@@ -1,5 +1,6 @@
 import { useEffect, useState, type ReactNode } from "react";
 import { createPortal } from "react-dom";
+import { money } from "../format";
 
 /*
  * The component kit every page is built from. Pages compose these and never
@@ -195,7 +196,7 @@ export function Stat({
   expand,
 }: {
   label: string;
-  value: string;
+  value: ReactNode;
   tone?: Tone;
   sub?: string;
   stagger?: number;
@@ -217,6 +218,19 @@ export function Stat({
         </Modal>
       )}
     </>
+  );
+}
+
+/**
+ * Replays a one-shot background flash whenever `value` changes: the key swap
+ * remounts the span, restarting the .value-flash CSS animation. Wrap live
+ * numbers so a WS tick is visible, e.g. <FlashValue value={a.equity}>{money(a.equity)}</FlashValue>.
+ */
+export function FlashValue({ value, children, className = "" }: { value: unknown; children: ReactNode; className?: string }) {
+  return (
+    <span key={String(value)} className={`value-flash ${className}`}>
+      {children}
+    </span>
   );
 }
 
@@ -256,6 +270,17 @@ export function Delta({ value }: { value: number | null | undefined }) {
   return (
     <span className={`font-mono text-sm font-semibold ${up ? "text-up" : "text-down"}`}>
       {up ? "▲" : "▼"} {(Math.abs(value) * 100).toFixed(2)}%
+    </span>
+  );
+}
+
+/** Direction badge for a dollar amount: arrow and tone from the sign. `dim` greys it when the source is stale. */
+export function MoneyDelta({ value, dim }: { value: number | null | undefined; dim?: boolean }) {
+  if (value == null) return <span className="text-faint">—</span>;
+  const up = value >= 0;
+  return (
+    <span className={`font-mono text-sm font-semibold ${dim ? "text-faint" : up ? "text-up" : "text-down"}`}>
+      {up ? "▲" : "▼"} {money(Math.abs(value))}
     </span>
   );
 }
@@ -461,16 +486,46 @@ export function Field({ label, children, wide }: { label: string; children: Reac
   );
 }
 
-/**
- * A failed-fetch banner. Pages render data with `query.data ?? []`, which makes
- * an outage look like a calm empty dashboard — this says the quiet part out loud.
- * e.g. `<QueryError on={trades.isError || logs.isError} what="trades and logs" />`
- */
-export function QueryError({ on, what }: { on: boolean; what: string }) {
-  if (!on) return null;
+/** Pulsing placeholder bars shown where content will land once its query resolves. */
+export function Skeleton({ lines = 3, className = "" }: { lines?: number; className?: string }) {
   return (
-    <div className="rise mt-4 rounded-lg border border-down/40 bg-down/10 px-4 py-2.5 text-sm text-down">
-      Failed to load {what} — what is shown below may be stale or incomplete.
+    <div className={`animate-pulse space-y-3 p-4 ${className}`}>
+      {Array.from({ length: lines }, (_, i) => (
+        <div key={i} className="h-4 rounded bg-raised" style={{ width: `${100 - (i % 3) * 18}%` }} />
+      ))}
     </div>
   );
+}
+
+/**
+ * Per-panel gate around one query: skeleton while the first load is in
+ * flight, an inline error with a Retry button if the fetch failed, otherwise
+ * the content. Wrapping each panel separately keeps one broken endpoint from
+ * blanking the whole page.
+ * e.g. `<Loadable loading={q.isPending} error={q.isError} retry={q.refetch}>…</Loadable>`
+ */
+export function Loadable({
+  loading,
+  error,
+  retry,
+  what = "this panel",
+  lines,
+  children,
+}: {
+  loading: boolean;
+  error: boolean;
+  retry: () => void;
+  what?: string;
+  lines?: number;
+  children: ReactNode;
+}) {
+  if (error)
+    return (
+      <div className="m-4 flex items-center justify-between gap-3 rounded-lg border border-down/40 bg-down/10 px-4 py-3 text-sm text-down">
+        <span>Failed to load {what}.</span>
+        <Button onClick={() => retry()}>Retry</Button>
+      </div>
+    );
+  if (loading) return <Skeleton lines={lines} />;
+  return <>{children}</>;
 }
