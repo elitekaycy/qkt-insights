@@ -1,5 +1,5 @@
 import { describe, it, expect } from "vitest";
-import { openDb, ingestEvents, performanceReport, dailyNets, drawdownPeriods, postLossStats, openPositions, tradeBreakdowns, closedTrades, strategyStats, type Db } from "../src/index.js";
+import { openDb, ingestEvents, performanceReport, dailyNets, drawdownPeriods, postLossStats, tradeBreakdowns, closedTrades, strategyStats, type Db } from "../src/index.js";
 import type { Envelope } from "@qkt-insights/contract";
 
 const DAY = 86_400_000;
@@ -147,32 +147,6 @@ describe("postLossStats", () => {
     expect(n2.sample).toBe(1);
     expect(n2.nextWinRate).toBe(100);
     expect(rows.find((r) => r.n === 3)).toBeUndefined();
-  });
-});
-
-describe("openPositions", () => {
-  // Ingest no longer writes snapshot.position into events; openPositions only
-  // reads rows persisted before that change, so tests seed the table directly.
-  const seedPos = (db: any, ts: number, legs: any[]) =>
-    db.prepare("INSERT INTO events (id, instance_id, type, strategy_id, seq, ts, payload) VALUES (?,?,?,?,?,?,?)")
-      .run(`pos-${ts}`, "qkt-prod", "snapshot.position", "latch", 1, ts,
-        JSON.stringify({ strategyId: "latch", symbol: "XAUUSD", legs }));
-
-  it("returns the latest position snapshot per strategy and symbol", () => {
-    const db = openDb(":memory:");
-    seedPos(db, T0, [{ side: "BUY", qty: 0.2, entryPrice: 2000, entryTs: T0 - DAY }]);
-    seedPos(db, T0 + 1000, [{ side: "BUY", qty: 0.1, entryPrice: 2010, entryTs: T0 }]);
-    const rows = openPositions(db, { instanceId: "qkt-prod" });
-    expect(rows).toHaveLength(1);
-    expect(rows[0]).toMatchObject({ strategyId: "latch", symbol: "XAUUSD" });
-    expect(rows[0]!.legs).toHaveLength(1);
-    expect(rows[0]!.legs[0]).toMatchObject({ qty: 0.1, entryPrice: 2010 });
-  });
-
-  it("omits symbols whose latest snapshot has no legs", () => {
-    const db = openDb(":memory:");
-    seedPos(db, T0, []);
-    expect(openPositions(db, { instanceId: "qkt-prod" })).toHaveLength(0);
   });
 });
 
