@@ -7,7 +7,7 @@ import { EquityChart } from "../components/EquityChart";
 import { BreakdownPanels, PerformancePanels } from "../components/Performance";
 import { Sparkline } from "../components/Sparkline";
 import {
-  Card, Cell, Empty, LEVEL_TONE, LoadMore, MoneyDelta, PageHeader, Panel, Pill, QueryError, RangeSelect, rangeStart, Row, SearchInput, Select, SideTag, Stat, Table,
+  Card, Cell, Empty, LEVEL_TONE, Loadable, LoadMore, MoneyDelta, PageHeader, Panel, Pill, RangeSelect, rangeStart, Row, SearchInput, Select, SideTag, Stat, Table,
   type RangeKey,
 } from "../components/ui";
 import { age, money, num, pct, ts, tsDay } from "../format";
@@ -61,7 +61,7 @@ export default function Strategies({
   return (
     <div>
       <PageHeader title="Strategies" sub={`Every strategy ${instanceId} has reported. Click one to drill in.`} />
-      <QueryError on={strategies.isError} what="strategies" />
+      <Loadable loading={strategies.isPending} error={strategies.isError} retry={() => strategies.refetch()} what="strategies">
       <div className="mt-6 grid grid-cols-1 gap-4 md:grid-cols-2 xl:grid-cols-3">
         {rows.length === 0 && <Card className="p-8 text-center text-faint md:col-span-2 xl:col-span-3">No strategies yet.</Card>}
         {rows.map((s, i) => {
@@ -87,6 +87,7 @@ export default function Strategies({
           );
         })}
       </div>
+      </Loadable>
     </div>
   );
 }
@@ -183,11 +184,6 @@ function StrategyDetail({ instanceId, strategyId, onBack }: { instanceId: string
         </div>
       </div>
 
-      <QueryError
-        on={stats.isError || equity.isError || trades.isError || logs.isError || performance.isError}
-        what="strategy data"
-      />
-
       <div className="rise mt-5 flex flex-wrap items-center gap-2">
         {(["overview", "performance", "calendar"] as const).map((t) => (
           <button
@@ -209,29 +205,33 @@ function StrategyDetail({ instanceId, strategyId, onBack }: { instanceId: string
 
       {tab === "performance" && (
         <div className="mt-5 grid gap-5">
-          {performance.data ? <PerformancePanels bundle={performance.data} /> : <Card className="p-8 text-center text-faint">Loading…</Card>}
-          {performance.data?.breakdowns && <BreakdownPanels b={performance.data.breakdowns} />}
+          <Loadable loading={!performance.data} error={performance.isError} retry={() => performance.refetch()} what="performance" lines={6}>
+            {performance.data && <PerformancePanels bundle={performance.data} />}
+            {performance.data?.breakdowns && <BreakdownPanels b={performance.data.breakdowns} />}
+          </Loadable>
         </div>
       )}
 
       {tab === "calendar" && (
         <div className="mt-5">
-          {performance.data ? (
-            <CalendarView
-              days={performance.data.dailyNets}
-              startingBalance={s?.startingBalance ?? null}
-              trades={tradeRows}
-              onTrade={setOpenTrade}
-            />
-          ) : (
-            <Card className="p-8 text-center text-faint">Loading…</Card>
-          )}
+          <Loadable loading={!performance.data} error={performance.isError} retry={() => performance.refetch()} what="the calendar" lines={6}>
+            {performance.data && (
+              <CalendarView
+                days={performance.data.dailyNets}
+                startingBalance={s?.startingBalance ?? null}
+                trades={tradeRows}
+                onTrade={setOpenTrade}
+              />
+            )}
+          </Loadable>
         </div>
       )}
 
       {tab === "overview" && (
         <>
-      <div className="mt-5 grid grid-cols-2 gap-3 md:grid-cols-3 xl:grid-cols-6">
+      <div className="mt-5">
+        <Loadable loading={stats.isPending} error={stats.isError} retry={() => stats.refetch()} what="strategy stats" lines={2}>
+      <div className="grid grid-cols-2 gap-3 md:grid-cols-3 xl:grid-cols-6">
         <Stat
           label="Realized PnL"
           value={money(s?.realizedPnl)}
@@ -249,11 +249,15 @@ function StrategyDetail({ instanceId, strategyId, onBack }: { instanceId: string
         />
         <Stat label="Volume" value={num(s?.volume)} stagger={5} />
       </div>
+        </Loadable>
+      </div>
 
       <Panel className="mt-6" stagger={2} title="Equity" hint="paper ledger snapshots">
-        <div className="p-4">
-          <EquityChart points={equity.data ?? []} />
-        </div>
+        <Loadable loading={equity.isPending} error={equity.isError} retry={() => equity.refetch()} what="the equity curve" lines={4}>
+          <div className="p-4">
+            <EquityChart points={equity.data ?? []} />
+          </div>
+        </Loadable>
       </Panel>
 
       <div className="mt-6 grid grid-cols-1 gap-6 xl:grid-cols-2">
@@ -294,6 +298,7 @@ function StrategyDetail({ instanceId, strategyId, onBack }: { instanceId: string
             </>
           }
         >
+          <Loadable loading={trades.isPending} error={trades.isError} retry={() => trades.refetch()} what="trades">
           <Table>
             {tradeRows.slice(0, tradeCap).map((t) => (
               <Row key={t.id} onClick={() => setOpenTrade(t)}>
@@ -313,9 +318,11 @@ function StrategyDetail({ instanceId, strategyId, onBack }: { instanceId: string
             {tradeRows.length === 0 && <Empty colSpan={6}>No trades yet</Empty>}
           </Table>
           <LoadMore shown={Math.min(tradeCap, tradeRows.length)} total={tradeRows.length} onMore={() => setTradeCap((c) => c + 20)} />
+          </Loadable>
         </Panel>
 
         <Panel stagger={4} title="Recent logs" scroll="max-h-[26rem]">
+          <Loadable loading={logs.isPending} error={logs.isError} retry={() => logs.refetch()} what="logs">
           <div className="p-2">
             {logRows.slice(0, logCap).map((l) => (
               <div key={l.id} className="flex items-start gap-2 border-b border-line/50 px-2 py-1.5 font-mono text-xs last:border-b-0">
@@ -327,6 +334,7 @@ function StrategyDetail({ instanceId, strategyId, onBack }: { instanceId: string
             {logRows.length === 0 && <Empty>No logs yet</Empty>}
           </div>
           <LoadMore shown={Math.min(logCap, logRows.length)} total={logRows.length} onMore={() => setLogCap((c) => c + 20)} />
+          </Loadable>
         </Panel>
       </div>
         </>

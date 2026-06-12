@@ -3,7 +3,7 @@ import { useQueries, useQuery } from "@tanstack/react-query";
 import { get, type EquityPoint, type HealthRow, type OpenPositionRow, type PerformanceBundle, type StrategyRow, type StrategyStats } from "../api";
 import { ComparisonChart, type ComparisonSeries } from "../components/EquityChart";
 import { Sparkline } from "../components/Sparkline";
-import { Card, Cell, Empty, FlashValue, HoverExpand, LiveDot, Modal, MoneyDelta, PageHeader, Panel, Pill, QueryError, Row, SideTag, Stat, Table } from "../components/ui";
+import { Card, Cell, Empty, FlashValue, HoverExpand, LiveDot, Loadable, Modal, MoneyDelta, PageHeader, Panel, Pill, Row, SideTag, Stat, Table } from "../components/ui";
 import { age, money, num, pct, ts } from "../format";
 import { useLiveState } from "../useLiveState";
 import { useLiveStream } from "../useLiveStream";
@@ -208,19 +208,19 @@ export default function Overview({
   return (
     <div>
       <PageHeader title="Overview" sub={`Everything ${instanceId} is doing, right now.`} />
-      <QueryError
-        on={
-          strategies.isError || health.isError || positions.isError || liveState.isError ||
-          curves.some((q) => q.isError) || stats.some((q) => q.isError) || perf.some((q) => q.isError)
-        }
-        what="live data"
-      />
 
       <div className="mt-6">
         <div className="rise flex items-baseline justify-between" style={{ "--stagger": 0 } as React.CSSProperties}>
           <h3 className="text-sm font-bold uppercase tracking-[0.08em] text-body">Account</h3>
           <span className="text-xs text-faint">broker-reported — not the paper ledgers below</span>
         </div>
+        <Loadable
+          loading={liveState.isPending}
+          error={liveState.isError}
+          retry={() => liveState.refetch()}
+          what="broker account state"
+          lines={2}
+        >
         {accounts.length === 0 && (
           <Card className="mt-3 p-8 text-center text-faint" stagger={0}>
             No broker account state yet — waiting for the state poller.
@@ -252,8 +252,15 @@ export default function Overview({
             </div>
           </div>
         ))}
+        </Loadable>
         <div className="mt-4">
           <Panel stagger={1} title="Open positions" hint="live broker tickets, broker-valued" scroll="max-h-[22rem]">
+            <Loadable
+              loading={liveState.isPending}
+              error={liveState.isError}
+              retry={() => liveState.refetch()}
+              what="open positions"
+            >
             <Table head={["Ticket", "Symbol", "Side", "Qty", "Entry", "Current", "Profit", "Swap", "Strategy"]}>
               {brokerPositions.flatMap((g) =>
                 g.list.map((p) => (
@@ -284,6 +291,7 @@ export default function Overview({
                 </Empty>
               )}
             </Table>
+            </Loadable>
           </Panel>
         </div>
       </div>
@@ -314,7 +322,18 @@ export default function Overview({
             </div>
           </div>
           <div className="mt-4 min-h-[220px] flex-1">
-            <ComparisonChart series={series} height="100%" />
+            <Loadable
+              loading={strategies.isPending || curves.some((q) => q.isPending)}
+              error={strategies.isError || curves.some((q) => q.isError)}
+              retry={() => {
+                void strategies.refetch();
+                curves.forEach((q) => void q.refetch());
+              }}
+              what="equity curves"
+              lines={4}
+            >
+              <ComparisonChart series={series} height="100%" />
+            </Loadable>
           </div>
         </Card>
         <Modal open={heroOpen} onClose={() => setHeroOpen(false)} title="Account equity" hint={`${money(accountEquity)} across ${rows.length} strategies`}>
@@ -478,6 +497,7 @@ export default function Overview({
           <h3 className="text-sm font-bold uppercase tracking-[0.08em] text-body">Strategies</h3>
           <span className="text-xs text-faint">click one to drill in</span>
         </div>
+        <Loadable loading={strategies.isPending} error={strategies.isError} retry={() => strategies.refetch()} what="strategies">
         <div className="mt-3 grid grid-cols-1 gap-4 md:grid-cols-2 xl:grid-cols-3">
           {rows.length === 0 && <Card className="p-8 text-center text-faint md:col-span-2 xl:col-span-3">No strategies yet.</Card>}
           {rows.map((s, i) => {
@@ -520,10 +540,12 @@ export default function Overview({
             );
           })}
         </div>
+        </Loadable>
       </div>
 
       <div className="mt-8">
         <Panel stagger={5} title="Strategy positions" hint="latest engine position snapshot per strategy and symbol" scroll="max-h-[22rem]">
+          <Loadable loading={positions.isPending} error={positions.isError} retry={() => positions.refetch()} what="strategy positions">
           <Table head={["Strategy", "Symbol", "Side", "Qty", "Entry", "Opened"]}>
             {posRows.flatMap((p) =>
               p.legs.map((leg, i) => (
@@ -541,11 +563,13 @@ export default function Overview({
             )}
             {posRows.length === 0 && <Empty colSpan={6}>Flat — no open positions reported.</Empty>}
           </Table>
+          </Loadable>
         </Panel>
       </div>
 
       <div className="mt-8">
         <Panel stagger={6} title="Instances" hint="every qkt box the collector has heard from">
+          <Loadable loading={health.isPending} error={health.isError} retry={() => health.refetch()} what="instance health" lines={1}>
           <div className="flex flex-wrap gap-3 p-4">
             {(health.data ?? []).length === 0 && <Empty>No instances reporting yet</Empty>}
             {(health.data ?? []).map((h) => {
@@ -561,6 +585,7 @@ export default function Overview({
               );
             })}
           </div>
+          </Loadable>
         </Panel>
       </div>
     </div>

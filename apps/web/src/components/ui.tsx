@@ -486,16 +486,46 @@ export function Field({ label, children, wide }: { label: string; children: Reac
   );
 }
 
-/**
- * A failed-fetch banner. Pages render data with `query.data ?? []`, which makes
- * an outage look like a calm empty dashboard — this says the quiet part out loud.
- * e.g. `<QueryError on={trades.isError || logs.isError} what="trades and logs" />`
- */
-export function QueryError({ on, what }: { on: boolean; what: string }) {
-  if (!on) return null;
+/** Pulsing placeholder bars shown where content will land once its query resolves. */
+export function Skeleton({ lines = 3, className = "" }: { lines?: number; className?: string }) {
   return (
-    <div className="rise mt-4 rounded-lg border border-down/40 bg-down/10 px-4 py-2.5 text-sm text-down">
-      Failed to load {what} — what is shown below may be stale or incomplete.
+    <div className={`animate-pulse space-y-3 p-4 ${className}`}>
+      {Array.from({ length: lines }, (_, i) => (
+        <div key={i} className="h-4 rounded bg-raised" style={{ width: `${100 - (i % 3) * 18}%` }} />
+      ))}
     </div>
   );
+}
+
+/**
+ * Per-panel gate around one query: skeleton while the first load is in
+ * flight, an inline error with a Retry button if the fetch failed, otherwise
+ * the content. Wrapping each panel separately keeps one broken endpoint from
+ * blanking the whole page.
+ * e.g. `<Loadable loading={q.isPending} error={q.isError} retry={q.refetch}>…</Loadable>`
+ */
+export function Loadable({
+  loading,
+  error,
+  retry,
+  what = "this panel",
+  lines,
+  children,
+}: {
+  loading: boolean;
+  error: boolean;
+  retry: () => void;
+  what?: string;
+  lines?: number;
+  children: ReactNode;
+}) {
+  if (error)
+    return (
+      <div className="m-4 flex items-center justify-between gap-3 rounded-lg border border-down/40 bg-down/10 px-4 py-3 text-sm text-down">
+        <span>Failed to load {what}.</span>
+        <Button onClick={() => retry()}>Retry</Button>
+      </div>
+    );
+  if (loading) return <Skeleton lines={lines} />;
+  return <>{children}</>;
 }

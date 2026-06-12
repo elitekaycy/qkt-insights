@@ -3,7 +3,7 @@ import { useQuery } from "@tanstack/react-query";
 import { get, type OrderRow, type StrategyRow, type TradeRow } from "../api";
 import { OrderDetail, TradeDetail } from "../components/detail";
 import {
-  Cell, Empty, LiveDot, LoadMore, PageHeader, Panel, Pill, QueryError, Row, SearchInput, Select, SideTag, STATE_TONE, Table,
+  Cell, Empty, LiveDot, Loadable, LoadMore, PageHeader, Panel, Pill, Row, SearchInput, Select, SideTag, STATE_TONE, Table,
 } from "../components/ui";
 import { ts, tsDay } from "../format";
 import { realizedLabel, useCloseMap } from "../useCloses";
@@ -95,7 +95,6 @@ export default function Orderflow({ instanceId }: { instanceId: string | null })
   return (
     <div>
       <PageHeader title="Orderflow" sub={`Orders and fills for ${instanceId ?? "—"}, live tail alongside. Click a row to inspect.`} />
-      <QueryError on={strategies.isError || orders.isError || trades.isError} what="orders and fills" />
 
       <div className="mt-5 grid grid-cols-1 gap-5 xl:grid-cols-2">
         <div className="grid content-start gap-5">
@@ -117,6 +116,7 @@ export default function Orderflow({ instanceId }: { instanceId: string | null })
               </>
             }
           >
+            <Loadable loading={!!instanceId && orders.isPending} error={orders.isError} retry={() => orders.refetch()} what="orders">
             <Table head={["Time", "Strategy", "Symbol", "Side", "Qty", "Avg px", "State"]}>
               {orderRows.slice(0, orderCap).map((o) => (
                 <Row key={o.orderId} onClick={() => setOpenOrder(o)}>
@@ -136,9 +136,11 @@ export default function Orderflow({ instanceId }: { instanceId: string | null })
               {orderRows.length === 0 && <Empty colSpan={7}>No orders yet</Empty>}
             </Table>
             <LoadMore shown={Math.min(orderCap, orderRows.length)} total={orderRows.length} onMore={() => setOrderCap((c) => c + 20)} />
+            </Loadable>
           </Panel>
 
           <Panel stagger={1} title="Recent trades" toolbar={filterBar} scroll="max-h-[24rem]">
+            <Loadable loading={!!instanceId && trades.isPending} error={trades.isError} retry={() => trades.refetch()} what="trades">
             <Table>
               {tradeRows.slice(0, tradeCap).map((t) => (
                 <Row key={t.id} onClick={() => setOpenTrade(t)}>
@@ -159,6 +161,7 @@ export default function Orderflow({ instanceId }: { instanceId: string | null })
               {tradeRows.length === 0 && <Empty colSpan={7}>No trades yet</Empty>}
             </Table>
             <LoadMore shown={Math.min(tradeCap, tradeRows.length)} total={tradeRows.length} onMore={() => setTradeCap((c) => c + 20)} />
+            </Loadable>
           </Panel>
         </div>
 

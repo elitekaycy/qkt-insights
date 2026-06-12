@@ -1,7 +1,7 @@
 import { useState } from "react";
 import { useQuery } from "@tanstack/react-query";
 import { get, type LogRow, type SearchHit } from "../api";
-import { Button, Card, Empty, LEVEL_TONE, PageHeader, Panel, Pill, QueryError, SearchInput } from "../components/ui";
+import { Button, Card, Empty, LEVEL_TONE, Loadable, PageHeader, Panel, Pill, SearchInput } from "../components/ui";
 import { ts } from "../format";
 
 export default function Search({ instanceId }: { instanceId: string | null }) {
@@ -27,7 +27,6 @@ export default function Search({ instanceId }: { instanceId: string | null }) {
   return (
     <div>
       <PageHeader title="Search" sub={`Full-text search across every event and log line of ${instanceId}.`} />
-      <QueryError on={events.isError || logs.isError} what="search results" />
 
       <form
         className="rise mt-5 flex gap-2"
@@ -52,6 +51,7 @@ export default function Search({ instanceId }: { instanceId: string | null }) {
       {q && (
         <div className="mt-6 grid grid-cols-1 gap-5 xl:grid-cols-2">
           <Panel stagger={0} title="Events" hint={`${eventHits.length} hits`} scroll="max-h-[30rem]">
+            <Loadable loading={events.isPending} error={events.isError} retry={() => events.refetch()} what="event hits">
             <div className="p-2">
               {eventHits.map((h) => (
                 <div key={h.id} className="border-b border-line/50 px-2 py-2 font-mono text-xs last:border-b-0">
@@ -61,8 +61,10 @@ export default function Search({ instanceId }: { instanceId: string | null }) {
               ))}
               {eventHits.length === 0 && <Empty>No event hits</Empty>}
             </div>
+            </Loadable>
           </Panel>
           <Panel stagger={1} title="Logs" hint={`${logHits.length} hits`} scroll="max-h-[30rem]">
+            <Loadable loading={logs.isPending} error={logs.isError} retry={() => logs.refetch()} what="log hits">
             <div className="p-2">
               {logHits.map((l) => (
                 <div key={l.id} className="flex items-start gap-2 border-b border-line/50 px-2 py-2 font-mono text-xs last:border-b-0">
@@ -73,6 +75,7 @@ export default function Search({ instanceId }: { instanceId: string | null }) {
               ))}
               {logHits.length === 0 && <Empty>No log hits</Empty>}
             </div>
+            </Loadable>
           </Panel>
         </div>
       )}
