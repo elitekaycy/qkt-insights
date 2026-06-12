@@ -1,6 +1,6 @@
 import { useState } from "react";
 import { useQueries, useQuery } from "@tanstack/react-query";
-import { get, type EquityPoint, type HealthRow, type OpenPositionRow, type PerformanceBundle, type StrategyRow, type StrategyStats } from "../api";
+import { get, type EquityPoint, type HealthRow, type PerformanceBundle, type StrategyRow, type StrategyStats } from "../api";
 import { ComparisonChart, type ComparisonSeries } from "../components/EquityChart";
 import { Sparkline } from "../components/Sparkline";
 import { Card, Cell, Empty, FlashValue, HoverExpand, LiveDot, Loadable, Modal, MoneyDelta, PageHeader, Panel, Pill, PnlLine, Row, SideTag, Stat, Table } from "../components/ui";
@@ -62,12 +62,6 @@ export default function Overview({
   const liveState = useLiveState(live);
   const [heroOpen, setHeroOpen] = useState(false);
 
-  const positions = useQuery({
-    queryKey: ["positions", instanceId],
-    queryFn: () => get<OpenPositionRow[]>(`/positions?instance=${encodeURIComponent(instanceId!)}`),
-    enabled: !!instanceId,
-    refetchInterval: 10000,
-  });
   const perf = useQueries({
     queries: ids.map((id) => ({
       queryKey: ["performance", instanceId, id, "all"],
@@ -104,7 +98,6 @@ export default function Overview({
   }
   const dayPnl = perfReady ? daySum : null;
   const weekPnl = perfReady ? weekSum : null;
-  const posRows = positions.data ?? [];
   const accounts = (liveState.data?.accounts ?? []).filter((a) => a.instanceId === instanceId);
   const brokerPositions = (liveState.data?.positions ?? []).filter((p) => p.instanceId === instanceId);
 
@@ -549,30 +542,6 @@ export default function Overview({
           })}
         </div>
         </Loadable>
-      </div>
-
-      <div className="mt-8">
-        <Panel stagger={5} title="Strategy positions" hint="latest engine position snapshot per strategy and symbol" scroll="max-h-[22rem]">
-          <Loadable loading={positions.isPending} error={positions.isError} retry={() => positions.refetch()} what="strategy positions">
-          <Table head={["Strategy", "Symbol", "Side", "Qty", "Entry", "Opened"]}>
-            {posRows.flatMap((p) =>
-              p.legs.map((leg, i) => (
-                <Row key={`${p.strategyId}-${p.symbol}-${i}`}>
-                  <Cell>{p.strategyId}</Cell>
-                  <Cell className="font-semibold text-bright">{p.symbol}</Cell>
-                  <Cell>
-                    <SideTag side={leg.side} />
-                  </Cell>
-                  <Cell className="font-mono">{leg.qty}</Cell>
-                  <Cell className="font-mono text-muted">@ {leg.entryPrice}</Cell>
-                  <Cell className="text-muted">{age(leg.entryTs)}</Cell>
-                </Row>
-              )),
-            )}
-            {posRows.length === 0 && <Empty colSpan={6}>Flat — no open positions reported.</Empty>}
-          </Table>
-          </Loadable>
-        </Panel>
       </div>
 
       <div className="mt-8">
