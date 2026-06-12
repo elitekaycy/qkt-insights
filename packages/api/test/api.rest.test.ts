@@ -115,10 +115,11 @@ describe("spec3 REST", () => {
   });
 
   it("serves open positions", async () => {
-    ingestEvents(db, "qkt-prod", [
-      env({ strategyId: "latch", type: "snapshot.position",
-        payload: { strategyId: "latch", symbol: "XAUUSD", legs: [{ side: "BUY", qty: 0.1, entryPrice: 2350, entryTs: 1718000000000 }] } }),
-    ]);
+    // openPositions reads legacy snapshot.position events rows; ingest no longer
+    // writes them, so the test seeds the events table directly.
+    db.prepare("INSERT INTO events (id, instance_id, type, strategy_id, seq, ts, payload) VALUES (?,?,?,?,?,?,?)")
+      .run("pos-1", "qkt-prod", "snapshot.position", "latch", 1, 1718000000000,
+        JSON.stringify({ strategyId: "latch", symbol: "XAUUSD", legs: [{ side: "BUY", qty: 0.1, entryPrice: 2350, entryTs: 1718000000000 }] }));
     const rows = (await get("/positions?instance=qkt-prod")).json();
     expect(rows).toHaveLength(1);
     expect(rows[0].symbol).toBe("XAUUSD");
