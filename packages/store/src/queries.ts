@@ -1,8 +1,8 @@
 import type { Db } from "./db.js";
-import { tradePnls } from "./analytics.js";
+import { dealClosedTrades, hasClosingDeals, strategyEquityCurve, tradePnls, type StrategyEquityPoint } from "./analytics.js";
 
 export interface InstanceRow { id: string; name: string | null; firstSeen: number; lastSeen: number; lastSeq: number }
-export interface StrategyRow { strategyId: string; firstSeen: number; lastSeen: number; equity: number | null; startingBalance: number | null; realizedNet: number | null; dealCount: number }
+export interface StrategyRow { strategyId: string; firstSeen: number; lastSeen: number; startingBalance: number | null; realizedNet: number | null; dealCount: number }
 export interface OrderRow { orderId: string; strategyId: string | null; symbol: string | null; side: string | null; type: string | null; state: string; qty: number | null; cumQty: number; avgPrice: number | null; createdTs: number; updatedTs: number }
 export interface TradeRow { id: string; strategyId: string | null; ts: number; payload: unknown }
 export interface SearchHit { id: string; instanceId: string; type: string; ts: number; payload: unknown }
@@ -14,18 +14,20 @@ export function listInstances(db: Db): InstanceRow[] {
 }
 
 export function listStrategies(db: Db, instanceId: string): StrategyRow[] {
-  // One query feeds every strategy card: realizedNet sums the closing deal legs
-  // (profit + commission + swap), so the UI never needs N follow-up requests.
-  return db.prepare(
-    `SELECT s.strategy_id strategyId, s.first_seen firstSeen, s.last_seen lastSeen, s.equity, s.starting_balance startingBalance,
-            d.realizedNet, COALESCE(d.dealCount, 0) dealCount
-     FROM strategies s
-     LEFT JOIN (
-       SELECT strategy_id, SUM(profit + COALESCE(commission,0) + COALESCE(swap,0)) realizedNet, COUNT(*) dealCount
-       FROM deals WHERE instance_id=? AND entry IN ('OUT','INOUT','OUT_BY') GROUP BY strategy_id
-     ) d ON d.strategy_id = s.strategy_id
-     WHERE s.instance_id=? ORDER BY s.strategy_id`,
-  ).all(instanceId, instanceId) as StrategyRow[];
+  // realizedNet and dealCount come from the same dealClosedTrades rows every
+  // other analytics number uses, so a card and its detail page can never disagree.
+  const rows = db.prepare(
+    `SELECT strategy_id strategyId, first_seen firstSeen, last_seen lastSeen, starting_balance startingBalance
+     FROM strategies WHERE instance_id=? ORDER BY strategy_id`,
+  ).all(instanceId) as Omit<StrategyRow, "realizedNet" | "dealCount">[];
+  return rows.map((r) => {
+    const closes = dealClosedTrades(db, { instanceId, strategyId: r.strategyId });
+    return {
+      ...r,
+      realizedNet: closes.length > 0 ? closes.reduce((a, c) => a + c.realized, 0) : null,
+      dealCount: closes.length,
+    };
+  });
 }
 
 export function listOrders(db: Db, f: { instanceId: string; strategyId?: string; symbol?: string; state?: string; limit: number }): OrderRow[] {
@@ -64,18 +66,29 @@ export function searchEvents(db: Db, f: { q: string; instanceId?: string; limit:
 }
 
 /**
- * The equity series, downsampled for charting. qkt heartbeats a snapshot every few
- * seconds, so a day is tens of thousands of rows — shipping them all freezes the
- * browser. When the range holds more than [points] rows (default 1000), the range is
- * cut into [points] equal time buckets and the LAST snapshot of each bucket is kept;
- * every returned point is a real stored snapshot, never an average. Intra-bucket
+ * The equity series, downsampled for charting. Strategies with closing broker
+ * deals serve the deals-rebuilt curve (starting balance + cumulative realized —
+ * broker truth); paper/backtest strategies keep the snapshot series. Either way,
+ * when the range holds more than [points] rows (default 1000), the range is
+ * cut into [points] equal time buckets and the LAST point of each bucket is kept;
+ * every returned point is a real stored value, never an average. Intra-bucket
  * wiggles are invisible at chart resolution; analytics (drawdown, Sharpe) always read
- * the full table server-side, so the numbers stay exact.
+ * the full series server-side, so the numbers stay exact.
  */
 export function equityCurve(
   db: Db,
   f: { instanceId: string; strategyId: string; from?: number; to?: number; points?: number },
 ): EquityPoint[] {
+  if (hasClosingDeals(db, f)) {
+    const pts = strategyEquityCurve(db, f);
+    const points = Math.max(2, f.points ?? 1000);
+    if (pts.length <= points) return pts;
+    const lo = pts[0]!.ts;
+    const bucket = Math.max(1, Math.ceil((pts[pts.length - 1]!.ts - lo + 1) / points));
+    const last = new Map<number, StrategyEquityPoint>();
+    for (const p of pts) last.set(Math.floor((p.ts - lo) / bucket), p);
+    return [...last.values()];
+  }
   const cl: string[] = ["instance_id=@instanceId", "strategy_id=@strategyId"];
   if (f.from != null) cl.push("ts>=@from");
   if (f.to != null) cl.push("ts<=@to");
@@ -177,18 +190,19 @@ export interface StrategyStats {
 }
 
 /**
- * Per-strategy performance summary derived from stored trades and equity snapshots.
+ * Per-strategy performance summary. Broker deals are ground truth when they
+ * exist; the paper ledger (snapshots + tradePnls) covers everything else.
  *
- * - winRate: share of winning trades, from the same per-trade P&L series the
- *   performance report uses (exact trade.closed rows when they cover the whole
- *   history, realized-delta approximation otherwise) — the overview and
- *   performance tabs must never disagree on the same number.
- * - sharpe: annualized from end-of-day equity returns (sqrt(252)); null when fewer
- *   than 5 daily points exist — too little data to pretend.
- * - maxDrawdownPct: largest peak-to-trough equity drop over the snapshot series.
- * - equity/startingBalance: from the ledger snapshots only while they are fresh
- *   (newest snapshot younger than 10 minutes vs [now]). qkt no longer emits
- *   snapshot.equity, so an old figure would be a frozen lie — null is honest.
+ * - tradeCount/realizedPnl/winRate: from dealClosedTrades — the same rows the
+ *   performance report uses, so the overview and performance tabs must never
+ *   disagree on the same number. winRate skips zero-P&L closes, like the report.
+ * - maxDrawdownPct/sharpe: over the deals-rebuilt equity curve (else snapshots);
+ *   sharpe is annualized from end-of-day returns (sqrt(252)), null under 5 daily
+ *   points — too little data to pretend.
+ * - equity/startingBalance: with deals, equity = starting balance + realized,
+ *   always current because every close updates it. Without deals they come from
+ *   ledger snapshots only while fresh (newest younger than 10 minutes vs [now]);
+ *   qkt no longer emits snapshot.equity, so an old figure would be a frozen lie.
  */
 export function strategyStats(db: Db, f: { instanceId: string; strategyId: string }, now = Date.now()): StrategyStats {
   const t: any = db.prepare(
@@ -200,25 +214,24 @@ export function strategyStats(db: Db, f: { instanceId: string; strategyId: strin
        AND COALESCE(e.strategy_id, (SELECT o.strategy_id FROM orders o
              WHERE o.instance_id=e.instance_id AND o.order_id=json_extract(e.payload,'$.orderId')))=@strategyId`,
   ).get(f);
-  const snaps = db.prepare(
-    "SELECT ts, equity, realized FROM equity_snapshots WHERE instance_id=@instanceId AND strategy_id=@strategyId ORDER BY ts ASC",
-  ).all(f) as { ts: number; equity: number; realized: number }[];
   const strat: any = db.prepare(
-    "SELECT equity, starting_balance sb FROM strategies WHERE instance_id=@instanceId AND strategy_id=@strategyId",
+    "SELECT starting_balance sb FROM strategies WHERE instance_id=@instanceId AND strategy_id=@strategyId",
   ).get(f);
 
-  // Broker deals are ground truth when they exist: each closing leg carries the
-  // venue's realized profit plus the commission and swap the ledger never sees.
-  const d: any = db.prepare(
-    `SELECT COUNT(*) c,
-            COALESCE(SUM(profit + COALESCE(commission,0) + COALESCE(swap,0)),0) realized,
-            SUM(CASE WHEN profit + COALESCE(commission,0) + COALESCE(swap,0) > 0 THEN 1 ELSE 0 END) wins
-     FROM deals WHERE instance_id=@instanceId AND strategy_id=@strategyId AND entry IN ('OUT','INOUT','OUT_BY')`,
-  ).get(f);
+  const dealRows = dealClosedTrades(db, f);
+  const fromDeals = dealRows.length > 0;
+  const snaps = fromDeals
+    ? strategyEquityCurve(db, f)
+    : db.prepare(
+        "SELECT ts, equity, realized FROM equity_snapshots WHERE instance_id=@instanceId AND strategy_id=@strategyId ORDER BY ts ASC",
+      ).all(f) as { ts: number; equity: number; realized: number }[];
 
-  const { pnls } = tradePnls(db, f);
+  const pnls = fromDeals
+    ? dealRows.map((c) => c.realized).filter((r) => r !== 0)
+    : tradePnls(db, f).pnls;
   const wins = pnls.filter((x) => x > 0).length;
-  const winRate = d.c > 0 ? d.wins / d.c : pnls.length > 0 ? wins / pnls.length : null;
+  const winRate = pnls.length > 0 ? wins / pnls.length : null;
+  const dealRealized = dealRows.reduce((a, c) => a + c.realized, 0);
 
   let peak = -Infinity, maxDd = 0;
   for (const s of snaps) {
@@ -243,14 +256,14 @@ export function strategyStats(db: Db, f: { instanceId: string; strategyId: strin
 
   const last = snaps[snaps.length - 1];
   const snapsFresh = last != null && now - last.ts < 10 * 60_000;
-  const sb = snapsFresh ? strat?.sb ?? null : null;
-  const equity = snapsFresh ? last.equity : null;
+  const sb = fromDeals ? strat?.sb ?? null : snapsFresh ? strat?.sb ?? null : null;
+  const equity = fromDeals ? (sb ?? 0) + dealRealized : snapsFresh ? last!.equity : null;
   return {
-    tradeCount: d.c > 0 ? d.c : t?.c ?? 0,
+    tradeCount: fromDeals ? dealRows.length : t?.c ?? 0,
     buyCount: t?.buys ?? 0,
     sellCount: t?.sells ?? 0,
     volume: t?.vol ?? 0,
-    realizedPnl: d.c > 0 ? d.realized : last?.realized ?? null,
+    realizedPnl: fromDeals ? dealRealized : (last as { realized: number } | undefined)?.realized ?? null,
     equity,
     startingBalance: sb,
     returnPct: sb && equity != null && sb !== 0 ? (equity - sb) / sb : null,

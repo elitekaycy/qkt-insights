@@ -168,6 +168,24 @@ describe("broker state REST", () => {
     expect(rows[0]).toMatchObject({ dealTicket: "1", entry: "OUT", profit: 9.7, strategyId: "hedge_straddle" });
   });
 
+  it("serves the deals-rebuilt curve on /equity when closing deals exist", async () => {
+    db.prepare("UPDATE strategies SET starting_balance=10000 WHERE instance_id='qkt-prod' AND strategy_id='latch'")
+      .run();
+    ingestEvents(db, "qkt-prod", [
+      env({ id: "deal-EXNESS-10", type: "broker.deal", ts: 1718000001000, payload: {
+        broker: "EXNESS", dealTicket: "10", positionTicket: "500", symbol: "EXNESS:XAUUSD", side: "BUY", entry: "IN",
+        qty: 0.01, price: 2300, profit: 0, ts: 1718000001000, strategyId: "latch" } }),
+      env({ id: "deal-EXNESS-11", type: "broker.deal", ts: 1718000002000, payload: {
+        broker: "EXNESS", dealTicket: "11", positionTicket: "500", symbol: "EXNESS:XAUUSD", side: "SELL", entry: "OUT",
+        qty: 0.01, price: 2310, profit: 10, commission: -0.07, swap: 0, ts: 1718000002000, strategyId: "latch" } }),
+    ]);
+    const pts = (await get("/equity?instance=qkt-prod&strategy=latch")).json();
+    expect(pts).toHaveLength(2);
+    expect(pts[0]).toMatchObject({ ts: 1718000001000, equity: 10000, realized: 0, unrealized: 0 });
+    expect(pts[1].equity).toBeCloseTo(10009.93);
+    expect(pts[1].realized).toBeCloseTo(9.93);
+  });
+
   it("serves the account equity rollup", async () => {
     db.prepare("INSERT INTO account_equity (instance_id, broker, minute_ts, balance, equity, open_profit) VALUES (?,?,?,?,?,?)")
       .run("qkt-prod", "EXNESS", 1718000040000, 7824.05, 7676.54, -147.51);

@@ -42,7 +42,6 @@ export interface StrategyRow {
   strategyId: string;
   firstSeen: number;
   lastSeen: number;
-  equity: number | null;
   startingBalance: number | null;
   realizedNet: number | null;
   dealCount: number;
