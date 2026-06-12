@@ -177,6 +177,69 @@ export interface OpenPositionRow {
   legs: { side: string; qty: number; entryPrice: number; entryTs: number }[];
 }
 
+export interface LiveAccount {
+  instanceId: string;
+  broker: string;
+  currency: string;
+  balance: number;
+  equity: number;
+  margin?: number;
+  marginFree?: number;
+  openProfit?: number;
+  marginLevel?: number;
+  lastSeen: number;
+  stale: boolean;
+}
+export interface LivePositionRow {
+  ticket: string;
+  symbol: string;
+  side: string;
+  qty: number;
+  entryPrice: number;
+  currentPrice?: number;
+  profit?: number;
+  swap?: number;
+  openedAt?: number;
+  strategyId?: string | null;
+}
+export interface LivePositionGroup {
+  instanceId: string;
+  broker: string;
+  at: number;
+  stale: boolean;
+  list: LivePositionRow[];
+}
+export interface LiveStateSnapshot {
+  accounts: LiveAccount[];
+  positions: LivePositionGroup[];
+}
+export interface DealRow {
+  id: string;
+  broker: string;
+  dealTicket: string;
+  positionTicket: string | null;
+  orderTicket: string | null;
+  symbol: string | null;
+  side: string | null;
+  entry: string | null;
+  qty: number | null;
+  price: number | null;
+  profit: number | null;
+  commission: number | null;
+  swap: number | null;
+  magic: number | null;
+  comment: string | null;
+  strategyId: string | null;
+  ts: number;
+}
+export interface AccountEquityPoint {
+  broker: string;
+  minuteTs: number;
+  balance: number | null;
+  equity: number | null;
+  openProfit: number | null;
+}
+
 export interface BreakdownRow {
   key: string;
   net: number;
