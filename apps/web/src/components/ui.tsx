@@ -196,7 +196,7 @@ export function Stat({
   expand,
 }: {
   label: string;
-  value: string;
+  value: ReactNode;
   tone?: Tone;
   sub?: string;
   stagger?: number;
@@ -218,6 +218,19 @@ export function Stat({
         </Modal>
       )}
     </>
+  );
+}
+
+/**
+ * Replays a one-shot background flash whenever `value` changes: the key swap
+ * remounts the span, restarting the .value-flash CSS animation. Wrap live
+ * numbers so a WS tick is visible, e.g. <FlashValue value={a.equity}>{money(a.equity)}</FlashValue>.
+ */
+export function FlashValue({ value, children, className = "" }: { value: unknown; children: ReactNode; className?: string }) {
+  return (
+    <span key={String(value)} className={`value-flash ${className}`}>
+      {children}
+    </span>
   );
 }
 

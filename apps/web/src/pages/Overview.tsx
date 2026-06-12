@@ -3,12 +3,21 @@ import { useQueries, useQuery } from "@tanstack/react-query";
 import { get, type EquityPoint, type HealthRow, type OpenPositionRow, type PerformanceBundle, type StrategyRow, type StrategyStats } from "../api";
 import { ComparisonChart, type ComparisonSeries } from "../components/EquityChart";
 import { Sparkline } from "../components/Sparkline";
-import { Card, Cell, Empty, HoverExpand, LiveDot, Modal, MoneyDelta, PageHeader, Panel, Pill, QueryError, Row, SideTag, Stat, Table } from "../components/ui";
+import { Card, Cell, Empty, FlashValue, HoverExpand, LiveDot, Modal, MoneyDelta, PageHeader, Panel, Pill, QueryError, Row, SideTag, Stat, Table } from "../components/ui";
 import { age, money, num, pct, ts } from "../format";
 import { useLiveState } from "../useLiveState";
 import { useLiveStream } from "../useLiveStream";
 
 const PALETTE = ["#c8f74a", "#5cb8ff", "#a78bfa", "#3fe08c", "#fbbf24", "#ff6b6b", "#f472b6", "#22d3ee"];
+
+// Everything except "log": the feed stays meaningful and state pushes still
+// reach useLiveState. Module-level so the WS effect sees a stable identity.
+const FEED_TYPES = [
+  "signal", "order.submit", "order.accepted", "order.filled", "order.partially_filled", "order.cancelled",
+  "order.rejected", "order.modified", "trade", "trade.closed", "risk.rejected", "risk.halted", "risk.resumed",
+  "position.reconciled", "balances.updated", "gateway.unreachable", "snapshot.equity", "snapshot.position",
+  "state.account", "state.positions", "broker.deal",
+];
 
 export default function Overview({
   instanceId,
@@ -49,7 +58,7 @@ export default function Overview({
     })),
   });
 
-  const live = useLiveStream(instanceId, 40);
+  const live = useLiveStream(instanceId, 40, FEED_TYPES);
   const liveState = useLiveState(live);
   const [heroOpen, setHeroOpen] = useState(false);
 
@@ -227,10 +236,10 @@ export default function Overview({
             </div>
             <div className="mt-3 grid grid-cols-2 gap-4 sm:grid-cols-4">
               <Stat label="Balance" value={money(a.balance)} sub={a.currency} stagger={0} />
-              <Stat label="Equity" value={money(a.equity)} stagger={0} />
+              <Stat label="Equity" value={<FlashValue value={a.equity}>{money(a.equity)}</FlashValue>} stagger={0} />
               <Stat
                 label="Open P&L"
-                value={money(a.openProfit)}
+                value={<FlashValue value={a.openProfit}>{money(a.openProfit)}</FlashValue>}
                 tone={a.openProfit == null ? "neutral" : a.openProfit > 0 ? "up" : a.openProfit < 0 ? "down" : "neutral"}
                 stagger={1}
               />
@@ -260,7 +269,9 @@ export default function Overview({
                     <Cell
                       className={`font-mono font-semibold ${p.profit == null ? "text-faint" : p.profit > 0 ? "text-up" : p.profit < 0 ? "text-down" : "text-muted"}`}
                     >
-                      {p.profit == null ? "—" : `${p.profit > 0 ? "+" : ""}${p.profit.toFixed(2)}`}
+                      <FlashValue value={p.profit}>
+                        {p.profit == null ? "—" : `${p.profit > 0 ? "+" : ""}${p.profit.toFixed(2)}`}
+                      </FlashValue>
                     </Cell>
                     <Cell className="font-mono text-muted">{p.swap ?? "—"}</Cell>
                     <Cell>{p.strategyId ? p.strategyId : <Pill>unattributed</Pill>}</Cell>
@@ -285,7 +296,7 @@ export default function Overview({
               <div className="text-[11px] font-semibold uppercase tracking-[0.14em] text-muted">Account equity</div>
               <div className="mt-2 flex items-baseline gap-3">
                 <span className={`font-mono text-4xl font-bold tracking-tight sm:text-5xl ${accountsStale ? "text-faint" : "text-bright"}`}>
-                  {money(accountEquity)}
+                  <FlashValue value={accountEquity}>{money(accountEquity)}</FlashValue>
                 </span>
                 <MoneyDelta value={accountOpenPnl} dim={accountsStale} />
               </div>

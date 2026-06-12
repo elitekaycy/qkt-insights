@@ -9,6 +9,7 @@ import { ts } from "../format";
 import { useLiveStream } from "../useLiveStream";
 
 const LEVELS = ["ERROR", "WARN", "INFO", "DEBUG"];
+const LOG_TYPES = ["log"];
 
 export default function Logs({ instanceId }: { instanceId: string | null }) {
   const [level, setLevel] = useState("");
@@ -36,7 +37,7 @@ export default function Logs({ instanceId }: { instanceId: string | null }) {
     refetchInterval: 5000,
   });
 
-  const live = useLiveStream(instanceId, 100);
+  const live = useLiveStream(instanceId, 100, LOG_TYPES);
   const liveLogs = live.filter(
     (e) =>
       e.type === "log" &&

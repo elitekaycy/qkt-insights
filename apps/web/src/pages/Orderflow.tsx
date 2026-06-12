@@ -9,6 +9,11 @@ import { ts, tsDay } from "../format";
 import { realizedLabel, useCloseMap } from "../useCloses";
 import { useLiveStream } from "../useLiveStream";
 
+const ORDERFLOW_TYPES = [
+  "trade", "order.submit", "order.accepted", "order.filled", "order.partially_filled", "order.cancelled",
+  "order.rejected", "order.modified", "signal", "risk.rejected", "risk.halted", "risk.resumed", "broker.deal",
+];
+
 export default function Orderflow({ instanceId }: { instanceId: string | null }) {
   const [strategy, setStrategy] = useState("");
   const [q, setQ] = useState("");
@@ -51,7 +56,7 @@ export default function Orderflow({ instanceId }: { instanceId: string | null })
     refetchInterval: 5000,
   });
 
-  const live = useLiveStream(instanceId);
+  const live = useLiveStream(instanceId, 500, ORDERFLOW_TYPES);
   const needle = q.trim().toUpperCase();
   const matchText = (...parts: (string | null | undefined)[]) =>
     !needle || parts.some((x) => (x ?? "").toUpperCase().includes(needle));

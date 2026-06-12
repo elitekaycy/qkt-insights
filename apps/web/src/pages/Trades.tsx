@@ -1,5 +1,5 @@
-import { useState } from "react";
-import { useQuery } from "@tanstack/react-query";
+import { useEffect, useState } from "react";
+import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { get, type DealRow, type StrategyRow, type TradeRow } from "../api";
 import { TradeDetail } from "../components/detail";
 import {
@@ -8,6 +8,9 @@ import {
 } from "../components/ui";
 import { tsDay } from "../format";
 import { realizedLabel, useCloseMap } from "../useCloses";
+import { useLiveStream } from "../useLiveStream";
+
+const DEAL_TYPES = ["broker.deal"];
 
 export default function Trades({ instanceId }: { instanceId: string | null }) {
   const [strategy, setStrategy] = useState("");
@@ -42,6 +45,14 @@ export default function Trades({ instanceId }: { instanceId: string | null }) {
     enabled: !!instanceId,
     refetchInterval: 5000,
   });
+
+  // A pushed broker.deal means the history just grew — refetch instead of waiting out the poll.
+  const qc = useQueryClient();
+  const dealLive = useLiveStream(instanceId, 5, DEAL_TYPES);
+  const newestDeal = dealLive[0];
+  useEffect(() => {
+    if (newestDeal) qc.invalidateQueries({ queryKey: ["deals-page", instanceId] });
+  }, [newestDeal, qc, instanceId]);
 
   if (!instanceId) return <Card className="p-8 text-center text-faint">No instance selected.</Card>;
 
