@@ -7,7 +7,7 @@ import { EquityChart } from "../components/EquityChart";
 import { BreakdownPanels, PerformancePanels } from "../components/Performance";
 import { Sparkline } from "../components/Sparkline";
 import {
-  Card, Cell, Empty, LEVEL_TONE, Loadable, LoadMore, MoneyDelta, PageHeader, Panel, Pill, RangeSelect, rangeStart, Row, SearchInput, Select, SideTag, Stat, Table,
+  Card, Cell, Empty, LEVEL_TONE, Loadable, LoadMore, PageHeader, Panel, Pill, PnlLine, RangeSelect, rangeStart, Row, SearchInput, Select, SideTag, Stat, Table,
   type RangeKey,
 } from "../components/ui";
 import { age, money, num, pct, ts, tsDay } from "../format";
@@ -68,6 +68,7 @@ export default function Strategies({
           const realized = s.realizedNet;
           const open = live.open.get(s.strategyId) ?? (live.hasState ? 0 : null);
           const net = realized == null && open == null ? null : (realized ?? 0) + (open ?? 0);
+          const allocation = net == null && s.startingBalance == null ? null : (s.startingBalance ?? 0) + (net ?? 0);
           return (
             <button key={s.strategyId} onClick={() => setSelected(s.strategyId)} className="group text-left">
               <Card className="p-5 transition group-hover:border-accent/50 group-hover:bg-raised" stagger={i}>
@@ -75,12 +76,12 @@ export default function Strategies({
                   <span className="font-bold text-bright">{s.strategyId}</span>
                   <span className="text-xs text-faint">{age(s.lastSeen)}</span>
                 </div>
-                <div className="mt-2.5 flex items-baseline gap-3" title="realized + open">
-                  <span className="font-mono text-2xl font-semibold text-bright">{money(realized)}</span>
-                  <MoneyDelta value={net} dim={live.stale} />
+                <div className="mt-2.5 flex items-baseline gap-3" title="allocation: starting balance + realized + open">
+                  <span className={`font-mono text-2xl font-semibold ${live.stale ? "text-faint" : "text-bright"}`}>{money(allocation)}</span>
+                  <PnlLine net={net} base={s.startingBalance} dim={live.stale} />
                 </div>
                 <div className={`mt-1 text-xs ${live.stale ? "text-faint" : "text-muted"}`}>
-                  open {money(open)} · {s.dealCount} deal{s.dealCount === 1 ? "" : "s"}
+                  realized {money(realized)} · open {money(open)} · {s.dealCount} deal{s.dealCount === 1 ? "" : "s"}
                 </div>
               </Card>
             </button>
@@ -137,6 +138,7 @@ function StrategyDetail({ instanceId, strategyId, onBack }: { instanceId: string
   const s = stats.data;
   const openPnl = live.open.get(strategyId) ?? (live.hasState ? 0 : null);
   const heroNet = s?.realizedPnl == null && openPnl == null ? null : (s?.realizedPnl ?? 0) + (openPnl ?? 0);
+  const allocation = heroNet == null && s?.startingBalance == null ? null : (s?.startingBalance ?? 0) + (heroNet ?? 0);
   const closeByOrder = new Map((performance.data?.closes ?? []).filter((c) => c.orderId).map((c) => [c.orderId!, c]));
   const tradeNeedle = tradeQ.trim().toUpperCase();
   const tradeRows = (trades.data ?? [])
@@ -169,14 +171,14 @@ function StrategyDetail({ instanceId, strategyId, onBack }: { instanceId: string
       <div className="mt-2 flex flex-wrap items-end justify-between gap-4">
         <div className="rise">
           <h2 className="text-2xl font-extrabold tracking-tight text-bright">{strategyId}</h2>
-          <div className="mt-2 flex items-baseline gap-3" title="realized + open">
-            <span className={`font-mono text-4xl font-bold ${heroNet == null ? "text-faint" : heroNet >= 0 ? "text-up" : "text-down"}`}>
-              {money(heroNet)}
+          <div className="mt-2 flex items-baseline gap-3" title="allocation: starting balance + realized + open">
+            <span className={`font-mono text-4xl font-bold ${allocation == null || live.stale ? "text-faint" : "text-bright"}`}>
+              {money(allocation)}
             </span>
-            <MoneyDelta value={openPnl} dim={live.stale} />
+            <PnlLine net={heroNet} base={s?.startingBalance} dim={live.stale} />
           </div>
           <div className={`mt-1 text-xs ${live.stale ? "text-faint" : "text-muted"}`}>
-            realized {money(s?.realizedPnl)} + open {money(openPnl)}
+            {money(s?.startingBalance)} allocated · realized {money(s?.realizedPnl)} · open {money(openPnl)}
           </div>
         </div>
         <div className="rise -mb-1 w-64">
@@ -252,7 +254,7 @@ function StrategyDetail({ instanceId, strategyId, onBack }: { instanceId: string
         </Loadable>
       </div>
 
-      <Panel className="mt-6" stagger={2} title="Equity" hint="paper ledger snapshots">
+      <Panel className="mt-6" stagger={2} title="Equity" hint="broker deals when available, ledger snapshots otherwise">
         <Loadable loading={equity.isPending} error={equity.isError} retry={() => equity.refetch()} what="the equity curve" lines={4}>
           <div className="p-4">
             <EquityChart points={equity.data ?? []} />

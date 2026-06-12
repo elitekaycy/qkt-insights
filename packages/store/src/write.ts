@@ -71,13 +71,22 @@ export function ingestEvents(db: Db, instanceId: string, events: Envelope[]): nu
       // no events row, no FTS row, idempotent by deterministic id.
       if (e.type === "broker.deal") {
         const p = e.payload;
+        const strategyId = p.strategyId ?? resolveDealStrategy(db, instanceId, p.positionTicket ?? null, p.comment ?? null);
         const info = insDeal.run(e.id, instanceId, p.broker, p.dealTicket, p.positionTicket ?? null, p.orderTicket ?? null,
           p.symbol ?? null, p.side ?? null, p.entry ?? null, p.qty, p.price, p.profit, p.commission ?? null,
-          p.swap ?? null, p.magic ?? null, p.comment ?? null, p.strategyId ?? null, p.ts);
+          p.swap ?? null, p.magic ?? null, p.comment ?? null, strategyId, p.ts);
         if (info.changes === 0) continue;
         accepted++;
         upInstance.run({ id: instanceId, ts: e.ts, seq: e.seq });
-        if (p.strategyId) upStrategy.run({ i: instanceId, s: p.strategyId, ts: e.ts });
+        if (strategyId) {
+          upStrategy.run({ i: instanceId, s: strategyId, ts: e.ts });
+          // Earlier legs of the same position may have arrived unattributable
+          // (venue-closed before their IN): adopt them now.
+          if (p.positionTicket) {
+            db.prepare("UPDATE deals SET strategy_id=? WHERE instance_id=? AND position_ticket=? AND strategy_id IS NULL")
+              .run(strategyId, instanceId, p.positionTicket);
+          }
+        }
         continue;
       }
       // Equity snapshots are a sampled time series; they live in equity_snapshots
@@ -110,6 +119,29 @@ export function ingestEvents(db: Db, instanceId: string, events: Envelope[]): nu
     return accepted;
   });
   return tx(events);
+}
+
+// MT5 overwrites the close-leg comment when SL/TP fires (e.g. "[tp 4332.689]"),
+// so a venue-closed deal can never name its strategy itself. Two recoveries, in
+// order of trust: any attributed sibling of the same position (the IN leg keeps
+// the original comment-derived attribution), else a "dsl-<strategy>" comment
+// prefix-matched against the instance's known strategies — both directions,
+// because MT5 truncates comments to 31 chars; only a unique match wins.
+function resolveDealStrategy(db: Db, instanceId: string, positionTicket: string | null, comment: string | null): string | null {
+  if (positionTicket) {
+    const hit = db.prepare(
+      "SELECT strategy_id s FROM deals WHERE instance_id=? AND position_ticket=? AND strategy_id IS NOT NULL LIMIT 1",
+    ).get(instanceId, positionTicket) as { s: string } | undefined;
+    if (hit) return hit.s;
+  }
+  if (comment != null && comment.startsWith("dsl-") && comment.length > 4) {
+    const tag = comment.slice(4);
+    const matches = (db.prepare("SELECT strategy_id s FROM strategies WHERE instance_id=?").all(instanceId) as { s: string }[])
+      .map((r) => r.s)
+      .filter((s) => s.startsWith(tag) || tag.startsWith(s));
+    if (matches.length === 1) return matches[0]!;
+  }
+  return null;
 }
 
 // Events can reach the collector out of seq order (qkt's bus dispatch is re-entrant:

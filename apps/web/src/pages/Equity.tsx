@@ -84,7 +84,7 @@ export default function Equity({ instanceId }: { instanceId: string | null }) {
     <div>
       <PageHeader
         title="Equity"
-        sub={`Broker account equity for ${instanceId}; per-strategy paper ledgers below, normalized to % change so different capital sizes compare fairly.`}
+        sub={`Broker account equity for ${instanceId}; per-strategy equity below, normalized to % change so different capital sizes compare fairly.`}
         right={
           <div className="flex flex-wrap gap-2">
             {series.map((s) => (
@@ -113,7 +113,7 @@ export default function Equity({ instanceId }: { instanceId: string | null }) {
         </Loadable>
       </Panel>
 
-      <Panel className="mt-5" stagger={2} title="Strategy ledgers" hint="paper ledgers, % change from first snapshot">
+      <Panel className="mt-5" stagger={2} title="Strategy equity" hint="broker deals when available, % change from first point">
         <Loadable
           loading={strategies.isPending || curves.some((c) => c.isPending)}
           error={strategies.isError || curves.some((c) => c.isError)}
@@ -121,7 +121,7 @@ export default function Equity({ instanceId }: { instanceId: string | null }) {
             void strategies.refetch();
             curves.forEach((c) => void c.refetch());
           }}
-          what="strategy ledgers"
+          what="strategy equity"
           lines={4}
         >
           <div className="p-4">
