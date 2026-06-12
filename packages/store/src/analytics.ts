@@ -1,14 +1,16 @@
 import type { Db } from "./db.js";
 
 /**
- * Trading-performance analytics derived from the stored series (spec 3, phase 1).
+ * Trading-performance analytics. Sources, in order of trust:
  *
- * Sources, by metric shape:
- * - money-over-time (drawdown, Sharpe, Sortino, Calmar) — the equity snapshot curve, exact;
- * - per-trade P&L (profit factor, expectancy, streaks) — realized deltas between
- *   consecutive snapshots. qkt snapshots after every fill, so each nonzero delta is
- *   one close — approximate when fills land closer than a snapshot, hence the
- *   `approximate` flag the UI surfaces as "≈". Phase 2 (trade.closed) makes it exact.
+ * 1. Broker deals (when the strategy has closing deals) — ground truth. Per-trade
+ *    P&L comes from dealClosedTrades (each closing leg paired with its position's
+ *    IN), money-over-time from strategyEquityCurve (starting balance + cumulative
+ *    realized). Never approximate.
+ * 2. trade.closed rows (qkt >= 0.41 paper/backtest) — exact per-trade P&L when
+ *    they cover the whole queried history.
+ * 3. Equity snapshots — realized deltas between consecutive snapshots stand in
+ *    for trades; the `approximate` flag the UI surfaces as "≈".
  */
 
 const DAY = 86_400_000;
@@ -94,7 +96,92 @@ export interface ClosedTradeRow {
   orderId: string | null;
 }
 
-function closes(db: Db, f: AnalyticsFilter): ClosedTradeRow[] {
+/** A closed trade rebuilt from broker deals; price is the exit price. */
+export interface DealClosedTrade extends ClosedTradeRow {
+  entryPrice: number | null;
+  exitPrice: number;
+  holdMs: number | null;
+}
+
+const OUT_LEGS = "('OUT','INOUT','OUT_BY')";
+
+/** True when broker deals closed positions for this strategy — the deals source is authoritative then. */
+export function hasClosingDeals(db: Db, f: { instanceId: string; strategyId: string }): boolean {
+  return db.prepare(
+    `SELECT 1 FROM deals WHERE instance_id=? AND strategy_id=? AND entry IN ${OUT_LEGS} LIMIT 1`,
+  ).get(f.instanceId, f.strategyId) != null;
+}
+
+/**
+ * One row per closing deal (OUT/INOUT/OUT_BY), paired with its position's first
+ * IN deal: entry price/time come from the IN leg, exit and realized money from
+ * the closing leg. A position closed in parts yields one row per closing leg,
+ * all sharing the same IN. side is the POSITION's direction (the IN side), not
+ * the close leg's. realized counts only the closing leg's profit + commission +
+ * swap: on this account opening legs carry zero commission, and charging the IN
+ * leg to one of several partial closes would double-count it anyway.
+ */
+export function dealClosedTrades(db: Db, f: AnalyticsFilter): DealClosedTrade[] {
+  const cl = ["o.instance_id=@instanceId", "o.strategy_id=@strategyId", `o.entry IN ${OUT_LEGS}`];
+  if (f.from != null) cl.push("o.ts>=@from");
+  if (f.to != null) cl.push("o.ts<=@to");
+  const rows = db.prepare(
+    `SELECT o.position_ticket orderId, o.symbol, o.side outSide, i.side inSide, o.qty,
+            i.price entryPrice, o.price exitPrice, i.ts entryTs, o.ts ts,
+            o.profit + COALESCE(o.commission,0) + COALESCE(o.swap,0) realized
+     FROM deals o
+     LEFT JOIN deals i ON i.rowid = (
+       SELECT rowid FROM deals x
+       WHERE x.instance_id=o.instance_id AND x.position_ticket=o.position_ticket AND x.entry='IN'
+       ORDER BY x.ts ASC LIMIT 1
+     )
+     WHERE ${cl.join(" AND ")}
+     ORDER BY o.ts ASC`,
+  ).all(f) as any[];
+  return rows.map((r) => ({
+    orderId: r.orderId,
+    symbol: r.symbol,
+    side: r.inSide ?? (r.outSide === "BUY" ? "SELL" : r.outSide === "SELL" ? "BUY" : r.outSide),
+    qty: r.qty,
+    price: r.exitPrice,
+    entryPrice: r.entryPrice ?? null,
+    exitPrice: r.exitPrice,
+    entryTs: r.entryTs ?? null,
+    ts: r.ts,
+    realized: r.realized,
+    holdMs: r.entryTs != null ? r.ts - r.entryTs : null,
+  }));
+}
+
+export interface StrategyEquityPoint { ts: number; equity: number; realized: number; unrealized: number }
+
+/**
+ * The equity series rebuilt from broker deals: the configured starting balance
+ * plus cumulative realized P&L at each closing deal, anchored by a first point
+ * at the starting balance when the first traded position was opened. Strategies
+ * without a stored starting balance get a 0-based curve — pure cumulative P&L.
+ * unrealized is always 0: deals only know closed money. Cumulative realized is
+ * built over the full history first, so a from/to window still shows true levels.
+ */
+export function strategyEquityCurve(
+  db: Db,
+  f: { instanceId: string; strategyId: string; from?: number; to?: number },
+): StrategyEquityPoint[] {
+  const rows = dealClosedTrades(db, { instanceId: f.instanceId, strategyId: f.strategyId });
+  if (rows.length === 0) return [];
+  const sb = (db.prepare("SELECT starting_balance sb FROM strategies WHERE instance_id=? AND strategy_id=?")
+    .get(f.instanceId, f.strategyId) as { sb: number | null } | undefined)?.sb ?? 0;
+  const pts: StrategyEquityPoint[] = [{ ts: rows[0]!.entryTs ?? rows[0]!.ts, equity: sb, realized: 0, unrealized: 0 }];
+  let cum = 0;
+  for (const r of rows) {
+    cum += r.realized;
+    pts.push({ ts: r.ts, equity: sb + cum, realized: cum, unrealized: 0 });
+  }
+  if (f.from == null && f.to == null) return pts;
+  return pts.filter((p) => (f.from == null || p.ts >= f.from) && (f.to == null || p.ts <= f.to));
+}
+
+function ledgerCloses(db: Db, f: AnalyticsFilter): ClosedTradeRow[] {
   const cl = ["instance_id=@instanceId", "strategy_id=@strategyId"];
   if (f.from != null) cl.push("ts>=@from");
   if (f.to != null) cl.push("ts<=@to");
@@ -103,21 +190,34 @@ function closes(db: Db, f: AnalyticsFilter): ClosedTradeRow[] {
   ).all(f) as ClosedTradeRow[];
 }
 
+/** Per-trade rows oldest-first: broker deals when they exist, else trade.closed rows. */
+function closes(db: Db, f: AnalyticsFilter): ClosedTradeRow[] {
+  return hasClosingDeals(db, f) ? dealClosedTrades(db, f) : ledgerCloses(db, f);
+}
+
+/** The money-over-time series: the deals-rebuilt curve when it exists, else equity snapshots. */
+function series(db: Db, f: AnalyticsFilter): SnapRow[] {
+  return hasClosingDeals(db, f) ? strategyEquityCurve(db, f) : snapshots(db, f);
+}
+
 /** Every closed trade in the range, newest first — the rows behind the performance numbers. */
 export function closedTrades(db: Db, f: AnalyticsFilter): ClosedTradeRow[] {
   return closes(db, f).reverse();
 }
 
 /**
- * The per-trade P&L series. Exact when this instance publishes trade.closed
- * (qkt >= 0.41) AND the stored closes span the whole queried history; an
+ * The per-trade P&L series. Broker deals are exact whenever they exist. Else
+ * trade.closed rows are exact when they span the whole queried history; an
  * instance upgraded mid-stream has older trades only the snapshots saw, and
  * labeling that partial list exact would be a lie. Otherwise the realized-delta
  * approximation over snapshots. Range filters self-heal: a window that starts
  * after the first close is fully covered and reports exact.
  */
 export function tradePnls(db: Db, f: AnalyticsFilter): { pnls: number[]; exact: boolean } {
-  const exact = closes(db, f);
+  if (hasClosingDeals(db, f)) {
+    return { pnls: dealClosedTrades(db, f).map((c) => c.realized).filter((r) => r !== 0), exact: true };
+  }
+  const exact = ledgerCloses(db, f);
   if (exact.length > 0 && closesCoverRange(db, f, exact[0]!.ts)) {
     return { pnls: exact.map((c) => c.realized).filter((r) => r !== 0), exact: true };
   }
@@ -139,6 +239,19 @@ function utcDay(ts: number): string {
 }
 
 export function dailyNets(db: Db, f: AnalyticsFilter): DayNet[] {
+  // Deals path: group the closed trades per UTC day directly — net is the day's
+  // realized sum, trades the number of closing legs that day.
+  if (hasClosingDeals(db, f)) {
+    const byDay = new Map<string, DayNet>();
+    for (const c of dealClosedTrades(db, f)) {
+      const day = utcDay(c.ts);
+      const cur = byDay.get(day) ?? { day, net: 0, trades: 0 };
+      cur.net += c.realized;
+      cur.trades++;
+      byDay.set(day, cur);
+    }
+    return [...byDay.values()].sort((a, b) => (a.day < b.day ? -1 : 1));
+  }
   const snaps = snapshots(db, f);
   if (snaps.length === 0) return [];
   const lastByDay = new Map<string, number>();
@@ -167,7 +280,7 @@ export function dailyNets(db: Db, f: AnalyticsFilter): DayNet[] {
 }
 
 export function drawdownPeriods(db: Db, f: AnalyticsFilter): DrawdownPeriod[] {
-  const snaps = snapshots(db, f);
+  const snaps = series(db, f);
   return snaps.length > 0 ? walkPeriods(snaps) : [];
 }
 
@@ -231,7 +344,7 @@ export function openPositions(db: Db, f: { instanceId: string; strategyId?: stri
 }
 
 export function performanceReport(db: Db, f: AnalyticsFilter): PerformanceReport {
-  const snaps = snapshots(db, f);
+  const snaps = series(db, f);
   const { pnls: deltas, exact } = tradePnls(db, f);
   const wins = deltas.filter((d) => d > 0);
   const losses = deltas.filter((d) => d < 0);
