@@ -11,7 +11,7 @@ import {
   type RangeKey,
 } from "../components/ui";
 import { age, money, num, pct, ts, tsDay } from "../format";
-import { realizedLabel } from "../useCloses";
+import { buildCloseMap, realizedLabel } from "../useCloses";
 import { useLiveState } from "../useLiveState";
 
 /** Open P&L per strategy from the live broker positions of one instance, with a staleness flag. */
@@ -139,7 +139,7 @@ function StrategyDetail({ instanceId, strategyId, onBack }: { instanceId: string
   const openPnl = live.open.get(strategyId) ?? (live.hasState ? 0 : null);
   const heroNet = s?.realizedPnl == null && openPnl == null ? null : (s?.realizedPnl ?? 0) + (openPnl ?? 0);
   const allocation = heroNet == null && s?.startingBalance == null ? null : (s?.startingBalance ?? 0) + (heroNet ?? 0);
-  const closeByOrder = new Map((performance.data?.closes ?? []).filter((c) => c.orderId).map((c) => [c.orderId!, c]));
+  const closeByOrder = buildCloseMap(performance.data?.closes ?? []);
   const tradeNeedle = tradeQ.trim().toUpperCase();
   const tradeRows = (trades.data ?? [])
     .filter(

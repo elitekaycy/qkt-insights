@@ -162,6 +162,9 @@ export interface ClosedTradeRow {
   realized: number;
   entryTs: number | null;
   orderId: string | null;
+  /** Engine orders linked through broker tickets; only on deals-backed closes. */
+  entryOrderId?: string | null;
+  exitOrderId?: string | null;
 }
 export interface PerformanceBundle {
   breakdowns: TradeBreakdowns | null;
