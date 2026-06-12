@@ -1,13 +1,16 @@
-import { useState } from "react";
-import { useQuery } from "@tanstack/react-query";
+import { useEffect, useState } from "react";
+import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { get, type DealRow, type StrategyRow, type TradeRow } from "../api";
 import { TradeDetail } from "../components/detail";
 import {
-  Card, Cell, Empty, LoadMore, PageHeader, Panel, Pill, QueryError, RangeSelect, rangeStart, Row, SearchInput, Select, SideTag, Table,
+  Card, Cell, Empty, Loadable, LoadMore, PageHeader, Panel, Pill, RangeSelect, rangeStart, Row, SearchInput, Select, SideTag, Table,
   type RangeKey,
 } from "../components/ui";
 import { tsDay } from "../format";
 import { realizedLabel, useCloseMap } from "../useCloses";
+import { useLiveStream } from "../useLiveStream";
+
+const DEAL_TYPES = ["broker.deal"];
 
 export default function Trades({ instanceId }: { instanceId: string | null }) {
   const [strategy, setStrategy] = useState("");
@@ -42,6 +45,14 @@ export default function Trades({ instanceId }: { instanceId: string | null }) {
     enabled: !!instanceId,
     refetchInterval: 5000,
   });
+
+  // A pushed broker.deal means the history just grew — refetch instead of waiting out the poll.
+  const qc = useQueryClient();
+  const dealLive = useLiveStream(instanceId, 5, DEAL_TYPES);
+  const newestDeal = dealLive[0];
+  useEffect(() => {
+    if (newestDeal) qc.invalidateQueries({ queryKey: ["deals-page", instanceId] });
+  }, [newestDeal, qc, instanceId]);
 
   if (!instanceId) return <Card className="p-8 text-center text-faint">No instance selected.</Card>;
 
@@ -79,8 +90,6 @@ export default function Trades({ instanceId }: { instanceId: string | null }) {
             : `Every fill recorded for ${instanceId}. Click a row for the full story.`
         }
       />
-      <QueryError on={strategies.isError || trades.isError || deals.isError} what="trades" />
-
       <Panel
         className="mt-5"
         stagger={1}
@@ -122,6 +131,15 @@ export default function Trades({ instanceId }: { instanceId: string | null }) {
           </>
         }
       >
+        <Loadable
+          loading={trades.isPending || deals.isPending}
+          error={trades.isError || deals.isError}
+          retry={() => {
+            void trades.refetch();
+            void deals.refetch();
+          }}
+          what="trade history"
+        >
         {usingDeals ? (
           <>
             <Table head={["Time", "Strategy", "Symbol", "Side", "Entry", "Qty", "Price", "Net", "Deal"]}>
@@ -175,6 +193,7 @@ export default function Trades({ instanceId }: { instanceId: string | null }) {
             <LoadMore shown={shown.length} total={filtered.length} onMore={() => setCap((c) => c + 30)} />
           </>
         )}
+        </Loadable>
       </Panel>
 
       <TradeDetail trade={open} instanceId={instanceId} onClose={() => setOpen(null)} close={open ? closeMap.get(open.payload.orderId) : null} />

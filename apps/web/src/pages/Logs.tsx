@@ -2,13 +2,14 @@ import { useState } from "react";
 import { useQuery } from "@tanstack/react-query";
 import { get, type LogRow, type StrategyRow } from "../api";
 import {
-  Card, Empty, LEVEL_TONE, LoadMore, PageHeader, Panel, Pill, QueryError, RangeSelect, rangeStart, SearchInput, Select,
+  Card, Empty, LEVEL_TONE, Loadable, LoadMore, PageHeader, Panel, Pill, RangeSelect, rangeStart, SearchInput, Select,
   type RangeKey,
 } from "../components/ui";
 import { ts } from "../format";
 import { useLiveStream } from "../useLiveStream";
 
 const LEVELS = ["ERROR", "WARN", "INFO", "DEBUG"];
+const LOG_TYPES = ["log"];
 
 export default function Logs({ instanceId }: { instanceId: string | null }) {
   const [level, setLevel] = useState("");
@@ -36,7 +37,7 @@ export default function Logs({ instanceId }: { instanceId: string | null }) {
     refetchInterval: 5000,
   });
 
-  const live = useLiveStream(instanceId, 100);
+  const live = useLiveStream(instanceId, 100, LOG_TYPES);
   const liveLogs = live.filter(
     (e) =>
       e.type === "log" &&
@@ -53,7 +54,6 @@ export default function Logs({ instanceId }: { instanceId: string | null }) {
   return (
     <div>
       <PageHeader title="Logs" sub={`Engine logs shipped from ${instanceId}; live tail on top, history below.`} />
-      <QueryError on={strategies.isError || logs.isError} what="logs" />
 
       {liveLogs.length > 0 && (
         <Panel className="mt-5 border-up/30" stagger={0} title="Live" right={<PulseDot />} scroll="max-h-[20rem]">
@@ -129,6 +129,7 @@ export default function Logs({ instanceId }: { instanceId: string | null }) {
           </>
         }
       >
+        <Loadable loading={logs.isPending} error={logs.isError} retry={() => logs.refetch()} what="log history">
         <div className="p-2">
           {shown.map((l) => (
             <LogLine key={l.id} log={l} />
@@ -136,6 +137,7 @@ export default function Logs({ instanceId }: { instanceId: string | null }) {
           {shown.length === 0 && <Empty>No logs match</Empty>}
         </div>
         <LoadMore shown={shown.length} total={filtered.length} onMore={() => setCap((c) => c + 30)} />
+        </Loadable>
       </Panel>
     </div>
   );

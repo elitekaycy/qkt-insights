@@ -81,6 +81,20 @@ body {
   animation-delay: calc(var(--stagger, 0) * 60ms);
 }
 
+/* one-shot background flash when a live value ticks to a new number */
+@keyframes value-flash {
+  from {
+    background: color-mix(in srgb, var(--color-accent) 25%, transparent);
+  }
+  to {
+    background: transparent;
+  }
+}
+.value-flash {
+  border-radius: 4px;
+  animation: value-flash 0.8s ease-out;
+}
+
 @keyframes pulse-dot {
   0%,
   100% {
