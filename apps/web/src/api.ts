@@ -162,6 +162,9 @@ export interface ClosedTradeRow {
   realized: number;
   entryTs: number | null;
   orderId: string | null;
+  /** Engine orders linked through broker tickets; only on deals-backed closes. */
+  entryOrderId?: string | null;
+  exitOrderId?: string | null;
 }
 export interface PerformanceBundle {
   breakdowns: TradeBreakdowns | null;
@@ -171,13 +174,6 @@ export interface PerformanceBundle {
   postLoss: PostLossRow[];
   closes: ClosedTradeRow[];
 }
-export interface OpenPositionRow {
-  strategyId: string;
-  symbol: string;
-  ts: number;
-  legs: { side: string; qty: number; entryPrice: number; entryTs: number }[];
-}
-
 export interface LiveAccount {
   instanceId: string;
   broker: string;

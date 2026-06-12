@@ -160,23 +160,26 @@ function foldOrder(db: Db, instanceId: string, e: Envelope): void {
   const fields = {
     i: instanceId, o: orderId, s: e.strategyId ?? null, sym: p.symbol ?? null, side: p.side ?? null,
     t: p.orderType ?? null, qty: e.type === "order.submit" ? (p.qty ?? null) : null, avg: p.price ?? null, ts: e.ts,
+    b: p.brokerOrderId ?? null,
   };
   if (!existing) {
     db.prepare(
-      `INSERT INTO orders (instance_id, order_id, strategy_id, symbol, side, type, state, qty, cum_qty, avg_price, created_ts, updated_ts, last_event_seq)
-       VALUES (@i,@o,@s,@sym,@side,@t,@st,@qty,@cum,@avg,@ts,@ts,@seq)`,
+      `INSERT INTO orders (instance_id, order_id, strategy_id, symbol, side, type, state, qty, cum_qty, avg_price, broker_order_id, created_ts, updated_ts, last_event_seq)
+       VALUES (@i,@o,@s,@sym,@side,@t,@st,@qty,@cum,@avg,@b,@ts,@ts,@seq)`,
     ).run({ ...fields, st: state, cum: cumFinal, seq: e.seq });
   } else if (e.seq >= existing.last_event_seq) {
     db.prepare(
       `UPDATE orders SET state=@st, cum_qty=@cum, last_event_seq=@seq, updated_ts=@ts,
          strategy_id=COALESCE(strategy_id,@s), symbol=COALESCE(symbol,@sym), side=COALESCE(side,@side),
-         type=COALESCE(type,@t), qty=COALESCE(qty,@qty), avg_price=COALESCE(@avg, avg_price)
+         type=COALESCE(type,@t), qty=COALESCE(qty,@qty), avg_price=COALESCE(@avg, avg_price),
+         broker_order_id=COALESCE(broker_order_id,@b)
        WHERE instance_id=@i AND order_id=@o`,
     ).run({ ...fields, st: state, cum: cumFinal, seq: e.seq });
   } else {
     db.prepare(
       `UPDATE orders SET strategy_id=COALESCE(strategy_id,@s), symbol=COALESCE(symbol,@sym),
-         side=COALESCE(side,@side), type=COALESCE(type,@t), qty=COALESCE(qty,@qty), avg_price=COALESCE(avg_price,@avg)
+         side=COALESCE(side,@side), type=COALESCE(type,@t), qty=COALESCE(qty,@qty), avg_price=COALESCE(avg_price,@avg),
+         broker_order_id=COALESCE(broker_order_id,@b)
        WHERE instance_id=@i AND order_id=@o`,
     ).run(fields);
   }

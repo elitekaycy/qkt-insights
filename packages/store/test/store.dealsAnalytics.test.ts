@@ -216,3 +216,72 @@ describe("equityCurve deals path", () => {
     ]);
   });
 });
+
+describe("engine order linking", () => {
+  const order = (orderId: string, brokerOrderId: string, side: "BUY" | "SELL", ts: number): Envelope[] => [
+    { v: 1, instanceId: "qkt-prod", id: `${orderId}-submit`, seq: 1, ts, strategyId: "hedge_straddle",
+      type: "order.submit", payload: { orderId, orderType: "Market", symbol: "EXNESS:XAUUSD", side, qty: 0.01 } } as Envelope,
+    { v: 1, instanceId: "qkt-prod", id: `${orderId}-accept`, seq: 2, ts: ts + 1,
+      type: "order.accepted", payload: { orderId, brokerOrderId } } as Envelope,
+    { v: 1, instanceId: "qkt-prod", id: `${orderId}-fill`, seq: 3, ts: ts + 2,
+      type: "order.filled", payload: { orderId, brokerOrderId, symbol: "EXNESS:XAUUSD", price: 4300, qty: 0.01 } } as Envelope,
+  ];
+
+  it("foldOrder persists the broker order id from accept and fill events", () => {
+    const db = openDb(":memory:");
+    ingestEvents(db, "qkt-prod", order("eng-1", "777", "BUY", T0));
+    expect(db.prepare("SELECT broker_order_id b FROM orders WHERE order_id='eng-1'").get()).toMatchObject({ b: "777" });
+  });
+
+  it("foldOrder backfills the broker order id when accept arrives after the fill", () => {
+    const db = openDb(":memory:");
+    const [submit, accept, fill] = order("eng-2", "888", "SELL", T0);
+    ingestEvents(db, "qkt-prod", [submit!, fill!, accept!]);
+    expect(db.prepare("SELECT broker_order_id b FROM orders WHERE order_id='eng-2'").get()).toMatchObject({ b: "888" });
+  });
+
+  it("dealClosedTrades names the engine orders that opened and closed the position", () => {
+    const db = openDb(":memory:");
+    ingestEvents(db, "qkt-prod", [
+      ...order("eng-open", "777", "BUY", T0),
+      ...order("eng-close", "888", "SELL", T0 + HOUR),
+      { v: 1, instanceId: "qkt-prod", id: "deal-EXNESS-31", seq: 1, ts: T0, type: "broker.deal",
+        payload: { broker: "EXNESS", dealTicket: "31", positionTicket: "900", orderTicket: "777",
+          symbol: "EXNESS:XAUUSD", side: "BUY", entry: "IN", qty: 0.01, price: 4300, profit: 0,
+          ts: T0, strategyId: "hedge_straddle" } } as Envelope,
+      { v: 1, instanceId: "qkt-prod", id: "deal-EXNESS-32", seq: 1, ts: T0 + HOUR, type: "broker.deal",
+        payload: { broker: "EXNESS", dealTicket: "32", positionTicket: "900", orderTicket: "888",
+          symbol: "EXNESS:XAUUSD", side: "SELL", entry: "OUT", qty: 0.01, price: 4310, profit: 10,
+          ts: T0 + HOUR, strategyId: "hedge_straddle" } } as Envelope,
+    ]);
+    const rows = dealClosedTrades(db, F);
+    expect(rows).toHaveLength(1);
+    expect(rows[0]).toMatchObject({ orderId: "900", entryOrderId: "eng-open", exitOrderId: "eng-close" });
+  });
+
+  it("leaves the engine order ids null when no order carries the broker ticket", () => {
+    const rows = dealClosedTrades(seeded(), F);
+    for (const r of rows) {
+      expect(r.entryOrderId).toBeNull();
+      expect(r.exitOrderId).toBeNull();
+    }
+  });
+
+  it("007 migration backfills broker order ids from stored events", async () => {
+    const { readFileSync } = await import("node:fs");
+    const db = openDb(":memory:");
+    db.prepare(
+      "INSERT INTO orders (instance_id, order_id, state, created_ts, updated_ts) VALUES ('qkt-prod','eng-9','FILLED',1,1)",
+    ).run();
+    db.prepare(
+      "INSERT INTO events (id, instance_id, type, seq, ts, payload) VALUES ('e9','qkt-prod','order.accepted',1,1,?)",
+    ).run(JSON.stringify({ orderId: "eng-9", brokerOrderId: "999" }));
+    const sql = readFileSync(new URL("../src/migrations/007_orders_broker_id.sql", import.meta.url), "utf8");
+    // Re-run only the backfill: ALTER/CREATE already applied by openDb.
+    for (const stmt of sql.split(";")) {
+      const body = stmt.split("\n").filter((l) => !l.trim().startsWith("--")).join("\n").trim();
+      if (body.toUpperCase().startsWith("UPDATE")) db.exec(body + ";");
+    }
+    expect(db.prepare("SELECT broker_order_id b FROM orders WHERE order_id='eng-9'").get()).toMatchObject({ b: "999" });
+  });
+});

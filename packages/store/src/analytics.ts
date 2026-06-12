@@ -101,6 +101,10 @@ export interface DealClosedTrade extends ClosedTradeRow {
   entryPrice: number | null;
   exitPrice: number;
   holdMs: number | null;
+  /** Engine order that opened the position (orders.broker_order_id = IN leg's order ticket). */
+  entryOrderId: string | null;
+  /** Engine order that executed this close (orders.broker_order_id = closing leg's order ticket). */
+  exitOrderId: string | null;
 }
 
 const OUT_LEGS = "('OUT','INOUT','OUT_BY')";
@@ -128,13 +132,16 @@ export function dealClosedTrades(db: Db, f: AnalyticsFilter): DealClosedTrade[] 
   const rows = db.prepare(
     `SELECT o.position_ticket orderId, o.symbol, o.side outSide, i.side inSide, o.qty,
             i.price entryPrice, o.price exitPrice, i.ts entryTs, o.ts ts,
-            o.profit + COALESCE(o.commission,0) + COALESCE(o.swap,0) realized
+            o.profit + COALESCE(o.commission,0) + COALESCE(o.swap,0) realized,
+            eo.order_id entryOrderId, xo.order_id exitOrderId
      FROM deals o
      LEFT JOIN deals i ON i.rowid = (
        SELECT rowid FROM deals x
        WHERE x.instance_id=o.instance_id AND x.position_ticket=o.position_ticket AND x.entry='IN'
        ORDER BY x.ts ASC LIMIT 1
      )
+     LEFT JOIN orders eo ON eo.instance_id=o.instance_id AND eo.broker_order_id=i.order_ticket
+     LEFT JOIN orders xo ON xo.instance_id=o.instance_id AND xo.broker_order_id=o.order_ticket
      WHERE ${cl.join(" AND ")}
      ORDER BY o.ts ASC`,
   ).all(f) as any[];
@@ -150,6 +157,8 @@ export function dealClosedTrades(db: Db, f: AnalyticsFilter): DealClosedTrade[] 
     ts: r.ts,
     realized: r.realized,
     holdMs: r.entryTs != null ? r.ts - r.entryTs : null,
+    entryOrderId: r.entryOrderId ?? null,
+    exitOrderId: r.exitOrderId ?? null,
   }));
 }
 
@@ -319,28 +328,6 @@ export function postLossStats(db: Db, f: AnalyticsFilter): PostLossRow[] {
       nextWinRate: (nexts.filter((x) => x > 0).length / nexts.length) * 100,
       nextAvg: nexts.reduce((a, b) => a + b, 0) / nexts.length,
     }));
-}
-
-export interface OpenPositionRow {
-  strategyId: string;
-  symbol: string;
-  ts: number;
-  legs: { side: string; qty: number; entryPrice: number; entryTs: number }[];
-}
-
-export function openPositions(db: Db, f: { instanceId: string; strategyId?: string }): OpenPositionRow[] {
-  const rows = db.prepare(
-    `SELECT strategy_id strategyId, json_extract(payload,'$.symbol') symbol, ts, payload
-     FROM events e
-     WHERE instance_id=@instanceId AND type='snapshot.position'
-       ${f.strategyId ? "AND strategy_id=@strategyId" : ""}
-       AND ts = (SELECT MAX(ts) FROM events e2 WHERE e2.instance_id=e.instance_id AND e2.type='snapshot.position'
-                   AND e2.strategy_id=e.strategy_id AND json_extract(e2.payload,'$.symbol')=json_extract(e.payload,'$.symbol'))
-     ORDER BY strategy_id, symbol`,
-  ).all(f) as any[];
-  return rows
-    .map((r) => ({ strategyId: r.strategyId, symbol: r.symbol, ts: r.ts, legs: JSON.parse(r.payload).legs }))
-    .filter((r) => r.legs.length > 0);
 }
 
 export function performanceReport(db: Db, f: AnalyticsFilter): PerformanceReport {
