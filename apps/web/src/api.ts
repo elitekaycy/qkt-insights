@@ -44,6 +44,8 @@ export interface StrategyRow {
   lastSeen: number;
   equity: number | null;
   startingBalance: number | null;
+  realizedNet: number | null;
+  dealCount: number;
 }
 export interface OrderRow {
   orderId: string;

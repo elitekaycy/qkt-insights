@@ -1,5 +1,6 @@
 import { useEffect, useState, type ReactNode } from "react";
 import { createPortal } from "react-dom";
+import { money } from "../format";
 
 /*
  * The component kit every page is built from. Pages compose these and never
@@ -256,6 +257,17 @@ export function Delta({ value }: { value: number | null | undefined }) {
   return (
     <span className={`font-mono text-sm font-semibold ${up ? "text-up" : "text-down"}`}>
       {up ? "▲" : "▼"} {(Math.abs(value) * 100).toFixed(2)}%
+    </span>
+  );
+}
+
+/** Direction badge for a dollar amount: arrow and tone from the sign. `dim` greys it when the source is stale. */
+export function MoneyDelta({ value, dim }: { value: number | null | undefined; dim?: boolean }) {
+  if (value == null) return <span className="text-faint">—</span>;
+  const up = value >= 0;
+  return (
+    <span className={`font-mono text-sm font-semibold ${dim ? "text-faint" : up ? "text-up" : "text-down"}`}>
+      {up ? "▲" : "▼"} {money(Math.abs(value))}
     </span>
   );
 }

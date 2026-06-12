@@ -85,7 +85,7 @@ describe("strategyStats", () => {
     });
     ingestEvents(db, "qkt-prod", events);
 
-    const s = strategyStats(db, { instanceId: "qkt-prod", strategyId: "latch" });
+    const s = strategyStats(db, { instanceId: "qkt-prod", strategyId: "latch" }, t0 + 5 * DAY + 60_000);
     expect(s.tradeCount).toBe(2);
     expect(s.buyCount).toBe(1);
     expect(s.sellCount).toBe(1);

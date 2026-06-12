@@ -141,4 +141,34 @@ describe("deals and account equity", () => {
     expect(s.tradeCount).toBe(1);
     expect(s.realizedPnl).toBe(5);
   });
+
+  it("listStrategies carries realized net and deal count from closing deals", () => {
+    ingestEvents(db, "qkt-prod", [
+      deal("deal-EXNESS-20", 1718000001000, { strategyId: "latch", entry: "IN", profit: 0 }),
+      deal("deal-EXNESS-21", 1718000002000, { strategyId: "latch", profit: 10, commission: -1, swap: -0.5 }),
+      deal("deal-EXNESS-22", 1718000003000, { strategyId: "latch", profit: -5, commission: -1, swap: 0 }),
+    ]);
+    const rows = listStrategies(db, "qkt-prod");
+    expect(rows).toHaveLength(1);
+    expect(rows[0]!.realizedNet).toBeCloseTo(2.5);
+    expect(rows[0]!.dealCount).toBe(2);
+    // No deals on qkt-demo: aggregates are empty, not invented.
+    const demo = listStrategies(db, "qkt-demo");
+    expect(demo[0]!.realizedNet).toBeNull();
+    expect(demo[0]!.dealCount).toBe(0);
+  });
+
+  it("strategyStats only trusts snapshot equity while snapshots are fresh", () => {
+    const lastSnapTs = 1718000002000;
+    const fresh = strategyStats(db, { instanceId: "qkt-prod", strategyId: "latch" }, lastSnapTs + 60_000);
+    expect(fresh.equity).toBe(1005);
+    expect(fresh.startingBalance).toBe(1000);
+    expect(fresh.returnPct).toBeCloseTo(0.005);
+    const stale = strategyStats(db, { instanceId: "qkt-prod", strategyId: "latch" }, lastSnapTs + 11 * 60_000);
+    expect(stale.equity).toBeNull();
+    expect(stale.startingBalance).toBeNull();
+    expect(stale.returnPct).toBeNull();
+    // Realized still flows from the ledger; only the frozen equity figures go dark.
+    expect(stale.realizedPnl).toBe(5);
+  });
 });

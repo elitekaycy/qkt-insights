@@ -3,7 +3,7 @@ import { useQueries, useQuery } from "@tanstack/react-query";
 import { get, type EquityPoint, type HealthRow, type OpenPositionRow, type PerformanceBundle, type StrategyRow, type StrategyStats } from "../api";
 import { ComparisonChart, type ComparisonSeries } from "../components/EquityChart";
 import { Sparkline } from "../components/Sparkline";
-import { Card, Cell, Delta, Empty, HoverExpand, LiveDot, Modal, PageHeader, Panel, Pill, QueryError, Row, SideTag, Stat, Table } from "../components/ui";
+import { Card, Cell, Empty, HoverExpand, LiveDot, Modal, MoneyDelta, PageHeader, Panel, Pill, QueryError, Row, SideTag, Stat, Table } from "../components/ui";
 import { age, money, num, pct, ts } from "../format";
 import { useLiveState } from "../useLiveState";
 import { useLiveStream } from "../useLiveStream";
@@ -99,15 +99,32 @@ export default function Overview({
   const accounts = (liveState.data?.accounts ?? []).filter((a) => a.instanceId === instanceId);
   const brokerPositions = (liveState.data?.positions ?? []).filter((p) => p.instanceId === instanceId);
 
+  // Live truth: account figures summed across brokers, open P&L attributed per strategy.
+  const accountEquity = accounts.length > 0 ? accounts.reduce((a, x) => a + x.equity, 0) : null;
+  const accountBalance = accounts.length > 0 ? accounts.reduce((a, x) => a + x.balance, 0) : null;
+  const accountOpenPnl = accounts.length > 0 ? accounts.reduce((a, x) => a + (x.openProfit ?? 0), 0) : null;
+  const accountsStale = accounts.length > 0 && accounts.every((a) => a.stale);
+  const positionsStale = brokerPositions.length > 0 && brokerPositions.every((g) => g.stale);
+  const openByStrategy = new Map<string, number>();
+  for (const g of brokerPositions)
+    for (const p of g.list)
+      if (p.strategyId) openByStrategy.set(p.strategyId, (openByStrategy.get(p.strategyId) ?? 0) + (p.profit ?? 0));
+
   // Per-strategy slice of everything the stat cards aggregate, for their breakdown modals.
   const perStrategy = ids.map((id, i) => {
     const nets = perf[i]?.data?.dailyNets ?? [];
     const dayRows = nets.filter((dn) => dn.day === today);
     const weekRows = nets.filter((dn) => dn.day >= monday);
+    const row = rows[i]!;
+    const realized = row.realizedNet ?? stats[i]?.data?.realizedPnl ?? null;
+    const open = openByStrategy.get(id) ?? (brokerPositions.length > 0 ? 0 : null);
     return {
       id,
-      row: rows[i]!,
+      row,
       stats: stats[i]?.data,
+      realized,
+      open,
+      net: realized == null && open == null ? null : (realized ?? 0) + (open ?? 0),
       dayNet: dayRows.reduce((a, d) => a + d.net, 0),
       dayTrades: dayRows.reduce((a, d) => a + d.trades, 0),
       weekNet: weekRows.reduce((a, d) => a + d.net, 0),
@@ -162,11 +179,6 @@ export default function Overview({
     </div>
   );
 
-  const totalEquity = rows.length > 0 && rows.every((s) => s.equity != null)
-    ? rows.reduce((acc, s) => acc + s.equity!, 0) : null;
-  const totalStart = rows.length > 0 && rows.every((s) => s.startingBalance != null)
-    ? rows.reduce((acc, s) => acc + s.startingBalance!, 0) : null;
-  const totalReturn = totalEquity != null && totalStart ? (totalEquity - totalStart) / totalStart : null;
   const statsReady = stats.length === ids.length && stats.every((q) => q.data);
   const totalTrades = statsReady ? stats.reduce((acc, q) => acc + q.data!.tradeCount, 0) : null;
   const realized = statsReady ? stats.reduce((acc, q) => acc + (q.data!.realizedPnl ?? 0), 0) : null;
@@ -270,13 +282,15 @@ export default function Overview({
           <HoverExpand label="expand portfolio equity" onClick={() => setHeroOpen(true)} />
           <div className="flex flex-wrap items-start justify-between gap-4">
             <div>
-              <div className="text-[11px] font-semibold uppercase tracking-[0.14em] text-muted">Portfolio equity</div>
+              <div className="text-[11px] font-semibold uppercase tracking-[0.14em] text-muted">Account equity</div>
               <div className="mt-2 flex items-baseline gap-3">
-                <span className="font-mono text-4xl font-bold tracking-tight text-bright sm:text-5xl">{money(totalEquity)}</span>
-                <Delta value={totalReturn} />
+                <span className={`font-mono text-4xl font-bold tracking-tight sm:text-5xl ${accountsStale ? "text-faint" : "text-bright"}`}>
+                  {money(accountEquity)}
+                </span>
+                <MoneyDelta value={accountOpenPnl} dim={accountsStale} />
               </div>
               <div className="mt-1.5 text-sm text-faint">
-                {rows.length} strateg{rows.length === 1 ? "y" : "ies"} · from {money(totalStart)} starting capital
+                {rows.length} strateg{rows.length === 1 ? "y" : "ies"} · balance {money(accountBalance)} · broker-reported
               </div>
             </div>
             <div className="flex flex-wrap gap-2 pr-8">
@@ -292,27 +306,23 @@ export default function Overview({
             <ComparisonChart series={series} height="100%" />
           </div>
         </Card>
-        <Modal open={heroOpen} onClose={() => setHeroOpen(false)} title="Portfolio equity" hint={`${money(totalEquity)} across ${rows.length} strategies`}>
+        <Modal open={heroOpen} onClose={() => setHeroOpen(false)} title="Account equity" hint={`${money(accountEquity)} across ${rows.length} strategies`}>
           <div className="p-4">
             <ComparisonChart series={series} height={380} />
           </div>
-          <Table head={["Strategy", "Equity", "Starting", "Return", "Realized", "Day", "Week"]}>
-            {perStrategy.map((p) => {
-              const ret = p.row.equity != null && p.row.startingBalance ? (p.row.equity - p.row.startingBalance) / p.row.startingBalance : null;
-              return (
-                <Row key={p.id} onClick={() => onOpenStrategy(p.id)}>
-                  <Cell className="font-semibold text-bright">{p.id}</Cell>
-                  <Cell className="font-mono">{money(p.row.equity)}</Cell>
-                  <Cell className="font-mono text-muted">{money(p.row.startingBalance)}</Cell>
-                  <Cell>
-                    <Delta value={ret} />
-                  </Cell>
-                  <Cell className={`font-mono ${p.stats?.realizedPnl == null ? "text-muted" : p.stats.realizedPnl >= 0 ? "text-up" : "text-down"}`}>{money(p.stats?.realizedPnl)}</Cell>
-                  <Cell className={`font-mono ${p.dayNet > 0 ? "text-up" : p.dayNet < 0 ? "text-down" : "text-muted"}`}>{money(p.dayNet)}</Cell>
-                  <Cell className={`font-mono ${p.weekNet > 0 ? "text-up" : p.weekNet < 0 ? "text-down" : "text-muted"}`}>{money(p.weekNet)}</Cell>
-                </Row>
-              );
-            })}
+          <Table head={["Strategy", "Realized", "Open", "Net", "Day", "Week"]}>
+            {perStrategy.map((p) => (
+              <Row key={p.id} onClick={() => onOpenStrategy(p.id)}>
+                <Cell className="font-semibold text-bright">{p.id}</Cell>
+                <Cell className={`font-mono ${p.realized == null ? "text-muted" : p.realized >= 0 ? "text-up" : "text-down"}`}>{money(p.realized)}</Cell>
+                <Cell className={`font-mono ${positionsStale ? "text-faint" : "text-muted"}`}>{money(p.open)}</Cell>
+                <Cell>
+                  <MoneyDelta value={p.net} dim={positionsStale} />
+                </Cell>
+                <Cell className={`font-mono ${p.dayNet > 0 ? "text-up" : p.dayNet < 0 ? "text-down" : "text-muted"}`}>{money(p.dayNet)}</Cell>
+                <Cell className={`font-mono ${p.weekNet > 0 ? "text-up" : p.weekNet < 0 ? "text-down" : "text-muted"}`}>{money(p.weekNet)}</Cell>
+              </Row>
+            ))}
           </Table>
         </Modal>
 
@@ -342,20 +352,17 @@ export default function Overview({
               expand={{
                 hint: "closed P&L per strategy, all time",
                 content: (
-                  <Table head={["Strategy", "Realized", "Equity", "Return"]}>
-                    {perStrategy.map((p) => {
-                      const ret = p.row.equity != null && p.row.startingBalance ? (p.row.equity - p.row.startingBalance) / p.row.startingBalance : null;
-                      return (
-                        <Row key={p.id} onClick={() => onOpenStrategy(p.id)}>
-                          <Cell className="font-semibold text-bright">{p.id}</Cell>
-                          <Cell className={`font-mono ${p.stats?.realizedPnl == null ? "text-muted" : p.stats.realizedPnl >= 0 ? "text-up" : "text-down"}`}>{money(p.stats?.realizedPnl)}</Cell>
-                          <Cell className="font-mono">{money(p.row.equity)}</Cell>
-                          <Cell>
-                            <Delta value={ret} />
-                          </Cell>
-                        </Row>
-                      );
-                    })}
+                  <Table head={["Strategy", "Realized", "Open", "Net"]}>
+                    {perStrategy.map((p) => (
+                      <Row key={p.id} onClick={() => onOpenStrategy(p.id)}>
+                        <Cell className="font-semibold text-bright">{p.id}</Cell>
+                        <Cell className={`font-mono ${p.realized == null ? "text-muted" : p.realized >= 0 ? "text-up" : "text-down"}`}>{money(p.realized)}</Cell>
+                        <Cell className={`font-mono ${positionsStale ? "text-faint" : "text-muted"}`}>{money(p.open)}</Cell>
+                        <Cell>
+                          <MoneyDelta value={p.net} dim={positionsStale} />
+                        </Cell>
+                      </Row>
+                    ))}
                   </Table>
                 ),
               }}
@@ -388,22 +395,18 @@ export default function Overview({
               expand={{
                 hint: "click one to drill in",
                 content: (
-                  <Table head={["Strategy", "Equity", "Return", "Win rate", "Sharpe", "Last seen"]}>
-                    {perStrategy.map((p) => {
-                      const ret = p.row.equity != null && p.row.startingBalance ? (p.row.equity - p.row.startingBalance) / p.row.startingBalance : null;
-                      return (
-                        <Row key={p.id} onClick={() => onOpenStrategy(p.id)}>
-                          <Cell className="font-semibold text-bright">{p.id}</Cell>
-                          <Cell className="font-mono">{money(p.row.equity)}</Cell>
-                          <Cell>
-                            <Delta value={ret} />
-                          </Cell>
-                          <Cell className="font-mono text-muted">{pct(p.stats?.winRate)}</Cell>
-                          <Cell className="font-mono text-muted">{num(p.stats?.sharpe)}</Cell>
-                          <Cell className="text-muted">{age(p.row.lastSeen)}</Cell>
-                        </Row>
-                      );
-                    })}
+                  <Table head={["Strategy", "Net", "Win rate", "Sharpe", "Last seen"]}>
+                    {perStrategy.map((p) => (
+                      <Row key={p.id} onClick={() => onOpenStrategy(p.id)}>
+                        <Cell className="font-semibold text-bright">{p.id}</Cell>
+                        <Cell>
+                          <MoneyDelta value={p.net} dim={positionsStale} />
+                        </Cell>
+                        <Cell className="font-mono text-muted">{pct(p.stats?.winRate)}</Cell>
+                        <Cell className="font-mono text-muted">{num(p.stats?.sharpe)}</Cell>
+                        <Cell className="text-muted">{age(p.row.lastSeen)}</Cell>
+                      </Row>
+                    ))}
                   </Table>
                 ),
               }}
@@ -469,8 +472,7 @@ export default function Overview({
           {rows.map((s, i) => {
             const st = stats[i]?.data;
             const pts = curves[i]?.data ?? [];
-            const ret =
-              s.equity != null && s.startingBalance ? (s.equity - s.startingBalance) / s.startingBalance : null;
+            const p = perStrategy[i]!;
             return (
               <button key={s.strategyId} onClick={() => onOpenStrategy(s.strategyId)} className="group text-left">
                 <Card
@@ -481,9 +483,12 @@ export default function Overview({
                     <span className="font-bold text-bright">{s.strategyId}</span>
                     <span className="text-xs text-faint">{age(s.lastSeen)}</span>
                   </div>
-                  <div className="mt-2.5 flex items-baseline gap-3">
-                    <span className="font-mono text-2xl font-semibold text-bright">{money(s.equity)}</span>
-                    <Delta value={ret} />
+                  <div className="mt-2.5 flex items-baseline gap-3" title="realized + open">
+                    <span className="font-mono text-2xl font-semibold text-bright">{money(p.realized)}</span>
+                    <MoneyDelta value={p.net} dim={positionsStale} />
+                  </div>
+                  <div className={`mt-1 text-xs ${positionsStale ? "text-faint" : "text-muted"}`}>
+                    open {money(p.open)} · realized + open {money(p.net)}
                   </div>
                   <div className="mt-2 -mx-1">
                     <Sparkline points={pts} />

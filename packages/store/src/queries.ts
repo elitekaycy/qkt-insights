@@ -2,7 +2,7 @@ import type { Db } from "./db.js";
 import { tradePnls } from "./analytics.js";
 
 export interface InstanceRow { id: string; name: string | null; firstSeen: number; lastSeen: number; lastSeq: number }
-export interface StrategyRow { strategyId: string; firstSeen: number; lastSeen: number; equity: number | null; startingBalance: number | null }
+export interface StrategyRow { strategyId: string; firstSeen: number; lastSeen: number; equity: number | null; startingBalance: number | null; realizedNet: number | null; dealCount: number }
 export interface OrderRow { orderId: string; strategyId: string | null; symbol: string | null; side: string | null; type: string | null; state: string; qty: number | null; cumQty: number; avgPrice: number | null; createdTs: number; updatedTs: number }
 export interface TradeRow { id: string; strategyId: string | null; ts: number; payload: unknown }
 export interface SearchHit { id: string; instanceId: string; type: string; ts: number; payload: unknown }
@@ -14,9 +14,18 @@ export function listInstances(db: Db): InstanceRow[] {
 }
 
 export function listStrategies(db: Db, instanceId: string): StrategyRow[] {
+  // One query feeds every strategy card: realizedNet sums the closing deal legs
+  // (profit + commission + swap), so the UI never needs N follow-up requests.
   return db.prepare(
-    "SELECT strategy_id strategyId, first_seen firstSeen, last_seen lastSeen, equity, starting_balance startingBalance FROM strategies WHERE instance_id=? ORDER BY strategy_id",
-  ).all(instanceId) as StrategyRow[];
+    `SELECT s.strategy_id strategyId, s.first_seen firstSeen, s.last_seen lastSeen, s.equity, s.starting_balance startingBalance,
+            d.realizedNet, COALESCE(d.dealCount, 0) dealCount
+     FROM strategies s
+     LEFT JOIN (
+       SELECT strategy_id, SUM(profit + COALESCE(commission,0) + COALESCE(swap,0)) realizedNet, COUNT(*) dealCount
+       FROM deals WHERE instance_id=? AND entry IN ('OUT','INOUT','OUT_BY') GROUP BY strategy_id
+     ) d ON d.strategy_id = s.strategy_id
+     WHERE s.instance_id=? ORDER BY s.strategy_id`,
+  ).all(instanceId, instanceId) as StrategyRow[];
 }
 
 export function listOrders(db: Db, f: { instanceId: string; strategyId?: string; symbol?: string; state?: string; limit: number }): OrderRow[] {
@@ -177,8 +186,11 @@ export interface StrategyStats {
  * - sharpe: annualized from end-of-day equity returns (sqrt(252)); null when fewer
  *   than 5 daily points exist — too little data to pretend.
  * - maxDrawdownPct: largest peak-to-trough equity drop over the snapshot series.
+ * - equity/startingBalance: from the ledger snapshots only while they are fresh
+ *   (newest snapshot younger than 10 minutes vs [now]). qkt no longer emits
+ *   snapshot.equity, so an old figure would be a frozen lie — null is honest.
  */
-export function strategyStats(db: Db, f: { instanceId: string; strategyId: string }): StrategyStats {
+export function strategyStats(db: Db, f: { instanceId: string; strategyId: string }, now = Date.now()): StrategyStats {
   const t: any = db.prepare(
     `SELECT COUNT(*) c,
             SUM(CASE WHEN json_extract(payload,'$.side')='BUY' THEN 1 ELSE 0 END) buys,
@@ -230,8 +242,9 @@ export function strategyStats(db: Db, f: { instanceId: string; strategyId: strin
   }
 
   const last = snaps[snaps.length - 1];
-  const sb = strat?.sb ?? null;
-  const equity = strat?.equity ?? last?.equity ?? null;
+  const snapsFresh = last != null && now - last.ts < 10 * 60_000;
+  const sb = snapsFresh ? strat?.sb ?? null : null;
+  const equity = snapsFresh ? last.equity : null;
   return {
     tradeCount: d.c > 0 ? d.c : t?.c ?? 0,
     buyCount: t?.buys ?? 0,
