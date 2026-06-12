@@ -1,9 +1,9 @@
 import { useState } from "react";
 import { useQuery } from "@tanstack/react-query";
-import { get, type StrategyRow, type TradeRow } from "../api";
+import { get, type DealRow, type StrategyRow, type TradeRow } from "../api";
 import { TradeDetail } from "../components/detail";
 import {
-  Card, Cell, Empty, LoadMore, PageHeader, Panel, QueryError, RangeSelect, rangeStart, Row, SearchInput, Select, SideTag, Table,
+  Card, Cell, Empty, LoadMore, PageHeader, Panel, Pill, QueryError, RangeSelect, rangeStart, Row, SearchInput, Select, SideTag, Table,
   type RangeKey,
 } from "../components/ui";
 import { tsDay } from "../format";
@@ -33,9 +33,19 @@ export default function Trades({ instanceId }: { instanceId: string | null }) {
     enabled: !!instanceId,
     refetchInterval: 5000,
   });
+  // Broker deal history; when the instance has any, it wins over engine fills.
+  // Strategy filtering happens client-side so an empty filter result doesn't
+  // flip the page back to the fills view.
+  const deals = useQuery({
+    queryKey: ["deals-page", instanceId],
+    queryFn: () => get<DealRow[]>(`/deals?instance=${encodeURIComponent(instanceId!)}&limit=1000`),
+    enabled: !!instanceId,
+    refetchInterval: 5000,
+  });
 
   if (!instanceId) return <Card className="p-8 text-center text-faint">No instance selected.</Card>;
 
+  const usingDeals = (deals.data?.length ?? 0) > 0;
   const needle = q.trim().toUpperCase();
   const start = rangeStart(range);
   const filtered = (trades.data ?? []).filter(
@@ -47,16 +57,35 @@ export default function Trades({ instanceId }: { instanceId: string | null }) {
         (t.strategyId ?? "").toUpperCase().includes(needle)),
   );
   const shown = filtered.slice(0, cap);
+  const dealNet = (d: DealRow) => (d.profit ?? 0) + (d.commission ?? 0) + (d.swap ?? 0);
+  const filteredDeals = (deals.data ?? []).filter(
+    (d) =>
+      d.ts >= start &&
+      (!strategy || d.strategyId === strategy) &&
+      (!needle ||
+        (d.symbol ?? "").toUpperCase().includes(needle) ||
+        d.dealTicket.toUpperCase().includes(needle) ||
+        (d.strategyId ?? "").toUpperCase().includes(needle)),
+  );
+  const shownDeals = filteredDeals.slice(0, cap);
 
   return (
     <div>
-      <PageHeader title="Trades" sub={`Every fill recorded for ${instanceId}. Click a row for the full story.`} />
-      <QueryError on={strategies.isError || trades.isError} what="trades" />
+      <PageHeader
+        title="Trades"
+        sub={
+          usingDeals
+            ? `Broker deal history for ${instanceId} — every executed in/out leg as the venue recorded it.`
+            : `Every fill recorded for ${instanceId}. Click a row for the full story.`
+        }
+      />
+      <QueryError on={strategies.isError || trades.isError || deals.isError} what="trades" />
 
       <Panel
         className="mt-5"
         stagger={1}
-        title="Fills"
+        title={usingDeals ? "Deals" : "Fills"}
+        hint={usingDeals ? "source: broker deals" : "source: engine fills"}
         scroll="max-h-[calc(100vh-15rem)]"
         toolbar={
           <>
@@ -66,7 +95,7 @@ export default function Trades({ instanceId }: { instanceId: string | null }) {
                 setQ(e.target.value);
                 setCap(30);
               }}
-              placeholder="search symbol, order id, strategy…"
+              placeholder={usingDeals ? "search symbol, deal ticket, strategy…" : "search symbol, order id, strategy…"}
               className="w-72"
             />
             <Select
@@ -93,27 +122,59 @@ export default function Trades({ instanceId }: { instanceId: string | null }) {
           </>
         }
       >
-        <Table head={["Time", "Strategy", "Symbol", "Side", "Qty", "Price", "P&L", "Order"]}>
-          {shown.map((t) => (
-            <Row key={t.id} onClick={() => setOpen(t)}>
-              <Cell className="whitespace-nowrap text-muted">{tsDay(t.ts)}</Cell>
-              <Cell>{t.strategyId ?? "—"}</Cell>
-              <Cell className="font-semibold text-bright">{t.payload.symbol}</Cell>
-              <Cell>
-                <SideTag side={t.payload.side} />
-              </Cell>
-              <Cell className="font-mono">{t.payload.qty}</Cell>
-              <Cell className="font-mono">{t.payload.price}</Cell>
-              {(() => {
-                const r = realizedLabel(closeMap.get(t.payload.orderId));
-                return <Cell className={`font-mono ${r.className}`}>{r.text}</Cell>;
-              })()}
-              <Cell className="font-mono text-xs text-faint">{t.payload.orderId}</Cell>
-            </Row>
-          ))}
-          {shown.length === 0 && <Empty colSpan={8}>No trades match</Empty>}
-        </Table>
-        <LoadMore shown={shown.length} total={filtered.length} onMore={() => setCap((c) => c + 30)} />
+        {usingDeals ? (
+          <>
+            <Table head={["Time", "Strategy", "Symbol", "Side", "Entry", "Qty", "Price", "Net", "Deal"]}>
+              {shownDeals.map((d) => {
+                const n = dealNet(d);
+                return (
+                  <Row key={d.id}>
+                    <Cell className="whitespace-nowrap text-muted">{tsDay(d.ts)}</Cell>
+                    <Cell>{d.strategyId ?? <Pill>unattributed</Pill>}</Cell>
+                    <Cell className="font-semibold text-bright">{d.symbol ?? "—"}</Cell>
+                    <Cell>
+                      <SideTag side={d.side} />
+                    </Cell>
+                    <Cell className="font-mono text-muted">{d.entry ?? "—"}</Cell>
+                    <Cell className="font-mono">{d.qty ?? "—"}</Cell>
+                    <Cell className="font-mono">{d.price ?? "—"}</Cell>
+                    <Cell className={`font-mono font-semibold ${n > 0 ? "text-up" : n < 0 ? "text-down" : "text-muted"}`}>
+                      {n > 0 ? "+" : ""}
+                      {n.toFixed(2)}
+                    </Cell>
+                    <Cell className="font-mono text-xs text-faint">{d.dealTicket}</Cell>
+                  </Row>
+                );
+              })}
+              {shownDeals.length === 0 && <Empty colSpan={9}>No deals match</Empty>}
+            </Table>
+            <LoadMore shown={shownDeals.length} total={filteredDeals.length} onMore={() => setCap((c) => c + 30)} />
+          </>
+        ) : (
+          <>
+            <Table head={["Time", "Strategy", "Symbol", "Side", "Qty", "Price", "P&L", "Order"]}>
+              {shown.map((t) => (
+                <Row key={t.id} onClick={() => setOpen(t)}>
+                  <Cell className="whitespace-nowrap text-muted">{tsDay(t.ts)}</Cell>
+                  <Cell>{t.strategyId ?? "—"}</Cell>
+                  <Cell className="font-semibold text-bright">{t.payload.symbol}</Cell>
+                  <Cell>
+                    <SideTag side={t.payload.side} />
+                  </Cell>
+                  <Cell className="font-mono">{t.payload.qty}</Cell>
+                  <Cell className="font-mono">{t.payload.price}</Cell>
+                  {(() => {
+                    const r = realizedLabel(closeMap.get(t.payload.orderId));
+                    return <Cell className={`font-mono ${r.className}`}>{r.text}</Cell>;
+                  })()}
+                  <Cell className="font-mono text-xs text-faint">{t.payload.orderId}</Cell>
+                </Row>
+              ))}
+              {shown.length === 0 && <Empty colSpan={8}>No trades match</Empty>}
+            </Table>
+            <LoadMore shown={shown.length} total={filtered.length} onMore={() => setCap((c) => c + 30)} />
+          </>
+        )}
       </Panel>
 
       <TradeDetail trade={open} instanceId={instanceId} onClose={() => setOpen(null)} close={open ? closeMap.get(open.payload.orderId) : null} />

@@ -43,6 +43,9 @@ export function ingestEvents(db: Db, instanceId: string, events: Envelope[]): nu
   const insClose = db.prepare(
     "INSERT OR IGNORE INTO trade_closes (id, instance_id, strategy_id, symbol, side, qty, price, realized, entry_ts, ts, order_id) VALUES (?,?,?,?,?,?,?,?,?,?,?)",
   );
+  const insDeal = db.prepare(
+    "INSERT OR IGNORE INTO deals (id, instance_id, broker, deal_ticket, position_ticket, order_ticket, symbol, side, entry, qty, price, profit, commission, swap, magic, comment, strategy_id, ts) VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)",
+  );
 
   const tx = db.transaction((evs: Envelope[]) => {
     let accepted = 0;
@@ -61,6 +64,37 @@ export function ingestEvents(db: Db, instanceId: string, events: Envelope[]): nu
         // line must not grow a ghost strategy with no equity in the dashboard.
         continue;
       }
+      // Live last-value state belongs to the in-memory store; the collector routes
+      // state.* envelopes before ingest, this branch is defense in depth.
+      if (e.type.startsWith("state.")) continue;
+      // Deals are durable broker history with their own table, same rule as logs:
+      // no events row, no FTS row, idempotent by deterministic id.
+      if (e.type === "broker.deal") {
+        const p = e.payload;
+        const info = insDeal.run(e.id, instanceId, p.broker, p.dealTicket, p.positionTicket ?? null, p.orderTicket ?? null,
+          p.symbol ?? null, p.side ?? null, p.entry ?? null, p.qty, p.price, p.profit, p.commission ?? null,
+          p.swap ?? null, p.magic ?? null, p.comment ?? null, p.strategyId ?? null, p.ts);
+        if (info.changes === 0) continue;
+        accepted++;
+        upInstance.run({ id: instanceId, ts: e.ts, seq: e.seq });
+        if (p.strategyId) upStrategy.run({ i: instanceId, s: p.strategyId, ts: e.ts });
+        continue;
+      }
+      // Equity snapshots are a sampled time series; they live in equity_snapshots
+      // only — writing each one to events + FTS tripled the storage for no reader.
+      if (e.type === "snapshot.equity") {
+        const p = e.payload;
+        accepted++;
+        upInstance.run({ id: instanceId, ts: e.ts, seq: e.seq });
+        upStrategy.run({ i: instanceId, s: p.strategyId, ts: e.ts });
+        insEquity.run(instanceId, p.strategyId, e.ts, p.realized, p.unrealized, p.equity);
+        setEquity.run({ i: instanceId, s: p.strategyId, eq: p.equity, sb: p.startingBalance });
+        continue;
+      }
+      if (e.type === "snapshot.position") {
+        upInstance.run({ id: instanceId, ts: e.ts, seq: e.seq });
+        continue;
+      }
       const info = insEvent.run(e.id, instanceId, e.type, e.strategyId ?? null, e.seq, e.ts, JSON.stringify(e.payload));
       if (info.changes === 0) continue; // duplicate id, skip the rest of the fold
       accepted++;
@@ -72,11 +106,6 @@ export function ingestEvents(db: Db, instanceId: string, events: Envelope[]): nu
       upInstance.run({ id: instanceId, ts: e.ts, seq: e.seq });
       if (e.strategyId) upStrategy.run({ i: instanceId, s: e.strategyId, ts: e.ts });
       foldOrder(db, instanceId, e);
-      if (e.type === "snapshot.equity") {
-        const p = e.payload;
-        insEquity.run(instanceId, p.strategyId, e.ts, p.realized, p.unrealized, p.equity);
-        setEquity.run({ i: instanceId, s: p.strategyId, eq: p.equity, sb: p.startingBalance });
-      }
     }
     return accepted;
   });

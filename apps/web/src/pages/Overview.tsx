@@ -5,6 +5,7 @@ import { ComparisonChart, type ComparisonSeries } from "../components/EquityChar
 import { Sparkline } from "../components/Sparkline";
 import { Card, Cell, Delta, Empty, HoverExpand, LiveDot, Modal, PageHeader, Panel, Pill, QueryError, Row, SideTag, Stat, Table } from "../components/ui";
 import { age, money, num, pct, ts } from "../format";
+import { useLiveState } from "../useLiveState";
 import { useLiveStream } from "../useLiveStream";
 
 const PALETTE = ["#c8f74a", "#5cb8ff", "#a78bfa", "#3fe08c", "#fbbf24", "#ff6b6b", "#f472b6", "#22d3ee"];
@@ -49,6 +50,7 @@ export default function Overview({
   });
 
   const live = useLiveStream(instanceId, 40);
+  const liveState = useLiveState(live);
   const [heroOpen, setHeroOpen] = useState(false);
 
   const positions = useQuery({
@@ -94,6 +96,8 @@ export default function Overview({
   const dayPnl = perfReady ? daySum : null;
   const weekPnl = perfReady ? weekSum : null;
   const posRows = positions.data ?? [];
+  const accounts = (liveState.data?.accounts ?? []).filter((a) => a.instanceId === instanceId);
+  const brokerPositions = (liveState.data?.positions ?? []).filter((p) => p.instanceId === instanceId);
 
   // Per-strategy slice of everything the stat cards aggregate, for their breakdown modals.
   const perStrategy = ids.map((id, i) => {
@@ -185,11 +189,81 @@ export default function Overview({
       <PageHeader title="Overview" sub={`Everything ${instanceId} is doing, right now.`} />
       <QueryError
         on={
-          strategies.isError || health.isError || positions.isError ||
+          strategies.isError || health.isError || positions.isError || liveState.isError ||
           curves.some((q) => q.isError) || stats.some((q) => q.isError) || perf.some((q) => q.isError)
         }
         what="live data"
       />
+
+      <div className="mt-6">
+        <div className="rise flex items-baseline justify-between" style={{ "--stagger": 0 } as React.CSSProperties}>
+          <h3 className="text-sm font-bold uppercase tracking-[0.08em] text-body">Account</h3>
+          <span className="text-xs text-faint">broker-reported — not the paper ledgers below</span>
+        </div>
+        {accounts.length === 0 && (
+          <Card className="mt-3 p-8 text-center text-faint" stagger={0}>
+            No broker account state yet — waiting for the state poller.
+          </Card>
+        )}
+        {accounts.map((a) => (
+          <div key={`${a.instanceId}:${a.broker}`} className={`mt-3 ${a.stale ? "opacity-50" : ""}`}>
+            <div className="flex flex-wrap items-center gap-2.5">
+              <LiveDot on={!a.stale} />
+              <span className="font-semibold text-bright">{a.broker}</span>
+              <Pill>{a.currency}</Pill>
+              {a.stale && <Pill>stale {Math.max(0, Math.floor((Date.now() - a.lastSeen) / 1000))}s</Pill>}
+            </div>
+            <div className="mt-3 grid grid-cols-2 gap-4 sm:grid-cols-4">
+              <Stat label="Balance" value={money(a.balance)} sub={a.currency} stagger={0} />
+              <Stat label="Equity" value={money(a.equity)} stagger={0} />
+              <Stat
+                label="Open P&L"
+                value={money(a.openProfit)}
+                tone={a.openProfit == null ? "neutral" : a.openProfit > 0 ? "up" : a.openProfit < 0 ? "down" : "neutral"}
+                stagger={1}
+              />
+              <Stat
+                label="Margin level"
+                value={a.marginLevel == null ? "—" : `${num(a.marginLevel)}%`}
+                sub={a.margin != null ? `margin ${money(a.margin)}` : undefined}
+                stagger={1}
+              />
+            </div>
+          </div>
+        ))}
+        <div className="mt-4">
+          <Panel stagger={1} title="Open positions" hint="live broker tickets, broker-valued" scroll="max-h-[22rem]">
+            <Table head={["Ticket", "Symbol", "Side", "Qty", "Entry", "Current", "Profit", "Swap", "Strategy"]}>
+              {brokerPositions.flatMap((g) =>
+                g.list.map((p) => (
+                  <Row key={`${g.broker}-${p.ticket}`}>
+                    <Cell className="font-mono text-xs text-faint">{p.ticket}</Cell>
+                    <Cell className="font-semibold text-bright">{p.symbol}</Cell>
+                    <Cell>
+                      <SideTag side={p.side} />
+                    </Cell>
+                    <Cell className="font-mono">{p.qty}</Cell>
+                    <Cell className="font-mono text-muted">@ {p.entryPrice}</Cell>
+                    <Cell className="font-mono">{p.currentPrice ?? "—"}</Cell>
+                    <Cell
+                      className={`font-mono font-semibold ${p.profit == null ? "text-faint" : p.profit > 0 ? "text-up" : p.profit < 0 ? "text-down" : "text-muted"}`}
+                    >
+                      {p.profit == null ? "—" : `${p.profit > 0 ? "+" : ""}${p.profit.toFixed(2)}`}
+                    </Cell>
+                    <Cell className="font-mono text-muted">{p.swap ?? "—"}</Cell>
+                    <Cell>{p.strategyId ? p.strategyId : <Pill>unattributed</Pill>}</Cell>
+                  </Row>
+                )),
+              )}
+              {brokerPositions.every((g) => g.list.length === 0) && (
+                <Empty colSpan={9}>
+                  {brokerPositions.length === 0 ? "No broker state yet." : "Flat — no open broker positions."}
+                </Empty>
+              )}
+            </Table>
+          </Panel>
+        </div>
+      </div>
 
       <div className="mt-6 grid grid-cols-1 gap-4 xl:grid-cols-3">
         <Card className="group relative flex flex-col p-6 xl:col-span-2" stagger={0}>
@@ -433,7 +507,7 @@ export default function Overview({
       </div>
 
       <div className="mt-8">
-        <Panel stagger={5} title="Open positions" hint="latest position snapshot per strategy and symbol" scroll="max-h-[22rem]">
+        <Panel stagger={5} title="Strategy positions" hint="latest engine position snapshot per strategy and symbol" scroll="max-h-[22rem]">
           <Table head={["Strategy", "Symbol", "Side", "Qty", "Entry", "Opened"]}>
             {posRows.flatMap((p) =>
               p.legs.map((leg, i) => (

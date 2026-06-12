@@ -75,6 +75,61 @@ describe("ingestEvents", () => {
   });
 });
 
+describe("broker state ingest hygiene", () => {
+  const deal = () => env({ id: "deal-EXNESS-456", strategyId: "hedge_straddle", type: "broker.deal", payload: {
+    broker: "EXNESS", dealTicket: "456", positionTicket: "123", orderTicket: "789",
+    symbol: "EXNESS:XAUUSD", side: "SELL", entry: "OUT", qty: 0.01, price: 2310.2,
+    profit: 9.7, commission: -0.07, swap: -0.12, magic: 10001,
+    comment: "dsl-hedge_straddle", ts: 1781201000000, strategyId: "hedge_straddle",
+  } });
+
+  it("broker.deal persists to deals, skips events and FTS, dedupes by id", () => {
+    const db = openDb(":memory:");
+    expect(ingestEvents(db, "qkt-prod", [deal()])).toBe(1);
+    expect(ingestEvents(db, "qkt-prod", [deal()])).toBe(0);
+    expect(db.prepare("SELECT COUNT(*) c FROM deals").get()).toMatchObject({ c: 1 });
+    expect(db.prepare("SELECT COUNT(*) c FROM events").get()).toMatchObject({ c: 0 });
+    expect(db.prepare("SELECT COUNT(*) c FROM events_fts").get()).toMatchObject({ c: 0 });
+    expect(db.prepare("SELECT id FROM instances").get()).toMatchObject({ id: "qkt-prod" });
+    expect(db.prepare("SELECT strategy_id FROM strategies").get()).toMatchObject({ strategy_id: "hedge_straddle" });
+    const row: any = db.prepare("SELECT * FROM deals").get();
+    expect(row).toMatchObject({ broker: "EXNESS", deal_ticket: "456", entry: "OUT", profit: 9.7, strategy_id: "hedge_straddle" });
+  });
+
+  it("snapshot.equity no longer writes events or FTS rows", () => {
+    const db = openDb(":memory:");
+    const accepted = ingestEvents(db, "qkt-prod", [
+      env({ strategyId: "latch", type: "snapshot.equity", payload: { strategyId: "latch", realized: 10, unrealized: -2, equity: 1008, startingBalance: 1000 } }),
+    ]);
+    expect(accepted).toBe(1);
+    expect(db.prepare("SELECT COUNT(*) c FROM equity_snapshots").get()).toMatchObject({ c: 1 });
+    expect(db.prepare("SELECT equity FROM strategies WHERE strategy_id='latch'").get()).toMatchObject({ equity: 1008 });
+    expect(db.prepare("SELECT COUNT(*) c FROM events").get()).toMatchObject({ c: 0 });
+    expect(db.prepare("SELECT COUNT(*) c FROM events_fts").get()).toMatchObject({ c: 0 });
+  });
+
+  it("snapshot.position is dropped entirely", () => {
+    const db = openDb(":memory:");
+    const accepted = ingestEvents(db, "qkt-prod", [
+      env({ strategyId: "latch", type: "snapshot.position", payload: { strategyId: "latch", symbol: "XAUUSD", legs: [] } }),
+    ]);
+    expect(accepted).toBe(0);
+    expect(db.prepare("SELECT COUNT(*) c FROM events").get()).toMatchObject({ c: 0 });
+    expect(db.prepare("SELECT id FROM instances").get()).toMatchObject({ id: "qkt-prod" });
+  });
+
+  it("state.* envelopes never reach the db", () => {
+    const db = openDb(":memory:");
+    const accepted = ingestEvents(db, "qkt-prod", [
+      env({ type: "state.account", payload: { broker: "EXNESS", currency: "USD", balance: 7824.05, equity: 7676.54 } }),
+      env({ type: "state.positions", payload: { broker: "EXNESS", positions: [] } }),
+    ]);
+    expect(accepted).toBe(0);
+    expect(db.prepare("SELECT COUNT(*) c FROM events").get()).toMatchObject({ c: 0 });
+    expect(db.prepare("SELECT COUNT(*) c FROM instances").get()).toMatchObject({ c: 0 });
+  });
+});
+
 describe("foldOrder out-of-order delivery", () => {
   it("keeps FILLED state and backfills fields when submit arrives after the fill", () => {
     const db = openDb(":memory:");
