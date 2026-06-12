@@ -1,5 +1,5 @@
 import type { FastifyInstance } from "fastify";
-import { listInstances, listStrategies, listOrders, listTrades, searchEvents, equityCurve, instanceHealth, listLogs, strategyStats, performanceReport, dailyNets, drawdownPeriods, postLossStats, openPositions, tradeBreakdowns, closedTrades, listDeals, accountEquity, type Db, type LiveStateStore } from "@qkt-insights/store";
+import { listInstances, listStrategies, listOrders, listTrades, searchEvents, equityCurve, instanceHealth, listLogs, strategyStats, performanceReport, dailyNets, drawdownPeriods, postLossStats, tradeBreakdowns, closedTrades, listDeals, accountEquity, type Db, type LiveStateStore } from "@qkt-insights/store";
 import { requireSession } from "./auth.js";
 import { TtlCache } from "./cache.js";
 
@@ -65,11 +65,6 @@ export function registerRest(app: FastifyInstance, deps: RestDeps): void {
       breakdowns: tradeBreakdowns(deps.db, f),
       closes: closedTrades(deps.db, f),
     }));
-  });
-
-  app.get<{ Querystring: Record<string, string> }>("/positions", guard, async (req, reply) => {
-    const q = req.query; if (!need(reply, q.instance, "instance")) return;
-    return openPositions(deps.db, { instanceId: q.instance, strategyId: q.strategy });
   });
 
   app.get<{ Querystring: Record<string, string> }>("/equity", guard, async (req, reply) => {

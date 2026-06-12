@@ -171,13 +171,6 @@ export interface PerformanceBundle {
   postLoss: PostLossRow[];
   closes: ClosedTradeRow[];
 }
-export interface OpenPositionRow {
-  strategyId: string;
-  symbol: string;
-  ts: number;
-  legs: { side: string; qty: number; entryPrice: number; entryTs: number }[];
-}
-
 export interface LiveAccount {
   instanceId: string;
   broker: string;

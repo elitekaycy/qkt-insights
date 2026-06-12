@@ -321,28 +321,6 @@ export function postLossStats(db: Db, f: AnalyticsFilter): PostLossRow[] {
     }));
 }
 
-export interface OpenPositionRow {
-  strategyId: string;
-  symbol: string;
-  ts: number;
-  legs: { side: string; qty: number; entryPrice: number; entryTs: number }[];
-}
-
-export function openPositions(db: Db, f: { instanceId: string; strategyId?: string }): OpenPositionRow[] {
-  const rows = db.prepare(
-    `SELECT strategy_id strategyId, json_extract(payload,'$.symbol') symbol, ts, payload
-     FROM events e
-     WHERE instance_id=@instanceId AND type='snapshot.position'
-       ${f.strategyId ? "AND strategy_id=@strategyId" : ""}
-       AND ts = (SELECT MAX(ts) FROM events e2 WHERE e2.instance_id=e.instance_id AND e2.type='snapshot.position'
-                   AND e2.strategy_id=e.strategy_id AND json_extract(e2.payload,'$.symbol')=json_extract(e.payload,'$.symbol'))
-     ORDER BY strategy_id, symbol`,
-  ).all(f) as any[];
-  return rows
-    .map((r) => ({ strategyId: r.strategyId, symbol: r.symbol, ts: r.ts, legs: JSON.parse(r.payload).legs }))
-    .filter((r) => r.legs.length > 0);
-}
-
 export function performanceReport(db: Db, f: AnalyticsFilter): PerformanceReport {
   const snaps = series(db, f);
   const { pnls: deltas, exact } = tradePnls(db, f);
