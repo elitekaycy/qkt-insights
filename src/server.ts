@@ -3,7 +3,7 @@ import argon2 from "argon2";
 import cookie from "@fastify/cookie";
 import websocket from "@fastify/websocket";
 import fastifyStatic from "@fastify/static";
-import { openDb, LiveBus } from "@qkt-insights/store";
+import { openDb, LiveBus, LiveStateStore } from "@qkt-insights/store";
 import { registerCollector } from "@qkt-insights/collector";
 import { registerAuth, registerRest, registerLive, hasSession } from "@qkt-insights/api";
 import { existsSync } from "node:fs";
@@ -27,9 +27,10 @@ function env(name: string, fallback?: string): string {
 export async function buildServer(mode: Mode) {
   const db = openDb(env("INSIGHTS_DB", "/data/insights.db"));
   const bus = new LiveBus();
+  const liveState = new LiveStateStore();
   const app = Fastify({ logger: process.env.NODE_ENV !== "test" });
 
-  registerCollector(app, { db, bus, ingestToken: env("INGEST_TOKEN") });
+  registerCollector(app, { db, bus, liveState, ingestToken: env("INGEST_TOKEN") });
 
   if (mode === "serve" || mode === "run") {
     await app.register(cookie);
@@ -41,6 +42,10 @@ export async function buildServer(mode: Mode) {
     });
     registerRest(app, { db });
     registerLive(app, { bus, authenticate: hasSession });
+    // Persist the in-memory account state once a minute so the equity curve
+    // survives restarts; unref so the timer never holds the process open.
+    const rollup = setInterval(() => liveState.flushRollup(db, Date.now()), 60_000);
+    rollup.unref();
   }
 
   if (mode === "run") {
