@@ -2,7 +2,7 @@ import type { Db } from "./db.js";
 import { dealClosedTrades, hasClosingDeals, strategyEquityCurve, tradePnls, type StrategyEquityPoint } from "./analytics.js";
 
 export interface InstanceRow { id: string; name: string | null; firstSeen: number; lastSeen: number; lastSeq: number }
-export interface StrategyRow { strategyId: string; firstSeen: number; lastSeen: number; equity: number | null; startingBalance: number | null; realizedNet: number | null; dealCount: number }
+export interface StrategyRow { strategyId: string; firstSeen: number; lastSeen: number; startingBalance: number | null; realizedNet: number | null; dealCount: number }
 export interface OrderRow { orderId: string; strategyId: string | null; symbol: string | null; side: string | null; type: string | null; state: string; qty: number | null; cumQty: number; avgPrice: number | null; createdTs: number; updatedTs: number }
 export interface TradeRow { id: string; strategyId: string | null; ts: number; payload: unknown }
 export interface SearchHit { id: string; instanceId: string; type: string; ts: number; payload: unknown }
@@ -14,18 +14,20 @@ export function listInstances(db: Db): InstanceRow[] {
 }
 
 export function listStrategies(db: Db, instanceId: string): StrategyRow[] {
-  // One query feeds every strategy card: realizedNet sums the closing deal legs
-  // (profit + commission + swap), so the UI never needs N follow-up requests.
-  return db.prepare(
-    `SELECT s.strategy_id strategyId, s.first_seen firstSeen, s.last_seen lastSeen, s.equity, s.starting_balance startingBalance,
-            d.realizedNet, COALESCE(d.dealCount, 0) dealCount
-     FROM strategies s
-     LEFT JOIN (
-       SELECT strategy_id, SUM(profit + COALESCE(commission,0) + COALESCE(swap,0)) realizedNet, COUNT(*) dealCount
-       FROM deals WHERE instance_id=? AND entry IN ('OUT','INOUT','OUT_BY') GROUP BY strategy_id
-     ) d ON d.strategy_id = s.strategy_id
-     WHERE s.instance_id=? ORDER BY s.strategy_id`,
-  ).all(instanceId, instanceId) as StrategyRow[];
+  // realizedNet and dealCount come from the same dealClosedTrades rows every
+  // other analytics number uses, so a card and its detail page can never disagree.
+  const rows = db.prepare(
+    `SELECT strategy_id strategyId, first_seen firstSeen, last_seen lastSeen, starting_balance startingBalance
+     FROM strategies WHERE instance_id=? ORDER BY strategy_id`,
+  ).all(instanceId) as Omit<StrategyRow, "realizedNet" | "dealCount">[];
+  return rows.map((r) => {
+    const closes = dealClosedTrades(db, { instanceId, strategyId: r.strategyId });
+    return {
+      ...r,
+      realizedNet: closes.length > 0 ? closes.reduce((a, c) => a + c.realized, 0) : null,
+      dealCount: closes.length,
+    };
+  });
 }
 
 export function listOrders(db: Db, f: { instanceId: string; strategyId?: string; symbol?: string; state?: string; limit: number }): OrderRow[] {
