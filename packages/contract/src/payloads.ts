@@ -24,6 +24,28 @@ export const payloadByType = {
   log: z.object({ level: z.enum(["DEBUG", "INFO", "WARN", "ERROR"]), logger: z.string(), message: z.string() }),
   "trade.closed": z.object({ orderId: z.string(), symbol: z.string(), side, qty: z.number(), price: z.number(),
     realized: z.number(), entryTs: z.number().optional(), ts: z.number() }),
+  "state.account": z.object({
+    broker: z.string(), currency: z.string(), balance: z.number(), equity: z.number(),
+    margin: z.number().optional(), marginFree: z.number().optional(),
+    openProfit: z.number().optional(), marginLevel: z.number().optional(),
+  }),
+  "state.positions": z.object({
+    broker: z.string(),
+    positions: z.array(z.object({
+      ticket: z.string(), symbol: z.string(), side,
+      qty: z.number(), entryPrice: z.number(), currentPrice: z.number().optional(),
+      profit: z.number().optional(), swap: z.number().optional(),
+      openedAt: z.number().optional(), strategyId: z.string().nullable().optional(),
+    })),
+  }),
+  "broker.deal": z.object({
+    broker: z.string(), dealTicket: z.string(), positionTicket: z.string().optional(),
+    orderTicket: z.string().optional(), symbol: z.string().optional(), side: side.optional(),
+    entry: z.string().optional(), qty: z.number(), price: z.number(),
+    profit: z.number(), commission: z.number().optional(), swap: z.number().optional(),
+    magic: z.number().optional(), comment: z.string().optional(), ts: z.number(),
+    strategyId: z.string().nullable().optional(),
+  }),
 } as const;
 
 export type EventType = keyof typeof payloadByType;

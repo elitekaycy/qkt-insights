@@ -151,15 +151,17 @@ describe("postLossStats", () => {
 });
 
 describe("openPositions", () => {
+  // Ingest no longer writes snapshot.position into events; openPositions only
+  // reads rows persisted before that change, so tests seed the table directly.
+  const seedPos = (db: any, ts: number, legs: any[]) =>
+    db.prepare("INSERT INTO events (id, instance_id, type, strategy_id, seq, ts, payload) VALUES (?,?,?,?,?,?,?)")
+      .run(`pos-${ts}`, "qkt-prod", "snapshot.position", "latch", 1, ts,
+        JSON.stringify({ strategyId: "latch", symbol: "XAUUSD", legs }));
+
   it("returns the latest position snapshot per strategy and symbol", () => {
     const db = openDb(":memory:");
-    const pos = (ts: number, legs: any[]) =>
-      env({ strategyId: "latch", ts, type: "snapshot.position",
-        payload: { strategyId: "latch", symbol: "XAUUSD", legs } });
-    ingestEvents(db, "qkt-prod", [
-      pos(T0, [{ side: "BUY", qty: 0.2, entryPrice: 2000, entryTs: T0 - DAY }]),
-      pos(T0 + 1000, [{ side: "BUY", qty: 0.1, entryPrice: 2010, entryTs: T0 }]),
-    ]);
+    seedPos(db, T0, [{ side: "BUY", qty: 0.2, entryPrice: 2000, entryTs: T0 - DAY }]);
+    seedPos(db, T0 + 1000, [{ side: "BUY", qty: 0.1, entryPrice: 2010, entryTs: T0 }]);
     const rows = openPositions(db, { instanceId: "qkt-prod" });
     expect(rows).toHaveLength(1);
     expect(rows[0]).toMatchObject({ strategyId: "latch", symbol: "XAUUSD" });
@@ -169,9 +171,7 @@ describe("openPositions", () => {
 
   it("omits symbols whose latest snapshot has no legs", () => {
     const db = openDb(":memory:");
-    ingestEvents(db, "qkt-prod", [
-      env({ strategyId: "latch", ts: T0, type: "snapshot.position", payload: { strategyId: "latch", symbol: "XAUUSD", legs: [] } }),
-    ]);
+    seedPos(db, T0, []);
     expect(openPositions(db, { instanceId: "qkt-prod" })).toHaveLength(0);
   });
 });

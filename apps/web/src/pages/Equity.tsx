@@ -1,7 +1,7 @@
 import { useState } from "react";
 import { useQueries, useQuery } from "@tanstack/react-query";
-import { get, type DrawdownPeriod, type EquityPoint, type PerformanceBundle, type StrategyRow } from "../api";
-import { ComparisonChart, UnderwaterChart, type ComparisonSeries } from "../components/EquityChart";
+import { get, type AccountEquityPoint, type DrawdownPeriod, type EquityPoint, type PerformanceBundle, type StrategyRow } from "../api";
+import { ComparisonChart, EquityChart, UnderwaterChart, type ComparisonSeries } from "../components/EquityChart";
 import { Card, Cell, Empty, Field, Modal, PageHeader, Panel, Pill, QueryError, Row, Select, Table } from "../components/ui";
 import { duration, human, money, tsDay } from "../format";
 
@@ -12,6 +12,14 @@ export default function Equity({ instanceId }: { instanceId: string | null }) {
     queryKey: ["strategies", instanceId],
     queryFn: () => get<StrategyRow[]>(`/strategies?instance=${encodeURIComponent(instanceId!)}`),
     enabled: !!instanceId,
+  });
+
+  // Broker account curve, 1-minute rollup — refetch matches the flush cadence.
+  const account = useQuery({
+    queryKey: ["account-equity", instanceId],
+    queryFn: () => get<AccountEquityPoint[]>(`/account/equity?instance=${encodeURIComponent(instanceId!)}`),
+    enabled: !!instanceId,
+    refetchInterval: 60000,
   });
 
   const ids = (strategies.data ?? []).map((s) => s.strategyId);
@@ -52,6 +60,15 @@ export default function Equity({ instanceId }: { instanceId: string | null }) {
     })
     .filter((s) => s.points.length > 0);
 
+  // EquityChart wants EquityPoint; realized/unrealized are unused by the chart.
+  const accountByBroker = new Map<string, EquityPoint[]>();
+  for (const p of account.data ?? []) {
+    if (p.equity == null) continue;
+    const arr = accountByBroker.get(p.broker) ?? [];
+    arr.push({ ts: p.minuteTs, equity: p.equity, realized: p.balance ?? 0, unrealized: p.openProfit ?? 0 });
+    accountByBroker.set(p.broker, arr);
+  }
+
   const periods = performance.data?.drawdownPeriods ?? [];
   const ddSelect = (
     <Select value={focusId} onChange={(e) => setDdStrategy(e.target.value)}>
@@ -67,7 +84,7 @@ export default function Equity({ instanceId }: { instanceId: string | null }) {
     <div>
       <PageHeader
         title="Equity"
-        sub={`All strategies on ${instanceId}, normalized to % change from their first snapshot so different capital sizes compare fairly.`}
+        sub={`Broker account equity for ${instanceId}; per-strategy paper ledgers below, normalized to % change so different capital sizes compare fairly.`}
         right={
           <div className="flex flex-wrap gap-2">
             {series.map((s) => (
@@ -79,9 +96,24 @@ export default function Equity({ instanceId }: { instanceId: string | null }) {
           </div>
         }
       />
-      <QueryError on={strategies.isError || curves.some((c) => c.isError) || performance.isError} what="equity curves" />
+      <QueryError on={strategies.isError || account.isError || curves.some((c) => c.isError) || performance.isError} what="equity curves" />
 
-      <Panel className="mt-5" stagger={1} title="All strategies" hint="% change from first snapshot">
+      <Panel className="mt-5" stagger={1} title="Account equity" hint="broker-reported, 1-minute rollup">
+        {accountByBroker.size === 0 ? (
+          <Empty>No account history yet — waiting for the broker state poller.</Empty>
+        ) : (
+          [...accountByBroker.entries()].map(([broker, pts]) => (
+            <div key={broker} className="p-4">
+              {accountByBroker.size > 1 && (
+                <div className="mb-2 text-[11px] font-semibold uppercase tracking-[0.12em] text-muted">{broker}</div>
+              )}
+              <EquityChart points={pts} height={320} />
+            </div>
+          ))
+        )}
+      </Panel>
+
+      <Panel className="mt-5" stagger={2} title="Strategy ledgers" hint="paper ledgers, % change from first snapshot">
         <div className="p-4">
           <ComparisonChart series={series} height={360} />
         </div>

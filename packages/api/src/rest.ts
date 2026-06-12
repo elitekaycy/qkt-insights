@@ -1,8 +1,8 @@
 import type { FastifyInstance } from "fastify";
-import { listInstances, listStrategies, listOrders, listTrades, searchEvents, equityCurve, instanceHealth, listLogs, strategyStats, performanceReport, dailyNets, drawdownPeriods, postLossStats, openPositions, tradeBreakdowns, closedTrades, type Db } from "@qkt-insights/store";
+import { listInstances, listStrategies, listOrders, listTrades, searchEvents, equityCurve, instanceHealth, listLogs, strategyStats, performanceReport, dailyNets, drawdownPeriods, postLossStats, openPositions, tradeBreakdowns, closedTrades, listDeals, accountEquity, type Db, type LiveStateStore } from "@qkt-insights/store";
 import { requireSession } from "./auth.js";
 
-export interface RestDeps { db: Db }
+export interface RestDeps { db: Db; liveState: LiveStateStore }
 
 const LIMIT = (q: Record<string, string | undefined>) => Math.min(Number(q.limit ?? 200), 1000);
 
@@ -74,5 +74,19 @@ export function registerRest(app: FastifyInstance, deps: RestDeps): void {
     return equityCurve(deps.db, { instanceId: q.instance, strategyId: q.strategy,
       from: q.from ? Number(q.from) : undefined, to: q.to ? Number(q.to) : undefined,
       points: q.points ? Math.min(Number(q.points), 5000) : undefined });
+  });
+
+  app.get("/live/state", guard, async () => deps.liveState.snapshot(Date.now()));
+
+  app.get<{ Querystring: Record<string, string> }>("/deals", guard, async (req, reply) => {
+    const q = req.query; if (!need(reply, q.instance, "instance")) return;
+    return listDeals(deps.db, { instanceId: q.instance, strategyId: q.strategy, limit: LIMIT(q),
+      before: q.before ? Number(q.before) : undefined });
+  });
+
+  app.get<{ Querystring: Record<string, string> }>("/account/equity", guard, async (req, reply) => {
+    const q = req.query; if (!need(reply, q.instance, "instance")) return;
+    return accountEquity(deps.db, { instanceId: q.instance,
+      from: q.from ? Number(q.from) : undefined, to: q.to ? Number(q.to) : undefined });
   });
 }
