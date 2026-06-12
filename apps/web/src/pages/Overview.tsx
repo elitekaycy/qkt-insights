@@ -3,7 +3,7 @@ import { useQueries, useQuery } from "@tanstack/react-query";
 import { get, type EquityPoint, type HealthRow, type OpenPositionRow, type PerformanceBundle, type StrategyRow, type StrategyStats } from "../api";
 import { ComparisonChart, type ComparisonSeries } from "../components/EquityChart";
 import { Sparkline } from "../components/Sparkline";
-import { Card, Cell, Empty, FlashValue, HoverExpand, LiveDot, Loadable, Modal, MoneyDelta, PageHeader, Panel, Pill, Row, SideTag, Stat, Table } from "../components/ui";
+import { Card, Cell, Empty, FlashValue, HoverExpand, LiveDot, Loadable, Modal, MoneyDelta, PageHeader, Panel, Pill, PnlLine, Row, SideTag, Stat, Table } from "../components/ui";
 import { age, money, num, pct, ts } from "../format";
 import { useLiveState } from "../useLiveState";
 import { useLiveStream } from "../useLiveStream";
@@ -127,13 +127,15 @@ export default function Overview({
     const row = rows[i]!;
     const realized = row.realizedNet ?? stats[i]?.data?.realizedPnl ?? null;
     const open = openByStrategy.get(id) ?? (brokerPositions.length > 0 ? 0 : null);
+    const net = realized == null && open == null ? null : (realized ?? 0) + (open ?? 0);
     return {
       id,
       row,
       stats: stats[i]?.data,
       realized,
       open,
-      net: realized == null && open == null ? null : (realized ?? 0) + (open ?? 0),
+      net,
+      allocation: net == null && row.startingBalance == null ? null : (row.startingBalance ?? 0) + (net ?? 0),
       dayNet: dayRows.reduce((a, d) => a + d.net, 0),
       dayTrades: dayRows.reduce((a, d) => a + d.trades, 0),
       weekNet: weekRows.reduce((a, d) => a + d.net, 0),
@@ -191,6 +193,7 @@ export default function Overview({
   const statsReady = stats.length === ids.length && stats.every((q) => q.data);
   const totalTrades = statsReady ? stats.reduce((acc, q) => acc + q.data!.tradeCount, 0) : null;
   const realized = statsReady ? stats.reduce((acc, q) => acc + (q.data!.realizedPnl ?? 0), 0) : null;
+  const totalAllocated = rows.reduce((a, s) => a + (s.startingBalance ?? 0), 0);
   const liveInstances = (health.data ?? []).filter((h) => Date.now() - h.lastSeen < 30_000).length;
 
   const series: ComparisonSeries[] = ids
@@ -212,7 +215,7 @@ export default function Overview({
       <div className="mt-6">
         <div className="rise flex items-baseline justify-between" style={{ "--stagger": 0 } as React.CSSProperties}>
           <h3 className="text-sm font-bold uppercase tracking-[0.08em] text-body">Account</h3>
-          <span className="text-xs text-faint">broker-reported — not the paper ledgers below</span>
+          <span className="text-xs text-faint">broker-reported, whole account</span>
         </div>
         <Loadable
           loading={liveState.isPending}
@@ -378,6 +381,11 @@ export default function Overview({
               label="Realized PnL"
               value={money(realized)}
               tone={realized == null ? "neutral" : realized >= 0 ? "up" : "down"}
+              sub={
+                realized != null && totalAllocated > 0
+                  ? `${realized >= 0 ? "+" : "−"}${Math.abs((realized / totalAllocated) * 100).toFixed(1)}% of ${money(totalAllocated)} allocated`
+                  : undefined
+              }
               stagger={2}
               expand={{
                 hint: "closed P&L per strategy, all time",
@@ -514,12 +522,12 @@ export default function Overview({
                     <span className="font-bold text-bright">{s.strategyId}</span>
                     <span className="text-xs text-faint">{age(s.lastSeen)}</span>
                   </div>
-                  <div className="mt-2.5 flex items-baseline gap-3" title="realized + open">
-                    <span className="font-mono text-2xl font-semibold text-bright">{money(p.realized)}</span>
-                    <MoneyDelta value={p.net} dim={positionsStale} />
+                  <div className="mt-2.5 flex items-baseline gap-3" title="allocation: starting balance + realized + open">
+                    <span className={`font-mono text-2xl font-semibold ${positionsStale ? "text-faint" : "text-bright"}`}>{money(p.allocation)}</span>
+                    <PnlLine net={p.net} base={p.row.startingBalance} dim={positionsStale} />
                   </div>
                   <div className={`mt-1 text-xs ${positionsStale ? "text-faint" : "text-muted"}`}>
-                    open {money(p.open)} · realized + open {money(p.net)}
+                    realized {money(p.realized)} · open {money(p.open)}
                   </div>
                   <div className="mt-2 -mx-1">
                     <Sparkline points={pts} />

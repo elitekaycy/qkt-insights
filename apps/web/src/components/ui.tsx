@@ -274,6 +274,25 @@ export function Delta({ value }: { value: number | null | undefined }) {
   );
 }
 
+/**
+ * Compact P&L line under an allocation figure: arrow, signed dollars, and the
+ * return on the allocated capital. e.g. net -2658.7 on base 10000 →
+ * "▼ −2,658.70 (−26.6%)". `dim` greys it when the live source is stale.
+ */
+export function PnlLine({ net, base, dim }: { net: number | null | undefined; base?: number | null; dim?: boolean }) {
+  if (net == null) return <span className="text-faint">—</span>;
+  const up = net >= 0;
+  const sign = up ? "+" : "−";
+  const pct = base ? ` (${sign}${Math.abs((net / base) * 100).toFixed(1)}%)` : "";
+  return (
+    <span className={`font-mono text-sm font-semibold ${dim ? "text-faint" : up ? "text-up" : "text-down"}`}>
+      {up ? "▲" : "▼"} {sign}
+      {money(Math.abs(net))}
+      {pct}
+    </span>
+  );
+}
+
 /** Direction badge for a dollar amount: arrow and tone from the sign. `dim` greys it when the source is stale. */
 export function MoneyDelta({ value, dim }: { value: number | null | undefined; dim?: boolean }) {
   if (value == null) return <span className="text-faint">—</span>;
