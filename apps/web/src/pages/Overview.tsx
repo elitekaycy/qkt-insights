@@ -229,6 +229,9 @@ export default function Overview({
               <LiveDot on={!a.stale} />
               <span className="font-semibold text-bright">{a.broker}</span>
               <Pill>{a.currency}</Pill>
+              {a.login && <span className="font-mono text-xs text-faint">#{a.login}</span>}
+              {a.server && <span className="text-xs text-faint">{a.server}</span>}
+              {a.name && <span className="text-xs text-muted">{a.name}</span>}
               {a.stale && <Pill>stale {Math.max(0, Math.floor((Date.now() - a.lastSeen) / 1000))}s</Pill>}
             </div>
             <div className="mt-3 grid grid-cols-2 gap-4 sm:grid-cols-4">

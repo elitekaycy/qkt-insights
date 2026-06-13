@@ -62,7 +62,7 @@ export default function Health() {
                   {a.instanceId}
                 </span>
               </Cell>
-              <Cell className="text-muted">{a.broker}</Cell>
+              <Cell className="text-muted">{a.login ? `${a.broker} · #${a.login}` : a.broker}</Cell>
               <Cell>
                 <Pill tone={a.stale ? "neutral" : "up"}>{a.stale ? "stale" : "live"}</Pill>
               </Cell>
