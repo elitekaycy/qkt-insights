@@ -39,9 +39,9 @@ export function useCloseMap(instanceId: string | null): Map<string, ClosedTradeR
   const ids = (strategies.data ?? []).map((s) => s.strategyId);
   const perf = useQueries({
     queries: ids.map((id) => ({
-      queryKey: ["performance", instanceId, id, "all"],
+      queryKey: ["perf-closes", instanceId, id],
       queryFn: () =>
-        get<PerformanceBundle>(`/performance?instance=${encodeURIComponent(instanceId!)}&strategy=${encodeURIComponent(id)}`),
+        get<Partial<PerformanceBundle>>(`/performance?instance=${encodeURIComponent(instanceId!)}&strategy=${encodeURIComponent(id)}&include=closes`),
       refetchInterval: 15000,
     })),
   });

@@ -175,6 +175,13 @@ describe("deals-backed analytics", () => {
     expect(s.returnPct).toBeCloseTo(7.67 / 10000);
     expect(s.maxDrawdownPct).toBeCloseTo(10.07 / 10009.81);
   });
+
+  it("strategyStats derives buy/sell/volume from deal directions, not the empty events table", () => {
+    const s = strategyStats(seeded(), F);
+    expect(s.buyCount).toBe(3); // pos100 + pos102's two partials are long
+    expect(s.sellCount).toBe(1); // pos101 is the only short
+    expect(s.volume).toBeCloseTo(0.04);
+  });
 });
 
 describe("equityCurve deals path", () => {

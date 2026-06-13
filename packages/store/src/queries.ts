@@ -260,9 +260,9 @@ export function strategyStats(db: Db, f: { instanceId: string; strategyId: strin
   const equity = fromDeals ? (sb ?? 0) + dealRealized : snapsFresh ? last!.equity : null;
   return {
     tradeCount: fromDeals ? dealRows.length : t?.c ?? 0,
-    buyCount: t?.buys ?? 0,
-    sellCount: t?.sells ?? 0,
-    volume: t?.vol ?? 0,
+    buyCount: fromDeals ? dealRows.filter((c) => c.side === "BUY").length : t?.buys ?? 0,
+    sellCount: fromDeals ? dealRows.filter((c) => c.side === "SELL").length : t?.sells ?? 0,
+    volume: fromDeals ? dealRows.reduce((a, c) => a + (c.qty ?? 0), 0) : t?.vol ?? 0,
     realizedPnl: fromDeals ? dealRealized : (last as { realized: number } | undefined)?.realized ?? null,
     equity,
     startingBalance: sb,

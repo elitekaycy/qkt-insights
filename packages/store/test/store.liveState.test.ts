@@ -78,4 +78,15 @@ describe("LiveStateStore", () => {
     expect(updated.equity).toBe(7700);
     expect(db.prepare("SELECT COUNT(*) c FROM account_equity").get()).toMatchObject({ c: 2 });
   });
+
+  it("flushRollup skips a stale account so an outage leaves a gap, not a flat plateau", () => {
+    const db = openDb(":memory:");
+    const store = new LiveStateStore();
+    store.upsert("qkt-prod", accountEnv(T0));
+    store.flushRollup(db, T0 + 200_000); // poller silent well past the staleness window
+    expect(db.prepare("SELECT COUNT(*) c FROM account_equity").get()).toMatchObject({ c: 0 });
+    store.upsert("qkt-prod", accountEnv(T0 + 200_000)); // a fresh poll resumes
+    store.flushRollup(db, T0 + 201_000);
+    expect(db.prepare("SELECT COUNT(*) c FROM account_equity").get()).toMatchObject({ c: 1 });
+  });
 });

@@ -460,7 +460,7 @@ function BreakdownBars({ rows, title, hint, stagger }: { rows: BreakdownRow[]; t
           <BarChart data={rows} margin={{ top: 4, right: 8, bottom: 0, left: 8 }}>
             <CartesianGrid stroke="var(--color-line)" strokeDasharray="3 3" vertical={false} />
             <XAxis dataKey="key" tick={{ stroke: "var(--color-faint)", fontSize: 11, fontFamily: "var(--font-mono)" }} tickLine={false} axisLine={false} />
-            <YAxis tick={{ stroke: "var(--color-faint)", fontSize: 11, fontFamily: "var(--font-mono)" }} tickLine={false} axisLine={false} width={56} />
+            <YAxis domain={[(min: number) => Math.min(0, min), (max: number) => Math.max(0, max)]} tick={{ stroke: "var(--color-faint)", fontSize: 11, fontFamily: "var(--font-mono)" }} tickLine={false} axisLine={false} width={56} />
             <Tooltip
               contentStyle={BAR_TOOLTIP}
               cursor={{ fill: "var(--color-raised)" }}

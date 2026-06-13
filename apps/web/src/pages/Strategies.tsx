@@ -1,17 +1,17 @@
 import { useState } from "react";
 import { useQuery } from "@tanstack/react-query";
-import { get, type EquityPoint, type LogRow, type PerformanceBundle, type StrategyRow, type StrategyStats, type TradeRow } from "../api";
+import { get, type EquityPoint, type LogRow, type PerformanceBundle, type StrategyRow, type StrategyStats, type TradeRow, type TradeView } from "../api";
 import { CalendarView } from "../components/Calendar";
 import { TradeDetail } from "../components/detail";
 import { EquityChart } from "../components/EquityChart";
 import { BreakdownPanels, PerformancePanels } from "../components/Performance";
 import { Sparkline } from "../components/Sparkline";
 import {
-  Card, Cell, Empty, LEVEL_TONE, Loadable, LoadMore, PageHeader, Panel, Pill, PnlLine, RangeSelect, rangeStart, Row, SearchInput, Select, SideTag, Stat, Table,
+  Card, Cell, Empty, LEVEL_TONE, Loadable, LoadMore, PageHeader, Panel, Pill, RangeSelect, rangeStart, ReturnPct, Row, SearchInput, Select, SideTag, Stat, Table,
   type RangeKey,
 } from "../components/ui";
 import { age, money, num, pct, ts, tsDay } from "../format";
-import { buildCloseMap, realizedLabel } from "../useCloses";
+import { buildCloseMap } from "../useCloses";
 import { useLiveState } from "../useLiveState";
 
 /** Open P&L per strategy from the live broker positions of one instance, with a staleness flag. */
@@ -68,7 +68,6 @@ export default function Strategies({
           const realized = s.realizedNet;
           const open = live.open.get(s.strategyId) ?? (live.hasState ? 0 : null);
           const net = realized == null && open == null ? null : (realized ?? 0) + (open ?? 0);
-          const allocation = net == null && s.startingBalance == null ? null : (s.startingBalance ?? 0) + (net ?? 0);
           return (
             <button key={s.strategyId} onClick={() => setSelected(s.strategyId)} className="group text-left">
               <Card className="p-5 transition group-hover:border-accent/50 group-hover:bg-raised" stagger={i}>
@@ -76,12 +75,18 @@ export default function Strategies({
                   <span className="font-bold text-bright">{s.strategyId}</span>
                   <span className="text-xs text-faint">{age(s.lastSeen)}</span>
                 </div>
-                <div className="mt-2.5 flex items-baseline gap-3" title="allocation: starting balance + realized + open">
-                  <span className={`font-mono text-2xl font-semibold ${live.stale ? "text-faint" : "text-bright"}`}>{money(allocation)}</span>
-                  <PnlLine net={net} base={s.startingBalance} dim={live.stale} />
+                <div className="mt-2.5 flex items-baseline gap-3" title="net P&L = realized + open (this strategy, on a shared account)">
+                  <span className={`font-mono text-2xl font-semibold ${net == null || live.stale ? "text-faint" : net >= 0 ? "text-up" : "text-down"}`}>
+                    {net == null ? "—" : `${net >= 0 ? "+" : "−"}${money(Math.abs(net))}`}
+                  </span>
+                  <ReturnPct net={net} base={s.startingBalance} dim={live.stale} />
                 </div>
+                <div className="mt-1 text-[11px] font-semibold uppercase tracking-[0.08em] text-faint">net P&L · this strategy</div>
                 <div className={`mt-1 text-xs ${live.stale ? "text-faint" : "text-muted"}`}>
-                  realized {money(realized)} · open {money(open)} · {s.dealCount} deal{s.dealCount === 1 ? "" : "s"}
+                  realized {money(realized)} · open {money(open)}
+                </div>
+                <div className="mt-0.5 text-[11px] text-faint">
+                  notional {money(s.startingBalance)} · {s.dealCount} deal{s.dealCount === 1 ? "" : "s"}
                 </div>
               </Card>
             </button>
@@ -138,27 +143,22 @@ function StrategyDetail({ instanceId, strategyId, onBack }: { instanceId: string
   const s = stats.data;
   const openPnl = live.open.get(strategyId) ?? (live.hasState ? 0 : null);
   const heroNet = s?.realizedPnl == null && openPnl == null ? null : (s?.realizedPnl ?? 0) + (openPnl ?? 0);
-  const allocation = heroNet == null && s?.startingBalance == null ? null : (s?.startingBalance ?? 0) + (heroNet ?? 0);
-  const closeByOrder = buildCloseMap(performance.data?.closes ?? []);
+  // Closed trades rebuilt from broker deals (realized P&L built in) are the row
+  // source whenever the strategy has any; engine fills are the paper/backtest fallback.
+  const closes = performance.data?.closes ?? [];
+  const closeByOrder = buildCloseMap(closes);
+  const usingDealTrades = closes.length > 0;
   const tradeNeedle = tradeQ.trim().toUpperCase();
-  const tradeRows = (trades.data ?? [])
-    .filter(
-      (t) =>
-        (!tradeSide || t.payload.side === tradeSide) &&
-        (!tradeNeedle ||
-          t.payload.symbol.toUpperCase().includes(tradeNeedle) ||
-          t.payload.orderId.toUpperCase().includes(tradeNeedle)),
-    )
+  const tradeRows: TradeView[] = (usingDealTrades
+    ? closes.map((c) => ({ key: `${c.orderId ?? "?"}-${c.ts}`, ts: c.ts, symbol: c.symbol, side: c.side, qty: c.qty, price: c.price, realized: c.realized, searchKey: c.orderId ?? "", raw: null }))
+    : (trades.data ?? []).map((t) => ({ key: t.id, ts: t.ts, symbol: t.payload.symbol, side: t.payload.side, qty: t.payload.qty, price: t.payload.price, realized: closeByOrder.get(t.payload.orderId)?.realized ?? null, searchKey: t.payload.orderId, raw: t })))
+    .filter((t) => (!tradeSide || t.side === tradeSide) && (!tradeNeedle || t.symbol.toUpperCase().includes(tradeNeedle) || t.searchKey.toUpperCase().includes(tradeNeedle)))
     .sort((a, b) => {
       switch (tradeSort) {
         case "oldest": return a.ts - b.ts;
-        case "qty": return b.payload.qty - a.payload.qty;
-        case "price": return b.payload.price - a.payload.price;
-        case "pnl": {
-          const ra = closeByOrder.get(a.payload.orderId)?.realized ?? -Infinity;
-          const rb = closeByOrder.get(b.payload.orderId)?.realized ?? -Infinity;
-          return rb - ra;
-        }
+        case "qty": return b.qty - a.qty;
+        case "price": return b.price - a.price;
+        case "pnl": return (b.realized ?? -Infinity) - (a.realized ?? -Infinity);
         default: return b.ts - a.ts;
       }
     });
@@ -171,14 +171,15 @@ function StrategyDetail({ instanceId, strategyId, onBack }: { instanceId: string
       <div className="mt-2 flex flex-wrap items-end justify-between gap-4">
         <div className="rise">
           <h2 className="text-2xl font-extrabold tracking-tight text-bright">{strategyId}</h2>
-          <div className="mt-2 flex items-baseline gap-3" title="allocation: starting balance + realized + open">
-            <span className={`font-mono text-4xl font-bold ${allocation == null || live.stale ? "text-faint" : "text-bright"}`}>
-              {money(allocation)}
+          <div className="mt-2 flex items-baseline gap-3" title="net P&L = realized + open (this strategy, on a shared account)">
+            <span className={`font-mono text-4xl font-bold ${heroNet == null || live.stale ? "text-faint" : heroNet >= 0 ? "text-up" : "text-down"}`}>
+              {heroNet == null ? "—" : `${heroNet >= 0 ? "+" : "−"}${money(Math.abs(heroNet))}`}
             </span>
-            <PnlLine net={heroNet} base={s?.startingBalance} dim={live.stale} />
+            <ReturnPct net={heroNet} base={s?.startingBalance} dim={live.stale} />
           </div>
+          <div className="mt-1 text-[11px] font-semibold uppercase tracking-[0.08em] text-faint">net P&L · this strategy</div>
           <div className={`mt-1 text-xs ${live.stale ? "text-faint" : "text-muted"}`}>
-            {money(s?.startingBalance)} allocated · realized {money(s?.realizedPnl)} · open {money(openPnl)}
+            realized {money(s?.realizedPnl)} · open {money(openPnl)} · notional {money(s?.startingBalance)}
           </div>
         </div>
         <div className="rise -mb-1 w-64">
@@ -266,7 +267,7 @@ function StrategyDetail({ instanceId, strategyId, onBack }: { instanceId: string
         <Panel
           stagger={3}
           title="Trades"
-          hint="click a row to inspect"
+          hint={usingDealTrades ? "broker deal closes" : "click a row to inspect"}
           scroll="max-h-[26rem]"
           toolbar={
             <>
@@ -300,23 +301,25 @@ function StrategyDetail({ instanceId, strategyId, onBack }: { instanceId: string
             </>
           }
         >
-          <Loadable loading={trades.isPending} error={trades.isError} retry={() => trades.refetch()} what="trades">
+          <Loadable loading={!performance.data && trades.isPending} error={trades.isError} retry={() => { void trades.refetch(); void performance.refetch(); }} what="trades">
           <Table>
-            {tradeRows.slice(0, tradeCap).map((t) => (
-              <Row key={t.id} onClick={() => setOpenTrade(t)}>
-                <Cell className="whitespace-nowrap text-muted">{tsDay(t.ts)}</Cell>
-                <Cell className="font-semibold text-bright">{t.payload.symbol}</Cell>
-                <Cell>
-                  <SideTag side={t.payload.side} />
-                </Cell>
-                <Cell className="font-mono">{t.payload.qty}</Cell>
-                <Cell className="font-mono text-muted">@ {t.payload.price}</Cell>
-                {(() => {
-                  const r = realizedLabel(closeByOrder.get(t.payload.orderId));
-                  return <Cell className={`font-mono ${r.className}`}>{r.text}</Cell>;
-                })()}
-              </Row>
-            ))}
+            {tradeRows.slice(0, tradeCap).map((t) => {
+              const raw = t.raw;
+              const r = t.realized;
+              const rcls = r == null ? "text-faint" : r > 0 ? "text-up" : r < 0 ? "text-down" : "text-muted";
+              return (
+                <Row key={t.key} onClick={raw ? () => setOpenTrade(raw) : undefined}>
+                  <Cell className="whitespace-nowrap text-muted">{tsDay(t.ts)}</Cell>
+                  <Cell className="font-semibold text-bright">{t.symbol}</Cell>
+                  <Cell>
+                    <SideTag side={t.side} />
+                  </Cell>
+                  <Cell className="font-mono">{t.qty}</Cell>
+                  <Cell className="font-mono text-muted">@ {t.price}</Cell>
+                  <Cell className={`font-mono font-semibold ${rcls}`}>{r == null ? "—" : `${r > 0 ? "+" : ""}${r.toFixed(2)}`}</Cell>
+                </Row>
+              );
+            })}
             {tradeRows.length === 0 && <Empty colSpan={6}>No trades yet</Empty>}
           </Table>
           <LoadMore shown={Math.min(tradeCap, tradeRows.length)} total={tradeRows.length} onMore={() => setTradeCap((c) => c + 20)} />

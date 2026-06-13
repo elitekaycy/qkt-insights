@@ -72,8 +72,13 @@ export class LiveStateStore {
     return { accounts, positions };
   }
 
-  /** Last value per (instance, broker) into account_equity for the current minute. */
-  flushRollup(db: Db, now: number): void {
+  /**
+   * Last value per (instance, broker) into account_equity for the current minute.
+   * A stale account (no poll within staleAfterMs, e.g. qkt is down) is skipped:
+   * carrying its last equity into every new minute would paint a flat plateau the
+   * broker never reported. Leaving the gap is the honest curve.
+   */
+  flushRollup(db: Db, now: number, staleAfterMs = 90_000): void {
     const minute = Math.floor(now / 60_000) * 60_000;
     const up = db.prepare(
       `INSERT INTO account_equity (instance_id, broker, minute_ts, balance, equity, open_profit)
@@ -81,6 +86,7 @@ export class LiveStateStore {
        DO UPDATE SET balance=excluded.balance, equity=excluded.equity, open_profit=excluded.open_profit`,
     );
     for (const [key, a] of this.accounts) {
+      if (now - a.lastSeen > staleAfterMs) continue;
       const [instanceId, broker] = splitKey(key);
       up.run(instanceId, broker, minute, a.balance, a.equity, a.openProfit ?? null);
     }

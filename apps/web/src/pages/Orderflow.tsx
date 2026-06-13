@@ -1,6 +1,6 @@
-import { useMemo, useState } from "react";
-import { useQuery } from "@tanstack/react-query";
-import { get, type OrderRow, type StrategyRow, type TradeRow } from "../api";
+import { useEffect, useMemo, useState } from "react";
+import { useQuery, useQueryClient } from "@tanstack/react-query";
+import { get, type DealRow, type OrderRow, type StrategyRow, type TradeRow } from "../api";
 import { OrderDetail, TradeDetail } from "../components/detail";
 import {
   Cell, Empty, LiveDot, Loadable, LoadMore, PageHeader, Panel, Pill, Row, SearchInput, Select, SideTag, STATE_TONE, Table,
@@ -56,11 +56,29 @@ export default function Orderflow({ instanceId }: { instanceId: string | null })
     refetchInterval: 5000,
   });
 
+  // Broker deal history is the real executed order flow; when present it wins over
+  // engine fills. A pushed broker.deal means it grew — refetch instead of waiting the poll.
+  const deals = useQuery({
+    queryKey: ["deals-page", instanceId],
+    queryFn: () => get<DealRow[]>(`/deals?instance=${encodeURIComponent(instanceId!)}&limit=1000`),
+    enabled: !!instanceId,
+    refetchInterval: 5000,
+  });
+
   const live = useLiveStream(instanceId, 500, ORDERFLOW_TYPES);
+  const qc = useQueryClient();
+  const newestDealId = live.find((e) => e.type === "broker.deal")?.id;
+  useEffect(() => {
+    if (newestDealId) qc.invalidateQueries({ queryKey: ["deals-page", instanceId] });
+  }, [newestDealId, qc, instanceId]);
+
   const needle = q.trim().toUpperCase();
   const matchText = (...parts: (string | null | undefined)[]) =>
     !needle || parts.some((x) => (x ?? "").toUpperCase().includes(needle));
 
+  const usingDeals = (deals.data?.length ?? 0) > 0;
+  const dealNet = (d: DealRow) => (d.profit ?? 0) + (d.commission ?? 0) + (d.swap ?? 0);
+  const dealRows = (deals.data ?? []).filter((d) => (!strategy || d.strategyId === strategy) && matchText(d.symbol, d.dealTicket, d.strategyId));
   const orderRows = (orders.data ?? []).filter((o) => matchText(o.symbol, o.orderId, o.strategyId));
   const tradeRows = (trades.data ?? []).filter((t) => matchText(t.payload.symbol, t.payload.orderId, t.strategyId));
   const liveFiltered = live.filter(
@@ -133,34 +151,68 @@ export default function Orderflow({ instanceId }: { instanceId: string | null })
                   </Cell>
                 </Row>
               ))}
-              {orderRows.length === 0 && <Empty colSpan={7}>No orders yet</Empty>}
+              {orderRows.length === 0 && (
+                <Empty colSpan={7}>
+                  {usingDeals
+                    ? "No order-lifecycle events — this instance reports executed deals (see below), not the submit → fill lifecycle."
+                    : "No orders yet"}
+                </Empty>
+              )}
             </Table>
             <LoadMore shown={Math.min(orderCap, orderRows.length)} total={orderRows.length} onMore={() => setOrderCap((c) => c + 20)} />
             </Loadable>
           </Panel>
 
-          <Panel stagger={1} title="Recent trades" toolbar={filterBar} scroll="max-h-[24rem]">
-            <Loadable loading={!!instanceId && trades.isPending} error={trades.isError} retry={() => trades.refetch()} what="trades">
-            <Table>
-              {tradeRows.slice(0, tradeCap).map((t) => (
-                <Row key={t.id} onClick={() => setOpenTrade(t)}>
-                  <Cell className="whitespace-nowrap text-muted">{tsDay(t.ts)}</Cell>
-                  <Cell>{t.strategyId ?? "—"}</Cell>
-                  <Cell className="font-semibold text-bright">{t.payload.symbol}</Cell>
-                  <Cell>
-                    <SideTag side={t.payload.side} />
-                  </Cell>
-                  <Cell className="font-mono">{t.payload.qty}</Cell>
-                  <Cell className="font-mono text-muted">@ {t.payload.price}</Cell>
-                  {(() => {
-                    const r = realizedLabel(closeMap.get(t.payload.orderId));
-                    return <Cell className={`font-mono ${r.className}`}>{r.text}</Cell>;
-                  })()}
-                </Row>
-              ))}
-              {tradeRows.length === 0 && <Empty colSpan={7}>No trades yet</Empty>}
-            </Table>
-            <LoadMore shown={Math.min(tradeCap, tradeRows.length)} total={tradeRows.length} onMore={() => setTradeCap((c) => c + 20)} />
+          <Panel stagger={1} title={usingDeals ? "Executed deals" : "Recent trades"} hint={usingDeals ? "broker in/out legs, as the venue recorded them" : undefined} toolbar={filterBar} scroll="max-h-[24rem]">
+            <Loadable loading={!!instanceId && trades.isPending && deals.isPending} error={trades.isError && deals.isError} retry={() => { void trades.refetch(); void deals.refetch(); }} what="trade flow">
+            {usingDeals ? (
+              <>
+                <Table head={["Time", "Strategy", "Symbol", "Side", "Entry", "Qty", "Price", "Net"]}>
+                  {dealRows.slice(0, tradeCap).map((d) => {
+                    const n = dealNet(d);
+                    return (
+                      <Row key={d.id}>
+                        <Cell className="whitespace-nowrap text-muted">{tsDay(d.ts)}</Cell>
+                        <Cell>{d.strategyId ?? <Pill>unattributed</Pill>}</Cell>
+                        <Cell className="font-semibold text-bright">{d.symbol ?? "—"}</Cell>
+                        <Cell>
+                          <SideTag side={d.side} />
+                        </Cell>
+                        <Cell className="font-mono text-muted">{d.entry ?? "—"}</Cell>
+                        <Cell className="font-mono">{d.qty ?? "—"}</Cell>
+                        <Cell className="font-mono">{d.price ?? "—"}</Cell>
+                        <Cell className={`font-mono font-semibold ${n > 0 ? "text-up" : n < 0 ? "text-down" : "text-muted"}`}>{n > 0 ? "+" : ""}{n.toFixed(2)}</Cell>
+                      </Row>
+                    );
+                  })}
+                  {dealRows.length === 0 && <Empty colSpan={8}>No deals match</Empty>}
+                </Table>
+                <LoadMore shown={Math.min(tradeCap, dealRows.length)} total={dealRows.length} onMore={() => setTradeCap((c) => c + 20)} />
+              </>
+            ) : (
+              <>
+                <Table>
+                  {tradeRows.slice(0, tradeCap).map((t) => (
+                    <Row key={t.id} onClick={() => setOpenTrade(t)}>
+                      <Cell className="whitespace-nowrap text-muted">{tsDay(t.ts)}</Cell>
+                      <Cell>{t.strategyId ?? "—"}</Cell>
+                      <Cell className="font-semibold text-bright">{t.payload.symbol}</Cell>
+                      <Cell>
+                        <SideTag side={t.payload.side} />
+                      </Cell>
+                      <Cell className="font-mono">{t.payload.qty}</Cell>
+                      <Cell className="font-mono text-muted">@ {t.payload.price}</Cell>
+                      {(() => {
+                        const r = realizedLabel(closeMap.get(t.payload.orderId));
+                        return <Cell className={`font-mono ${r.className}`}>{r.text}</Cell>;
+                      })()}
+                    </Row>
+                  ))}
+                  {tradeRows.length === 0 && <Empty colSpan={7}>No trades yet</Empty>}
+                </Table>
+                <LoadMore shown={Math.min(tradeCap, tradeRows.length)} total={tradeRows.length} onMore={() => setTradeCap((c) => c + 20)} />
+              </>
+            )}
             </Loadable>
           </Panel>
         </div>
