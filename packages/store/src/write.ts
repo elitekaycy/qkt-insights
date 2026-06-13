@@ -16,15 +16,26 @@ const ORDER_STATE: Record<string, string> = {
   "order.rejected": "REJECTED",
 };
 
+const UP_INSTANCE_SQL =
+  `INSERT INTO instances (id, first_seen, last_seen, last_seq) VALUES (@id,@ts,@ts,@seq)
+   ON CONFLICT(id) DO UPDATE SET last_seen=max(last_seen,@ts), last_seq=max(last_seq,@seq)`;
+
+/**
+ * Bump an instance's heartbeat (last_seen/last_seq) without writing an event.
+ * The collector calls this for state.* envelopes — they carry no durable row but
+ * are the freshest proof the instance is alive (the broker poller hits every 10s),
+ * so Health reads the live poller, not the last trade hours ago.
+ */
+export function touchInstance(db: Db, instanceId: string, ts: number, seq: number): void {
+  db.prepare(UP_INSTANCE_SQL).run({ id: instanceId, ts, seq });
+}
+
 export function ingestEvents(db: Db, instanceId: string, events: Envelope[]): number {
   const insEvent = db.prepare(
     "INSERT OR IGNORE INTO events (id, instance_id, type, strategy_id, seq, ts, payload) VALUES (?,?,?,?,?,?,?)",
   );
   const insFts = db.prepare("INSERT INTO events_fts (text, instance_id, event_rowid) VALUES (?,?,?)");
-  const upInstance = db.prepare(
-    `INSERT INTO instances (id, first_seen, last_seen, last_seq) VALUES (@id,@ts,@ts,@seq)
-     ON CONFLICT(id) DO UPDATE SET last_seen=max(last_seen,@ts), last_seq=max(last_seq,@seq)`,
-  );
+  const upInstance = db.prepare(UP_INSTANCE_SQL);
   const upStrategy = db.prepare(
     `INSERT INTO strategies (instance_id, strategy_id, first_seen, last_seen) VALUES (@i,@s,@ts,@ts)
      ON CONFLICT(instance_id,strategy_id) DO UPDATE SET last_seen=max(last_seen,@ts)`,
@@ -75,7 +86,18 @@ export function ingestEvents(db: Db, instanceId: string, events: Envelope[]): nu
         const info = insDeal.run(e.id, instanceId, p.broker, p.dealTicket, p.positionTicket ?? null, p.orderTicket ?? null,
           p.symbol ?? null, p.side ?? null, p.entry ?? null, p.qty, p.price, p.profit, p.commission ?? null,
           p.swap ?? null, p.magic ?? null, p.comment ?? null, strategyId, p.ts);
-        if (info.changes === 0) continue;
+        if (info.changes === 0) {
+          // Re-ingested deal (the 30d backfill re-runs on every restart). If it
+          // first stored unattributed but now resolves — its strategies row
+          // appeared, or a sibling got attributed — fill the NULL instead of skipping.
+          if (strategyId) {
+            db.prepare("UPDATE deals SET strategy_id=? WHERE id=? AND strategy_id IS NULL").run(strategyId, e.id);
+            if (p.positionTicket)
+              db.prepare("UPDATE deals SET strategy_id=? WHERE instance_id=? AND position_ticket=? AND strategy_id IS NULL")
+                .run(strategyId, instanceId, p.positionTicket);
+          }
+          continue;
+        }
         accepted++;
         upInstance.run({ id: instanceId, ts: e.ts, seq: e.seq });
         if (strategyId) {

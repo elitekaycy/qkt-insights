@@ -65,6 +65,18 @@ export interface TradeRow {
   ts: number;
   payload: { orderId: string; symbol: string; side: string; price: number; qty: number; ts: number };
 }
+/** A unified blotter row: a broker-deal close (raw=null) or an engine fill (raw set). */
+export interface TradeView {
+  key: string;
+  ts: number;
+  symbol: string;
+  side: string;
+  qty: number;
+  price: number;
+  realized: number | null;
+  searchKey: string;
+  raw: TradeRow | null;
+}
 
 export interface LogRow {
   id: string;

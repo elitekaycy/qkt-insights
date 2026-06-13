@@ -1,5 +1,5 @@
 import { useMemo, useState } from "react";
-import type { DayNet, TradeRow } from "../api";
+import type { DayNet, TradeRow, TradeView } from "../api";
 import { human, money, ts } from "../format";
 import { Cell, Empty, Field, IconButton, Modal, Panel, Pill, Row, SideTag, Table } from "./ui";
 
@@ -36,9 +36,9 @@ export function CalendarView({
 }: {
   days: DayNet[];
   startingBalance: number | null;
-  /** Fills used to populate the day-detail modal; pass what the page already fetched. */
-  trades?: TradeRow[];
-  onTrade?: (t: TradeRow) => void;
+  /** Closed trades / fills for the day-detail modal; pass what the page already fetched. */
+  trades?: TradeView[];
+  onTrade?: (raw: TradeRow) => void;
 }) {
   const byDay = useMemo(() => new Map(days.map((d) => [d.day, d])), [days]);
   const months = useMemo(() => [...new Set(days.map((d) => monthKey(d.day)))].sort(), [days]);
@@ -181,21 +181,24 @@ export function CalendarView({
             </Field>
           </div>
           <div className="px-4 pb-1 text-[11px] font-semibold uppercase tracking-[0.12em] text-muted">
-            Fills that day {onTrade && dayFills.length > 0 ? "· click one to inspect" : ""}
+            Trades that day {onTrade && dayFills.some((t) => t.raw) ? "· click one to inspect" : ""}
           </div>
           <Table>
-            {dayFills.map((t) => (
-              <Row key={t.id} onClick={onTrade ? () => onTrade(t) : undefined}>
-                <Cell className="whitespace-nowrap text-muted">{ts(t.ts).slice(11)}</Cell>
-                <Cell className="font-semibold text-bright">{t.payload.symbol}</Cell>
-                <Cell>
-                  <SideTag side={t.payload.side} />
-                </Cell>
-                <Cell className="font-mono">{t.payload.qty}</Cell>
-                <Cell className="font-mono text-muted">@ {t.payload.price}</Cell>
-              </Row>
-            ))}
-            {dayFills.length === 0 && <Empty colSpan={5}>No fills loaded for this day</Empty>}
+            {dayFills.map((t) => {
+              const raw = t.raw;
+              return (
+                <Row key={t.key} onClick={onTrade && raw ? () => onTrade(raw) : undefined}>
+                  <Cell className="whitespace-nowrap text-muted">{ts(t.ts).slice(11)}</Cell>
+                  <Cell className="font-semibold text-bright">{t.symbol}</Cell>
+                  <Cell>
+                    <SideTag side={t.side} />
+                  </Cell>
+                  <Cell className="font-mono">{t.qty}</Cell>
+                  <Cell className="font-mono text-muted">@ {t.price}</Cell>
+                </Row>
+              );
+            })}
+            {dayFills.length === 0 && <Empty colSpan={5}>No trades loaded for this day</Empty>}
           </Table>
         </Modal>
       )}

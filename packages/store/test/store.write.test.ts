@@ -128,6 +128,23 @@ describe("broker state ingest hygiene", () => {
     expect(db.prepare("SELECT COUNT(*) c FROM events").get()).toMatchObject({ c: 0 });
     expect(db.prepare("SELECT COUNT(*) c FROM instances").get()).toMatchObject({ c: 0 });
   });
+
+  it("re-ingesting a deal upgrades the NULL strategy once it becomes resolvable", () => {
+    const db = openDb(":memory:");
+    // A deal whose dsl- comment names a strategy the store hasn't registered yet.
+    const deal = () => env({ id: "deal-EXNESS-77", type: "broker.deal", payload: {
+      broker: "EXNESS", dealTicket: "77", positionTicket: "900", orderTicket: "900",
+      symbol: "EXNESS:XAUUSD", side: "BUY", entry: "IN", qty: 0.01, price: 4300,
+      profit: 0, comment: "dsl-hedge_straddle", ts: 1781201000000 } });
+    ingestEvents(db, "qkt-prod", [deal()]);
+    // No strategies row to match the comment against → unattributed on the first pass.
+    expect(db.prepare("SELECT strategy_id FROM deals WHERE deal_ticket='77'").get()).toMatchObject({ strategy_id: null });
+    // The strategy registers later (its first snapshot/fill creates the row).
+    db.prepare("INSERT INTO strategies (instance_id, strategy_id, first_seen, last_seen) VALUES ('qkt-prod','hedge_straddle',1,1)").run();
+    // The 30d backfill re-sends the same deal → the comment now resolves and the NULL is filled.
+    ingestEvents(db, "qkt-prod", [deal()]);
+    expect(db.prepare("SELECT strategy_id FROM deals WHERE deal_ticket='77'").get()).toMatchObject({ strategy_id: "hedge_straddle" });
+  });
 });
 
 describe("foldOrder out-of-order delivery", () => {
