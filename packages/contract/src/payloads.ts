@@ -28,6 +28,7 @@ export const payloadByType = {
     broker: z.string(), currency: z.string(), balance: z.number(), equity: z.number(),
     margin: z.number().optional(), marginFree: z.number().optional(),
     openProfit: z.number().optional(), marginLevel: z.number().optional(),
+    login: z.string().optional(), server: z.string().optional(), name: z.string().optional(),
   }),
   "state.positions": z.object({
     broker: z.string(),

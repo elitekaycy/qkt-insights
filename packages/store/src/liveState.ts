@@ -4,6 +4,8 @@ import type { Envelope } from "@qkt-insights/contract";
 export interface AccountState {
   broker: string; currency: string; balance: number; equity: number;
   margin?: number; marginFree?: number; openProfit?: number; marginLevel?: number;
+  /** Broker account identity, so the dashboard can say whose equity it shows on a shared account. */
+  login?: string; server?: string; name?: string;
   lastSeen: number;
 }
 
@@ -41,6 +43,7 @@ export class LiveStateStore {
       const prev = this.accounts.get(key);
       const next: AccountState = { broker: p.broker, currency: p.currency, balance: p.balance, equity: p.equity,
         margin: p.margin, marginFree: p.marginFree, openProfit: p.openProfit, marginLevel: p.marginLevel,
+        login: p.login, server: p.server, name: p.name,
         lastSeen: e.ts };
       this.accounts.set(key, next);
       if (!prev) return true;

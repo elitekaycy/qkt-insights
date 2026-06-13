@@ -196,6 +196,9 @@ export interface LiveAccount {
   marginFree?: number;
   openProfit?: number;
   marginLevel?: number;
+  login?: string;
+  server?: string;
+  name?: string;
   lastSeen: number;
   stale: boolean;
 }

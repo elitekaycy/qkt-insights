@@ -32,6 +32,14 @@ describe("LiveStateStore", () => {
     expect(stale.accounts[0]!.stale).toBe(true);
   });
 
+  it("carries account identity (login/server/name) into the snapshot", () => {
+    const store = new LiveStateStore();
+    store.upsert("qkt-prod", accountEnv(T0, { login: "435898347", server: "Exness-MT5Trial9", name: "qkt-hedge-straddle" }));
+    expect(store.snapshot(T0 + 1000).accounts[0]).toMatchObject({
+      login: "435898347", server: "Exness-MT5Trial9", name: "qkt-hedge-straddle",
+    });
+  });
+
   it("replaces the full position list per state.positions envelope", () => {
     const store = new LiveStateStore();
     store.upsert("qkt-prod", positionsEnv(T0, [pos, { ...pos, ticket: "124" }]));
