@@ -32,6 +32,14 @@ describe("LiveStateStore", () => {
     expect(stale.accounts[0]!.stale).toBe(true);
   });
 
+  it("carries account identity (login/server/name) into the snapshot", () => {
+    const store = new LiveStateStore();
+    store.upsert("qkt-prod", accountEnv(T0, { login: "435898347", server: "Exness-MT5Trial9", name: "qkt-hedge-straddle" }));
+    expect(store.snapshot(T0 + 1000).accounts[0]).toMatchObject({
+      login: "435898347", server: "Exness-MT5Trial9", name: "qkt-hedge-straddle",
+    });
+  });
+
   it("replaces the full position list per state.positions envelope", () => {
     const store = new LiveStateStore();
     store.upsert("qkt-prod", positionsEnv(T0, [pos, { ...pos, ticket: "124" }]));
@@ -72,10 +80,22 @@ describe("LiveStateStore", () => {
     const minute = Math.floor(now / 60_000) * 60_000;
     expect(rows[1]).toMatchObject({ instance_id: "qkt-prod", broker: "EXNESS", minute_ts: minute,
       balance: 7824.05, equity: 7676.54, open_profit: -147.51 });
+    expect(rows[1]).toMatchObject({ balance_decimal: "7824.05", equity_decimal: "7676.54", open_profit_decimal: "-147.51" });
     store.upsert("qkt-prod", accountEnv(T0 + 10_000, { equity: 7700 }));
     store.flushRollup(db, now + 1000);
     const updated: any = db.prepare("SELECT equity FROM account_equity WHERE instance_id='qkt-prod' AND minute_ts=?").get(minute);
     expect(updated.equity).toBe(7700);
     expect(db.prepare("SELECT COUNT(*) c FROM account_equity").get()).toMatchObject({ c: 2 });
+  });
+
+  it("flushRollup skips a stale account so an outage leaves a gap, not a flat plateau", () => {
+    const db = openDb(":memory:");
+    const store = new LiveStateStore();
+    store.upsert("qkt-prod", accountEnv(T0));
+    store.flushRollup(db, T0 + 200_000); // poller silent well past the staleness window
+    expect(db.prepare("SELECT COUNT(*) c FROM account_equity").get()).toMatchObject({ c: 0 });
+    store.upsert("qkt-prod", accountEnv(T0 + 200_000)); // a fresh poll resumes
+    store.flushRollup(db, T0 + 201_000);
+    expect(db.prepare("SELECT COUNT(*) c FROM account_equity").get()).toMatchObject({ c: 1 });
   });
 });

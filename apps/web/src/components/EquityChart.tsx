@@ -106,7 +106,7 @@ export function EquityChart({ points, height = 260 }: { points: EquityPoint[]; h
                 </linearGradient>
               </defs>
               <CartesianGrid stroke="var(--color-line)" strokeDasharray="3 3" vertical={false} />
-              <XAxis dataKey="ts" tickFormatter={timeFmt} tick={AXIS} tickLine={false} axisLine={false} minTickGap={60} />
+              <XAxis dataKey="ts" type="number" scale="time" domain={["dataMin", "dataMax"]} tickFormatter={timeFmt} tick={AXIS} tickLine={false} axisLine={false} minTickGap={60} />
               <YAxis domain={["auto", "auto"]} tick={AXIS} tickLine={false} axisLine={false} width={70} />
               <Tooltip
                 contentStyle={TOOLTIP}
@@ -148,8 +148,8 @@ export function ComparisonChart({ series, height = 320 }: { series: ComparisonSe
         <ResponsiveContainer width="100%" height={height}>
           <LineChart data={visible} margin={{ top: 8, right: 8, bottom: 0, left: 8 }}>
             <CartesianGrid stroke="var(--color-line)" strokeDasharray="3 3" vertical={false} />
-            <XAxis dataKey="ts" tickFormatter={timeFmt} tick={AXIS} tickLine={false} axisLine={false} minTickGap={60} />
-            <YAxis tick={AXIS} tickLine={false} axisLine={false} width={56} tickFormatter={(v) => `${Number(v).toFixed(1)}%`} />
+            <XAxis dataKey="ts" type="number" scale="time" domain={["dataMin", "dataMax"]} tickFormatter={timeFmt} tick={AXIS} tickLine={false} axisLine={false} minTickGap={60} />
+            <YAxis domain={["auto", "auto"]} tick={AXIS} tickLine={false} axisLine={false} width={56} tickFormatter={(v) => `${Number(v).toFixed(1)}%`} />
             <Tooltip
               contentStyle={TOOLTIP}
               labelFormatter={(v) => timeFmt(Number(v))}
@@ -187,8 +187,8 @@ export function UnderwaterChart({ points, height = 180 }: { points: EquityPoint[
               </linearGradient>
             </defs>
             <CartesianGrid stroke="var(--color-line)" strokeDasharray="3 3" vertical={false} />
-            <XAxis dataKey="ts" tickFormatter={timeFmt} tick={AXIS} tickLine={false} axisLine={false} minTickGap={60} />
-            <YAxis tick={AXIS} tickLine={false} axisLine={false} width={56} tickFormatter={(v) => `${Number(v).toFixed(1)}%`} />
+            <XAxis dataKey="ts" type="number" scale="time" domain={["dataMin", "dataMax"]} tickFormatter={timeFmt} tick={AXIS} tickLine={false} axisLine={false} minTickGap={60} />
+            <YAxis domain={["dataMin", 0]} tick={AXIS} tickLine={false} axisLine={false} width={56} tickFormatter={(v) => `${Number(v).toFixed(1)}%`} />
             <Tooltip
               contentStyle={TOOLTIP}
               labelFormatter={(v) => timeFmt(Number(v))}

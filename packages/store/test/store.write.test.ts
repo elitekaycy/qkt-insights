@@ -1,6 +1,6 @@
 import { describe, it, expect } from "vitest";
 import { openDb } from "../src/db.js";
-import { ingestEvents } from "../src/index.js";
+import { ingestEvents, persistStateEvent } from "../src/index.js";
 import type { Envelope } from "@qkt-insights/contract";
 
 function env(p: Partial<Envelope> & { type: Envelope["type"]; payload: any }): Envelope {
@@ -11,7 +11,9 @@ describe("schema", () => {
   it("creates core tables and the FTS table on open", () => {
     const db = openDb(":memory:");
     const names = db.prepare("SELECT name FROM sqlite_master WHERE type IN ('table')").all().map((r: any) => r.name);
-    for (const t of ["events", "instances", "strategies", "orders", "equity_snapshots", "events_fts"]) {
+    for (const t of ["events", "instances", "strategies", "orders", "equity_snapshots", "events_fts", "ingest_observations",
+      "positions_current", "position_valuations", "position_reconciliations", "risk_events", "risk_snapshots",
+      "portfolio_allocations", "portfolio_exposure", "portfolio_equity"]) {
       expect(names).toContain(t);
     }
   });
@@ -35,6 +37,26 @@ describe("ingestEvents", () => {
     expect(db.prepare("SELECT strategy_id FROM strategies").get()).toMatchObject({ strategy_id: "latch" });
   });
 
+  it("stores strategy metadata from lifecycle start events", () => {
+    const db = openDb(":memory:");
+    ingestEvents(db, "qkt-prod", [
+      env({ strategyId: "hedge_straddle", type: "strategy.started", payload: {
+        strategyId: "hedge_straddle",
+        ts: 1718000000000,
+        sourcePath: "/srv/qkt/strategies/hedge.qkt",
+        dslVersion: 1,
+        runtimeMode: "live",
+        symbols: ["EXNESS:XAUUSD"],
+      } }),
+    ]);
+    const row = db.prepare("SELECT metadata FROM strategies WHERE strategy_id='hedge_straddle'").get() as { metadata: string };
+    expect(JSON.parse(row.metadata)).toMatchObject({
+      strategyId: "hedge_straddle",
+      sourcePath: "/srv/qkt/strategies/hedge.qkt",
+      runtimeMode: "live",
+    });
+  });
+
   it("folds order lifecycle into a single orders row reaching FILLED", () => {
     const db = openDb(":memory:");
     ingestEvents(db, "qkt-prod", [
@@ -46,6 +68,8 @@ describe("ingestEvents", () => {
     expect(row.state).toBe("FILLED");
     expect(row.cum_qty).toBe(0.1);
     expect(row.avg_price).toBe(2350);
+    expect(row.cum_qty_decimal).toBe("0.1");
+    expect(row.avg_price_decimal).toBe("2350");
   });
 
   it("appends equity snapshots and updates strategy equity", () => {
@@ -55,6 +79,7 @@ describe("ingestEvents", () => {
     ]);
     expect(db.prepare("SELECT COUNT(*) c FROM equity_snapshots").get()).toMatchObject({ c: 1 });
     expect(db.prepare("SELECT equity FROM strategies WHERE strategy_id='latch'").get()).toMatchObject({ equity: 1008 });
+    expect(db.prepare("SELECT equity_decimal FROM equity_snapshots").get()).toMatchObject({ equity_decimal: "1008" });
   });
 
   it("indexes events into FTS so search can find them by symbol", () => {
@@ -72,6 +97,20 @@ describe("ingestEvents", () => {
     ingestEvents(db, "qkt-prod", [e]);
     ingestEvents(db, "qkt-prod", [e]);
     expect(db.prepare("SELECT COUNT(*) c FROM events").get()).toMatchObject({ c: 1 });
+  });
+
+  it("records seq gaps, regressions, and duplicate observations", () => {
+    const db = openDb(":memory:");
+    const trade = (id: string, seq: number) => env({
+      id, seq, type: "trade",
+      payload: { orderId: id, symbol: "XAUUSD", side: "BUY", price: 2350, qty: 0.1, ts: 1718000000000 },
+    });
+    ingestEvents(db, "qkt-prod", [trade("e1", 1), trade("e3", 3), trade("e2", 2), trade("e3", 3)]);
+    expect(db.prepare("SELECT kind, event_id eventId, seq, previous_seq previousSeq, expected_seq expectedSeq FROM ingest_observations ORDER BY id").all()).toEqual([
+      { kind: "gap", eventId: "e3", seq: 3, previousSeq: 1, expectedSeq: 2 },
+      { kind: "regression", eventId: "e2", seq: 2, previousSeq: 3, expectedSeq: null },
+      { kind: "duplicate", eventId: "e3", seq: 3, previousSeq: null, expectedSeq: null },
+    ]);
   });
 });
 
@@ -94,6 +133,7 @@ describe("broker state ingest hygiene", () => {
     expect(db.prepare("SELECT strategy_id FROM strategies").get()).toMatchObject({ strategy_id: "hedge_straddle" });
     const row: any = db.prepare("SELECT * FROM deals").get();
     expect(row).toMatchObject({ broker: "EXNESS", deal_ticket: "456", entry: "OUT", profit: 9.7, strategy_id: "hedge_straddle" });
+    expect(row).toMatchObject({ qty_decimal: "0.01", price_decimal: "2310.2", profit_decimal: "9.7" });
   });
 
   it("snapshot.equity no longer writes events or FTS rows", () => {
@@ -128,6 +168,50 @@ describe("broker state ingest hygiene", () => {
     expect(db.prepare("SELECT COUNT(*) c FROM events").get()).toMatchObject({ c: 0 });
     expect(db.prepare("SELECT COUNT(*) c FROM instances").get()).toMatchObject({ c: 0 });
   });
+
+  it("persists state.positions into durable current and valuation projections without raw events", () => {
+    const db = openDb(":memory:");
+    const first = env({ id: "posn-1", seq: 10, ts: 1718000000000, type: "state.positions", payload: {
+      broker: "EXNESS",
+      positions: [
+        { ticket: "123", symbol: "EXNESS:XAUUSD", side: "BUY", qty: 0.01, entryPrice: 2300.5, currentPrice: 2310.2, profit: 9.7, strategyId: "hedge_straddle" },
+        { ticket: "124", symbol: "EXNESS:EURUSD", side: "SELL", qty: 0.02, entryPrice: 1.08, currentPrice: 1.07, profit: 20, strategyId: null },
+      ],
+    } });
+    const second = env({ id: "posn-2", seq: 11, ts: 1718000060000, type: "state.positions", payload: {
+      broker: "EXNESS",
+      positions: [
+        { ticket: "123", symbol: "EXNESS:XAUUSD", side: "BUY", qty: 0.01, entryPrice: 2300.5, currentPrice: 2315.2, profit: 14.7, strategyId: "hedge_straddle" },
+      ],
+    } });
+    persistStateEvent(db, "qkt-prod", first);
+    persistStateEvent(db, "qkt-prod", second);
+
+    expect(db.prepare("SELECT COUNT(*) c FROM events").get()).toMatchObject({ c: 0 });
+    expect(db.prepare("SELECT ticket, current_price, profit FROM positions_current ORDER BY ticket").all()).toEqual([
+      { ticket: "123", current_price: 2315.2, profit: 14.7 },
+    ]);
+    expect(db.prepare("SELECT qty_decimal, current_price_decimal, profit_decimal FROM positions_current WHERE ticket='123'").get())
+      .toMatchObject({ qty_decimal: "0.01", current_price_decimal: "2315.2", profit_decimal: "14.7" });
+    expect(db.prepare("SELECT COUNT(*) c FROM position_valuations").get()).toMatchObject({ c: 3 });
+  });
+
+  it("re-ingesting a deal upgrades the NULL strategy once it becomes resolvable", () => {
+    const db = openDb(":memory:");
+    // A deal whose dsl- comment names a strategy the store hasn't registered yet.
+    const deal = () => env({ id: "deal-EXNESS-77", type: "broker.deal", payload: {
+      broker: "EXNESS", dealTicket: "77", positionTicket: "900", orderTicket: "900",
+      symbol: "EXNESS:XAUUSD", side: "BUY", entry: "IN", qty: 0.01, price: 4300,
+      profit: 0, comment: "dsl-hedge_straddle", ts: 1781201000000 } });
+    ingestEvents(db, "qkt-prod", [deal()]);
+    // No strategies row to match the comment against → unattributed on the first pass.
+    expect(db.prepare("SELECT strategy_id FROM deals WHERE deal_ticket='77'").get()).toMatchObject({ strategy_id: null });
+    // The strategy registers later (its first snapshot/fill creates the row).
+    db.prepare("INSERT INTO strategies (instance_id, strategy_id, first_seen, last_seen) VALUES ('qkt-prod','hedge_straddle',1,1)").run();
+    // The 30d backfill re-sends the same deal → the comment now resolves and the NULL is filled.
+    ingestEvents(db, "qkt-prod", [deal()]);
+    expect(db.prepare("SELECT strategy_id FROM deals WHERE deal_ticket='77'").get()).toMatchObject({ strategy_id: "hedge_straddle" });
+  });
 });
 
 describe("foldOrder out-of-order delivery", () => {
@@ -144,5 +228,46 @@ describe("foldOrder out-of-order delivery", () => {
     expect(row.qty).toBe(0.1);
     expect(row.strategy_id).toBe("latch");
     expect(row.avg_price).toBe(2350);
+  });
+});
+
+
+describe("enriched payload persistence", () => {
+  it("stores additive order fields in the raw event payload", () => {
+    const db = openDb(":memory:");
+    ingestEvents(db, "qkt-prod", [
+      env({ seq: 1, strategyId: "latch", type: "order.submit", payload: {
+        orderId: "br1", orderType: "Bracket", symbol: "XAUUSD", side: "BUY", qty: 0.1,
+        timeInForce: "GTC", takeProfit: 2360, stopLoss: { type: "Fixed", price: 2340 },
+      } }),
+    ]);
+    const row = db.prepare("SELECT payload FROM events WHERE id IS NOT NULL").get() as { payload: string };
+    const payload = JSON.parse(row.payload);
+    expect(payload.timeInForce).toBe("GTC");
+    expect(payload.stopLoss.price).toBe(2340);
+  });
+
+  it("projects position reconciliation, risk, and portfolio envelopes into durable tables", () => {
+    const db = openDb(":memory:");
+    ingestEvents(db, "qkt-prod", [
+      env({ id: "recon-1", seq: 1, type: "position.reconciled", payload: {
+        symbol: "EXNESS:XAUUSD", before: 0, after: 0.01, oldQty: 0, newQty: 0.01,
+        oldAvgPx: null, newAvgPx: 2300.5, source: "EXNESS", reason: "startup",
+      } }),
+      env({ id: "risk-1", seq: 2, strategyId: "hedge", type: "risk.halted", payload: { strategyId: "hedge", reason: "daily-loss" } }),
+      env({ id: "risk-snap-1", seq: 3, strategyId: "hedge", type: "risk.snapshot", payload: { strategyId: "hedge", equity: 980, dailyLoss: 20 } }),
+      env({ id: "port-eq-1", seq: 4, type: "portfolio.equity.updated", payload: {
+        portfolioId: "gold-book", equity: 10050, realized: 50, unrealized: 0,
+      } }),
+    ]);
+
+    expect(db.prepare("SELECT symbol, new_qty newQty, source, reason FROM position_reconciliations").get())
+      .toMatchObject({ symbol: "EXNESS:XAUUSD", newQty: 0.01, source: "EXNESS", reason: "startup" });
+    expect(db.prepare("SELECT strategy_id strategyId, kind, reason FROM risk_events").get())
+      .toMatchObject({ strategyId: "hedge", kind: "risk.halted", reason: "daily-loss" });
+    expect(db.prepare("SELECT strategy_id strategyId FROM risk_snapshots").get())
+      .toMatchObject({ strategyId: "hedge" });
+    expect(db.prepare("SELECT portfolio_id portfolioId, equity FROM portfolio_equity").get())
+      .toMatchObject({ portfolioId: "gold-book", equity: 10050 });
   });
 });

@@ -126,12 +126,12 @@ export function Panel({
   return (
     <>
       <Card stagger={stagger} className={className}>
-        <div className="flex flex-wrap items-center gap-3 border-b border-line px-5 py-3">
-          <div className="flex items-baseline gap-2.5">
+        <div className="flex flex-col gap-3 border-b border-line px-5 py-3 sm:flex-row sm:items-center">
+          <div className="flex shrink-0 items-baseline gap-2.5">
             <h3 className="text-sm font-bold uppercase tracking-[0.08em] text-body">{title}</h3>
             {hint && <span className="text-xs text-faint">{hint}</span>}
           </div>
-          <div className="ml-auto flex flex-wrap items-center gap-2">
+          <div className="flex min-w-0 flex-wrap items-center gap-2 sm:ml-auto sm:justify-end">
             {toolbar}
             {right}
             <IconButton
@@ -289,6 +289,21 @@ export function PnlLine({ net, base, dim }: { net: number | null | undefined; ba
       {up ? "▲" : "▼"} {sign}
       {money(Math.abs(net))}
       {pct}
+    </span>
+  );
+}
+
+/**
+ * Just the signed return on base as "▲ 12.3%" — pairs with a P&L dollar headline
+ * so the percentage isn't a second copy of the amount. e.g. net -5049.73 on base
+ * 10000 → "▼ 50.5%". A null base (no notional) renders a dash.
+ */
+export function ReturnPct({ net, base, dim }: { net: number | null | undefined; base?: number | null; dim?: boolean }) {
+  if (net == null || !base) return <span className="text-faint">—</span>;
+  const up = net >= 0;
+  return (
+    <span className={`font-mono text-sm font-semibold ${dim ? "text-faint" : up ? "text-up" : "text-down"}`}>
+      {up ? "▲" : "▼"} {Math.abs((net / base) * 100).toFixed(1)}%
     </span>
   );
 }

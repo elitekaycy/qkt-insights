@@ -37,12 +37,20 @@ export interface HealthRow {
   lastSeen: number;
   lastSeq: number;
   strategies: number;
+  insightsSent: number | null;
+  insightsFailed: number | null;
+  insightsDropped: number | null;
+  insightsQueued: number | null;
+  insightsJournalEnabled: boolean | number | null;
+  insightsJournalPending: number | null;
+  insightsHealthTs: number | null;
 }
 export interface StrategyRow {
   strategyId: string;
   firstSeen: number;
   lastSeen: number;
   startingBalance: number | null;
+  metadata: Record<string, unknown> | null;
   realizedNet: number | null;
   dealCount: number;
 }
@@ -64,6 +72,18 @@ export interface TradeRow {
   strategyId: string | null;
   ts: number;
   payload: { orderId: string; symbol: string; side: string; price: number; qty: number; ts: number };
+}
+/** A unified blotter row: a broker-deal close (raw=null) or an engine fill (raw set). */
+export interface TradeView {
+  key: string;
+  ts: number;
+  symbol: string;
+  side: string;
+  qty: number;
+  price: number;
+  realized: number | null;
+  searchKey: string;
+  raw: TradeRow | null;
 }
 
 export interface LogRow {
@@ -184,6 +204,9 @@ export interface LiveAccount {
   marginFree?: number;
   openProfit?: number;
   marginLevel?: number;
+  login?: string;
+  server?: string;
+  name?: string;
   lastSeen: number;
   stale: boolean;
 }

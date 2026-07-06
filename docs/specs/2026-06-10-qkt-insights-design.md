@@ -82,11 +82,19 @@ Each payload mirrors the fields of the matching qkt sealed `Event`. Names are do
 | `risk.rejected` | `RiskRejectedEvent` | reason, attempted order summary |
 | `risk.halted` | `RiskEvent.Halted` | strategyId, reason |
 | `risk.resumed` | `RiskEvent.Resumed` | strategyId |
-| `position.reconciled` | `BrokerEvent.PositionReconciled` | symbol, before, after |
+| `risk.snapshot` | risk state sample | strategyId, risk payload |
+| `position.reconciled` | `BrokerEvent.PositionReconciled` | symbol, before, after, source, reason |
+| `position.opened` / `position.updated` / `position.closed` / `position.valued` | position projection events | broker, ticket, symbol, side, qty, prices |
 | `balances.updated` | `BrokerEvent.BalancesUpdated` | balances |
 | `gateway.unreachable` | `BrokerEvent.GatewayUnreachable` | detail |
+| `broker.connected` / `broker.disconnected` / `broker.reconnected` | broker lifecycle | broker, state, reason |
+| `marketdata.connected` / `marketdata.disconnected` / `marketdata.reconnected` | market data lifecycle | source, symbols, state, reason |
+| `portfolio.configured` / `portfolio.allocation.updated` / `portfolio.exposure.updated` / `portfolio.equity.updated` | portfolio projection events | portfolioId plus allocation/exposure/equity payload |
 | `snapshot.equity` | derived (§5) | strategyId, realized, unrealized, equity, startingBalance |
 | `snapshot.position` | derived (§5) | strategyId, symbol, legs[] (side, qty, entryPrice, entryTs) |
+
+Financial quantities in projection tables keep the numeric columns used by existing
+queries and also write decimal-text shadow columns for audit/reconciliation paths.
 
 **Excluded by default:** `TickEvent`, `WarmupTickEvent`, `CandleEvent` — too high-frequency for a dashboard; tick analysis belongs in backtest tooling.
 

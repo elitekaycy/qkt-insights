@@ -4,6 +4,8 @@ import type { Envelope } from "@qkt-insights/contract";
 export interface AccountState {
   broker: string; currency: string; balance: number; equity: number;
   margin?: number; marginFree?: number; openProfit?: number; marginLevel?: number;
+  /** Broker account identity, so the dashboard can say whose equity it shows on a shared account. */
+  login?: string; server?: string; name?: string;
   lastSeen: number;
 }
 
@@ -21,6 +23,13 @@ export interface LiveStateSnapshot {
 function splitKey(key: string): [string, string] {
   const i = key.lastIndexOf(":");
   return [key.slice(0, i), key.slice(i + 1)];
+}
+
+function decimalText(v: unknown): string | null {
+  if (v == null) return null;
+  if (typeof v === "string") return v;
+  if (typeof v === "number") return Number.isFinite(v) ? String(v) : null;
+  return null;
 }
 
 /**
@@ -41,6 +50,7 @@ export class LiveStateStore {
       const prev = this.accounts.get(key);
       const next: AccountState = { broker: p.broker, currency: p.currency, balance: p.balance, equity: p.equity,
         margin: p.margin, marginFree: p.marginFree, openProfit: p.openProfit, marginLevel: p.marginLevel,
+        login: p.login, server: p.server, name: p.name,
         lastSeen: e.ts };
       this.accounts.set(key, next);
       if (!prev) return true;
@@ -72,17 +82,28 @@ export class LiveStateStore {
     return { accounts, positions };
   }
 
-  /** Last value per (instance, broker) into account_equity for the current minute. */
-  flushRollup(db: Db, now: number): void {
+  /**
+   * Last value per (instance, broker) into account_equity for the current minute.
+   * A stale account (no poll within staleAfterMs, e.g. qkt is down) is skipped:
+   * carrying its last equity into every new minute would paint a flat plateau the
+   * broker never reported. Leaving the gap is the honest curve.
+   */
+  flushRollup(db: Db, now: number, staleAfterMs = 90_000): void {
     const minute = Math.floor(now / 60_000) * 60_000;
     const up = db.prepare(
-      `INSERT INTO account_equity (instance_id, broker, minute_ts, balance, equity, open_profit)
-       VALUES (?,?,?,?,?,?) ON CONFLICT(instance_id, broker, minute_ts)
-       DO UPDATE SET balance=excluded.balance, equity=excluded.equity, open_profit=excluded.open_profit`,
+      `INSERT INTO account_equity
+         (instance_id, broker, minute_ts, balance, equity, open_profit,
+          balance_decimal, equity_decimal, open_profit_decimal)
+       VALUES (?,?,?,?,?,?,?,?,?) ON CONFLICT(instance_id, broker, minute_ts)
+       DO UPDATE SET balance=excluded.balance, equity=excluded.equity, open_profit=excluded.open_profit,
+         balance_decimal=excluded.balance_decimal, equity_decimal=excluded.equity_decimal,
+         open_profit_decimal=excluded.open_profit_decimal`,
     );
     for (const [key, a] of this.accounts) {
+      if (now - a.lastSeen > staleAfterMs) continue;
       const [instanceId, broker] = splitKey(key);
-      up.run(instanceId, broker, minute, a.balance, a.equity, a.openProfit ?? null);
+      up.run(instanceId, broker, minute, a.balance, a.equity, a.openProfit ?? null,
+        decimalText(a.balance), decimalText(a.equity), decimalText(a.openProfit));
     }
   }
 }

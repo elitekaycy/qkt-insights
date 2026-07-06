@@ -3,7 +3,7 @@ import { useQueries, useQuery } from "@tanstack/react-query";
 import { get, type EquityPoint, type HealthRow, type PerformanceBundle, type StrategyRow, type StrategyStats } from "../api";
 import { ComparisonChart, type ComparisonSeries } from "../components/EquityChart";
 import { Sparkline } from "../components/Sparkline";
-import { Card, Cell, Empty, FlashValue, HoverExpand, LiveDot, Loadable, Modal, MoneyDelta, PageHeader, Panel, Pill, PnlLine, Row, SideTag, Stat, Table } from "../components/ui";
+import { Card, Cell, Empty, FlashValue, HoverExpand, LiveDot, Loadable, Modal, MoneyDelta, PageHeader, Panel, Pill, ReturnPct, Row, SideTag, Stat, Table } from "../components/ui";
 import { age, money, num, pct, ts } from "../format";
 import { useLiveState } from "../useLiveState";
 import { useLiveStream } from "../useLiveStream";
@@ -13,9 +13,10 @@ const PALETTE = ["#c8f74a", "#5cb8ff", "#a78bfa", "#3fe08c", "#fbbf24", "#ff6b6b
 // Everything except "log": the feed stays meaningful and state pushes still
 // reach useLiveState. Module-level so the WS effect sees a stable identity.
 const FEED_TYPES = [
-  "signal", "order.submit", "order.accepted", "order.filled", "order.partially_filled", "order.cancelled",
+  "signal", "signal.cancel", "signal.latch_armed", "strategy.started", "strategy.stopped", "insights.health", "order.submit", "order.accepted", "order.filled", "order.partially_filled", "order.cancelled",
   "order.rejected", "order.modified", "trade", "trade.closed", "risk.rejected", "risk.halted", "risk.resumed",
-  "position.reconciled", "balances.updated", "gateway.unreachable", "snapshot.equity", "snapshot.position",
+  "position.reconciled", "balances.updated", "gateway.unreachable", "broker.connected", "broker.disconnected", "broker.reconnected",
+  "marketdata.connected", "marketdata.disconnected", "marketdata.reconnected", "snapshot.equity", "snapshot.position",
   "state.account", "state.positions", "broker.deal",
 ];
 
@@ -62,12 +63,14 @@ export default function Overview({
   const liveState = useLiveState(live);
   const [heroOpen, setHeroOpen] = useState(false);
 
+  // Overview only needs each strategy's daily nets (for the day/week sums); ask the
+  // server for just that slice on a slow interval, not the whole analytics bundle.
   const perf = useQueries({
     queries: ids.map((id) => ({
-      queryKey: ["performance", instanceId, id, "all"],
+      queryKey: ["perf-daily", instanceId, id],
       queryFn: () =>
-        get<PerformanceBundle>(`/performance?instance=${encodeURIComponent(instanceId!)}&strategy=${encodeURIComponent(id)}`),
-      refetchInterval: 15000,
+        get<Partial<PerformanceBundle>>(`/performance?instance=${encodeURIComponent(instanceId!)}&strategy=${encodeURIComponent(id)}&include=dailyNets`),
+      refetchInterval: 60000,
     })),
   });
 
@@ -128,7 +131,6 @@ export default function Overview({
       realized,
       open,
       net,
-      allocation: net == null && row.startingBalance == null ? null : (row.startingBalance ?? 0) + (net ?? 0),
       dayNet: dayRows.reduce((a, d) => a + d.net, 0),
       dayTrades: dayRows.reduce((a, d) => a + d.trades, 0),
       weekNet: weekRows.reduce((a, d) => a + d.net, 0),
@@ -228,6 +230,9 @@ export default function Overview({
               <LiveDot on={!a.stale} />
               <span className="font-semibold text-bright">{a.broker}</span>
               <Pill>{a.currency}</Pill>
+              {a.login && <span className="font-mono text-xs text-faint">#{a.login}</span>}
+              {a.server && <span className="text-xs text-faint">{a.server}</span>}
+              {a.name && <span className="text-xs text-muted">{a.name}</span>}
               {a.stale && <Pill>stale {Math.max(0, Math.floor((Date.now() - a.lastSeen) / 1000))}s</Pill>}
             </div>
             <div className="mt-3 grid grid-cols-2 gap-4 sm:grid-cols-4">
@@ -292,8 +297,8 @@ export default function Overview({
         </div>
       </div>
 
-      <div className="mt-6 grid grid-cols-1 gap-4 xl:grid-cols-3">
-        <Card className="group relative flex flex-col p-6 xl:col-span-2" stagger={0}>
+      <div className="mt-6 grid grid-cols-1 gap-4 lg:grid-cols-3">
+        <Card className="group relative flex flex-col p-6 lg:col-span-2" stagger={0}>
           <HoverExpand label="expand portfolio equity" onClick={() => setHeroOpen(true)} />
           <div className="flex flex-wrap items-start justify-between gap-4">
             <div>
@@ -353,7 +358,7 @@ export default function Overview({
         </Modal>
 
         <div className="grid content-start gap-4">
-          <div className="grid grid-cols-2 gap-4">
+          <div className="grid grid-cols-2 gap-4 sm:grid-cols-3 lg:grid-cols-2">
             <Stat
               label="Day P&L"
               value={money(dayPnl)}
@@ -515,10 +520,13 @@ export default function Overview({
                     <span className="font-bold text-bright">{s.strategyId}</span>
                     <span className="text-xs text-faint">{age(s.lastSeen)}</span>
                   </div>
-                  <div className="mt-2.5 flex items-baseline gap-3" title="allocation: starting balance + realized + open">
-                    <span className={`font-mono text-2xl font-semibold ${positionsStale ? "text-faint" : "text-bright"}`}>{money(p.allocation)}</span>
-                    <PnlLine net={p.net} base={p.row.startingBalance} dim={positionsStale} />
+                  <div className="mt-2.5 flex items-baseline gap-3" title="net P&L = realized + open (this strategy, on a shared account)">
+                    <span className={`font-mono text-2xl font-semibold ${p.net == null || positionsStale ? "text-faint" : p.net >= 0 ? "text-up" : "text-down"}`}>
+                      {p.net == null ? "—" : `${p.net >= 0 ? "+" : "−"}${money(Math.abs(p.net))}`}
+                    </span>
+                    <ReturnPct net={p.net} base={p.row.startingBalance} dim={positionsStale} />
                   </div>
+                  <div className="mt-1 text-[11px] font-semibold uppercase tracking-[0.08em] text-faint">net P&L · notional {money(p.row.startingBalance)}</div>
                   <div className={`mt-1 text-xs ${positionsStale ? "text-faint" : "text-muted"}`}>
                     realized {money(p.realized)} · open {money(p.open)}
                   </div>

@@ -1,5 +1,5 @@
 import type { FastifyInstance } from "fastify";
-import { listInstances, listStrategies, listOrders, listTrades, searchEvents, equityCurve, instanceHealth, listLogs, strategyStats, performanceReport, dailyNets, drawdownPeriods, postLossStats, tradeBreakdowns, closedTrades, listDeals, accountEquity, type Db, type LiveStateStore } from "@qkt-insights/store";
+import { listInstances, listStrategies, listOrders, listTrades, searchEvents, equityCurve, instanceHealth, listLogs, strategyStats, performanceReport, dailyNets, drawdownPeriods, postLossStats, tradeBreakdowns, closedTrades, listDeals, accountEquity, listIngestObservations, type Db, type LiveStateStore } from "@qkt-insights/store";
 import { requireSession } from "./auth.js";
 import { TtlCache } from "./cache.js";
 
@@ -52,18 +52,22 @@ export function registerRest(app: FastifyInstance, deps: RestDeps): void {
   });
 
   // One round trip for the whole analytics view; profitFactor "inf" survives JSON as a string.
+  // ?include=a,b limits which aggregates run — Overview needs only dailyNets, the close
+  // map only closes; the full detail page omits include and gets everything.
   app.get<{ Querystring: Record<string, string> }>("/performance", guard, async (req, reply) => {
     const q = req.query;
     if (!need(reply, q.instance, "instance") || !need(reply, q.strategy, "strategy")) return;
     const f = { instanceId: q.instance, strategyId: q.strategy,
       from: q.from ? Number(q.from) : undefined, to: q.to ? Number(q.to) : undefined };
+    const include = q.include ? new Set(q.include.split(",")) : null;
+    const want = (k: string) => include == null || include.has(k);
     return cache.get(req.url, () => ({
-      report: performanceReport(deps.db, f),
-      dailyNets: dailyNets(deps.db, f),
-      drawdownPeriods: drawdownPeriods(deps.db, f),
-      postLoss: postLossStats(deps.db, f),
-      breakdowns: tradeBreakdowns(deps.db, f),
-      closes: closedTrades(deps.db, f),
+      report: want("report") ? performanceReport(deps.db, f) : undefined,
+      dailyNets: want("dailyNets") ? dailyNets(deps.db, f) : undefined,
+      drawdownPeriods: want("drawdownPeriods") ? drawdownPeriods(deps.db, f) : undefined,
+      postLoss: want("postLoss") ? postLossStats(deps.db, f) : undefined,
+      breakdowns: want("breakdowns") ? tradeBreakdowns(deps.db, f) : undefined,
+      closes: want("closes") ? closedTrades(deps.db, f) : undefined,
     }));
   });
 
@@ -89,5 +93,15 @@ export function registerRest(app: FastifyInstance, deps: RestDeps): void {
     const q = req.query; if (!need(reply, q.instance, "instance")) return;
     return accountEquity(deps.db, { instanceId: q.instance,
       from: q.from ? Number(q.from) : undefined, to: q.to ? Number(q.to) : undefined });
+  });
+
+  app.get<{ Querystring: Record<string, string> }>("/ingest/observations", guard, async (req, reply) => {
+    const q = req.query; if (!need(reply, q.instance, "instance")) return;
+    return listIngestObservations(deps.db, {
+      instanceId: q.instance,
+      kind: q.kind,
+      sinceTs: q.since ? Number(q.since) : undefined,
+      limit: LIMIT(q),
+    });
   });
 }

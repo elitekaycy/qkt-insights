@@ -18,8 +18,8 @@ beforeAll(async () => {
   await app.listen({ port: 0, host: "127.0.0.1" });
   const addr = app.server.address();
   base = `http://127.0.0.1:${typeof addr === "object" && addr ? addr.port : 0}`;
-});
-afterAll(async () => { await app.close(); });
+}, 30_000);
+afterAll(async () => { await app?.close(); });
 
 describe("spine e2e", () => {
   it("ingests a batch and serves it back through the authed API", async () => {
