@@ -91,3 +91,104 @@ describe("trade.closed envelope", () => {
     expect(() => EnvelopeSchema.parse(env)).toThrow();
   });
 });
+
+
+describe("enriched qkt payloads", () => {
+  it("accepts sink health and global risk payloads", () => {
+    const health = EnvelopeSchema.parse({ ...base, type: "insights.health",
+      payload: { sent: 10, failed: 1, dropped: 2, queued: 3, queueCapacity: 100, batchSize: 50 } });
+    expect(health.payload.dropped).toBe(2);
+
+    expect(EnvelopeSchema.parse({ ...base, type: "risk.halted",
+      payload: { reason: "operator" } }).payload).toMatchObject({ reason: "operator" });
+    expect(EnvelopeSchema.parse({ ...base, type: "risk.resumed", payload: {} }).type).toBe("risk.resumed");
+  });
+
+  it("accepts strategy lifecycle payloads", () => {
+    expect(EnvelopeSchema.parse({ ...base, strategyId: "hedge_straddle", type: "strategy.started",
+      payload: {
+        strategyId: "hedge_straddle",
+        ts: base.ts,
+        deployName: "prod-hedge",
+        sourcePath: "/srv/qkt/strategies/hedge.qkt",
+        sourceSha256: "abc123",
+        dslVersion: 1,
+        runtimeMode: "live",
+        brokers: ["exness"],
+        symbols: ["EXNESS:XAUUSD"],
+        streams: [{ alias: "gold", qktSymbol: "EXNESS:XAUUSD", timeframe: "M1" }],
+        params: { risk: 0.01 },
+        defaults: { tif: "Gtc" },
+        risk: { maxOrderQty: 1 },
+      } }).type).toBe("strategy.started");
+    expect(EnvelopeSchema.parse({ ...base, strategyId: "hedge_straddle", type: "strategy.stopped",
+      payload: { strategyId: "hedge_straddle", flatten: false, ts: base.ts } }).type).toBe("strategy.stopped");
+  });
+
+  it("accepts enriched signal and order payloads without stripping additive fields", () => {
+    const signal = EnvelopeSchema.parse({ ...base, strategyId: "latch", type: "signal",
+      payload: { intent: "BUY", symbol: "XAUUSD", side: "BUY", qty: 0.25, extraContext: "rule-1" } });
+    expect(signal.payload.qty).toBe(0.25);
+    expect((signal.payload as any).extraContext).toBe("rule-1");
+
+    const order = EnvelopeSchema.parse({ ...base, strategyId: "latch", type: "order.submit",
+      payload: { orderId: "br1", orderType: "Bracket", symbol: "XAUUSD", side: "BUY", qty: 0.1,
+        strategyId: "latch", timeInForce: "GTC", createdTs: base.ts, takeProfit: 2360,
+        stopLoss: { type: "Fixed", price: 2340 }, stopLossAst: { type: "By", distance: { type: "NumLit", value: 10 } },
+        entry: { orderId: "entry", orderType: "Market", symbol: "XAUUSD", side: "BUY", qty: 0.1 } } });
+    expect((order.payload as any).timeInForce).toBe("GTC");
+    expect((order.payload as any).stopLoss.price).toBe(2340);
+
+    const stack = EnvelopeSchema.parse({ ...base, strategyId: "latch", type: "order.submit",
+      payload: { orderId: "stk1", orderType: "Stack", symbol: "XAUUSD", side: "BUY", qty: 0.3,
+        layers: 2, withinMillis: 60000, hasOuterBracket: true,
+        stackLayers: [
+          { index: 0, sizing: { type: "SizeQty", expr: { type: "NumLit", value: 0.1 } }, orderType: { type: "Market" }, trigger: { type: "Immediate" }, resolvedQuantity: 0.1 },
+          { index: 1, sizing: { type: "SizeQty", expr: { type: "NumLit", value: 0.2 } }, orderType: { type: "Limit", price: { type: "NumLit", value: 2345 } }, trigger: { type: "At", direction: "BELOW", price: { type: "NumLit", value: 2345 } }, resolvedQuantity: 0.2 },
+        ],
+        outerBracket: { takeProfit: { type: "Rr", multiplier: { type: "NumLit", value: 2 } }, stopLoss: { type: "By", distance: { type: "NumLit", value: 10 } } } } });
+    expect((stack.payload as any).stackLayers).toHaveLength(2);
+
+    const modified = EnvelopeSchema.parse({ ...base, strategyId: "latch", type: "order.modified",
+      payload: { orderId: "br1", brokerOrderId: "venue-1", changes: { newQuantity: 0.2, newLimitPrice: 2355.5 } } });
+    expect((modified.payload as any).changes.newLimitPrice).toBe(2355.5);
+  });
+
+  it("accepts cancel and latch signal variants", () => {
+    expect(EnvelopeSchema.parse({ ...base, type: "signal.cancel",
+      payload: { intent: "CANCEL_PENDING_FOR_SYMBOL", symbol: "XAUUSD" } }).type).toBe("signal.cancel");
+    expect(EnvelopeSchema.parse({ ...base, strategyId: "latch", type: "signal.latch_armed",
+      payload: { intent: "ARM_LATCH", reference: "close", offset: "0.5", streamAlias: "gold", armWindowMs: 60000, expiresAt: 1718000060000 } }).type).toBe("signal.latch_armed");
+  });
+
+  it("accepts broker and marketdata lifecycle payloads", () => {
+    expect(EnvelopeSchema.safeParse({ ...base, type: "broker.connected",
+      payload: { broker: "EXNESS", state: "connected", reason: "session-start", ts: base.ts } }).success).toBe(true);
+    expect(EnvelopeSchema.safeParse({ ...base, type: "broker.disconnected",
+      payload: { broker: "EXNESS", state: "disconnected", reason: "gateway-unreachable", consecutiveFailures: 3, ts: base.ts } }).success).toBe(true);
+    expect(EnvelopeSchema.safeParse({ ...base, type: "broker.reconnected",
+      payload: { broker: "EXNESS", state: "reconnected", reason: "gateway-recovered", consecutiveFailures: 4, ts: base.ts } }).success).toBe(true);
+    expect(EnvelopeSchema.safeParse({ ...base, type: "marketdata.connected",
+      payload: { source: "tradingview", symbols: ["XAUUSD"], state: "connected", reason: "session-start", ts: base.ts } }).success).toBe(true);
+    expect(EnvelopeSchema.safeParse({ ...base, type: "marketdata.disconnected",
+      payload: { source: "tradingview", symbols: ["XAUUSD"], state: "disconnected", reason: "source-disconnected", ts: base.ts } }).success).toBe(true);
+    expect(EnvelopeSchema.safeParse({ ...base, type: "marketdata.reconnected",
+      payload: { source: "tradingview", symbols: ["XAUUSD"], state: "reconnected", reason: "source-reconnected", ts: base.ts } }).success).toBe(true);
+  });
+
+  it("accepts durable position risk and portfolio projection payloads", () => {
+    expect(EnvelopeSchema.safeParse({ ...base, type: "position.valued",
+      payload: { broker: "EXNESS", ticket: "123", symbol: "EXNESS:XAUUSD", side: "BUY", qty: 0.01,
+        entryPrice: 2300.5, currentPrice: 2310.2, profit: 9.7, strategyId: "hedge" } }).success).toBe(true);
+    expect(EnvelopeSchema.safeParse({ ...base, strategyId: "hedge", type: "risk.snapshot",
+      payload: { strategyId: "hedge", equity: 980, dailyLoss: 20 } }).success).toBe(true);
+    expect(EnvelopeSchema.safeParse({ ...base, type: "portfolio.configured",
+      payload: { portfolioId: "book", strategies: ["hedge"], ts: base.ts } }).success).toBe(true);
+    expect(EnvelopeSchema.safeParse({ ...base, type: "portfolio.allocation.updated",
+      payload: { portfolioId: "book", allocations: [{ strategyId: "hedge", weight: 1 }], ts: base.ts } }).success).toBe(true);
+    expect(EnvelopeSchema.safeParse({ ...base, type: "portfolio.exposure.updated",
+      payload: { portfolioId: "book", gross: 1000, net: 100, ts: base.ts } }).success).toBe(true);
+    expect(EnvelopeSchema.safeParse({ ...base, type: "portfolio.equity.updated",
+      payload: { portfolioId: "book", equity: 1010, realized: 10, unrealized: 0, ts: base.ts } }).success).toBe(true);
+  });
+});

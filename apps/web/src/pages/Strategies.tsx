@@ -25,6 +25,33 @@ function useOpenByStrategy(instanceId: string | null) {
   return { open, hasState: groups.length > 0, stale: groups.length > 0 && groups.every((g) => g.stale) };
 }
 
+function metaString(meta: Record<string, unknown> | null | undefined, key: string): string | null {
+  const v = meta?.[key];
+  return typeof v === "string" && v.length > 0 ? v : null;
+}
+
+function metaNumber(meta: Record<string, unknown> | null | undefined, key: string): number | null {
+  const v = meta?.[key];
+  return typeof v === "number" ? v : null;
+}
+
+function metaStringList(meta: Record<string, unknown> | null | undefined, key: string): string[] {
+  const v = meta?.[key];
+  return Array.isArray(v) ? v.filter((x): x is string => typeof x === "string") : [];
+}
+
+function sourceName(path: string | null): string | null {
+  if (!path) return null;
+  return path.split(/[\\/]/).filter(Boolean).pop() ?? path;
+}
+
+function strategyMetaLine(row: StrategyRow): string | null {
+  const runtime = metaString(row.metadata, "runtimeMode");
+  const version = metaNumber(row.metadata, "dslVersion");
+  const src = sourceName(metaString(row.metadata, "sourcePath"));
+  return [runtime, version == null ? null : `v${version}`, src].filter(Boolean).join(" · ") || null;
+}
+
 export default function Strategies({
   instanceId,
   focus = null,
@@ -75,6 +102,7 @@ export default function Strategies({
                   <span className="font-bold text-bright">{s.strategyId}</span>
                   <span className="text-xs text-faint">{age(s.lastSeen)}</span>
                 </div>
+                {strategyMetaLine(s) && <div className="mt-1 truncate text-xs text-faint">{strategyMetaLine(s)}</div>}
                 <div className="mt-2.5 flex items-baseline gap-3" title="net P&L = realized + open (this strategy, on a shared account)">
                   <span className={`font-mono text-2xl font-semibold ${net == null || live.stale ? "text-faint" : net >= 0 ? "text-up" : "text-down"}`}>
                     {net == null ? "—" : `${net >= 0 ? "+" : "−"}${money(Math.abs(net))}`}
@@ -137,8 +165,18 @@ function StrategyDetail({ instanceId, strategyId, onBack }: { instanceId: string
     },
     refetchInterval: 15000,
   });
+  const strategies = useQuery({
+    queryKey: ["strategies", instanceId],
+    queryFn: () => get<StrategyRow[]>(`/strategies?instance=${encodeURIComponent(instanceId)}`),
+    refetchInterval: 10000,
+  });
 
   const live = useOpenByStrategy(instanceId);
+  const row = (strategies.data ?? []).find((r) => r.strategyId === strategyId);
+  const metadata = row?.metadata ?? null;
+  const sourcePath = metaString(metadata, "sourcePath");
+  const sourceHash = metaString(metadata, "sourceSha256");
+  const streams = Array.isArray(metadata?.streams) ? metadata.streams as Array<Record<string, unknown>> : [];
 
   const s = stats.data;
   const openPnl = live.open.get(strategyId) ?? (live.hasState ? 0 : null);
@@ -254,6 +292,49 @@ function StrategyDetail({ instanceId, strategyId, onBack }: { instanceId: string
       </div>
         </Loadable>
       </div>
+
+      {metadata && (
+        <Panel className="mt-6" stagger={1} title="Runtime" hint="from latest strategy.started event">
+          <Table head={["Field", "Value"]}>
+            <Row>
+              <Cell className="text-muted">Mode</Cell>
+              <Cell className="font-mono">{metaString(metadata, "runtimeMode") ?? "—"}</Cell>
+            </Row>
+            <Row>
+              <Cell className="text-muted">DSL version</Cell>
+              <Cell className="font-mono">{metaNumber(metadata, "dslVersion") ?? "—"}</Cell>
+            </Row>
+            <Row>
+              <Cell className="text-muted">Source</Cell>
+              <Cell className="font-mono">
+                <span title={sourcePath ?? undefined}>{sourceName(sourcePath) ?? "—"}</span>
+              </Cell>
+            </Row>
+            <Row>
+              <Cell className="text-muted">Source hash</Cell>
+              <Cell className="font-mono">
+                <span title={sourceHash ?? undefined}>{sourceHash ? sourceHash.slice(0, 12) : "—"}</span>
+              </Cell>
+            </Row>
+            <Row>
+              <Cell className="text-muted">Brokers</Cell>
+              <Cell className="font-mono">{metaStringList(metadata, "brokers").join(", ") || "paper"}</Cell>
+            </Row>
+            <Row>
+              <Cell className="text-muted">Symbols</Cell>
+              <Cell className="font-mono">{metaStringList(metadata, "symbols").join(", ") || "—"}</Cell>
+            </Row>
+            <Row>
+              <Cell className="text-muted">Streams</Cell>
+              <Cell className="font-mono">
+                {streams.length === 0
+                  ? "—"
+                  : streams.map((s) => `${String(s.alias ?? "?")}:${String(s.qktSymbol ?? s.symbol ?? "?")}@${String(s.timeframe ?? "?")}`).join(", ")}
+              </Cell>
+            </Row>
+          </Table>
+        </Panel>
+      )}
 
       <Panel className="mt-6" stagger={2} title="Equity" hint="broker deals when available, ledger snapshots otherwise">
         <Loadable loading={equity.isPending} error={equity.isError} retry={() => equity.refetch()} what="the equity curve" lines={4}>

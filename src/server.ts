@@ -30,6 +30,8 @@ export async function buildServer(mode: Mode) {
   const liveState = new LiveStateStore();
   const app = Fastify({ logger: process.env.NODE_ENV !== "test" });
 
+  app.get("/healthz", async () => ({ ok: true, mode }));
+
   registerCollector(app, { db, bus, liveState, ingestToken: env("INGEST_TOKEN") });
 
   if (mode === "serve" || mode === "run") {

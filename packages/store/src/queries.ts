@@ -2,12 +2,23 @@ import type { Db } from "./db.js";
 import { dealClosedTrades, hasClosingDeals, strategyEquityCurve, tradePnls, type StrategyEquityPoint } from "./analytics.js";
 
 export interface InstanceRow { id: string; name: string | null; firstSeen: number; lastSeen: number; lastSeq: number }
-export interface StrategyRow { strategyId: string; firstSeen: number; lastSeen: number; startingBalance: number | null; realizedNet: number | null; dealCount: number }
+export interface StrategyRow { strategyId: string; firstSeen: number; lastSeen: number; startingBalance: number | null; metadata: Record<string, unknown> | null; realizedNet: number | null; dealCount: number }
 export interface OrderRow { orderId: string; strategyId: string | null; symbol: string | null; side: string | null; type: string | null; state: string; qty: number | null; cumQty: number; avgPrice: number | null; createdTs: number; updatedTs: number }
 export interface TradeRow { id: string; strategyId: string | null; ts: number; payload: unknown }
 export interface SearchHit { id: string; instanceId: string; type: string; ts: number; payload: unknown }
 export interface EquityPoint { ts: number; equity: number; realized: number; unrealized: number }
-export interface HealthRow { instanceId: string; lastSeen: number; lastSeq: number; strategies: number }
+export interface HealthRow { instanceId: string; lastSeen: number; lastSeq: number; strategies: number; insightsSent: number | null; insightsFailed: number | null; insightsDropped: number | null; insightsQueued: number | null; insightsJournalEnabled: number | null; insightsJournalPending: number | null; insightsHealthTs: number | null }
+export interface CurrentPositionRow {
+  broker: string; ticket: string; symbol: string; side: string; qty: number; entryPrice: number;
+  currentPrice: number | null; profit: number | null; swap: number | null; openedAt: number | null;
+  strategyId: string | null; lastSeen: number;
+}
+export interface RiskEventRow { id: string; strategyId: string | null; kind: string; reason: string | null; symbol: string | null; side: string | null; qty: number | null; ts: number; payload: unknown }
+export interface PortfolioEquityRow { portfolioId: string; ts: number; equity: number | null; realized: number | null; unrealized: number | null; payload: unknown }
+export interface IngestObservationRow {
+  id: number; instanceId: string; kind: string; eventId: string | null; type: string | null;
+  seq: number | null; previousSeq: number | null; expectedSeq: number | null; ts: number; detail: string | null;
+}
 
 export function listInstances(db: Db): InstanceRow[] {
   return db.prepare("SELECT id, name, first_seen firstSeen, last_seen lastSeen, last_seq lastSeq FROM instances ORDER BY id").all() as InstanceRow[];
@@ -17,13 +28,15 @@ export function listStrategies(db: Db, instanceId: string): StrategyRow[] {
   // realizedNet and dealCount come from the same dealClosedTrades rows every
   // other analytics number uses, so a card and its detail page can never disagree.
   const rows = db.prepare(
-    `SELECT strategy_id strategyId, first_seen firstSeen, last_seen lastSeen, starting_balance startingBalance
+    `SELECT strategy_id strategyId, first_seen firstSeen, last_seen lastSeen, starting_balance startingBalance, metadata
      FROM strategies WHERE instance_id=? ORDER BY strategy_id`,
-  ).all(instanceId) as Omit<StrategyRow, "realizedNet" | "dealCount">[];
+  ).all(instanceId) as Array<Omit<StrategyRow, "realizedNet" | "dealCount" | "metadata"> & { metadata: string | null }>;
   return rows.map((r) => {
     const closes = dealClosedTrades(db, { instanceId, strategyId: r.strategyId });
+    const metadata = typeof r.metadata === "string" ? JSON.parse(r.metadata) as Record<string, unknown> : null;
     return {
       ...r,
+      metadata,
       realizedNet: closes.length > 0 ? closes.reduce((a, c) => a + c.realized, 0) : null,
       dealCount: closes.length,
     };
@@ -117,9 +130,76 @@ export function equityCurve(
 export function instanceHealth(db: Db): HealthRow[] {
   return db.prepare(
     `SELECT i.id instanceId, i.last_seen lastSeen, i.last_seq lastSeq,
-            (SELECT COUNT(*) FROM strategies s WHERE s.instance_id=i.id) strategies
-     FROM instances i ORDER BY i.id`,
+            (SELECT COUNT(*) FROM strategies s WHERE s.instance_id=i.id) strategies,
+            json_extract(h.payload, '$.sent') insightsSent,
+            json_extract(h.payload, '$.failed') insightsFailed,
+            json_extract(h.payload, '$.dropped') insightsDropped,
+            json_extract(h.payload, '$.queued') insightsQueued,
+            json_extract(h.payload, '$.journalEnabled') insightsJournalEnabled,
+            json_extract(h.payload, '$.journalPending') insightsJournalPending,
+            h.ts insightsHealthTs
+     FROM instances i
+     LEFT JOIN events h ON h.rowid = (
+       SELECT e.rowid FROM events e WHERE e.instance_id=i.id AND e.type='insights.health' ORDER BY e.ts DESC LIMIT 1
+     )
+     ORDER BY i.id`,
   ).all() as HealthRow[];
+}
+
+export function listCurrentPositions(db: Db, f: { instanceId: string; strategyId?: string; symbol?: string }): CurrentPositionRow[] {
+  const cl: string[] = ["instance_id=@instanceId"];
+  if (f.strategyId) cl.push("strategy_id=@strategyId");
+  if (f.symbol) cl.push("symbol=@symbol");
+  return db.prepare(
+    `SELECT broker, ticket, symbol, side, qty, entry_price entryPrice, current_price currentPrice,
+            profit, swap, opened_at openedAt, strategy_id strategyId, last_seen lastSeen
+     FROM positions_current WHERE ${cl.join(" AND ")} ORDER BY last_seen DESC, broker, ticket`,
+  ).all(f) as CurrentPositionRow[];
+}
+
+export function listRiskEvents(db: Db, f: { instanceId: string; strategyId?: string; limit: number }): RiskEventRow[] {
+  const cl: string[] = ["instance_id=@instanceId"];
+  if (f.strategyId) cl.push("strategy_id=@strategyId");
+  const rows = db.prepare(
+    `SELECT event_id id, strategy_id strategyId, kind, reason, symbol, side, qty, ts, payload
+     FROM risk_events WHERE ${cl.join(" AND ")} ORDER BY ts DESC LIMIT @limit`,
+  ).all(f) as Array<Omit<RiskEventRow, "payload"> & { payload: string }>;
+  return rows.map((r) => ({ ...r, payload: JSON.parse(r.payload) }));
+}
+
+export function listPortfolioEquity(db: Db, f: { instanceId: string; portfolioId: string; limit: number }): PortfolioEquityRow[] {
+  const rows = db.prepare(
+    `SELECT portfolio_id portfolioId, ts, equity, realized, unrealized, payload
+     FROM portfolio_equity WHERE instance_id=@instanceId AND portfolio_id=@portfolioId
+     ORDER BY ts ASC LIMIT @limit`,
+  ).all(f) as Array<Omit<PortfolioEquityRow, "payload"> & { payload: string }>;
+  return rows.map((r) => ({ ...r, payload: JSON.parse(r.payload) }));
+}
+
+export function listIngestObservations(
+  db: Db,
+  f: { instanceId: string; kind?: string; sinceTs?: number; limit: number },
+): IngestObservationRow[] {
+  const cl: string[] = ["instance_id=@instanceId"];
+  if (f.kind) cl.push("kind=@kind");
+  if (f.sinceTs != null) cl.push("ts>=@sinceTs");
+  return db.prepare(
+    `SELECT id, instance_id instanceId, kind, event_id eventId, type, seq,
+            previous_seq previousSeq, expected_seq expectedSeq, ts, detail
+     FROM ingest_observations WHERE ${cl.join(" AND ")}
+     ORDER BY id DESC LIMIT @limit`,
+  ).all(f) as IngestObservationRow[];
+}
+
+export function ingestAck(db: Db, instanceId: string, sinceTs: number, limit = 100): {
+  instanceId: string; lastSeq: number | null; observations: IngestObservationRow[];
+} {
+  const row = db.prepare("SELECT last_seq lastSeq FROM instances WHERE id=?").get(instanceId) as { lastSeq: number } | undefined;
+  return {
+    instanceId,
+    lastSeq: row?.lastSeq ?? null,
+    observations: listIngestObservations(db, { instanceId, sinceTs, limit }),
+  };
 }
 
 export interface LogRow { id: string; strategyId: string | null; level: string; logger: string; message: string; ts: number }

@@ -1,5 +1,5 @@
 import { describe, it, expect, beforeEach } from "vitest";
-import { openDb, ingestEvents, listInstances, listStrategies, listOrders, listTrades, searchEvents, equityCurve, instanceHealth, listDeals, accountEquity, strategyStats } from "../src/index.js";
+import { openDb, ingestEvents, listInstances, listStrategies, listOrders, listTrades, searchEvents, equityCurve, instanceHealth, listDeals, accountEquity, strategyStats, persistStateEvent, listCurrentPositions, listRiskEvents, listPortfolioEquity } from "../src/index.js";
 import type { Db } from "../src/index.js";
 import type { Envelope } from "@qkt-insights/contract";
 
@@ -8,9 +8,11 @@ function env(p: any): Envelope {
 }
 
 let db: Db;
-beforeEach(() => {
+  beforeEach(() => {
   db = openDb(":memory:");
   ingestEvents(db, "qkt-prod", [
+    env({ strategyId: "latch", type: "strategy.started", ts: 1717999999000,
+      payload: { strategyId: "latch", ts: 1717999999000, sourcePath: "/srv/qkt/latch.qkt", dslVersion: 1, runtimeMode: "paper", symbols: ["XAUUSD"] } }),
     env({ strategyId: "latch", type: "order.submit", payload: { orderId: "o1", orderType: "Market", symbol: "XAUUSD", side: "BUY", qty: 0.1 } }),
     env({ strategyId: "latch", type: "order.filled", payload: { orderId: "o1", brokerOrderId: "b1", symbol: "XAUUSD", price: 2350, qty: 0.1 } }),
     env({ strategyId: "latch", type: "trade", ts: 1718000001000, payload: { orderId: "o1", symbol: "XAUUSD", side: "BUY", price: 2350, qty: 0.1, ts: 1718000001000 } }),
@@ -26,7 +28,9 @@ describe("queries", () => {
     expect(listInstances(db).map((i) => i.id).sort()).toEqual(["qkt-demo", "qkt-prod"]);
   });
   it("lists strategies for an instance", () => {
-    expect(listStrategies(db, "qkt-prod").map((s) => s.strategyId)).toEqual(["latch"]);
+    const rows = listStrategies(db, "qkt-prod");
+    expect(rows.map((s) => s.strategyId)).toEqual(["latch"]);
+    expect(rows[0]!.metadata).toMatchObject({ sourcePath: "/srv/qkt/latch.qkt", runtimeMode: "paper" });
   });
   it("lists orders filtered by instance and state", () => {
     const rows = listOrders(db, { instanceId: "qkt-prod", state: "FILLED", limit: 50 });
@@ -46,11 +50,20 @@ describe("queries", () => {
     const pts = equityCurve(db, { instanceId: "qkt-prod", strategyId: "latch" });
     expect(pts).toEqual([{ ts: 1718000002000, equity: 1005, realized: 5, unrealized: 0 }]);
   });
-  it("reports instance health with last seen and seq", () => {
+  it("reports instance health with last seen, seq, and sink counters", () => {
+    ingestEvents(db, "qkt-prod", [
+      env({ id: "health-1", seq: 0, ts: 1718000003000, type: "insights.health",
+        payload: { sent: 12, failed: 1, dropped: 2, queued: 3, queueCapacity: 100 } }),
+    ]);
     const h = instanceHealth(db);
     const prod = h.find((x) => x.instanceId === "qkt-prod")!;
     expect(prod.lastSeq).toBeGreaterThanOrEqual(1);
     expect(prod.strategies).toBe(1);
+    expect(prod.insightsSent).toBe(12);
+    expect(prod.insightsFailed).toBe(1);
+    expect(prod.insightsDropped).toBe(2);
+    expect(prod.insightsQueued).toBe(3);
+    expect(prod.insightsHealthTs).toBe(1718000003000);
   });
 
   it("downsamples a dense equity curve to real bucketed snapshots", () => {
@@ -84,6 +97,26 @@ describe("queries", () => {
         payload: { level: "INFO", logger: "com.qkt.x", message: "hello", ts: 1718000003000 } }),
     ]);
     expect(listStrategies(db, "qkt-prod").map((s) => s.strategyId)).toEqual(["latch"]);
+  });
+
+  it("queries current positions, risk events, and portfolio equity projections", () => {
+    persistStateEvent(db, "qkt-prod", env({ id: "posn-1", type: "state.positions", ts: 1718000004000, payload: {
+      broker: "EXNESS",
+      positions: [{ ticket: "123", symbol: "EXNESS:XAUUSD", side: "BUY", qty: 0.01, entryPrice: 2300.5, currentPrice: 2310.2, profit: 9.7, strategyId: "latch" }],
+    } }));
+    ingestEvents(db, "qkt-prod", [
+      env({ id: "risk-1", strategyId: "latch", type: "risk.rejected", ts: 1718000005000,
+        payload: { reason: "max-order", symbol: "EXNESS:XAUUSD", side: "BUY", qty: 1 } }),
+      env({ id: "port-1", type: "portfolio.equity.updated", ts: 1718000006000,
+        payload: { portfolioId: "book", equity: 1010, realized: 10, unrealized: 0 } }),
+    ]);
+
+    expect(listCurrentPositions(db, { instanceId: "qkt-prod", strategyId: "latch" })[0])
+      .toMatchObject({ broker: "EXNESS", ticket: "123", symbol: "EXNESS:XAUUSD", profit: 9.7 });
+    expect(listRiskEvents(db, { instanceId: "qkt-prod", strategyId: "latch", limit: 10 })[0])
+      .toMatchObject({ kind: "risk.rejected", reason: "max-order", symbol: "EXNESS:XAUUSD" });
+    expect(listPortfolioEquity(db, { instanceId: "qkt-prod", portfolioId: "book", limit: 10 })[0])
+      .toMatchObject({ portfolioId: "book", equity: 1010, realized: 10 });
   });
 });
 

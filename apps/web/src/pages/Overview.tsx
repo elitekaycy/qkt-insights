@@ -13,9 +13,10 @@ const PALETTE = ["#c8f74a", "#5cb8ff", "#a78bfa", "#3fe08c", "#fbbf24", "#ff6b6b
 // Everything except "log": the feed stays meaningful and state pushes still
 // reach useLiveState. Module-level so the WS effect sees a stable identity.
 const FEED_TYPES = [
-  "signal", "order.submit", "order.accepted", "order.filled", "order.partially_filled", "order.cancelled",
+  "signal", "signal.cancel", "signal.latch_armed", "strategy.started", "strategy.stopped", "insights.health", "order.submit", "order.accepted", "order.filled", "order.partially_filled", "order.cancelled",
   "order.rejected", "order.modified", "trade", "trade.closed", "risk.rejected", "risk.halted", "risk.resumed",
-  "position.reconciled", "balances.updated", "gateway.unreachable", "snapshot.equity", "snapshot.position",
+  "position.reconciled", "balances.updated", "gateway.unreachable", "broker.connected", "broker.disconnected", "broker.reconnected",
+  "marketdata.connected", "marketdata.disconnected", "marketdata.reconnected", "snapshot.equity", "snapshot.position",
   "state.account", "state.positions", "broker.deal",
 ];
 

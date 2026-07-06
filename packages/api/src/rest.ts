@@ -1,5 +1,5 @@
 import type { FastifyInstance } from "fastify";
-import { listInstances, listStrategies, listOrders, listTrades, searchEvents, equityCurve, instanceHealth, listLogs, strategyStats, performanceReport, dailyNets, drawdownPeriods, postLossStats, tradeBreakdowns, closedTrades, listDeals, accountEquity, type Db, type LiveStateStore } from "@qkt-insights/store";
+import { listInstances, listStrategies, listOrders, listTrades, searchEvents, equityCurve, instanceHealth, listLogs, strategyStats, performanceReport, dailyNets, drawdownPeriods, postLossStats, tradeBreakdowns, closedTrades, listDeals, accountEquity, listIngestObservations, type Db, type LiveStateStore } from "@qkt-insights/store";
 import { requireSession } from "./auth.js";
 import { TtlCache } from "./cache.js";
 
@@ -93,5 +93,15 @@ export function registerRest(app: FastifyInstance, deps: RestDeps): void {
     const q = req.query; if (!need(reply, q.instance, "instance")) return;
     return accountEquity(deps.db, { instanceId: q.instance,
       from: q.from ? Number(q.from) : undefined, to: q.to ? Number(q.to) : undefined });
+  });
+
+  app.get<{ Querystring: Record<string, string> }>("/ingest/observations", guard, async (req, reply) => {
+    const q = req.query; if (!need(reply, q.instance, "instance")) return;
+    return listIngestObservations(deps.db, {
+      instanceId: q.instance,
+      kind: q.kind,
+      sinceTs: q.since ? Number(q.since) : undefined,
+      limit: LIMIT(q),
+    });
   });
 }

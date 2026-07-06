@@ -25,9 +25,9 @@ export default function Health() {
       <PageHeader title="Health" sub="Every qkt instance the collector has heard from, and the broker poller behind it." />
 
       <Panel className="mt-6" stagger={1} title="Instances" hint="live = an envelope (incl. the 10s state poll) in the last 30s">
-        <Table head={["Instance", "Last event", "Last seq", "Strategies", "Status"]}>
+        <Table head={["Instance", "Last event", "Last seq", "Strategies", "Sink", "Loss", "Queue", "Journal", "Status"]}>
           {rows.length === 0 && (
-            <Empty colSpan={5}>No instances reporting yet — enable the insights block on a qkt instance.</Empty>
+            <Empty colSpan={9}>No instances reporting yet — enable the insights block on a qkt instance.</Empty>
           )}
           {rows.map((r) => {
             const fresh = Date.now() - r.lastSeen < 30_000;
@@ -42,6 +42,18 @@ export default function Health() {
                 <Cell className="text-muted">{age(r.lastSeen)}</Cell>
                 <Cell className="font-mono text-muted">{r.lastSeq}</Cell>
                 <Cell className="font-mono text-muted">{r.strategies}</Cell>
+                <Cell className="font-mono text-muted">{r.insightsSent == null ? "—" : r.insightsSent}</Cell>
+                <Cell>
+                  <Pill tone={(r.insightsFailed ?? 0) > 0 || (r.insightsDropped ?? 0) > 0 ? "down" : r.insightsSent == null ? "neutral" : "up"}>
+                    {r.insightsSent == null ? "unknown" : `${r.insightsFailed ?? 0} failed · ${r.insightsDropped ?? 0} dropped`}
+                  </Pill>
+                </Cell>
+                <Cell className="font-mono text-muted">{r.insightsQueued == null ? "—" : r.insightsQueued}</Cell>
+                <Cell>
+                  <Pill tone={r.insightsJournalPending == null ? "neutral" : r.insightsJournalPending > 0 ? "warn" : "up"}>
+                    {r.insightsJournalEnabled ? `${r.insightsJournalPending ?? 0} pending` : r.insightsSent == null ? "unknown" : "off"}
+                  </Pill>
+                </Cell>
                 <Cell>
                   <Pill tone={fresh ? "up" : "neutral"}>{fresh ? "live" : "idle"}</Pill>
                 </Cell>

@@ -29,7 +29,7 @@ InsightsSink   POST /ingest             single writer, one file
 
 ## Features
 
-- **Health** — every reporting instance, last-event age, sequence position, live/idle status.
+- **Health** — every reporting instance, last-event age, sequence position, sink counters, journal backlog, live/idle status.
 - **Strategies** — per-strategy drill-down: equity chart, Sharpe, win rate, max drawdown, return, trades, recent logs.
 - **Orderflow** — folded order state (submitted → working → filled/cancelled/rejected) with a live WebSocket tail.
 - **Trades** — every fill, filterable by strategy and symbol.
@@ -55,7 +55,7 @@ docker run -d --name qkt-insights \
 # 2. Open http://localhost:8420 and sign in
 ```
 
-Or with compose: copy `docker-compose.yml`, set the four env vars, `docker compose up -d`.
+Or with compose: copy `docker-compose.yml`, set the four env vars, `docker compose up -d`. The production image exposes `GET /healthz` and includes a Docker `HEALTHCHECK`; use an immutable `:v*` or `:sha-*` tag for pinned deployments and `:latest` only for tracking `main`.
 
 ## Run modes
 
@@ -77,13 +77,10 @@ insights:
   url: "http://insights-host:8420/ingest"
   instance_id: "qkt-prod"          # how this instance appears in the sidebar
   token: "${INGEST_TOKEN}"
-  events: [trade, order, signal, risk, position, snapshot, log]
+  events: [trade, order, signal, risk, position, state, deal, lifecycle, log] # sink health is emitted automatically while insights is enabled
 ```
 
-Each family is opt-in. `snapshot` adds periodic equity/position snapshots (computed on
-the engine thread, shipped off it); `log` attaches a logback appender that streams
-INFO+ engine logs. Omit `enabled` or set it `false` and qkt wires nothing — no thread,
-no queue, zero overhead.
+Each family is opt-in. Sink health snapshots report sent/failed/dropped/queued telemetry automatically; qkt versions with the local insights journal also report whether replay is enabled and how many rows are pending. `state` polls broker account/position truth, `deal` backfills durable broker deal history where the broker supports it, `lifecycle` streams strategy start/stop events, and `log` attaches a logback appender that streams INFO+ engine logs. The old `snapshot` family is accepted by older configs but no longer wires an emitter in current qkt. Omit `enabled` or set it `false` and qkt wires nothing: no thread, no queue, zero overhead.
 
 ## Architecture
 

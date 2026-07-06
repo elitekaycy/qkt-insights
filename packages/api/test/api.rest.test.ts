@@ -184,3 +184,15 @@ describe("broker state REST", () => {
     expect(rows[0]).toMatchObject({ broker: "EXNESS", minuteTs: 1718000040000, equity: 7676.54 });
   });
 });
+
+describe("ingest repair REST", () => {
+  it("serves persisted ingest observations for repair planning", async () => {
+    ingestEvents(db, "qkt-prod", [
+      env({ id: "gap-1", seq: 10, type: "trade",
+        payload: { orderId: "gap-1", symbol: "XAUUSD", side: "BUY", price: 2350, qty: 0.1, ts: 1718000000000 } }),
+    ]);
+    expect((await get("/ingest/observations")).statusCode).toBe(400);
+    const rows = (await get("/ingest/observations?instance=qkt-prod&kind=gap")).json();
+    expect(rows[0]).toMatchObject({ kind: "gap", eventId: "gap-1", expectedSeq: 2 });
+  });
+});
