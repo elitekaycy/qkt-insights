@@ -25,6 +25,13 @@ function splitKey(key: string): [string, string] {
   return [key.slice(0, i), key.slice(i + 1)];
 }
 
+function decimalText(v: unknown): string | null {
+  if (v == null) return null;
+  if (typeof v === "string") return v;
+  if (typeof v === "number") return Number.isFinite(v) ? String(v) : null;
+  return null;
+}
+
 /**
  * Last-value broker state, kept in memory only: account snapshots and open
  * position lists keyed by `instance:broker`. Keyed maps make duplicate rows
@@ -84,14 +91,19 @@ export class LiveStateStore {
   flushRollup(db: Db, now: number, staleAfterMs = 90_000): void {
     const minute = Math.floor(now / 60_000) * 60_000;
     const up = db.prepare(
-      `INSERT INTO account_equity (instance_id, broker, minute_ts, balance, equity, open_profit)
-       VALUES (?,?,?,?,?,?) ON CONFLICT(instance_id, broker, minute_ts)
-       DO UPDATE SET balance=excluded.balance, equity=excluded.equity, open_profit=excluded.open_profit`,
+      `INSERT INTO account_equity
+         (instance_id, broker, minute_ts, balance, equity, open_profit,
+          balance_decimal, equity_decimal, open_profit_decimal)
+       VALUES (?,?,?,?,?,?,?,?,?) ON CONFLICT(instance_id, broker, minute_ts)
+       DO UPDATE SET balance=excluded.balance, equity=excluded.equity, open_profit=excluded.open_profit,
+         balance_decimal=excluded.balance_decimal, equity_decimal=excluded.equity_decimal,
+         open_profit_decimal=excluded.open_profit_decimal`,
     );
     for (const [key, a] of this.accounts) {
       if (now - a.lastSeen > staleAfterMs) continue;
       const [instanceId, broker] = splitKey(key);
-      up.run(instanceId, broker, minute, a.balance, a.equity, a.openProfit ?? null);
+      up.run(instanceId, broker, minute, a.balance, a.equity, a.openProfit ?? null,
+        decimalText(a.balance), decimalText(a.equity), decimalText(a.openProfit));
     }
   }
 }

@@ -80,6 +80,7 @@ describe("LiveStateStore", () => {
     const minute = Math.floor(now / 60_000) * 60_000;
     expect(rows[1]).toMatchObject({ instance_id: "qkt-prod", broker: "EXNESS", minute_ts: minute,
       balance: 7824.05, equity: 7676.54, open_profit: -147.51 });
+    expect(rows[1]).toMatchObject({ balance_decimal: "7824.05", equity_decimal: "7676.54", open_profit_decimal: "-147.51" });
     store.upsert("qkt-prod", accountEnv(T0 + 10_000, { equity: 7700 }));
     store.flushRollup(db, now + 1000);
     const updated: any = db.prepare("SELECT equity FROM account_equity WHERE instance_id='qkt-prod' AND minute_ts=?").get(minute);

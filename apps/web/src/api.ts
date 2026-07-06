@@ -37,12 +37,20 @@ export interface HealthRow {
   lastSeen: number;
   lastSeq: number;
   strategies: number;
+  insightsSent: number | null;
+  insightsFailed: number | null;
+  insightsDropped: number | null;
+  insightsQueued: number | null;
+  insightsJournalEnabled: boolean | number | null;
+  insightsJournalPending: number | null;
+  insightsHealthTs: number | null;
 }
 export interface StrategyRow {
   strategyId: string;
   firstSeen: number;
   lastSeen: number;
   startingBalance: number | null;
+  metadata: Record<string, unknown> | null;
   realizedNet: number | null;
   dealCount: number;
 }

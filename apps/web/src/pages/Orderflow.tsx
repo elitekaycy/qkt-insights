@@ -11,7 +11,8 @@ import { useLiveStream } from "../useLiveStream";
 
 const ORDERFLOW_TYPES = [
   "trade", "order.submit", "order.accepted", "order.filled", "order.partially_filled", "order.cancelled",
-  "order.rejected", "order.modified", "signal", "risk.rejected", "risk.halted", "risk.resumed", "broker.deal",
+  "order.rejected", "order.modified", "signal", "signal.cancel", "signal.latch_armed", "strategy.started", "strategy.stopped", "risk.rejected", "risk.halted", "risk.resumed", "insights.health", "broker.deal",
+  "broker.connected", "broker.disconnected", "broker.reconnected", "marketdata.connected", "marketdata.disconnected", "marketdata.reconnected",
 ];
 
 export default function Orderflow({ instanceId }: { instanceId: string | null }) {
