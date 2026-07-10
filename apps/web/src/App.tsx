@@ -5,20 +5,18 @@ import { LiveDot, Select } from "./components/ui";
 import Login from "./pages/Login";
 import Overview from "./pages/Overview";
 import Health from "./pages/Health";
-import Orderflow from "./pages/Orderflow";
 import Strategies from "./pages/Strategies";
 import Trades from "./pages/Trades";
 import Logs from "./pages/Logs";
 import Search from "./pages/Search";
 import Equity from "./pages/Equity";
 
-type Page = "overview" | "health" | "strategies" | "orderflow" | "trades" | "equity" | "logs" | "search";
+type Page = "overview" | "health" | "strategies" | "trades" | "equity" | "logs" | "search";
 
 const ICONS: Record<Page, string> = {
   overview: "M3 13h5v8H3zM10 7h5v14h-5zM17 3h5v18h-5z",
   health: "M22 12h-4l-3 9L9 3l-3 9H2",
   strategies: "M3 17l6-6 4 4 8-8M21 7v5h-5",
-  orderflow: "M7 16V4M7 4L3 8M7 4l4 4M17 8v12M17 20l4-4M17 20l-4-4",
   trades: "M4 7h16M4 12h16M4 17h10",
   equity: "M3 3v18h18M8 15l4-6 4 3 4-7",
   logs: "M5 4h14M5 9h14M5 14h9M5 19h6",
@@ -42,7 +40,6 @@ const PER_INSTANCE: { section: string; items: { key: Page; label: string }[] }[]
   {
     section: "Monitor",
     items: [
-      { key: "orderflow", label: "Orderflow" },
       { key: "logs", label: "Logs" },
       { key: "health", label: "Health" },
     ],
@@ -220,7 +217,6 @@ export default function App() {
       {page === "strategies" && (
         <Strategies key={focusStrategy ?? "all"} instanceId={selected} focus={focusStrategy} onClearFocus={() => setFocusStrategy(null)} />
       )}
-      {page === "orderflow" && <Orderflow instanceId={selected} />}
       {page === "trades" && <Trades instanceId={selected} />}
       {page === "equity" && <Equity instanceId={selected} />}
       {page === "logs" && <Logs instanceId={selected} />}
