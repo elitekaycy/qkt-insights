@@ -31,7 +31,6 @@ InsightsSink   POST /ingest             single writer, one file
 
 - **Health** — every reporting instance, last-event age, sequence position, sink counters, journal backlog, live/idle status.
 - **Strategies** — per-strategy drill-down: equity chart, Sharpe, win rate, max drawdown, return, trades, recent logs.
-- **Orderflow** — folded order state (submitted → working → filled/cancelled/rejected) with a live WebSocket tail.
 - **Trades** — every fill, filterable by strategy and symbol.
 - **Logs** — engine logs shipped from qkt with level filters, full-text search, and a live tail.
 - **Search** — FTS5 full-text search across all events and logs: symbols, order ids, halt reasons, log text.

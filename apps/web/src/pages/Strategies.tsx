@@ -4,7 +4,7 @@ import { get, type EquityPoint, type LogRow, type PerformanceBundle, type Strate
 import { CalendarView } from "../components/Calendar";
 import { TradeDetail } from "../components/detail";
 import { EquityChart } from "../components/EquityChart";
-import { BreakdownPanels, PerformancePanels } from "../components/Performance";
+import { PerformancePanels, TradeAnalysisPanels } from "../components/Performance";
 import { Sparkline } from "../components/Sparkline";
 import {
   Card, Cell, Empty, LEVEL_TONE, Loadable, LoadMore, PageHeader, Panel, Pill, RangeSelect, rangeStart, ReturnPct, Row, SearchInput, Select, SideTag, Stat, Table,
@@ -248,7 +248,7 @@ function StrategyDetail({ instanceId, strategyId, onBack }: { instanceId: string
         <div className="mt-5 grid gap-5">
           <Loadable loading={!performance.data} error={performance.isError} retry={() => performance.refetch()} what="performance" lines={6}>
             {performance.data && <PerformancePanels bundle={performance.data} />}
-            {performance.data?.breakdowns && <BreakdownPanels b={performance.data.breakdowns} />}
+            {performance.data && <TradeAnalysisPanels bundle={performance.data} />}
           </Loadable>
         </div>
       )}
