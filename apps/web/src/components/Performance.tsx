@@ -1,8 +1,8 @@
-import type { ReactNode } from "react";
-import { Bar, BarChart, CartesianGrid, Cell as RechartsCell, ResponsiveContainer, Tooltip, XAxis, YAxis } from "recharts";
-import type { BreakdownRow, ClosedTradeRow, DayNet, PerformanceBundle, PerformanceReport, TradeBreakdowns } from "../api";
+import { useState, type ReactNode } from "react";
+import type { ClosedTradeRow, DayNet, PerformanceBundle, PerformanceReport } from "../api";
 import { duration, money, num, tsDay } from "../format";
-import { Cell, Empty, Panel, Pill, Row, Stat, Table, type Tone } from "./ui";
+import { EChart, type QktChartOption } from "./EChart";
+import { Cell, Empty, Panel, Pill, Row, Select, Stat, Table, type Tone } from "./ui";
 
 /*
  * The performance tab of a strategy: profitability, risk, and streak panels fed
@@ -444,55 +444,385 @@ export function PerformancePanels({ bundle }: { bundle: PerformanceBundle }) {
   );
 }
 
-const BAR_TOOLTIP = {
-  background: "var(--color-raised)",
-  border: "1px solid var(--color-line-strong)",
-  borderRadius: 10,
-  fontSize: 12,
-  fontFamily: "var(--font-mono)",
-} as const;
 
-function BreakdownBars({ rows, title, hint, stagger }: { rows: BreakdownRow[]; title: string; hint?: string; stagger?: number }) {
+type TradeMetric = "net" | "trades" | "winRate" | "avg";
+type TradeDimension = "side" | "symbol" | "hour" | "weekday" | "lot" | "hold";
+type TradeOutcome = "all" | "wins" | "losses";
+
+const WEEKDAYS = ["Mon", "Tue", "Wed", "Thu", "Fri", "Sat", "Sun"];
+
+const DIMS: { key: TradeDimension; label: string }[] = [
+  { key: "side", label: "Side" },
+  { key: "symbol", label: "Symbol" },
+  { key: "hour", label: "Hour" },
+  { key: "weekday", label: "Weekday" },
+  { key: "lot", label: "Lot" },
+  { key: "hold", label: "Hold" },
+];
+const METRICS: { key: TradeMetric; label: string }[] = [
+  { key: "net", label: "Net P&L" },
+  { key: "trades", label: "Trades" },
+  { key: "winRate", label: "Win rate" },
+  { key: "avg", label: "Avg P&L" },
+];
+
+function timeFmt(ms: number): string {
+  return new Date(ms).toLocaleString("en-GB", { month: "short", day: "2-digit", hour: "2-digit", minute: "2-digit" });
+}
+
+function sideKey(side: string): "long" | "short" {
+  return side === "BUY" ? "long" : "short";
+}
+
+function holdBucket(c: ClosedTradeRow): string {
+  if (c.entryTs == null) return "unknown";
+  const held = c.ts - c.entryTs;
+  if (held < 15 * 60_000) return "<15m";
+  if (held < 60 * 60_000) return "15-60m";
+  if (held < 4 * 3_600_000) return "1-4h";
+  if (held < 24 * 3_600_000) return "4-24h";
+  return ">1d";
+}
+
+function dimKey(c: ClosedTradeRow, dim: TradeDimension): string {
+  const d = new Date(c.ts);
+  if (dim === "side") return sideKey(c.side);
+  if (dim === "symbol") return c.symbol;
+  if (dim === "hour") return String(d.getUTCHours()).padStart(2, "0");
+  if (dim === "weekday") return WEEKDAYS[(d.getUTCDay() + 6) % 7]!;
+  if (dim === "lot") return c.qty.toFixed(2);
+  return holdBucket(c);
+}
+
+interface GroupRow { key: string; net: number; trades: number; wins: number; avg: number; winRate: number }
+
+function groupTrades(rows: ClosedTradeRow[], dim: TradeDimension): GroupRow[] {
+  const out = new Map<string, GroupRow>();
+  for (const c of rows) {
+    const key = dimKey(c, dim);
+    const cur = out.get(key) ?? { key, net: 0, trades: 0, wins: 0, avg: 0, winRate: 0 };
+    cur.net += c.realized;
+    cur.trades++;
+    if (c.realized > 0) cur.wins++;
+    out.set(key, cur);
+  }
+  const rowsOut = [...out.values()].map((r) => ({ ...r, avg: r.trades > 0 ? r.net / r.trades : 0, winRate: r.trades > 0 ? (r.wins / r.trades) * 100 : 0 }));
+  if (dim === "weekday") return rowsOut.sort((a, b) => WEEKDAYS.indexOf(a.key) - WEEKDAYS.indexOf(b.key));
+  if (dim === "side") return rowsOut.sort((a, b) => a.key.localeCompare(b.key));
+  return rowsOut.sort((a, b) => a.key.localeCompare(b.key, undefined, { numeric: true }));
+}
+
+function distributionRows(rows: ClosedTradeRow[]): { key: string; count: number; midpoint: number }[] {
+  if (rows.length === 0) return [];
+  const pnls = rows.map((r) => r.realized);
+  const min = Math.min(...pnls);
+  const max = Math.max(...pnls);
+  const bins = 13;
+  const width = max > min ? (max - min) / bins : 1;
+  const out = Array.from({ length: bins }, (_, i) => {
+    const from = min + i * width;
+    const to = min + (i + 1) * width;
+    return { key: `${money(from)}..${money(to)}`, count: 0, midpoint: (from + to) / 2 };
+  });
+  for (const p of pnls) out[Math.min(bins - 1, Math.floor((p - min) / width))]!.count++;
+  return out;
+}
+
+function sideCurveRows(rows: ClosedTradeRow[]) {
+  let total = 0;
+  let long = 0;
+  let short = 0;
+  return [...rows].reverse().map((c) => {
+    total += c.realized;
+    if (sideKey(c.side) === "long") long += c.realized;
+    else short += c.realized;
+    return { ts: c.ts, total, long, short };
+  });
+}
+
+function metricValue(r: GroupRow, metric: TradeMetric): number {
+  if (metric === "trades") return r.trades;
+  if (metric === "winRate") return r.winRate;
+  if (metric === "avg") return r.avg;
+  return r.net;
+}
+
+function metricLabel(metric: TradeMetric): string {
+  return METRICS.find((m) => m.key === metric)?.label ?? metric;
+}
+
+function metricText(value: number, metric: TradeMetric): string {
+  if (metric === "trades") return String(value);
+  if (metric === "winRate") return `${value.toFixed(1)}%`;
+  return money(value);
+}
+
+function TradeAnalysis({ bundle }: { bundle: PerformanceBundle }) {
+  const [side, setSide] = useState("");
+  const [symbol, setSymbol] = useState("");
+  const [outcome, setOutcome] = useState<TradeOutcome>("all");
+  const [dimension, setDimension] = useState<TradeDimension>("side");
+  const [metric, setMetric] = useState<TradeMetric>("net");
+  const closes = bundle.closes;
+  const symbols = [...new Set(closes.map((c) => c.symbol))].sort();
+  const filtered = closes.filter((c) => {
+    if (side && sideKey(c.side) !== side) return false;
+    if (symbol && c.symbol !== symbol) return false;
+    if (outcome === "wins" && c.realized <= 0) return false;
+    if (outcome === "losses" && c.realized >= 0) return false;
+    return true;
+  });
+  const groups = groupTrades(filtered, dimension);
+  const curve = sideCurveRows(filtered);
+  const dist = distributionRows(filtered);
+  const scatter = filtered.map((c, i) => ({
+    i: i + 1,
+    pnl: c.realized,
+    holdMin: c.entryTs == null ? null : Math.max(0, (c.ts - c.entryTs) / 60_000),
+    qty: c.qty,
+    side: sideKey(c.side),
+    symbol: c.symbol,
+    ts: c.ts,
+  })).filter((r) => r.holdMin != null);
+  const total = filtered.reduce((a, c) => a + c.realized, 0);
+  const wins = filtered.filter((c) => c.realized > 0).length;
+  const losses = filtered.filter((c) => c.realized < 0).length;
+  const best = [...filtered].sort((a, b) => b.realized - a.realized).slice(0, 5);
+  const worst = [...filtered].sort((a, b) => a.realized - b.realized).slice(0, 5);
+  const curveOption: QktChartOption = {
+    backgroundColor: "transparent",
+    color: ["#f2f4f6", "#3fe08c", "#5cb8ff"],
+    grid: ECHART_GRID,
+    tooltip: { ...tooltipBox(), trigger: "axis" },
+    legend: { top: 0, right: 0, textStyle: { color: "#f2f4f6", fontFamily: "JetBrains Mono, ui-monospace, monospace" } },
+    dataZoom: [
+      { type: "inside" },
+      {
+        type: "slider",
+        height: 16,
+        bottom: 4,
+        borderColor: "#22272d",
+        fillerColor: "rgba(200,247,74,0.18)",
+        textStyle: { color: "#f2f4f6", fontFamily: "JetBrains Mono, ui-monospace, monospace" },
+        handleStyle: { color: "#f2f4f6" },
+        moveHandleStyle: { color: "#f2f4f6" },
+      },
+    ],
+    xAxis: { type: "time", ...ECHART_AXIS },
+    yAxis: { type: "value", ...ECHART_AXIS },
+    series: [
+      { name: "total", type: "line", showSymbol: false, smooth: true, data: curve.map((r) => [r.ts, r.total]) },
+      { name: "long", type: "line", showSymbol: false, smooth: true, data: curve.map((r) => [r.ts, r.long]) },
+      { name: "short", type: "line", showSymbol: false, smooth: true, data: curve.map((r) => [r.ts, r.short]) },
+    ],
+  };
+  const groupedOption: QktChartOption = {
+    backgroundColor: "transparent",
+    grid: ECHART_GRID,
+    tooltip: { ...tooltipBox(), trigger: "axis" },
+    dataZoom: groups.length > 12 ? [
+      { type: "inside" },
+      {
+        type: "slider",
+        height: 16,
+        bottom: 4,
+        borderColor: "#22272d",
+        fillerColor: "rgba(92,184,255,0.18)",
+        textStyle: { color: "#f2f4f6", fontFamily: "JetBrains Mono, ui-monospace, monospace" },
+        handleStyle: { color: "#f2f4f6" },
+        moveHandleStyle: { color: "#f2f4f6" },
+      },
+    ] : undefined,
+    xAxis: { type: "category", data: groups.map((g) => g.key), ...ECHART_AXIS },
+    yAxis: { type: "value", ...ECHART_AXIS },
+    series: [
+      {
+        name: metricLabel(metric),
+        type: "bar",
+        data: groups.map((g) => {
+          const value = metricValue(g, metric);
+          return {
+            value,
+            itemStyle: { color: metric === "trades" ? "#5cb8ff" : value >= 0 ? "#3fe08c" : "#ff6b6b" },
+          };
+        }),
+      },
+    ],
+  };
+  const distributionOption: QktChartOption = {
+    backgroundColor: "transparent",
+    grid: ECHART_GRID,
+    tooltip: { ...tooltipBox(), trigger: "axis" },
+    xAxis: { type: "category", data: dist.map((d) => money(d.midpoint)), ...ECHART_AXIS },
+    yAxis: { type: "value", ...ECHART_AXIS },
+    series: [{ name: "trades", type: "bar", data: dist.map((d) => d.count), itemStyle: { color: "#c8f74a", opacity: 0.8 } }],
+  };
+  const scatterOption: QktChartOption = {
+    backgroundColor: "transparent",
+    grid: ECHART_GRID,
+    tooltip: {
+      ...tooltipBox(),
+      trigger: "item",
+      formatter: (params: unknown) => {
+        const p = params as { data?: [number, number, string, string, number, number] };
+        const d = p.data;
+        if (!d) return "";
+        return `${d[2]}<br/>${d[3]} · ${d[4]} lots<br/>held ${d[0].toFixed(1)}m<br/>P&L ${money(d[1])}`;
+      },
+    },
+    xAxis: { type: "value", name: "hold min", ...ECHART_AXIS },
+    yAxis: { type: "value", name: "P&L", ...ECHART_AXIS },
+    series: [
+      {
+        name: "trade",
+        type: "scatter",
+        symbolSize: (value: unknown) => {
+          const row = value as [number, number, string, string, number, number];
+          return Math.max(7, Math.min(18, row[4] * 450));
+        },
+        data: scatter.map((r) => ({
+          value: [r.holdMin ?? 0, r.pnl, r.symbol, r.side, r.qty, r.ts],
+          itemStyle: { color: r.pnl >= 0 ? "#3fe08c" : "#ff6b6b" },
+        })),
+      },
+    ],
+  };
+
   return (
-    <Panel title={title} hint={hint} stagger={stagger}>
-      <div className="p-4">
-        <ResponsiveContainer width="100%" height={200}>
-          <BarChart data={rows} margin={{ top: 4, right: 8, bottom: 0, left: 8 }}>
-            <CartesianGrid stroke="var(--color-line)" strokeDasharray="3 3" vertical={false} />
-            <XAxis dataKey="key" tick={{ stroke: "var(--color-faint)", fontSize: 11, fontFamily: "var(--font-mono)" }} tickLine={false} axisLine={false} />
-            <YAxis domain={[(min: number) => Math.min(0, min), (max: number) => Math.max(0, max)]} tick={{ stroke: "var(--color-faint)", fontSize: 11, fontFamily: "var(--font-mono)" }} tickLine={false} axisLine={false} width={56} />
-            <Tooltip
-              contentStyle={BAR_TOOLTIP}
-              cursor={{ fill: "var(--color-raised)" }}
-              formatter={(value: unknown, name) => [name === "net" ? money(Number(value)) : String(value), String(name)]}
-            />
-            <Bar dataKey="net" radius={[4, 4, 0, 0]}>
-              {rows.map((r) => (
-                <RechartsCell key={r.key} fill={r.net >= 0 ? "var(--color-up)" : "var(--color-down)"} fillOpacity={0.75} />
-              ))}
-            </Bar>
-          </BarChart>
-        </ResponsiveContainer>
-      </div>
+    <Panel
+      title="Trade analysis"
+      hint="closed trades"
+      stagger={3}
+      toolbar={
+        <div className="flex flex-wrap items-end gap-2">
+          <FilterField label="Side">
+            <Select value={side} onChange={(e) => setSide(e.target.value)}>
+              <option value="">all sides</option>
+              <option value="long">longs</option>
+              <option value="short">shorts</option>
+            </Select>
+          </FilterField>
+          <FilterField label="Symbol">
+            <Select value={symbol} onChange={(e) => setSymbol(e.target.value)}>
+              <option value="">all symbols</option>
+              {symbols.map((s) => <option key={s} value={s}>{s}</option>)}
+            </Select>
+          </FilterField>
+          <FilterField label="Outcome">
+            <Select value={outcome} onChange={(e) => setOutcome(e.target.value as TradeOutcome)}>
+              <option value="all">all outcomes</option>
+              <option value="wins">wins</option>
+              <option value="losses">losses</option>
+            </Select>
+          </FilterField>
+          <FilterField label="Group by">
+            <Select value={dimension} onChange={(e) => setDimension(e.target.value as TradeDimension)}>
+              {DIMS.map((d) => <option key={d.key} value={d.key}>{d.label}</option>)}
+            </Select>
+          </FilterField>
+          <FilterField label="Measure">
+            <Select value={metric} onChange={(e) => setMetric(e.target.value as TradeMetric)}>
+              {METRICS.map((m) => <option key={m.key} value={m.key}>{m.label}</option>)}
+            </Select>
+          </FilterField>
+        </div>
+      }
+    >
+      {filtered.length === 0 ? <Empty>No closed trades match these filters.</Empty> : (
+        <div className="grid gap-5 p-4">
+          <div className="grid grid-cols-2 gap-3 md:grid-cols-5">
+            <Stat label="Net" value={money(total)} tone={total >= 0 ? "up" : "down"} />
+            <Stat label="Trades" value={String(filtered.length)} />
+            <Stat label="Wins" value={String(wins)} tone="up" />
+            <Stat label="Losses" value={String(losses)} tone={losses > 0 ? "down" : "neutral"} />
+            <Stat label="Avg" value={money(total / filtered.length)} tone={total / filtered.length >= 0 ? "up" : "down"} />
+          </div>
+
+          <div className="rounded-lg border border-line bg-ink/35 px-4 py-3 text-sm text-muted">
+            Use the controls above to ask: which side, symbol, hour, lot, or holding-time bucket is actually carrying the edge?
+            Drag the bottom range slider or mouse-wheel over a chart to zoom.
+          </div>
+
+          <div className="grid gap-5 xl:grid-cols-2">
+            <ChartShell title="Realized curve" hint="total vs long vs short">
+              <EChart option={curveOption} height={260} />
+            </ChartShell>
+
+            <ChartShell title={`${metricLabel(metric)} by ${DIMS.find((d) => d.key === dimension)?.label}`} hint="change group and measure">
+              <EChart option={groupedOption} height={260} />
+            </ChartShell>
+
+            <ChartShell title="P&L distribution" hint="trade count per outcome bucket">
+              <EChart option={distributionOption} height={240} />
+            </ChartShell>
+
+            <ChartShell title="Hold time vs P&L" hint="dot size follows lot size">
+              {scatter.length === 0 ? <div className="flex h-60 items-center justify-center text-sm text-faint">No entry timestamps for this filter.</div> : (
+                <EChart option={scatterOption} height={240} />
+              )}
+            </ChartShell>
+          </div>
+
+          <div className="grid gap-5 xl:grid-cols-2">
+            <div className="rounded-lg border border-line bg-ink/25">
+              <div className="px-4 pt-3 text-[11px] font-bold uppercase tracking-[0.12em] text-muted">Best trades</div>
+              <Table head={["Closed", "Symbol", "Side", "Qty", "P&L"]}>
+                {best.map((c, i) => <Row key={`${c.ts}-best-${i}`}><Cell className="whitespace-nowrap text-muted">{tsDay(c.ts)}</Cell><Cell className="font-semibold text-bright">{c.symbol}</Cell><Cell><Pill tone={sideKey(c.side) === "long" ? "up" : "info"}>{sideKey(c.side)}</Pill></Cell><Cell className="font-mono">{c.qty}</Cell><Cell className="font-mono text-up">+{money(c.realized)}</Cell></Row>)}
+              </Table>
+            </div>
+            <div className="rounded-lg border border-line bg-ink/25">
+              <div className="px-4 pt-3 text-[11px] font-bold uppercase tracking-[0.12em] text-muted">Worst trades</div>
+              <Table head={["Closed", "Symbol", "Side", "Qty", "P&L"]}>
+                {worst.map((c, i) => <Row key={`${c.ts}-worst-${i}`}><Cell className="whitespace-nowrap text-muted">{tsDay(c.ts)}</Cell><Cell className="font-semibold text-bright">{c.symbol}</Cell><Cell><Pill tone={sideKey(c.side) === "long" ? "up" : "info"}>{sideKey(c.side)}</Pill></Cell><Cell className="font-mono">{c.qty}</Cell><Cell className="font-mono text-down">{money(c.realized)}</Cell></Row>)}
+              </Table>
+            </div>
+          </div>
+        </div>
+      )}
     </Panel>
   );
 }
 
-/** Exact, per-close charts — only rendered once trade.closed data exists for the range. */
-export function BreakdownPanels({ b }: { b: TradeBreakdowns }) {
+const ECHART_GRID = { left: 58, right: 22, top: 34, bottom: 44 };
+const ECHART_AXIS = {
+  axisLine: { lineStyle: { color: "var(--color-line)" } },
+  axisTick: { show: false },
+  axisLabel: { color: "#f2f4f6", fontFamily: "JetBrains Mono, ui-monospace, monospace", fontSize: 11 },
+  nameTextStyle: { color: "#f2f4f6", fontFamily: "JetBrains Mono, ui-monospace, monospace", fontSize: 11 },
+  splitLine: { lineStyle: { color: "var(--color-line)", type: "dashed" as const } },
+};
+
+function tooltipBox(): QktChartOption["tooltip"] {
+  return {
+    backgroundColor: "#191d21",
+    borderColor: "#2f363e",
+    borderWidth: 1,
+    textStyle: { color: "#f2f4f6", fontFamily: "JetBrains Mono, ui-monospace, monospace", fontSize: 12 },
+  };
+}
+
+function FilterField({ label, children }: { label: string; children: ReactNode }) {
   return (
-    <div className="grid gap-5 xl:grid-cols-2">
-      <BreakdownBars rows={b.bySymbol} title="By symbol" hint="net P&L" stagger={3} />
-      <BreakdownBars rows={b.byDow} title="By day of week" hint="net P&L, UTC" stagger={3} />
-      <BreakdownBars rows={b.byHour} title="By hour" hint="net P&L, UTC entry hour" stagger={4} />
-      <BreakdownBars
-        rows={b.distribution.map((d) => ({ key: money((d.from + d.to) / 2), net: d.count, trades: d.count, wins: 0 }))}
-        title="P&L distribution"
-        hint="trade count per bucket"
-        stagger={4}
-      />
-      <BreakdownBars rows={b.byVolume} title="By lot size" hint="net P&L" stagger={5} />
-      {b.holdTime && <BreakdownBars rows={b.holdTime} title="By hold time" hint="net P&L" stagger={5} />}
+    <label className="grid gap-1">
+      <span className="text-[10px] font-bold uppercase tracking-[0.12em] text-faint">{label}</span>
+      {children}
+    </label>
+  );
+}
+
+function ChartShell({ title, hint, children }: { title: string; hint: string; children: ReactNode }) {
+  return (
+    <div className="rounded-lg border border-line bg-raised/45 p-3 shadow-inner shadow-black/10">
+      <div className="flex flex-wrap items-baseline justify-between gap-2 pb-2">
+        <div className="text-[11px] font-bold uppercase tracking-[0.12em] text-body">{title}</div>
+        <div className="text-xs text-faint">{hint}</div>
+      </div>
+      {children}
     </div>
   );
+}
+
+/** Exact, per-close charts — only rendered once trade.closed data exists for the range. */
+export function TradeAnalysisPanels({ bundle }: { bundle: PerformanceBundle }) {
+  return <TradeAnalysis bundle={bundle} />;
 }

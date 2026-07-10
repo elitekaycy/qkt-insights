@@ -4,21 +4,15 @@ import { get, type EquityPoint, type HealthRow, type PerformanceBundle, type Str
 import { ComparisonChart, type ComparisonSeries } from "../components/EquityChart";
 import { Sparkline } from "../components/Sparkline";
 import { Card, Cell, Empty, FlashValue, HoverExpand, LiveDot, Loadable, Modal, MoneyDelta, PageHeader, Panel, Pill, ReturnPct, Row, SideTag, Stat, Table } from "../components/ui";
-import { age, money, num, pct, ts } from "../format";
+import { age, money, num, pct } from "../format";
 import { useLiveState } from "../useLiveState";
 import { useLiveStream } from "../useLiveStream";
 
 const PALETTE = ["#c8f74a", "#5cb8ff", "#a78bfa", "#3fe08c", "#fbbf24", "#ff6b6b", "#f472b6", "#22d3ee"];
 
-// Everything except "log": the feed stays meaningful and state pushes still
-// reach useLiveState. Module-level so the WS effect sees a stable identity.
-const FEED_TYPES = [
-  "signal", "signal.cancel", "signal.latch_armed", "strategy.started", "strategy.stopped", "insights.health", "order.submit", "order.accepted", "order.filled", "order.partially_filled", "order.cancelled",
-  "order.rejected", "order.modified", "trade", "trade.closed", "risk.rejected", "risk.halted", "risk.resumed",
-  "position.reconciled", "balances.updated", "gateway.unreachable", "broker.connected", "broker.disconnected", "broker.reconnected",
-  "marketdata.connected", "marketdata.disconnected", "marketdata.reconnected", "snapshot.equity", "snapshot.position",
-  "state.account", "state.positions", "broker.deal",
-];
+// Overview only needs broker state pushes for live account/position truth; raw
+// event inspection belongs on Logs/Search so payloads cannot stretch the layout.
+const FEED_TYPES = ["state.account", "state.positions"];
 
 export default function Overview({
   instanceId,
@@ -482,17 +476,35 @@ export default function Overview({
             />
           </div>
 
-          <Panel stagger={3} title="Live feed" right={<LiveDot on={live.length > 0} />}>
-            <div className="h-56 overflow-auto p-2 font-mono text-xs">
-              {live.length === 0 && <div className="p-3 text-faint">Waiting for events…</div>}
-              {live.slice(0, 30).map((e) => (
-                <div key={`${e.instanceId}-${e.id}`} className="flex gap-2 border-b border-line/50 px-2 py-1.5 last:border-b-0">
-                  <span className="shrink-0 text-faint">{ts(e.ts).slice(11)}</span>
-                  <span className="shrink-0 text-info">{e.type}</span>
-                  {e.strategyId && <span className="shrink-0 text-muted">{e.strategyId}</span>}
-                  <span className="truncate text-body/80">{JSON.stringify(e.payload)}</span>
-                </div>
-              ))}
+          <Panel stagger={3} title="System" hint="live transport and collector state">
+            <div className="grid gap-3 p-4 text-sm">
+              <div className="flex items-center justify-between gap-4">
+                <span className="text-muted">Broker state push</span>
+                <span className="flex items-center gap-2 font-mono text-bright">
+                  <LiveDot on={live.length > 0} />
+                  {live.length > 0 ? `${live.length} recent` : "waiting"}
+                </span>
+              </div>
+              <div className="flex items-center justify-between gap-4">
+                <span className="text-muted">Instance heartbeat</span>
+                <span className="font-mono text-bright">
+                  {health.data?.find((h) => h.instanceId === instanceId)?.lastSeen == null
+                    ? "—"
+                    : age(health.data.find((h) => h.instanceId === instanceId)!.lastSeen)}
+                </span>
+              </div>
+              <div className="flex items-center justify-between gap-4">
+                <span className="text-muted">Collector queue</span>
+                <span className="font-mono text-bright">
+                  {health.data?.find((h) => h.instanceId === instanceId)?.insightsQueued ?? "—"}
+                </span>
+              </div>
+              <div className="flex items-center justify-between gap-4">
+                <span className="text-muted">Journal backlog</span>
+                <span className="font-mono text-bright">
+                  {health.data?.find((h) => h.instanceId === instanceId)?.insightsJournalPending ?? "—"}
+                </span>
+              </div>
             </div>
           </Panel>
         </div>

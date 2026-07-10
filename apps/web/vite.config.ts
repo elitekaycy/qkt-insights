@@ -6,7 +6,17 @@ const api = "http://localhost:8420";
 
 export default defineConfig({
   plugins: [react(), tailwindcss()],
-  build: { outDir: "../../dist/web", emptyOutDir: true },
+  build: {
+    outDir: "../../dist/web",
+    emptyOutDir: true,
+    rollupOptions: {
+      output: {
+        manualChunks(id) {
+          if (id.includes("node_modules/react") || id.includes("node_modules/@tanstack")) return "vendor";
+        },
+      },
+    },
+  },
   server: {
     proxy: {
       "/auth": api,
