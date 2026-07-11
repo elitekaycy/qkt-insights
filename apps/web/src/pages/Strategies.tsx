@@ -45,11 +45,26 @@ function sourceName(path: string | null): string | null {
   return path.split(/[\\/]/).filter(Boolean).pop() ?? path;
 }
 
+function portfolioId(row: StrategyRow): string | null {
+  return metaString(row.metadata, "portfolioId");
+}
+
+function portfolioAlias(row: StrategyRow): string | null {
+  return metaString(row.metadata, "portfolioAlias");
+}
+
+function strategyKind(row: StrategyRow): "portfolio_child" | "standalone" {
+  return metaString(row.metadata, "kind") === "portfolio_child" || portfolioId(row) ? "portfolio_child" : "standalone";
+}
+
 function strategyMetaLine(row: StrategyRow): string | null {
   const runtime = metaString(row.metadata, "runtimeMode");
   const version = metaNumber(row.metadata, "dslVersion");
   const src = sourceName(metaString(row.metadata, "sourcePath"));
-  return [runtime, version == null ? null : `v${version}`, src].filter(Boolean).join(" · ") || null;
+  const portfolio = portfolioId(row);
+  const alias = portfolioAlias(row);
+  const role = portfolio ? `portfolio ${portfolio}${alias ? ` / ${alias}` : ""}` : "standalone";
+  return [role, runtime, version == null ? null : `v${version}`, src].filter(Boolean).join(" · ") || null;
 }
 
 export default function Strategies({
@@ -85,24 +100,48 @@ export default function Strategies({
     );
 
   const rows = strategies.data ?? [];
+  const portfolioGroups = rows.reduce((acc, row) => {
+    const id = portfolioId(row);
+    if (!id) return acc;
+    const group = acc.get(id) ?? [];
+    group.push(row);
+    acc.set(id, group);
+    return acc;
+  }, new Map<string, StrategyRow[]>());
+  const standalone = rows.filter((row) => !portfolioId(row));
+  const orderedRows = [...standalone, ...[...portfolioGroups.values()].flat()];
   return (
     <div>
-      <PageHeader title="Strategies" sub={`Every strategy ${instanceId} has reported. Click one to drill in.`} />
+      <PageHeader
+        title="Strategies"
+        sub={`${standalone.length} standalone · ${portfolioGroups.size} portfolio${portfolioGroups.size === 1 ? "" : "s"} · ${rows.length} reported strategy rows`}
+      />
       <Loadable loading={strategies.isPending} error={strategies.isError} retry={() => strategies.refetch()} what="strategies">
       <div className="mt-6 grid grid-cols-1 gap-4 md:grid-cols-2 xl:grid-cols-3">
         {rows.length === 0 && <Card className="p-8 text-center text-faint md:col-span-2 xl:col-span-3">No strategies yet.</Card>}
-        {rows.map((s, i) => {
+        {orderedRows.map((s, i) => {
           const realized = s.realizedNet;
           const open = live.open.get(s.strategyId) ?? (live.hasState ? 0 : null);
           const net = realized == null && open == null ? null : (realized ?? 0) + (open ?? 0);
           return (
             <button key={s.strategyId} onClick={() => setSelected(s.strategyId)} className="group text-left">
               <Card className="p-5 transition group-hover:border-accent/50 group-hover:bg-raised" stagger={i}>
-                <div className="flex items-baseline justify-between">
-                  <span className="font-bold text-bright">{s.strategyId}</span>
-                  <span className="text-xs text-faint">{age(s.lastSeen)}</span>
+                <div className="flex items-start justify-between gap-3">
+                  <span className="min-w-0 truncate font-bold text-bright">{s.strategyId}</span>
+                  <span className="shrink-0 text-xs text-faint">{age(s.lastSeen)}</span>
                 </div>
-                {strategyMetaLine(s) && <div className="mt-1 truncate text-xs text-faint">{strategyMetaLine(s)}</div>}
+                <div className="mt-2 flex flex-wrap items-center gap-1.5">
+                  {strategyKind(s) === "portfolio_child" ? (
+                    <>
+                      <Pill tone="info">portfolio child</Pill>
+                      <Pill>{portfolioId(s)}</Pill>
+                      {portfolioAlias(s) && <Pill>{portfolioAlias(s)}</Pill>}
+                    </>
+                  ) : (
+                    <Pill>standalone</Pill>
+                  )}
+                </div>
+                {strategyMetaLine(s) && <div className="mt-1.5 truncate text-xs text-faint">{strategyMetaLine(s)}</div>}
                 <div className="mt-2.5 flex items-baseline gap-3" title="net P&L = realized + open (this strategy, on a shared account)">
                   <span className={`font-mono text-2xl font-semibold ${net == null || live.stale ? "text-faint" : net >= 0 ? "text-up" : "text-down"}`}>
                     {net == null ? "—" : `${net >= 0 ? "+" : "−"}${money(Math.abs(net))}`}
@@ -176,6 +215,10 @@ function StrategyDetail({ instanceId, strategyId, onBack }: { instanceId: string
   const metadata = row?.metadata ?? null;
   const sourcePath = metaString(metadata, "sourcePath");
   const sourceHash = metaString(metadata, "sourceSha256");
+  const parentPortfolio = metaString(metadata, "portfolioId");
+  const parentAlias = metaString(metadata, "portfolioAlias");
+  const allocatedCapital = metaNumber(metadata, "allocatedCapital");
+  const portfolioWeight = metaNumber(metadata, "portfolioWeight");
   const streams = Array.isArray(metadata?.streams) ? metadata.streams as Array<Record<string, unknown>> : [];
 
   const s = stats.data;
@@ -209,6 +252,17 @@ function StrategyDetail({ instanceId, strategyId, onBack }: { instanceId: string
       <div className="mt-2 flex flex-wrap items-end justify-between gap-4">
         <div className="rise">
           <h2 className="text-2xl font-extrabold tracking-tight text-bright">{strategyId}</h2>
+          <div className="mt-2 flex flex-wrap items-center gap-1.5">
+            {parentPortfolio ? (
+              <>
+                <Pill tone="info">portfolio child</Pill>
+                <Pill>{parentPortfolio}</Pill>
+                {parentAlias && <Pill>{parentAlias}</Pill>}
+              </>
+            ) : (
+              <Pill>standalone</Pill>
+            )}
+          </div>
           <div className="mt-2 flex items-baseline gap-3" title="net P&L = realized + open (this strategy, on a shared account)">
             <span className={`font-mono text-4xl font-bold ${heroNet == null || live.stale ? "text-faint" : heroNet >= 0 ? "text-up" : "text-down"}`}>
               {heroNet == null ? "—" : `${heroNet >= 0 ? "+" : "−"}${money(Math.abs(heroNet))}`}
@@ -300,6 +354,26 @@ function StrategyDetail({ instanceId, strategyId, onBack }: { instanceId: string
               <Cell className="text-muted">Mode</Cell>
               <Cell className="font-mono">{metaString(metadata, "runtimeMode") ?? "—"}</Cell>
             </Row>
+            <Row>
+              <Cell className="text-muted">Role</Cell>
+              <Cell className="font-mono">{parentPortfolio ? "portfolio child" : "standalone"}</Cell>
+            </Row>
+            {parentPortfolio && (
+              <Row>
+                <Cell className="text-muted">Portfolio</Cell>
+                <Cell className="font-mono">
+                  {parentPortfolio}{parentAlias ? ` / ${parentAlias}` : ""}
+                </Cell>
+              </Row>
+            )}
+            {parentPortfolio && (
+              <Row>
+                <Cell className="text-muted">Allocation</Cell>
+                <Cell className="font-mono">
+                  {allocatedCapital == null ? "—" : money(allocatedCapital)}{portfolioWeight == null ? "" : ` · ${(portfolioWeight * 100).toFixed(2)}%`}
+                </Cell>
+              </Row>
+            )}
             <Row>
               <Cell className="text-muted">DSL version</Cell>
               <Cell className="font-mono">{metaNumber(metadata, "dslVersion") ?? "—"}</Cell>
