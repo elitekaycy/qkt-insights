@@ -10,13 +10,15 @@ import Trades from "./pages/Trades";
 import Logs from "./pages/Logs";
 import Search from "./pages/Search";
 import Equity from "./pages/Equity";
+import { Edge } from "./pages/Edge";
 
-type Page = "overview" | "health" | "strategies" | "trades" | "equity" | "logs" | "search";
+type Page = "overview" | "health" | "strategies" | "edge" | "trades" | "equity" | "logs" | "search";
 
 const ICONS: Record<Page, string> = {
   overview: "M3 13h5v8H3zM10 7h5v14h-5zM17 3h5v18h-5z",
   health: "M22 12h-4l-3 9L9 3l-3 9H2",
   strategies: "M3 17l6-6 4 4 8-8M21 7v5h-5",
+  edge: "M3 3v18h18M7 14h2v4H7zM11 10h2v8h-2zM15 6h2v12h-2z",
   trades: "M4 7h16M4 12h16M4 17h10",
   equity: "M3 3v18h18M8 15l4-6 4 3 4-7",
   logs: "M5 4h14M5 9h14M5 14h9M5 19h6",
@@ -34,6 +36,7 @@ const PER_INSTANCE: { section: string; items: { key: Page; label: string }[] }[]
     section: "Performance",
     items: [
       { key: "strategies", label: "Strategies" },
+      { key: "edge", label: "Edge" },
       { key: "trades", label: "Trades" },
     ],
   },
@@ -217,6 +220,7 @@ export default function App() {
       {page === "strategies" && (
         <Strategies key={focusStrategy ?? "all"} instanceId={selected} focus={focusStrategy} onClearFocus={() => setFocusStrategy(null)} />
       )}
+      {page === "edge" && <Edge instanceId={selected} />}
       {page === "trades" && <Trades instanceId={selected} />}
       {page === "equity" && <Equity instanceId={selected} />}
       {page === "logs" && <Logs instanceId={selected} />}

@@ -1,4 +1,4 @@
-import type { EquityPoint } from "../api";
+import type { DrawdownPeriod, EquityPoint } from "../api";
 import { money } from "../format";
 import { EChart, qktChartAxis, qktChartGrid, qktChartTooltip, type QktChartOption } from "./EChart";
 
@@ -22,12 +22,21 @@ function dataZoom(fill = "rgba(200,247,74,0.16)"): QktChartOption["dataZoom"] {
   ];
 }
 
-export function EquityChart({ points, height = 260 }: { points: EquityPoint[]; height?: number }) {
+export function EquityChart({ points, shade, height = 260 }: { points: EquityPoint[]; shade?: DrawdownPeriod[]; height?: number }) {
   if (points.length === 0) {
     return <div className="flex h-40 items-center justify-center text-sm text-faint">No equity snapshots yet</div>;
   }
   const up = points[points.length - 1]!.equity >= points[0]!.equity;
   const color = up ? "#3fe08c" : "#ff6b6b";
+  const lastTs = points[points.length - 1]!.ts;
+  // Drawdown spans shaded peak → recovery (or the curve's end while still underwater).
+  const markArea = shade && shade.length > 0
+    ? {
+        silent: true,
+        itemStyle: { color: "rgba(255,107,107,0.10)" },
+        data: shade.map((p) => [{ xAxis: p.peakTs }, { xAxis: p.recoveryTs ?? lastTs }]),
+      }
+    : undefined;
   const option: QktChartOption = {
     backgroundColor: "transparent",
     grid: qktChartGrid,
@@ -53,6 +62,7 @@ export function EquityChart({ points, height = 260 }: { points: EquityPoint[]; h
         data: points.map((p) => [p.ts, p.equity]),
         lineStyle: { color, width: 2 },
         areaStyle: { color, opacity: 0.12 },
+        markArea,
       },
     ],
   };

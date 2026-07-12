@@ -131,7 +131,7 @@ export default function Equity({ instanceId }: { instanceId: string | null }) {
       </Panel>
 
       <div className="mt-5 grid grid-cols-1 gap-5 xl:grid-cols-2">
-        <Panel stagger={2} title="Underwater" hint="distance below the running equity peak" toolbar={ddSelect}>
+        <Panel stagger={2} title="Underwater" hint="drawdown spans shaded on the curve, depth below" toolbar={ddSelect}>
           <Loadable
             loading={strategies.isPending || (focusIdx >= 0 && (curves[focusIdx]?.isPending ?? false))}
             error={focusIdx >= 0 && (curves[focusIdx]?.isError ?? false)}
@@ -139,8 +139,9 @@ export default function Equity({ instanceId }: { instanceId: string | null }) {
             what="the underwater curve"
             lines={4}
           >
-            <div className="p-4">
-              <UnderwaterChart points={focusCurve} />
+            <div className="grid gap-2 p-4">
+              <EquityChart points={focusCurve} shade={periods} height={200} />
+              <UnderwaterChart points={focusCurve} height={140} />
             </div>
           </Loadable>
         </Panel>
