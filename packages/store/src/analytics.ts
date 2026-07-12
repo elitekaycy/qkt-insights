@@ -434,7 +434,14 @@ export function performanceReport(db: Db, f: AnalyticsFilter): PerformanceReport
   };
 }
 
-export interface BreakdownRow { key: string; net: number; trades: number; wins: number }
+export interface BreakdownRow {
+  key: string;
+  net: number;
+  trades: number;
+  wins: number;
+  /** Standard error of the mean per-trade P&L; null under 2 trades (cannot compute). */
+  se: number | null;
+}
 export interface DistributionBin { from: number; to: number; count: number }
 
 export interface TradeBreakdowns {
@@ -460,12 +467,20 @@ export function tradeBreakdowns(db: Db, f: AnalyticsFilter): TradeBreakdowns | n
   const rows = closes(db, f);
   if (rows.length === 0) return null;
 
+  const samples = new Map<string, number[]>();
   const acc = (map: Map<string, BreakdownRow>, key: string, r: ClosedTradeRow) => {
-    const cur = map.get(key) ?? { key, net: 0, trades: 0, wins: 0 };
+    const cur = map.get(key) ?? { key, net: 0, trades: 0, wins: 0, se: null };
     cur.net += r.realized;
     cur.trades++;
     if (r.realized > 0) cur.wins++;
     map.set(key, cur);
+    const id = `${map === byHour ? "h" : map === byDow ? "d" : map === bySymbol ? "s" : map === byVolume ? "v" : "t"}:${key}`;
+    const arr = samples.get(id) ?? [];
+    arr.push(r.realized);
+    samples.set(id, arr);
+  };
+  const fillSe = (map: Map<string, BreakdownRow>, prefix: string) => {
+    for (const row of map.values()) row.se = standardError(samples.get(`${prefix}:${row.key}`) ?? []);
   };
 
   const bySymbol = new Map<string, BreakdownRow>();
@@ -502,6 +517,12 @@ export function tradeBreakdowns(db: Db, f: AnalyticsFilter): TradeBreakdowns | n
     distribution[i]!.count++;
   }
 
+  fillSe(bySymbol, "s");
+  fillSe(byHour, "h");
+  fillSe(byDow, "d");
+  fillSe(byVolume, "v");
+  fillSe(holdTime, "t");
+
   const sortNet = (m: Map<string, BreakdownRow>) => [...m.values()].sort((a, b) => b.net - a.net);
   const sortKey = (m: Map<string, BreakdownRow>) => [...m.values()].sort((a, b) => (a.key < b.key ? -1 : 1));
   return {
@@ -512,6 +533,200 @@ export function tradeBreakdowns(db: Db, f: AnalyticsFilter): TradeBreakdowns | n
     holdTime: withEntry > 0 ? HOLD_BINS.map((b) => holdTime.get(b.key)).filter((x): x is BreakdownRow => !!x) : null,
     distribution,
   };
+}
+
+/** Sample standard error of the mean; null under 2 observations — never a fake 0. */
+function standardError(xs: number[]): number | null {
+  if (xs.length < 2) return null;
+  const mean = xs.reduce((a, b) => a + b, 0) / xs.length;
+  const sd = Math.sqrt(xs.reduce((a, b) => a + (b - mean) ** 2, 0) / (xs.length - 1));
+  return sd / Math.sqrt(xs.length);
+}
+
+export interface DowHourCell {
+  /** 0 = Monday … 6 = Sunday (UTC), matching the byDow ordering. */
+  dow: number;
+  /** UTC hour of the close, 0-23. */
+  hour: number;
+  n: number;
+  net: number;
+  mean: number;
+  /** Percentage 0-100. */
+  winRate: number;
+}
+
+/**
+ * Day-of-week × hour-of-day matrix over closed trades, bucketed by the CLOSE
+ * timestamp in UTC. Cells with no trades are omitted — consumers mask them,
+ * never interpolate. Exact sources only (deals, else trade.closed); null until
+ * one exists, like tradeBreakdowns.
+ */
+export function dowHourMatrix(db: Db, f: AnalyticsFilter): DowHourCell[] | null {
+  const rows = closes(db, f);
+  if (rows.length === 0) return null;
+  const cells = new Map<number, DowHourCell & { wins: number }>();
+  for (const r of rows) {
+    const d = new Date(r.ts);
+    const dow = (d.getUTCDay() + 6) % 7;
+    const hour = d.getUTCHours();
+    const k = dow * 24 + hour;
+    const cur = cells.get(k) ?? { dow, hour, n: 0, net: 0, mean: 0, winRate: 0, wins: 0 };
+    cur.n++;
+    cur.net += r.realized;
+    if (r.realized > 0) cur.wins++;
+    cells.set(k, cur);
+  }
+  return [...cells.values()]
+    .sort((a, b) => a.dow * 24 + a.hour - (b.dow * 24 + b.hour))
+    .map(({ wins, ...c }) => ({ ...c, mean: c.net / c.n, winRate: (wins / c.n) * 100 }));
+}
+
+export interface RollingPoint {
+  day: string;
+  /** Annualized (√252) Sharpe over the window's daily equity returns; null during warmup. */
+  sharpe: number | null;
+  /** Percentage of traded days in the window that were net-positive; null when none traded. */
+  winRate: number | null;
+  /** Mean net P&L per traded day in the window; null when none traded. */
+  meanNet: number | null;
+}
+
+/**
+ * Rolling edge-stability series over end-of-day equity. For each day in the
+ * equity series, the window is the last `windowDays` daily return observations
+ * ending that day; days with fewer observations report sharpe null — warmup is
+ * visible, not faked. Win rate and mean net come from dailyNets days falling
+ * inside the same window.
+ */
+export function rollingStats(db: Db, f: AnalyticsFilter, windowDays = 30): RollingPoint[] {
+  const win = Math.min(180, Math.max(7, Math.floor(windowDays)));
+  const snaps = series(db, f);
+  if (snaps.length === 0) return [];
+  const eqByDay = new Map<string, number>();
+  for (const s of snaps) eqByDay.set(utcDay(s.ts), s.equity);
+  const days = [...eqByDay.keys()].sort();
+  const nets = new Map(dailyNets(db, f).map((d) => [d.day, d.net]));
+
+  const rets: (number | null)[] = [null];
+  for (let i = 1; i < days.length; i++) {
+    const prev = eqByDay.get(days[i - 1]!)!;
+    rets.push(prev !== 0 ? eqByDay.get(days[i]!)! / prev - 1 : null);
+  }
+
+  return days.map((day, i) => {
+    const winRets = rets.slice(Math.max(1, i - win + 1), i + 1).filter((r): r is number => r != null);
+    let sharpe: number | null = null;
+    if (winRets.length >= win) {
+      const mean = winRets.reduce((a, b) => a + b, 0) / winRets.length;
+      const sd = Math.sqrt(winRets.reduce((a, b) => a + (b - mean) ** 2, 0) / (winRets.length - 1));
+      sharpe = sd > 0 ? (mean * 252) / (sd * Math.sqrt(252)) : null;
+    }
+    const winDays = days.slice(Math.max(0, i - win + 1), i + 1).filter((d) => nets.has(d));
+    const dayNets = winDays.map((d) => nets.get(d)!);
+    return {
+      day,
+      sharpe,
+      winRate: dayNets.length > 0 ? (dayNets.filter((n) => n > 0).length / dayNets.length) * 100 : null,
+      meanNet: dayNets.length > 0 ? dayNets.reduce((a, b) => a + b, 0) / dayNets.length : null,
+    };
+  });
+}
+
+export interface CostRow {
+  key: string;
+  grossProfit: number;
+  commission: number;
+  swap: number;
+  net: number;
+  trades: number;
+}
+
+export interface CostDecomposition { byMonth: CostRow[]; total: CostRow }
+
+/**
+ * Gross-vs-cost decomposition per UTC month of the closing leg. Deals source
+ * only — trade_closes rows carry realized with no cost split — so this is null
+ * for paper instances; the payload's absence tells the UI why.
+ */
+export function costDecomposition(db: Db, f: AnalyticsFilter): CostDecomposition | null {
+  if (!hasClosingDeals(db, f)) return null;
+  const cl = ["instance_id=@instanceId", "strategy_id=@strategyId", `entry IN ${OUT_LEGS}`];
+  if (f.from != null) cl.push("ts>=@from");
+  if (f.to != null) cl.push("ts<=@to");
+  const rows = db.prepare(
+    `SELECT strftime('%Y-%m', ts/1000, 'unixepoch') key,
+            SUM(profit) grossProfit,
+            SUM(COALESCE(commission,0)) commission,
+            SUM(COALESCE(swap,0)) swap,
+            SUM(profit + COALESCE(commission,0) + COALESCE(swap,0)) net,
+            COUNT(*) trades
+     FROM deals WHERE ${cl.join(" AND ")}
+     GROUP BY key ORDER BY key ASC`,
+  ).all(f) as CostRow[];
+  const total = rows.reduce(
+    (t, r) => ({
+      key: "total",
+      grossProfit: t.grossProfit + r.grossProfit,
+      commission: t.commission + r.commission,
+      swap: t.swap + r.swap,
+      net: t.net + r.net,
+      trades: t.trades + r.trades,
+    }),
+    { key: "total", grossProfit: 0, commission: 0, swap: 0, net: 0, trades: 0 },
+  );
+  return { byMonth: rows, total };
+}
+
+export interface ContributionRow {
+  key: string;
+  net: number;
+  trades: number;
+  /** Percentage 0-100. */
+  winRate: number;
+  /** Mean net per trade. */
+  expectancy: number;
+  /** Signed fraction of total net (net/totalNet); null when total is 0. */
+  share: number | null;
+}
+
+export interface ContributionRanking {
+  bySymbol: ContributionRow[];
+  byDirection: ContributionRow[];
+  totalNet: number;
+}
+
+/**
+ * Where the money comes from: ranked net contribution by symbol and by
+ * position direction, each row carrying expectancy and n so size-driven
+ * contribution is distinguishable from per-trade edge. share is signed —
+ * a profitable symbol inside a losing total reports a negative share.
+ */
+export function contributionRanking(db: Db, f: AnalyticsFilter): ContributionRanking | null {
+  const rows = closes(db, f);
+  if (rows.length === 0) return null;
+  const totalNet = rows.reduce((a, r) => a + r.realized, 0);
+  const build = (key: (r: ClosedTradeRow) => string): ContributionRow[] => {
+    const m = new Map<string, { net: number; trades: number; wins: number }>();
+    for (const r of rows) {
+      const k = key(r);
+      const cur = m.get(k) ?? { net: 0, trades: 0, wins: 0 };
+      cur.net += r.realized;
+      cur.trades++;
+      if (r.realized > 0) cur.wins++;
+      m.set(k, cur);
+    }
+    return [...m.entries()]
+      .map(([k, v]) => ({
+        key: k,
+        net: v.net,
+        trades: v.trades,
+        winRate: (v.wins / v.trades) * 100,
+        expectancy: v.net / v.trades,
+        share: totalNet !== 0 ? v.net / totalNet : null,
+      }))
+      .sort((a, b) => b.net - a.net);
+  };
+  return { bySymbol: build((r) => r.symbol), byDirection: build((r) => r.side), totalNet };
 }
 
 function walkPeriods(snaps: SnapRow[]): DrawdownPeriod[] {
