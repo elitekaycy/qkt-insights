@@ -599,7 +599,7 @@ export interface RollingPoint {
  * inside the same window.
  */
 export function rollingStats(db: Db, f: AnalyticsFilter, windowDays = 30): RollingPoint[] {
-  const win = Math.min(180, Math.max(7, Math.floor(windowDays)));
+  const win = Number.isFinite(windowDays) ? Math.min(180, Math.max(7, Math.floor(windowDays))) : 30;
   const snaps = series(db, f);
   if (snaps.length === 0) return [];
   const eqByDay = new Map<string, number>();
