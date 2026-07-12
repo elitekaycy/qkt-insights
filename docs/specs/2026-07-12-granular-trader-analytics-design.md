@@ -1,7 +1,7 @@
 # Granular trader analytics — edge, time, and attribution
 
 Date: 2026-07-12
-Status: proposed (research RFC — awaiting review)
+Status: Phase A implemented (feat-edge-analytics); Phase B/C proposed
 Driving ask: "as a trader I have analytical questions — which weekdays/hours
 are profitable, where do wins come from, does time-of-day contribute to edge —
 answered visually, accurately, quant-institutional."

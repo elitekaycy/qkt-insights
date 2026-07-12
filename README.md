@@ -34,7 +34,8 @@ InsightsSink   POST /ingest             single writer, one file
 - **Trades** — every fill, filterable by strategy and symbol.
 - **Logs** — engine logs shipped from qkt with level filters, full-text search, and a live tail.
 - **Search** — FTS5 full-text search across all events and logs: symbols, order ids, halt reasons, log text.
-- **Equity** — all strategies on one normalized comparison chart.
+- **Equity** — all strategies on one normalized comparison chart; drawdown periods shaded on the focused curve.
+- **Edge** — when a strategy makes money: day-of-week × hour P&L heatmap (UTC), weekday/hour bars with per-bucket n and ±SE, rolling Sharpe/win-rate stability, strategy-comparison radar. Buckets under 30 trades render greyed — thin slices are noise, and the UI says so.
 - **Single-admin auth** — username + password from env, hashed with argon2 at startup, signed httpOnly session cookie; ingest guarded by a bearer token.
 
 ## Quick start (Docker)
