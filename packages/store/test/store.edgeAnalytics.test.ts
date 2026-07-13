@@ -168,8 +168,8 @@ describe("costDecomposition", () => {
     roundTrip(db, 2, { openTs: june, closeTs: june + HOUR, profit: -4, commission: -0.5 });
     const c = costDecomposition(db, F)!;
     expect(c.byMonth).toEqual([
-      { key: "2026-05", grossProfit: 10, commission: -0.5, swap: -0.25, net: 9.25, trades: 1 },
-      { key: "2026-06", grossProfit: -4, commission: -0.5, swap: 0, net: -4.5, trades: 1 },
+      { key: "2026-05", grossProfit: 10, commission: -0.5, swap: -0.25, fee: 0, net: 9.25, trades: 1 },
+      { key: "2026-06", grossProfit: -4, commission: -0.5, swap: 0, fee: 0, net: -4.5, trades: 1 },
     ]);
     expect(c.total.net).toBeCloseTo(4.75);
     expect(c.total.net).toBeCloseTo(performanceReport(db, F).totalNet);

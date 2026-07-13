@@ -13,11 +13,16 @@ function replaceOrAppend<T>(list: T[], match: (x: T) => boolean, next: T): T[] {
 
 /** Folds a pushed state.* envelope into the cached snapshot so values tick instantly. */
 function applyEnvelope(prev: LiveStateSnapshot | undefined, e: LiveEnvelope): LiveStateSnapshot {
-  const snap = prev ?? { accounts: [], positions: [] };
+  const snap = prev ?? { accounts: [], positions: [], orders: [] };
   if (e.type === "state.account") {
     const p = e.payload as unknown as Omit<LiveAccount, "instanceId" | "lastSeen" | "stale">;
     const next: LiveAccount = { ...p, instanceId: e.instanceId, lastSeen: e.ts, stale: false };
     return { ...snap, accounts: replaceOrAppend(snap.accounts, (a) => a.instanceId === e.instanceId && a.broker === p.broker, next) };
+  }
+  if (e.type === "state.orders") {
+    const p = e.payload as unknown as { broker: string; orders: LiveStateSnapshot["orders"][number]["list"] };
+    const next = { instanceId: e.instanceId, broker: p.broker, at: e.ts, stale: false, list: p.orders };
+    return { ...snap, orders: replaceOrAppend(snap.orders, (g) => g.instanceId === e.instanceId && g.broker === p.broker, next) };
   }
   const p = e.payload as unknown as { broker: string; positions: LivePositionRow[] };
   const next: LivePositionGroup = { instanceId: e.instanceId, broker: p.broker, at: e.ts, stale: false, list: p.positions };
@@ -40,7 +45,7 @@ export function useLiveState(live: LiveEnvelope[] = []): UseQueryResult<LiveStat
   });
   const newest = live[0];
   useEffect(() => {
-    if (newest?.type === "state.account" || newest?.type === "state.positions") {
+    if (newest?.type === "state.account" || newest?.type === "state.positions" || newest?.type === "state.orders") {
       qc.setQueryData<LiveStateSnapshot>(["live-state"], (prev) => applyEnvelope(prev, newest));
     }
   }, [newest, qc]);
