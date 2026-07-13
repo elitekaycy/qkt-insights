@@ -129,9 +129,13 @@ the only encoding. Statistical honesty is a feature, not a caveat.
 - [x] Manual pass against the live prod DB copy: numbers on Edge page
       reconcile with existing Performance totals for the same filter
       (sum over heatmap cells == report net for the range).
-- [ ] Every new chart eyeballed in dark theme at 1280px and mobile width;
-      wide tables scroll in-panel. (NOT done in the implementing session —
-      no browser available; verify on first deploy or local `pnpm dev`.)
+- [x] Every new chart eyeballed in dark theme at 1280px and 390px width
+      (headless Chrome over a seeded 572-deal demo DB). Fixes that came out
+      of the pass: drawdown shading limited to the 5 deepest periods (all
+      periods red-washed the curve), rolling chart right-axis label
+      collision, heatmap scrolls inside its panel on mobile (min-w-0 on the
+      grid item so the page body never h-scrolls), radar nudged clear of
+      its legend.
 - [x] Spec status flipped to implemented-Phase-A; README feature list
       updated; this plan's boxes all checked.
 

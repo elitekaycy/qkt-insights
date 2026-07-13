@@ -90,10 +90,15 @@ export function Edge({ instanceId }: { instanceId: string | null }) {
         title="Day × hour P&L"
         hint={`close-time buckets, UTC · ${totalTrades} closed trades · cells under n=${MIN_N} desaturated`}
         stagger={0}
+        className="min-w-0"
       >
         <Loadable loading={perf.isPending} error={perf.isError} retry={() => perf.refetch()} what="the day × hour matrix" lines={6}>
           {cells && cells.length > 0
-            ? <div className="p-3"><DowHourHeatmap cells={cells} /></div>
+            ? (
+              <div className="overflow-x-auto p-3">
+                <div className="min-w-[860px]"><DowHourHeatmap cells={cells} /></div>
+              </div>
+            )
             : <Empty>No closed trades in this range — the heatmap needs exact per-trade data (broker deals or trade.closed).</Empty>}
         </Loadable>
       </Panel>

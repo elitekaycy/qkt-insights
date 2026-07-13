@@ -176,7 +176,14 @@ export function RollingChart({ points, height = 260 }: { points: RollingPoint[];
     xAxis: { type: "category", data: points.map((p) => p.day), ...qktChartAxis },
     yAxis: [
       { type: "value", name: "sharpe", ...qktChartAxis },
-      { type: "value", name: "win %", min: 0, max: 100, ...qktChartAxis, splitLine: { show: false } },
+      {
+        type: "value",
+        min: 0,
+        max: 100,
+        ...qktChartAxis,
+        axisLabel: { ...qktChartAxis.axisLabel, formatter: "{value}%" },
+        splitLine: { show: false },
+      },
     ],
     series: [
       { name: "rolling Sharpe", type: "line", showSymbol: false, connectNulls: false, data: points.map((p) => p.sharpe) },
@@ -277,6 +284,8 @@ export function StrategyRadar({ entries, height = 320 }: { entries: RadarEntry[]
     tooltip: qktChartTooltip(),
     legend: { top: 0, textStyle: { color: "#f2f4f6", fontFamily: MONO } },
     radar: {
+      center: ["50%", "58%"],
+      radius: "62%",
       indicator: axes.map((a) => ({ name: a.name, max: 1 })),
       axisName: { color: "#f2f4f6", fontFamily: MONO, fontSize: 10 },
       splitLine: { lineStyle: { color: "#22272d" } },
