@@ -174,6 +174,8 @@ describe("enriched qkt payloads", () => {
       payload: { source: "tradingview", symbols: ["XAUUSD"], state: "disconnected", reason: "source-disconnected", ts: base.ts } }).success).toBe(true);
     expect(EnvelopeSchema.safeParse({ ...base, type: "marketdata.reconnected",
       payload: { source: "tradingview", symbols: ["XAUUSD"], state: "reconnected", reason: "source-reconnected", ts: base.ts } }).success).toBe(true);
+    expect(EnvelopeSchema.safeParse({ ...base, type: "marketdata.stale",
+      payload: { source: "Composite", symbols: ["EXNESS:XAUUSD"], state: "stale", reason: "quote age exceeded threshold", ts: base.ts } }).success).toBe(true);
   });
 
   it("accepts durable position risk and portfolio projection payloads", () => {
