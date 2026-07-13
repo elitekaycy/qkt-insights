@@ -197,9 +197,9 @@ export function ingestEvents(db: Db, instanceId: string, events: Envelope[]): nu
   const insDeal = db.prepare(
     `INSERT OR IGNORE INTO deals
        (id, instance_id, broker, deal_ticket, position_ticket, order_ticket, symbol, side, entry,
-        qty, price, profit, commission, swap, magic, comment, strategy_id, ts,
-        qty_decimal, price_decimal, profit_decimal, commission_decimal, swap_decimal)
-     VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)`,
+        qty, price, profit, commission, swap, fee, magic, comment, strategy_id, ts,
+        qty_decimal, price_decimal, profit_decimal, commission_decimal, swap_decimal, fee_decimal)
+     VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)`,
   );
 
   const tx = db.transaction((evs: Envelope[]) => {
@@ -233,8 +233,9 @@ export function ingestEvents(db: Db, instanceId: string, events: Envelope[]): nu
         const strategyId = p.strategyId ?? resolveDealStrategy(db, instanceId, p.positionTicket ?? null, p.comment ?? null);
         const info = insDeal.run(e.id, instanceId, p.broker, p.dealTicket, p.positionTicket ?? null, p.orderTicket ?? null,
           p.symbol ?? null, p.side ?? null, p.entry ?? null, p.qty, p.price, p.profit, p.commission ?? null,
-          p.swap ?? null, p.magic ?? null, p.comment ?? null, strategyId, p.ts,
-          decimalText(p.qty), decimalText(p.price), decimalText(p.profit), decimalText(p.commission), decimalText(p.swap));
+          p.swap ?? null, p.fee ?? null, p.magic ?? null, p.comment ?? null, strategyId, p.ts,
+          decimalText(p.qty), decimalText(p.price), decimalText(p.profit), decimalText(p.commission), decimalText(p.swap),
+          decimalText(p.fee));
         if (info.changes === 0) {
           observeDuplicate(db, instanceId, e);
           // Re-ingested deal (the 30d backfill re-runs on every restart). If it

@@ -47,6 +47,22 @@ describe("POST /ingest", () => {
     expect(seen).toHaveLength(1);
   });
 
+  it("accepts the marketdata.stale lifecycle event emitted by qkt", async () => {
+    const res = await app.inject({
+      method: "POST", url: "/ingest",
+      headers: { authorization: "Bearer secret" },
+      payload: { instanceId: "qkt-prod", events: [
+        env({ type: "marketdata.stale", payload: {
+          source: "Composite", symbols: ["EXNESS:XAUUSD"], state: "stale",
+          reason: "quote age exceeded threshold", ts: 1718000000000,
+        } }),
+      ] },
+    });
+    expect(res.statusCode).toBe(200);
+    expect(res.json()).toMatchObject({ accepted: 1 });
+    expect(db.prepare("SELECT type FROM events").get()).toMatchObject({ type: "marketdata.stale" });
+  });
+
   it("returns ingest observations in the ack when a batch introduces a gap", async () => {
     const res = await app.inject({
       method: "POST", url: "/ingest",

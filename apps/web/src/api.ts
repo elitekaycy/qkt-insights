@@ -226,6 +226,27 @@ export interface LivePositionRow {
   swap?: number;
   openedAt?: number;
   strategyId?: string | null;
+  stopLoss?: number;
+  takeProfit?: number;
+  requestedStopLoss?: number;
+  requestedTakeProfit?: number;
+  magic?: number;
+  clientOrderId?: string;
+}
+export interface LivePendingOrderRow {
+  ticket: string;
+  symbol: string;
+  side: string;
+  orderType?: string;
+  qty: number;
+  price?: number;
+  stopLoss?: number;
+  takeProfit?: number;
+  expiresAt?: number;
+  createdAt?: number;
+  magic?: number;
+  clientOrderId?: string;
+  strategyId?: string | null;
 }
 export interface LivePositionGroup {
   instanceId: string;
@@ -237,6 +258,7 @@ export interface LivePositionGroup {
 export interface LiveStateSnapshot {
   accounts: LiveAccount[];
   positions: LivePositionGroup[];
+  orders: Array<{ instanceId: string; broker: string; at: number; stale: boolean; list: LivePendingOrderRow[] }>;
 }
 export interface DealRow {
   id: string;
@@ -252,6 +274,7 @@ export interface DealRow {
   profit: number | null;
   commission: number | null;
   swap: number | null;
+  fee: number | null;
   magic: number | null;
   comment: string | null;
   strategyId: string | null;
@@ -301,6 +324,7 @@ export interface CostRow {
   grossProfit: number;
   commission: number;
   swap: number;
+  fee: number;
   net: number;
   trades: number;
 }

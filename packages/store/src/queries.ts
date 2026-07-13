@@ -228,7 +228,8 @@ export function listLogs(db: Db, f: { instanceId: string; strategyId?: string; l
 export interface DealRow {
   id: string; broker: string; dealTicket: string; positionTicket: string | null; orderTicket: string | null;
   symbol: string | null; side: string | null; entry: string | null; qty: number | null; price: number | null;
-  profit: number | null; commission: number | null; swap: number | null; magic: number | null;
+  profit: number | null; commission: number | null; swap: number | null;
+  fee: number | null; magic: number | null;
   comment: string | null; strategyId: string | null; ts: number;
 }
 
@@ -238,7 +239,7 @@ export function listDeals(db: Db, f: { instanceId: string; strategyId?: string; 
   if (f.before != null) cl.push("ts<@before");
   return db.prepare(
     `SELECT id, broker, deal_ticket dealTicket, position_ticket positionTicket, order_ticket orderTicket,
-            symbol, side, entry, qty, price, profit, commission, swap, magic, comment, strategy_id strategyId, ts
+            symbol, side, entry, qty, price, profit, commission, swap, fee, magic, comment, strategy_id strategyId, ts
      FROM deals WHERE ${cl.join(" AND ")} ORDER BY ts DESC LIMIT @limit`,
   ).all(f) as DealRow[];
 }
