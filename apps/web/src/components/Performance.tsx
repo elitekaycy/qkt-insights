@@ -2,6 +2,7 @@ import { useState, type ReactNode } from "react";
 import type { ClosedTradeRow, DayNet, PerformanceBundle, PerformanceReport } from "../api";
 import { duration, money, num, tsDay } from "../format";
 import { EChart, type QktChartOption } from "./EChart";
+import { BucketBoxplot, ContributionBars, CostStack } from "./EdgeCharts";
 import { Cell, Empty, Panel, Pill, Row, Select, Stat, Table, type Tone } from "./ui";
 
 /*
@@ -825,4 +826,81 @@ function ChartShell({ title, hint, children }: { title: string; hint: string; ch
 /** Exact, per-close charts — only rendered once trade.closed data exists for the range. */
 export function TradeAnalysisPanels({ bundle }: { bundle: PerformanceBundle }) {
   return <TradeAnalysis bundle={bundle} />;
+}
+
+/** Weekday P&L samples for the box plots, oldest-first for stable ordering. */
+function weekdaySamples(closes: ClosedTradeRow[]): { key: string; values: number[] }[] {
+  const by = new Map<string, number[]>();
+  for (const c of closes) {
+    const key = WEEKDAYS[(new Date(c.ts).getUTCDay() + 6) % 7]!;
+    const arr = by.get(key) ?? [];
+    arr.push(c.realized);
+    by.set(key, arr);
+  }
+  return WEEKDAYS.filter((d) => by.has(d)).map((d) => ({ key: d, values: by.get(d)! }));
+}
+
+/**
+ * Cost, attribution, and dispersion panels fed by the edge-analytics bundle
+ * keys. Costs render only on deals-backed strategies (the split needs broker
+ * commission/swap columns); the absence itself is stated, not hidden.
+ */
+export function EdgeDetailPanels({ bundle }: { bundle: PerformanceBundle }) {
+  const costs = bundle.costs;
+  const contribution = bundle.contribution;
+  const boxGroups = weekdaySamples(bundle.closes);
+  if (!costs && !contribution && boxGroups.length === 0) return null;
+  return (
+    <div className="grid gap-5">
+      <div className="grid gap-5 xl:grid-cols-2">
+        <Panel title="Cost of trading" hint="gross profit vs commission vs swap, per UTC month" stagger={4}>
+          {costs && costs.byMonth.length > 0 ? (
+            <div className="grid gap-3 p-3">
+              <CostStack costs={costs} />
+              <div className="rounded-lg border border-line bg-ink/25">
+                <Table head={["", "Gross", "Commission", "Swap", "Net"]}>
+                  <Row>
+                    <Cell className="text-muted">total</Cell>
+                    <Cell className="font-mono text-up">{money(costs.total.grossProfit)}</Cell>
+                    <Cell className="font-mono text-down">{money(costs.total.commission)}</Cell>
+                    <Cell className={`font-mono ${costs.total.swap < 0 ? "text-down" : "text-muted"}`}>{money(costs.total.swap)}</Cell>
+                    <Cell className={`font-mono font-semibold ${costs.total.net >= 0 ? "text-up" : "text-down"}`}>{money(costs.total.net)}</Cell>
+                  </Row>
+                </Table>
+              </div>
+            </div>
+          ) : (
+            <Empty>Cost split needs broker deals — paper instances carry realized P&L without a commission/swap breakdown.</Empty>
+          )}
+        </Panel>
+        <Panel title="Where the money comes from" hint="net contribution by symbol · n labels · expectancy in tooltip" stagger={5}>
+          {contribution && contribution.bySymbol.length > 0 ? (
+            <div className="grid gap-3 p-3">
+              <ContributionBars ranking={contribution} />
+              <div className="rounded-lg border border-line bg-ink/25">
+                <Table head={["Symbol", "Net", "n", "Win", "Expectancy"]}>
+                  {contribution.bySymbol.map((r) => (
+                    <Row key={r.key}>
+                      <Cell className="font-semibold text-bright">{r.key}</Cell>
+                      <Cell className={`font-mono ${r.net >= 0 ? "text-up" : "text-down"}`}>{money(r.net)}</Cell>
+                      <Cell className="font-mono text-muted">{r.trades}</Cell>
+                      <Cell className="font-mono text-muted">{r.winRate.toFixed(0)}%</Cell>
+                      <Cell className={`font-mono ${r.expectancy >= 0 ? "text-up" : "text-down"}`}>{money(r.expectancy)}</Cell>
+                    </Row>
+                  ))}
+                </Table>
+              </div>
+            </div>
+          ) : (
+            <Empty>No closed trades to attribute yet.</Empty>
+          )}
+        </Panel>
+      </div>
+      {boxGroups.length > 0 && (
+        <Panel title="P&L dispersion by weekday" hint="box = quartiles, whiskers = min/max · UTC close day · grey under n=30" stagger={6}>
+          <div className="p-3"><BucketBoxplot groups={boxGroups} /></div>
+        </Panel>
+      )}
+    </div>
+  );
 }
