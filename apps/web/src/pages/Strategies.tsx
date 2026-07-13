@@ -13,6 +13,7 @@ import {
 import { age, money, num, pct, ts, tsDay } from "../format";
 import { buildCloseMap } from "../useCloses";
 import { useLiveState } from "../useLiveState";
+import { summarizePortfolio } from "../portfolio";
 
 /** Open P&L per strategy from the live broker positions of one instance, with a staleness flag. */
 function useOpenByStrategy(instanceId: string | null) {
@@ -77,6 +78,7 @@ export default function Strategies({
   onClearFocus?: () => void;
 }) {
   const [selected, setSelected] = useState<string | null>(focus);
+  const [selectedPortfolio, setSelectedPortfolio] = useState<string | null>(null);
 
   const strategies = useQuery({
     queryKey: ["strategies", instanceId],
@@ -109,58 +111,420 @@ export default function Strategies({
     return acc;
   }, new Map<string, StrategyRow[]>());
   const standalone = rows.filter((row) => !portfolioId(row));
-  const orderedRows = [...standalone, ...[...portfolioGroups.values()].flat()];
+  const portfolio =
+    selectedPortfolio == null
+      ? null
+      : (portfolioGroups.get(selectedPortfolio) ?? null);
+  if (selectedPortfolio && portfolio) {
+    return (
+      <PortfolioDetail
+        instanceId={instanceId}
+        portfolioId={selectedPortfolio}
+        children={portfolio}
+        onBack={() => setSelectedPortfolio(null)}
+        onSelectChild={(strategyId) => {
+          setSelectedPortfolio(null);
+          setSelected(strategyId);
+        }}
+      />
+    );
+  }
+
+  const portfolioEntries = [...portfolioGroups.entries()];
+  const childRows = portfolioEntries.flatMap(([, children]) => children);
   return (
     <div>
       <PageHeader
         title="Strategies"
         sub={`${standalone.length} standalone · ${portfolioGroups.size} portfolio${portfolioGroups.size === 1 ? "" : "s"} · ${rows.length} reported strategy rows`}
       />
-      <Loadable loading={strategies.isPending} error={strategies.isError} retry={() => strategies.refetch()} what="strategies">
-      <div className="mt-6 grid grid-cols-1 gap-4 md:grid-cols-2 xl:grid-cols-3">
-        {rows.length === 0 && <Card className="p-8 text-center text-faint md:col-span-2 xl:col-span-3">No strategies yet.</Card>}
-        {orderedRows.map((s, i) => {
-          const realized = s.realizedNet;
-          const open = live.open.get(s.strategyId) ?? (live.hasState ? 0 : null);
-          const net = realized == null && open == null ? null : (realized ?? 0) + (open ?? 0);
-          return (
-            <button key={s.strategyId} onClick={() => setSelected(s.strategyId)} className="group text-left">
-              <Card className="p-5 transition group-hover:border-accent/50 group-hover:bg-raised" stagger={i}>
-                <div className="flex items-start justify-between gap-3">
-                  <span className="min-w-0 truncate font-bold text-bright">{s.strategyId}</span>
-                  <span className="shrink-0 text-xs text-faint">{age(s.lastSeen)}</span>
-                </div>
-                <div className="mt-2 flex flex-wrap items-center gap-1.5">
-                  {strategyKind(s) === "portfolio_child" ? (
-                    <>
-                      <Pill tone="info">portfolio child</Pill>
-                      <Pill>{portfolioId(s)}</Pill>
-                      {portfolioAlias(s) && <Pill>{portfolioAlias(s)}</Pill>}
-                    </>
-                  ) : (
-                    <Pill>standalone</Pill>
-                  )}
-                </div>
-                {strategyMetaLine(s) && <div className="mt-1.5 truncate text-xs text-faint">{strategyMetaLine(s)}</div>}
-                <div className="mt-2.5 flex items-baseline gap-3" title="net P&L = realized + open (this strategy, on a shared account)">
-                  <span className={`font-mono text-2xl font-semibold ${net == null || live.stale ? "text-faint" : net >= 0 ? "text-up" : "text-down"}`}>
-                    {net == null ? "—" : `${net >= 0 ? "+" : "−"}${money(Math.abs(net))}`}
-                  </span>
-                  <ReturnPct net={net} base={s.startingBalance} dim={live.stale} />
-                </div>
-                <div className="mt-1 text-[11px] font-semibold uppercase tracking-[0.08em] text-faint">net P&L · this strategy</div>
-                <div className={`mt-1 text-xs ${live.stale ? "text-faint" : "text-muted"}`}>
-                  realized {money(realized)} · open {money(open)}
-                </div>
-                <div className="mt-0.5 text-[11px] text-faint">
-                  notional {money(s.startingBalance)} · {s.dealCount} deal{s.dealCount === 1 ? "" : "s"}
-                </div>
-              </Card>
-            </button>
-          );
-        })}
-      </div>
+      <Loadable
+        loading={strategies.isPending}
+        error={strategies.isError}
+        retry={() => strategies.refetch()}
+        what="strategies"
+      >
+        {rows.length === 0 && (
+          <Card className="mt-6 p-8 text-center text-faint">
+            No strategies yet.
+          </Card>
+        )}
+        {portfolioEntries.length > 0 && (
+          <section className="mt-6">
+            <h3 className="text-xs font-bold uppercase tracking-[0.1em] text-muted">
+              Portfolios
+            </h3>
+            <div className="mt-3 grid grid-cols-1 gap-4 md:grid-cols-2 xl:grid-cols-3">
+              {portfolioEntries.map(([id, children], i) => {
+                const summary = summarizePortfolio(
+                  id,
+                  children,
+                  live.open,
+                  live.hasState,
+                );
+                return (
+                  <button
+                    key={id}
+                    onClick={() => setSelectedPortfolio(id)}
+                    className="group text-left"
+                  >
+                    <Card
+                      className="h-full p-5 transition group-hover:border-accent/50 group-hover:bg-raised"
+                      stagger={i}
+                    >
+                      <div className="flex items-start justify-between gap-3">
+                        <span className="min-w-0 truncate font-bold text-bright">
+                          {id}
+                        </span>
+                        <span className="shrink-0 text-xs text-faint">
+                          {age(summary.lastSeen)}
+                        </span>
+                      </div>
+                      <div className="mt-2 flex flex-wrap items-center gap-1.5">
+                        <Pill tone="accent">portfolio</Pill>
+                        <Pill>{summary.childCount} children</Pill>
+                      </div>
+                      <div
+                        className="mt-2.5 flex items-baseline gap-3"
+                        title="allocated child capital plus child-attributed realized and open P&L"
+                      >
+                        <span
+                          className={`font-mono text-2xl font-semibold ${summary.portfolioEquity == null || live.stale ? "text-faint" : "text-bright"}`}
+                        >
+                          {money(summary.portfolioEquity)}
+                        </span>
+                        <ReturnPct
+                          net={summary.netPnl}
+                          base={summary.allocatedCapital}
+                          dim={live.stale}
+                        />
+                      </div>
+                      <div className="mt-1 text-[11px] font-semibold uppercase tracking-[0.08em] text-faint">
+                        portfolio equity · attributed
+                      </div>
+                      <div
+                        className={`mt-1 text-xs ${live.stale ? "text-faint" : "text-muted"}`}
+                      >
+                        net {money(summary.netPnl)} · realized{" "}
+                        {money(summary.realizedPnl)} · open{" "}
+                        {money(summary.openPnl)}
+                      </div>
+                      <div className="mt-0.5 text-[11px] text-faint">
+                        capital {money(summary.allocatedCapital)} ·{" "}
+                        {summary.dealCount} deal
+                        {summary.dealCount === 1 ? "" : "s"}
+                      </div>
+                    </Card>
+                  </button>
+                );
+              })}
+            </div>
+          </section>
+        )}
+        {standalone.length > 0 && (
+          <section className="mt-7">
+            <h3 className="text-xs font-bold uppercase tracking-[0.1em] text-muted">
+              Standalone strategies
+            </h3>
+            <div className="mt-3 grid grid-cols-1 gap-4 md:grid-cols-2 xl:grid-cols-3">
+              {standalone.map((s, i) => {
+                const realized = s.realizedNet;
+                const open =
+                  live.open.get(s.strategyId) ?? (live.hasState ? 0 : null);
+                const net =
+                  realized == null && open == null
+                    ? null
+                    : (realized ?? 0) + (open ?? 0);
+                return (
+                  <StrategyCard
+                    key={s.strategyId}
+                    row={s}
+                    net={net}
+                    open={open}
+                    liveStale={live.stale}
+                    stagger={i}
+                    onClick={() => setSelected(s.strategyId)}
+                  />
+                );
+              })}
+            </div>
+          </section>
+        )}
+        {childRows.length > 0 && (
+          <section className="mt-7">
+            <h3 className="text-xs font-bold uppercase tracking-[0.1em] text-muted">
+              Portfolio child strategies
+            </h3>
+            <div className="mt-3 grid grid-cols-1 gap-4 md:grid-cols-2 xl:grid-cols-3">
+              {childRows.map((s, i) => {
+                const realized = s.realizedNet;
+                const open =
+                  live.open.get(s.strategyId) ?? (live.hasState ? 0 : null);
+                const net =
+                  realized == null && open == null
+                    ? null
+                    : (realized ?? 0) + (open ?? 0);
+                return (
+                  <StrategyCard
+                    key={s.strategyId}
+                    row={s}
+                    net={net}
+                    open={open}
+                    liveStale={live.stale}
+                    stagger={i}
+                    onClick={() => setSelected(s.strategyId)}
+                  />
+                );
+              })}
+            </div>
+          </section>
+        )}
       </Loadable>
+    </div>
+  );
+}
+
+function StrategyCard({
+  row: s,
+  net,
+  open,
+  liveStale,
+  stagger,
+  onClick,
+}: {
+  row: StrategyRow;
+  net: number | null;
+  open: number | null;
+  liveStale: boolean;
+  stagger: number;
+  onClick: () => void;
+}) {
+  return (
+    <button onClick={onClick} className="group text-left">
+      <Card
+        className="h-full p-5 transition group-hover:border-accent/50 group-hover:bg-raised"
+        stagger={stagger}
+      >
+        <div className="flex items-start justify-between gap-3">
+          <span className="min-w-0 truncate font-bold text-bright">
+            {s.strategyId}
+          </span>
+          <span className="shrink-0 text-xs text-faint">{age(s.lastSeen)}</span>
+        </div>
+        <div className="mt-2 flex flex-wrap items-center gap-1.5">
+          {strategyKind(s) === "portfolio_child" ? (
+            <>
+              <Pill tone="info">portfolio child</Pill>
+              <Pill>{portfolioId(s)}</Pill>
+              {portfolioAlias(s) && <Pill>{portfolioAlias(s)}</Pill>}
+            </>
+          ) : (
+            <Pill>standalone</Pill>
+          )}
+        </div>
+        {strategyMetaLine(s) && (
+          <div className="mt-1.5 truncate text-xs text-faint">
+            {strategyMetaLine(s)}
+          </div>
+        )}
+        <div
+          className="mt-2.5 flex items-baseline gap-3"
+          title="net P&L = realized + open (this strategy, on a shared account)"
+        >
+          <span
+            className={`font-mono text-2xl font-semibold ${net == null || liveStale ? "text-faint" : net >= 0 ? "text-up" : "text-down"}`}
+          >
+            {net == null
+              ? "—"
+              : `${net >= 0 ? "+" : "−"}${money(Math.abs(net))}`}
+          </span>
+          <ReturnPct net={net} base={s.startingBalance} dim={liveStale} />
+        </div>
+        <div className="mt-1 text-[11px] font-semibold uppercase tracking-[0.08em] text-faint">
+          net P&L · this strategy
+        </div>
+        <div
+          className={`mt-1 text-xs ${liveStale ? "text-faint" : "text-muted"}`}
+        >
+          realized {money(s.realizedNet)} · open {money(open)}
+        </div>
+        <div className="mt-0.5 text-[11px] text-faint">
+          notional {money(s.startingBalance)} · {s.dealCount} deal
+          {s.dealCount === 1 ? "" : "s"}
+        </div>
+      </Card>
+    </button>
+  );
+}
+
+function PortfolioDetail({
+  instanceId,
+  portfolioId: id,
+  children,
+  onBack,
+  onSelectChild,
+}: {
+  instanceId: string;
+  portfolioId: string;
+  children: StrategyRow[];
+  onBack: () => void;
+  onSelectChild: (strategyId: string) => void;
+}) {
+  const live = useOpenByStrategy(instanceId);
+  const state = useLiveState();
+  const summary = summarizePortfolio(id, children, live.open, live.hasState);
+  const accounts = (state.data?.accounts ?? []).filter(
+    (account) => account.instanceId === instanceId,
+  );
+  const account = accounts.length === 1 ? accounts[0] : null;
+  return (
+    <div>
+      <button
+        onClick={onBack}
+        className="rise text-sm text-muted transition hover:text-body"
+      >
+        ← strategies
+      </button>
+      <PageHeader
+        title={id}
+        sub={`${summary.childCount} child strategies · ${summary.dealCount} attributed deals`}
+        right={<Pill tone="accent">portfolio</Pill>}
+      />
+      <div className="mt-6 grid grid-cols-2 gap-3 md:grid-cols-3 xl:grid-cols-6">
+        <Stat
+          label="Portfolio equity"
+          value={money(summary.portfolioEquity)}
+          sub="capital + attributed P&L"
+        />
+        <Stat
+          label="Net P&L"
+          value={money(summary.netPnl)}
+          tone={
+            summary.netPnl == null
+              ? "neutral"
+              : summary.netPnl >= 0
+                ? "up"
+                : "down"
+          }
+          sub="realized + open"
+        />
+        <Stat
+          label="Realized"
+          value={money(summary.realizedPnl)}
+          tone={summary.realizedPnl >= 0 ? "up" : "down"}
+          sub="closed child deals"
+        />
+        <Stat
+          label="Open"
+          value={money(summary.openPnl)}
+          tone={
+            summary.openPnl == null
+              ? "neutral"
+              : summary.openPnl >= 0
+                ? "up"
+                : "down"
+          }
+          sub={live.stale ? "broker state stale" : "attributed positions"}
+        />
+        <Stat
+          label="Allocated capital"
+          value={money(summary.allocatedCapital)}
+          sub="sum of child allocations"
+        />
+        <Stat
+          label="Broker account equity"
+          value={money(account?.equity)}
+          sub={
+            account
+              ? `${account.broker} · shared account`
+              : accounts.length > 1
+                ? "multiple broker accounts"
+                : "account state unavailable"
+          }
+        />
+      </div>
+      <div className="mt-6 grid gap-6 xl:grid-cols-[2fr_1fr]">
+        <Panel
+          title="Child contribution"
+          hint="click a strategy for full analytics"
+        >
+          <div className="overflow-x-auto">
+            <Table
+              head={[
+                "Strategy",
+                "Allocation",
+                "Weight",
+                "Realized",
+                "Open",
+                "Net",
+                "Deals",
+                "Last seen",
+              ]}
+            >
+              {children.map((child) => {
+                const allocation =
+                  metaNumber(child.metadata, "allocatedCapital") ??
+                  child.startingBalance;
+                const weight = metaNumber(child.metadata, "portfolioWeight");
+                const open =
+                  live.open.get(child.strategyId) ?? (live.hasState ? 0 : null);
+                const net =
+                  open == null ? null : (child.realizedNet ?? 0) + open;
+                return (
+                  <Row
+                    key={child.strategyId}
+                    onClick={() => onSelectChild(child.strategyId)}
+                  >
+                    <Cell>
+                      <div className="font-semibold text-bright">
+                        {child.strategyId}
+                      </div>
+                      {portfolioAlias(child) && (
+                        <div className="text-xs text-faint">
+                          {portfolioAlias(child)}
+                        </div>
+                      )}
+                    </Cell>
+                    <Cell className="font-mono">{money(allocation)}</Cell>
+                    <Cell className="font-mono">{pct(weight)}</Cell>
+                    <Cell className="font-mono">
+                      {money(child.realizedNet ?? 0)}
+                    </Cell>
+                    <Cell className="font-mono">{money(open)}</Cell>
+                    <Cell
+                      className={`font-mono font-semibold ${net == null || live.stale ? "text-faint" : net >= 0 ? "text-up" : "text-down"}`}
+                    >
+                      {money(net)}
+                    </Cell>
+                    <Cell className="font-mono">{child.dealCount}</Cell>
+                    <Cell className="whitespace-nowrap text-faint">
+                      {age(child.lastSeen)}
+                    </Cell>
+                  </Row>
+                );
+              })}
+            </Table>
+          </div>
+        </Panel>
+        <Panel title="Broker accounts" hint="shared venue truth">
+          <Table head={["Broker", "Currency", "Balance", "Equity"]}>
+            {accounts.length === 0 && (
+              <Empty colSpan={4}>Account state unavailable.</Empty>
+            )}
+            {accounts.map((a) => (
+              <Row key={a.broker}>
+                <Cell>
+                  <span className="font-semibold text-bright">{a.broker}</span>
+                  {a.stale && <div className="text-xs text-warn">stale</div>}
+                </Cell>
+                <Cell className="font-mono">{a.currency}</Cell>
+                <Cell className="font-mono">{money(a.balance)}</Cell>
+                <Cell className="font-mono">{money(a.equity)}</Cell>
+              </Row>
+            ))}
+          </Table>
+        </Panel>
+      </div>
     </div>
   );
 }
