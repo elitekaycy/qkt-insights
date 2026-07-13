@@ -858,12 +858,13 @@ export function EdgeDetailPanels({ bundle }: { bundle: PerformanceBundle }) {
             <div className="grid gap-3 p-3">
               <CostStack costs={costs} />
               <div className="rounded-lg border border-line bg-ink/25">
-                <Table head={["", "Gross", "Commission", "Swap", "Net"]}>
+                <Table head={["", "Gross", "Commission", "Swap", "Fee", "Net"]}>
                   <Row>
                     <Cell className="text-muted">total</Cell>
                     <Cell className="font-mono text-up">{money(costs.total.grossProfit)}</Cell>
                     <Cell className="font-mono text-down">{money(costs.total.commission)}</Cell>
                     <Cell className={`font-mono ${costs.total.swap < 0 ? "text-down" : "text-muted"}`}>{money(costs.total.swap)}</Cell>
+                    <Cell className={`font-mono ${costs.total.fee < 0 ? "text-down" : "text-muted"}`}>{money(costs.total.fee)}</Cell>
                     <Cell className={`font-mono font-semibold ${costs.total.net >= 0 ? "text-up" : "text-down"}`}>{money(costs.total.net)}</Cell>
                   </Row>
                 </Table>

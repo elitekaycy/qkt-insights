@@ -13,11 +13,26 @@ export interface LivePosition {
   ticket: string; symbol: string; side: string; qty: number;
   entryPrice: number; currentPrice?: number; profit?: number; swap?: number;
   openedAt?: number; strategyId?: string | null;
+  /** Venue-side protective levels (0/absent when none set at the broker). */
+  stopLoss?: number; takeProfit?: number;
+  /** What the engine asked for — differs from venue truth while a modify is in flight. */
+  requestedStopLoss?: number; requestedTakeProfit?: number;
+  magic?: number; clientOrderId?: string;
+}
+
+/** A resting (pending) order at the broker: limit/stop waiting to trigger. */
+export interface LivePendingOrder {
+  ticket: string; symbol: string; side: string; orderType?: string;
+  qty: number; price?: number;
+  stopLoss?: number; takeProfit?: number;
+  expiresAt?: number; createdAt?: number;
+  magic?: number; clientOrderId?: string; strategyId?: string | null;
 }
 
 export interface LiveStateSnapshot {
   accounts: Array<AccountState & { instanceId: string; stale: boolean }>;
   positions: Array<{ instanceId: string; broker: string; at: number; stale: boolean; list: LivePosition[] }>;
+  orders: Array<{ instanceId: string; broker: string; at: number; stale: boolean; list: LivePendingOrder[] }>;
 }
 
 function splitKey(key: string): [string, string] {
@@ -41,6 +56,7 @@ function decimalText(v: unknown): string | null {
 export class LiveStateStore {
   private accounts = new Map<string, AccountState>();
   private positions = new Map<string, { at: number; list: LivePosition[] }>();
+  private orders = new Map<string, { at: number; list: LivePendingOrder[] }>();
 
   /** Returns true when the visible state changed (drives WS broadcasts). */
   upsert(instanceId: string, e: Envelope): boolean {
@@ -63,8 +79,22 @@ export class LiveStateStore {
       const prev = this.positions.get(key);
       const list: LivePosition[] = p.positions.map((x: LivePosition) => ({ ticket: x.ticket, symbol: x.symbol, side: x.side,
         qty: x.qty, entryPrice: x.entryPrice, currentPrice: x.currentPrice, profit: x.profit, swap: x.swap,
-        openedAt: x.openedAt, strategyId: x.strategyId }));
+        openedAt: x.openedAt, strategyId: x.strategyId,
+        stopLoss: x.stopLoss, takeProfit: x.takeProfit,
+        requestedStopLoss: x.requestedStopLoss, requestedTakeProfit: x.requestedTakeProfit,
+        magic: x.magic, clientOrderId: x.clientOrderId }));
       this.positions.set(key, { at: e.ts, list });
+      return !prev || JSON.stringify(prev.list) !== JSON.stringify(list);
+    }
+    if (e.type === "state.orders") {
+      const p = e.payload;
+      const key = `${instanceId}:${p.broker}`;
+      const prev = this.orders.get(key);
+      const list: LivePendingOrder[] = p.orders.map((x: LivePendingOrder) => ({ ticket: x.ticket, symbol: x.symbol,
+        side: x.side, orderType: x.orderType, qty: x.qty, price: x.price,
+        stopLoss: x.stopLoss, takeProfit: x.takeProfit, expiresAt: x.expiresAt, createdAt: x.createdAt,
+        magic: x.magic, clientOrderId: x.clientOrderId, strategyId: x.strategyId }));
+      this.orders.set(key, { at: e.ts, list });
       return !prev || JSON.stringify(prev.list) !== JSON.stringify(list);
     }
     return false;
@@ -79,7 +109,11 @@ export class LiveStateStore {
       const [instanceId, broker] = splitKey(key);
       return { instanceId, broker, at: p.at, stale: now - p.at > staleAfterMs, list: p.list };
     });
-    return { accounts, positions };
+    const orders = [...this.orders.entries()].map(([key, o]) => {
+      const [instanceId, broker] = splitKey(key);
+      return { instanceId, broker, at: o.at, stale: now - o.at > staleAfterMs, list: o.list };
+    });
+    return { accounts, positions, orders };
   }
 
   /**

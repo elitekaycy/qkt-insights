@@ -122,8 +122,8 @@ export function hasClosingDeals(db: Db, f: { instanceId: string; strategyId: str
  * the closing leg. A position closed in parts yields one row per closing leg,
  * all sharing the same IN. side is the POSITION's direction (the IN side), not
  * the close leg's. realized counts only the closing leg's profit + commission +
- * swap: on this account opening legs carry zero commission, and charging the IN
- * leg to one of several partial closes would double-count it anyway.
+ * swap + fee: on this account opening legs carry zero commission, and charging
+ * the IN leg to one of several partial closes would double-count it anyway.
  */
 export function dealClosedTrades(db: Db, f: AnalyticsFilter): DealClosedTrade[] {
   const cl = ["o.instance_id=@instanceId", "o.strategy_id=@strategyId", `o.entry IN ${OUT_LEGS}`];
@@ -132,7 +132,7 @@ export function dealClosedTrades(db: Db, f: AnalyticsFilter): DealClosedTrade[] 
   const rows = db.prepare(
     `SELECT o.position_ticket orderId, o.symbol, o.side outSide, i.side inSide, o.qty,
             i.price entryPrice, o.price exitPrice, i.ts entryTs, o.ts ts,
-            o.profit + COALESCE(o.commission,0) + COALESCE(o.swap,0) realized,
+            o.profit + COALESCE(o.commission,0) + COALESCE(o.swap,0) + COALESCE(o.fee,0) realized,
             eo.order_id entryOrderId, xo.order_id exitOrderId
      FROM deals o
      LEFT JOIN deals i ON i.rowid = (
@@ -637,6 +637,7 @@ export interface CostRow {
   grossProfit: number;
   commission: number;
   swap: number;
+  fee: number;
   net: number;
   trades: number;
 }
@@ -658,7 +659,8 @@ export function costDecomposition(db: Db, f: AnalyticsFilter): CostDecomposition
             SUM(profit) grossProfit,
             SUM(COALESCE(commission,0)) commission,
             SUM(COALESCE(swap,0)) swap,
-            SUM(profit + COALESCE(commission,0) + COALESCE(swap,0)) net,
+            SUM(COALESCE(fee,0)) fee,
+            SUM(profit + COALESCE(commission,0) + COALESCE(swap,0) + COALESCE(fee,0)) net,
             COUNT(*) trades
      FROM deals WHERE ${cl.join(" AND ")}
      GROUP BY key ORDER BY key ASC`,
@@ -669,10 +671,11 @@ export function costDecomposition(db: Db, f: AnalyticsFilter): CostDecomposition
       grossProfit: t.grossProfit + r.grossProfit,
       commission: t.commission + r.commission,
       swap: t.swap + r.swap,
+      fee: t.fee + r.fee,
       net: t.net + r.net,
       trades: t.trades + r.trades,
     }),
-    { key: "total", grossProfit: 0, commission: 0, swap: 0, net: 0, trades: 0 },
+    { key: "total", grossProfit: 0, commission: 0, swap: 0, fee: 0, net: 0, trades: 0 },
   );
   return { byMonth: rows, total };
 }

@@ -198,7 +198,7 @@ export function CostStack({ costs, height = 260 }: { costs: CostDecomposition; h
   const rows = costs.byMonth;
   const option: QktChartOption = {
     backgroundColor: "transparent",
-    color: [UP, "#ffb86b", "#5cb8ff"],
+    color: [UP, "#ffb86b", "#5cb8ff", "#a78bfa"],
     grid: qktChartGrid,
     tooltip: {
       ...qktChartTooltip(),
@@ -207,7 +207,7 @@ export function CostStack({ costs, height = 260 }: { costs: CostDecomposition; h
         const list = params as { dataIndex: number }[];
         const r = rows[list[0]?.dataIndex ?? 0];
         if (!r) return "";
-        return `${r.key}<br/>gross ${money(r.grossProfit)}<br/>commission ${money(r.commission)}<br/>swap ${money(r.swap)}<br/><b>net ${money(r.net)}</b> · ${r.trades} closes`;
+        return `${r.key}<br/>gross ${money(r.grossProfit)}<br/>commission ${money(r.commission)}<br/>swap ${money(r.swap)}<br/>fee ${money(r.fee)}<br/><b>net ${money(r.net)}</b> · ${r.trades} closes`;
       },
     },
     legend: { top: 0, right: 0, textStyle: { color: "#f2f4f6", fontFamily: MONO } },
@@ -217,6 +217,7 @@ export function CostStack({ costs, height = 260 }: { costs: CostDecomposition; h
       { name: "gross", type: "bar", data: rows.map((r) => r.grossProfit), itemStyle: { color: UP, opacity: 0.9 } },
       { name: "commission", type: "bar", stack: "cost", data: rows.map((r) => r.commission), itemStyle: { color: "#ffb86b" } },
       { name: "swap", type: "bar", stack: "cost", data: rows.map((r) => r.swap), itemStyle: { color: "#5cb8ff" } },
+      { name: "fee", type: "bar", stack: "cost", data: rows.map((r) => r.fee), itemStyle: { color: "#a78bfa" } },
     ],
   };
   return <EChart option={option} height={height} />;
