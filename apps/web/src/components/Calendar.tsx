@@ -69,6 +69,7 @@ export function CalendarView({
 
   const year = month.slice(0, 4);
   const ytd = monthly.filter(([k]) => k.startsWith(year)).reduce((a, [, v]) => a + v.net, 0);
+  const monthlyMaxAbs = Math.max(0, ...monthly.map(([, v]) => Math.abs(v.net)));
 
   if (days.length === 0) {
     return (
@@ -154,7 +155,9 @@ export function CalendarView({
               }}
             >
               <Cell className="font-mono">{k}</Cell>
-              <Cell className={`font-mono ${netClass(v.net)}`}>{money(v.net)}</Cell>
+              <Cell className={`font-mono ${netClass(v.net)}`}>
+                <span className="rounded px-2 py-0.5" style={{ background: tint(v.net, monthlyMaxAbs) }}>{money(v.net)}</span>
+              </Cell>
               {startingBalance ? (
                 <Cell className="font-mono text-muted">{((v.net / startingBalance) * 100).toFixed(2)}%</Cell>
               ) : null}

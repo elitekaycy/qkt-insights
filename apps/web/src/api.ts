@@ -193,6 +193,11 @@ export interface PerformanceBundle {
   drawdownPeriods: DrawdownPeriod[];
   postLoss: PostLossRow[];
   closes: ClosedTradeRow[];
+  /** Edge analytics — present unless the request narrowed `include`. */
+  dowHour?: DowHourCell[] | null;
+  rolling?: RollingPoint[];
+  costs?: CostDecomposition | null;
+  contribution?: ContributionRanking | null;
 }
 export interface LiveAccount {
   instanceId: string;
@@ -265,6 +270,8 @@ export interface BreakdownRow {
   net: number;
   trades: number;
   wins: number;
+  /** Standard error of the mean per-trade P&L; null under 2 trades. */
+  se: number | null;
 }
 export interface TradeBreakdowns {
   bySymbol: BreakdownRow[];
@@ -273,4 +280,44 @@ export interface TradeBreakdowns {
   byVolume: BreakdownRow[];
   holdTime: BreakdownRow[] | null;
   distribution: { from: number; to: number; count: number }[];
+}
+export interface DowHourCell {
+  /** 0 = Monday … 6 = Sunday, UTC. */
+  dow: number;
+  hour: number;
+  n: number;
+  net: number;
+  mean: number;
+  winRate: number;
+}
+export interface RollingPoint {
+  day: string;
+  sharpe: number | null;
+  winRate: number | null;
+  meanNet: number | null;
+}
+export interface CostRow {
+  key: string;
+  grossProfit: number;
+  commission: number;
+  swap: number;
+  net: number;
+  trades: number;
+}
+export interface CostDecomposition {
+  byMonth: CostRow[];
+  total: CostRow;
+}
+export interface ContributionRow {
+  key: string;
+  net: number;
+  trades: number;
+  winRate: number;
+  expectancy: number;
+  share: number | null;
+}
+export interface ContributionRanking {
+  bySymbol: ContributionRow[];
+  byDirection: ContributionRow[];
+  totalNet: number;
 }

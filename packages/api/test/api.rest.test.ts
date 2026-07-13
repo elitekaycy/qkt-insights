@@ -121,6 +121,40 @@ describe("spec3 REST", () => {
   });
 });
 
+describe("edge analytics REST", () => {
+  const T0 = Date.UTC(2026, 4, 11);
+  function deal(ticket: string, entry: "IN" | "OUT", side: "BUY" | "SELL", ts: number, money: { profit?: number; commission?: number; swap?: number } = {}) {
+    return env({ strategyId: "latch", type: "broker.deal", ts, id: `deal-EX-${ticket}`, payload: {
+      broker: "EX", dealTicket: ticket, positionTicket: "900", symbol: "EX:XAUUSD", side, entry,
+      qty: 0.01, price: 4300, profit: money.profit ?? 0, commission: money.commission ?? 0,
+      swap: money.swap ?? 0, strategyId: "latch", ts,
+    } });
+  }
+
+  it("serves the new include keys with distinct cache entries", async () => {
+    ingestEvents(db, "qkt-prod", [
+      deal("1", "IN", "BUY", T0),
+      deal("2", "OUT", "SELL", T0 + 3_600_000, { profit: 10, commission: -0.5, swap: -0.25 }),
+    ]);
+    const body = (await get("/performance?instance=qkt-prod&strategy=latch&include=dowHour,rolling,costs,contribution")).json();
+    expect(body.report).toBeUndefined();
+    expect(body.dowHour).toEqual([{ dow: 0, hour: 1, n: 1, net: 9.25, mean: 9.25, winRate: 100 }]);
+    expect(body.costs.total).toMatchObject({ grossProfit: 10, commission: -0.5, swap: -0.25 });
+    expect(body.contribution.bySymbol[0]).toMatchObject({ key: "EX:XAUUSD", trades: 1 });
+    expect(Array.isArray(body.rolling)).toBe(true);
+    // A different include set must not reuse the cached bundle above.
+    const other = (await get("/performance?instance=qkt-prod&strategy=latch&include=dowHour")).json();
+    expect(other.costs).toBeUndefined();
+    expect(other.dowHour).toHaveLength(1);
+  });
+
+  it("tolerates a malformed rolling window parameter", async () => {
+    const res = await get("/performance?instance=qkt-prod&strategy=latch&include=rolling&window=abc");
+    expect(res.statusCode).toBe(200);
+    expect(Array.isArray(res.json().rolling)).toBe(true);
+  });
+});
+
 describe("broker state REST", () => {
   it("guards the new routes behind the session", async () => {
     for (const url of ["/live/state", "/deals?instance=qkt-prod", "/account/equity?instance=qkt-prod"]) {
