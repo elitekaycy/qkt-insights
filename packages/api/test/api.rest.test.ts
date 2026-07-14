@@ -136,12 +136,15 @@ describe("edge analytics REST", () => {
       deal("1", "IN", "BUY", T0),
       deal("2", "OUT", "SELL", T0 + 3_600_000, { profit: 10, commission: -0.5, swap: -0.25 }),
     ]);
-    const body = (await get("/performance?instance=qkt-prod&strategy=latch&include=dowHour,rolling,costs,contribution")).json();
+    const body = (await get("/performance?instance=qkt-prod&strategy=latch&include=dowHour,rolling,costs,contribution,normalized,excursions,execution")).json();
     expect(body.report).toBeUndefined();
     expect(body.dowHour).toEqual([{ dow: 0, hour: 1, n: 1, net: 9.25, mean: 9.25, winRate: 100 }]);
     expect(body.costs.total).toMatchObject({ grossProfit: 10, commission: -0.5, swap: -0.25 });
     expect(body.contribution.bySymbol[0]).toMatchObject({ key: "EX:XAUUSD", trades: 1 });
     expect(Array.isArray(body.rolling)).toBe(true);
+    expect(body.normalized).toMatchObject({ trades: 1, totalQty: 0.01, netPerUnit: 925 });
+    expect(body.excursions).toBeNull();
+    expect(body.execution).toMatchObject({ submitted: 0, accepted: 0, filled: 0, rejected: 0 });
     // A different include set must not reuse the cached bundle above.
     const other = (await get("/performance?instance=qkt-prod&strategy=latch&include=dowHour")).json();
     expect(other.costs).toBeUndefined();

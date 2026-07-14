@@ -1,0 +1,4 @@
+interface:
+  display_name: "QKT Insights Chart Design"
+  short_description: "Build clean, statistically honest trading charts"
+  default_prompt: "Use $qkt-insights-chart-design to add or refine a qkt-insights chart or dashboard widget."

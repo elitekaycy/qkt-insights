@@ -1,7 +1,7 @@
 import { useState, type ReactNode } from "react";
 import type { ClosedTradeRow, DayNet, PerformanceBundle, PerformanceReport } from "../api";
 import { duration, money, num, tsDay } from "../format";
-import { EChart, type QktChartOption } from "./EChart";
+import { EChart, qktChartAxis, qktChartGrid, qktChartTooltip, qktInsideZoom, type QktChartOption } from "./EChart";
 import { BucketBoxplot, ContributionBars, CostStack } from "./EdgeCharts";
 import { Cell, Empty, Panel, Pill, Row, Select, Stat, Table, type Tone } from "./ui";
 
@@ -593,49 +593,25 @@ function TradeAnalysis({ bundle }: { bundle: PerformanceBundle }) {
   const curveOption: QktChartOption = {
     backgroundColor: "transparent",
     color: ["#f2f4f6", "#3fe08c", "#5cb8ff"],
-    grid: ECHART_GRID,
-    tooltip: { ...tooltipBox(), trigger: "axis" },
-    legend: { top: 0, right: 0, textStyle: { color: "#f2f4f6", fontFamily: "JetBrains Mono, ui-monospace, monospace" } },
-    dataZoom: [
-      { type: "inside" },
-      {
-        type: "slider",
-        height: 16,
-        bottom: 4,
-        borderColor: "#22272d",
-        fillerColor: "rgba(200,247,74,0.18)",
-        textStyle: { color: "#f2f4f6", fontFamily: "JetBrains Mono, ui-monospace, monospace" },
-        handleStyle: { color: "#f2f4f6" },
-        moveHandleStyle: { color: "#f2f4f6" },
-      },
-    ],
-    xAxis: { type: "time", ...ECHART_AXIS },
-    yAxis: { type: "value", ...ECHART_AXIS },
+    grid: qktChartGrid,
+    tooltip: { ...qktChartTooltip(), trigger: "axis" },
+    dataZoom: qktInsideZoom(),
+    legend: { top: 0, right: 0, textStyle: { color: "#79828c", fontFamily: "Archivo, system-ui, sans-serif" } },
+    xAxis: { type: "time", ...qktChartAxis },
+    yAxis: { type: "value", splitNumber: 4, ...qktChartAxis },
     series: [
-      { name: "total", type: "line", showSymbol: false, smooth: true, data: curve.map((r) => [r.ts, r.total]) },
-      { name: "long", type: "line", showSymbol: false, smooth: true, data: curve.map((r) => [r.ts, r.long]) },
-      { name: "short", type: "line", showSymbol: false, smooth: true, data: curve.map((r) => [r.ts, r.short]) },
+      { name: "total", type: "line", showSymbol: false, smooth: false, data: curve.map((r) => [r.ts, r.total]) },
+      { name: "long", type: "line", showSymbol: false, smooth: false, data: curve.map((r) => [r.ts, r.long]) },
+      { name: "short", type: "line", showSymbol: false, smooth: false, data: curve.map((r) => [r.ts, r.short]) },
     ],
   };
   const groupedOption: QktChartOption = {
     backgroundColor: "transparent",
-    grid: ECHART_GRID,
-    tooltip: { ...tooltipBox(), trigger: "axis" },
-    dataZoom: groups.length > 12 ? [
-      { type: "inside" },
-      {
-        type: "slider",
-        height: 16,
-        bottom: 4,
-        borderColor: "#22272d",
-        fillerColor: "rgba(92,184,255,0.18)",
-        textStyle: { color: "#f2f4f6", fontFamily: "JetBrains Mono, ui-monospace, monospace" },
-        handleStyle: { color: "#f2f4f6" },
-        moveHandleStyle: { color: "#f2f4f6" },
-      },
-    ] : undefined,
-    xAxis: { type: "category", data: groups.map((g) => g.key), ...ECHART_AXIS },
-    yAxis: { type: "value", ...ECHART_AXIS },
+    grid: qktChartGrid,
+    tooltip: { ...qktChartTooltip(), trigger: "axis" },
+    dataZoom: groups.length > 12 ? qktInsideZoom() : undefined,
+    xAxis: { type: "category", data: groups.map((g) => g.key), ...qktChartAxis },
+    yAxis: { type: "value", splitNumber: 4, ...qktChartAxis },
     series: [
       {
         name: metricLabel(metric),
@@ -652,17 +628,17 @@ function TradeAnalysis({ bundle }: { bundle: PerformanceBundle }) {
   };
   const distributionOption: QktChartOption = {
     backgroundColor: "transparent",
-    grid: ECHART_GRID,
-    tooltip: { ...tooltipBox(), trigger: "axis" },
-    xAxis: { type: "category", data: dist.map((d) => money(d.midpoint)), ...ECHART_AXIS },
-    yAxis: { type: "value", ...ECHART_AXIS },
+    grid: qktChartGrid,
+    tooltip: { ...qktChartTooltip(), trigger: "axis" },
+    xAxis: { type: "category", data: dist.map((d) => money(d.midpoint)), ...qktChartAxis },
+    yAxis: { type: "value", splitNumber: 4, ...qktChartAxis },
     series: [{ name: "trades", type: "bar", data: dist.map((d) => d.count), itemStyle: { color: "#c8f74a", opacity: 0.8 } }],
   };
   const scatterOption: QktChartOption = {
     backgroundColor: "transparent",
-    grid: ECHART_GRID,
+    grid: qktChartGrid,
     tooltip: {
-      ...tooltipBox(),
+      ...qktChartTooltip(),
       trigger: "item",
       formatter: (params: unknown) => {
         const p = params as { data?: [number, number, string, string, number, number] };
@@ -671,8 +647,8 @@ function TradeAnalysis({ bundle }: { bundle: PerformanceBundle }) {
         return `${d[2]}<br/>${d[3]} · ${d[4]} lots<br/>held ${d[0].toFixed(1)}m<br/>P&L ${money(d[1])}`;
       },
     },
-    xAxis: { type: "value", name: "hold min", ...ECHART_AXIS },
-    yAxis: { type: "value", name: "P&L", ...ECHART_AXIS },
+    xAxis: { type: "value", name: "hold min", splitNumber: 4, ...qktChartAxis },
+    yAxis: { type: "value", name: "P&L", splitNumber: 4, ...qktChartAxis },
     series: [
       {
         name: "trade",
@@ -741,7 +717,7 @@ function TradeAnalysis({ bundle }: { bundle: PerformanceBundle }) {
 
           <div className="rounded-lg border border-line bg-ink/35 px-4 py-3 text-sm text-muted">
             Use the controls above to ask: which side, symbol, hour, lot, or holding-time bucket is actually carrying the edge?
-            Drag the bottom range slider or mouse-wheel over a chart to zoom.
+            Hold Shift and use the mouse wheel over a chart to zoom; drag to pan.
           </div>
 
           <div className="grid gap-5 xl:grid-cols-2">
@@ -782,24 +758,6 @@ function TradeAnalysis({ bundle }: { bundle: PerformanceBundle }) {
       )}
     </Panel>
   );
-}
-
-const ECHART_GRID = { left: 58, right: 22, top: 34, bottom: 44 };
-const ECHART_AXIS = {
-  axisLine: { lineStyle: { color: "var(--color-line)" } },
-  axisTick: { show: false },
-  axisLabel: { color: "#f2f4f6", fontFamily: "JetBrains Mono, ui-monospace, monospace", fontSize: 11 },
-  nameTextStyle: { color: "#f2f4f6", fontFamily: "JetBrains Mono, ui-monospace, monospace", fontSize: 11 },
-  splitLine: { lineStyle: { color: "var(--color-line)", type: "dashed" as const } },
-};
-
-function tooltipBox(): QktChartOption["tooltip"] {
-  return {
-    backgroundColor: "#191d21",
-    borderColor: "#2f363e",
-    borderWidth: 1,
-    textStyle: { color: "#f2f4f6", fontFamily: "JetBrains Mono, ui-monospace, monospace", fontSize: 12 },
-  };
 }
 
 function FilterField({ label, children }: { label: string; children: ReactNode }) {

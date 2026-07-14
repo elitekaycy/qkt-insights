@@ -1,9 +1,9 @@
-import { useState } from "react";
 import { useQueries, useQuery } from "@tanstack/react-query";
-import { get, type EquityPoint, type HealthRow, type PerformanceBundle, type StrategyRow, type StrategyStats } from "../api";
-import { ComparisonChart, type ComparisonSeries } from "../components/EquityChart";
+import { get, type DayNet, type EquityPoint, type HealthRow, type PerformanceBundle, type StrategyRow, type StrategyStats } from "../api";
+import type { ComparisonSeries } from "../components/EquityChart";
+import { OverviewDashboard } from "../components/OverviewDashboard";
 import { Sparkline } from "../components/Sparkline";
-import { Card, Cell, Empty, FlashValue, HoverExpand, LiveDot, Loadable, Modal, MoneyDelta, PageHeader, Panel, Pill, ReturnPct, Row, SideTag, Stat, Table } from "../components/ui";
+import { Card, Cell, Empty, FlashValue, LiveDot, Loadable, PageHeader, Panel, Pill, ReturnPct, Row, SideTag, Stat, Table } from "../components/ui";
 import { age, money, num, pct } from "../format";
 import { useLiveState } from "../useLiveState";
 import { useLiveStream } from "../useLiveStream";
@@ -13,6 +13,42 @@ const PALETTE = ["#c8f74a", "#5cb8ff", "#a78bfa", "#3fe08c", "#fbbf24", "#ff6b6b
 // Overview only needs broker state pushes for live account/position truth; raw
 // event inspection belongs on Logs/Search so payloads cannot stretch the layout.
 const FEED_TYPES = ["state.account", "state.positions"];
+
+function aggregateDaily(rows: DayNet[]): DayNet[] {
+  const byDay = new Map<string, DayNet>();
+  for (const row of rows) {
+    const current = byDay.get(row.day) ?? { day: row.day, net: 0, trades: 0 };
+    current.net += row.net;
+    current.trades += row.trades;
+    byDay.set(row.day, current);
+  }
+  return [...byDay.values()].sort((a, b) => a.day.localeCompare(b.day));
+}
+
+function aggregateRiskCap(rows: StrategyRow[], keys: string[]): number | null {
+  let cap = 0;
+  let found = false;
+  for (const row of rows) {
+    if (row.startingBalance == null || row.startingBalance <= 0 || row.metadata == null) continue;
+    const risk = row.metadata.risk;
+    const sources = [row.metadata, risk && typeof risk === "object" ? risk as Record<string, unknown> : null];
+    let raw: number | null = null;
+    for (const source of sources) {
+      if (!source) continue;
+      for (const key of keys) {
+        const value = source[key];
+        const parsed = typeof value === "number" ? value : typeof value === "string" ? Number(value) : NaN;
+        if (Number.isFinite(parsed) && parsed > 0) { raw = parsed; break; }
+      }
+      if (raw != null) break;
+    }
+    if (raw == null) continue;
+    const fraction = raw <= 1 ? raw : raw / 100;
+    cap += row.startingBalance * fraction;
+    found = true;
+  }
+  return found ? cap : null;
+}
 
 export default function Overview({
   instanceId,
@@ -55,15 +91,12 @@ export default function Overview({
 
   const live = useLiveStream(instanceId, 40, FEED_TYPES);
   const liveState = useLiveState(live);
-  const [heroOpen, setHeroOpen] = useState(false);
-
-  // Overview only needs each strategy's daily nets (for the day/week sums); ask the
-  // server for just that slice on a slow interval, not the whole analytics bundle.
+  // One bounded bundle per strategy feeds every account-level review widget.
   const perf = useQueries({
     queries: ids.map((id) => ({
       queryKey: ["perf-daily", instanceId, id],
       queryFn: () =>
-        get<Partial<PerformanceBundle>>(`/performance?instance=${encodeURIComponent(instanceId!)}&strategy=${encodeURIComponent(id)}&include=dailyNets`),
+        get<Partial<PerformanceBundle>>(`/performance?instance=${encodeURIComponent(instanceId!)}&strategy=${encodeURIComponent(id)}&include=dailyNets,report,closes,normalized,excursions,execution`),
       refetchInterval: 60000,
     })),
   });
@@ -76,25 +109,6 @@ export default function Overview({
     );
   }
 
-  // Day / week P&L summed across strategies from their daily nets (UTC days).
-  const today = new Date().toISOString().slice(0, 10);
-  const monday = (() => {
-    const d = new Date();
-    const dow = (d.getUTCDay() + 6) % 7;
-    return new Date(Date.now() - dow * 86_400_000).toISOString().slice(0, 10);
-  })();
-  // Sums only claim a number once every strategy's bundle has loaded —
-  // a partial sum rendered as "$0" reads as a fact, not a gap.
-  const perfReady = ids.length === 0 || (perf.length === ids.length && perf.every((q) => q.data));
-  let daySum = 0, weekSum = 0;
-  for (const q of perf) {
-    for (const dn of q.data?.dailyNets ?? []) {
-      if (dn.day === today) daySum += dn.net;
-      if (dn.day >= monday) weekSum += dn.net;
-    }
-  }
-  const dayPnl = perfReady ? daySum : null;
-  const weekPnl = perfReady ? weekSum : null;
   const accounts = (liveState.data?.accounts ?? []).filter((a) => a.instanceId === instanceId);
   const brokerPositions = (liveState.data?.positions ?? []).filter((p) => p.instanceId === instanceId);
 
@@ -102,7 +116,6 @@ export default function Overview({
   const accountEquity = accounts.length > 0 ? accounts.reduce((a, x) => a + x.equity, 0) : null;
   const accountBalance = accounts.length > 0 ? accounts.reduce((a, x) => a + x.balance, 0) : null;
   const accountOpenPnl = accounts.length > 0 ? accounts.reduce((a, x) => a + (x.openProfit ?? 0), 0) : null;
-  const accountsStale = accounts.length > 0 && accounts.every((a) => a.stale);
   const positionsStale = brokerPositions.length > 0 && brokerPositions.every((g) => g.stale);
   const openByStrategy = new Map<string, number>();
   for (const g of brokerPositions)
@@ -111,9 +124,6 @@ export default function Overview({
 
   // Per-strategy slice of everything the stat cards aggregate, for their breakdown modals.
   const perStrategy = ids.map((id, i) => {
-    const nets = perf[i]?.data?.dailyNets ?? [];
-    const dayRows = nets.filter((dn) => dn.day === today);
-    const weekRows = nets.filter((dn) => dn.day >= monday);
     const row = rows[i]!;
     const realized = row.realizedNet ?? stats[i]?.data?.realizedPnl ?? null;
     const open = openByStrategy.get(id) ?? (brokerPositions.length > 0 ? 0 : null);
@@ -125,65 +135,17 @@ export default function Overview({
       realized,
       open,
       net,
-      dayNet: dayRows.reduce((a, d) => a + d.net, 0),
-      dayTrades: dayRows.reduce((a, d) => a + d.trades, 0),
-      weekNet: weekRows.reduce((a, d) => a + d.net, 0),
-      weekTrades: weekRows.reduce((a, d) => a + d.trades, 0),
     };
   });
-  // Week P&L day-by-day across all strategies.
-  const weekDays = (() => {
-    const out = new Map<string, { net: number; trades: number }>();
-    for (const q of perf)
-      for (const dn of q.data?.dailyNets ?? []) {
-        if (dn.day < monday) continue;
-        const cur = out.get(dn.day) ?? { net: 0, trades: 0 };
-        cur.net += dn.net;
-        cur.trades += dn.trades;
-        out.set(dn.day, cur);
-      }
-    return [...out.entries()].sort();
-  })();
-
-  const pnlBreakdown = (kind: "day" | "week") => (
-    <div>
-      {kind === "week" && (
-        <Table head={["Day", "Net", "Fills"]}>
-          {weekDays.map(([day, v]) => (
-            <Row key={day}>
-              <Cell className="font-mono text-muted">{day}</Cell>
-              <Cell className={`font-mono ${v.net > 0 ? "text-up" : v.net < 0 ? "text-down" : "text-muted"}`}>{money(v.net)}</Cell>
-              <Cell className="font-mono text-muted">{v.trades}</Cell>
-            </Row>
-          ))}
-          {weekDays.length === 0 && <Empty colSpan={3}>No fills this week yet</Empty>}
-        </Table>
-      )}
-      <div className="border-t border-line px-4 pt-3 text-[11px] font-semibold uppercase tracking-[0.12em] text-muted first:border-t-0">
-        By strategy
-      </div>
-      <Table head={["Strategy", "Net", "Fills"]}>
-        {perStrategy.map((p) => {
-          const net = kind === "day" ? p.dayNet : p.weekNet;
-          const n = kind === "day" ? p.dayTrades : p.weekTrades;
-          return (
-            <Row key={p.id} onClick={() => onOpenStrategy(p.id)}>
-              <Cell className="font-semibold text-bright">{p.id}</Cell>
-              <Cell className={`font-mono ${net > 0 ? "text-up" : net < 0 ? "text-down" : "text-muted"}`}>{money(net)}</Cell>
-              <Cell className="font-mono text-muted">{n}</Cell>
-            </Row>
-          );
-        })}
-        {perStrategy.length === 0 && <Empty colSpan={3}>No strategies yet</Empty>}
-      </Table>
-    </div>
-  );
-
-  const statsReady = stats.length === ids.length && stats.every((q) => q.data);
-  const totalTrades = statsReady ? stats.reduce((acc, q) => acc + q.data!.tradeCount, 0) : null;
-  const realized = statsReady ? stats.reduce((acc, q) => acc + (q.data!.realizedPnl ?? 0), 0) : null;
   const totalAllocated = rows.reduce((a, s) => a + (s.startingBalance ?? 0), 0);
-  const liveInstances = (health.data ?? []).filter((h) => Date.now() - h.lastSeen < 30_000).length;
+  const combinedDaily = aggregateDaily(perf.flatMap((q) => q.data?.dailyNets ?? []));
+  const combinedCloses = perf.flatMap((q) => q.data?.closes ?? []);
+  const reports = perf.flatMap((q) => q.data?.report ? [q.data.report] : []);
+  const normalized = perf.flatMap((q) => q.data?.normalized ? [q.data.normalized] : []);
+  const excursions = perf.flatMap((q) => q.data?.excursions ? [q.data.excursions] : []);
+  const execution = perf.flatMap((q) => q.data?.execution ? [q.data.execution] : []);
+  const dailyLossCap = aggregateRiskCap(rows, ["maxDailyDrawdownPct", "maxDailyLossPct", "max_daily_drawdown_pct"]);
+  const drawdownCap = aggregateRiskCap(rows, ["maxDrawdownPct", "max_drawdown_pct"]);
 
   const series: ComparisonSeries[] = ids
     .map((id, i) => {
@@ -291,224 +253,35 @@ export default function Overview({
         </div>
       </div>
 
-      <div className="mt-6 grid grid-cols-1 gap-4 lg:grid-cols-3">
-        <Card className="group relative flex flex-col p-6 lg:col-span-2" stagger={0}>
-          <HoverExpand label="expand portfolio equity" onClick={() => setHeroOpen(true)} />
-          <div className="flex flex-wrap items-start justify-between gap-4">
-            <div>
-              <div className="text-[11px] font-semibold uppercase tracking-[0.14em] text-muted">Account equity</div>
-              <div className="mt-2 flex items-baseline gap-3">
-                <span className={`font-mono text-4xl font-bold tracking-tight sm:text-5xl ${accountsStale ? "text-faint" : "text-bright"}`}>
-                  <FlashValue value={accountEquity}>{money(accountEquity)}</FlashValue>
-                </span>
-                <MoneyDelta value={accountOpenPnl} dim={accountsStale} />
-              </div>
-              <div className="mt-1.5 text-sm text-faint">
-                {rows.length} strateg{rows.length === 1 ? "y" : "ies"} · balance {money(accountBalance)} · broker-reported
-              </div>
-            </div>
-            <div className="flex flex-wrap gap-2 pr-8">
-              {series.map((s) => (
-                <Pill key={s.strategyId}>
-                  <span className="inline-block h-2 w-2 rounded-full" style={{ background: s.color }} />
-                  {s.strategyId}
-                </Pill>
-              ))}
-            </div>
-          </div>
-          <div className="mt-4 min-h-[220px] flex-1">
-            <Loadable
-              loading={strategies.isPending || curves.some((q) => q.isPending)}
-              error={strategies.isError || curves.some((q) => q.isError)}
-              retry={() => {
-                void strategies.refetch();
-                curves.forEach((q) => void q.refetch());
-              }}
-              what="equity curves"
-              lines={4}
-            >
-              <ComparisonChart series={series} height="100%" />
-            </Loadable>
-          </div>
-        </Card>
-        <Modal open={heroOpen} onClose={() => setHeroOpen(false)} title="Account equity" hint={`${money(accountEquity)} across ${rows.length} strategies`}>
-          <div className="p-4">
-            <ComparisonChart series={series} height={380} />
-          </div>
-          <Table head={["Strategy", "Realized", "Open", "Net", "Day", "Week"]}>
-            {perStrategy.map((p) => (
-              <Row key={p.id} onClick={() => onOpenStrategy(p.id)}>
-                <Cell className="font-semibold text-bright">{p.id}</Cell>
-                <Cell className={`font-mono ${p.realized == null ? "text-muted" : p.realized >= 0 ? "text-up" : "text-down"}`}>{money(p.realized)}</Cell>
-                <Cell className={`font-mono ${positionsStale ? "text-faint" : "text-muted"}`}>{money(p.open)}</Cell>
-                <Cell>
-                  <MoneyDelta value={p.net} dim={positionsStale} />
-                </Cell>
-                <Cell className={`font-mono ${p.dayNet > 0 ? "text-up" : p.dayNet < 0 ? "text-down" : "text-muted"}`}>{money(p.dayNet)}</Cell>
-                <Cell className={`font-mono ${p.weekNet > 0 ? "text-up" : p.weekNet < 0 ? "text-down" : "text-muted"}`}>{money(p.weekNet)}</Cell>
-              </Row>
-            ))}
-          </Table>
-        </Modal>
-
-        <div className="grid content-start gap-4">
-          <div className="grid grid-cols-2 gap-4 sm:grid-cols-3 lg:grid-cols-2">
-            <Stat
-              label="Day P&L"
-              value={money(dayPnl)}
-              tone={dayPnl == null ? "neutral" : dayPnl > 0 ? "up" : dayPnl < 0 ? "down" : "neutral"}
-              sub="UTC today"
-              stagger={1}
-              expand={{ hint: `UTC ${today}`, content: pnlBreakdown("day") }}
-            />
-            <Stat
-              label="Week P&L"
-              value={money(weekPnl)}
-              tone={weekPnl == null ? "neutral" : weekPnl > 0 ? "up" : weekPnl < 0 ? "down" : "neutral"}
-              sub="since Monday"
-              stagger={1}
-              expand={{ hint: `since ${monday}`, content: pnlBreakdown("week") }}
-            />
-            <Stat
-              label="Realized PnL"
-              value={money(realized)}
-              tone={realized == null ? "neutral" : realized >= 0 ? "up" : "down"}
-              sub={
-                realized != null && totalAllocated > 0
-                  ? `${realized >= 0 ? "+" : "−"}${Math.abs((realized / totalAllocated) * 100).toFixed(1)}% of ${money(totalAllocated)} allocated`
-                  : undefined
-              }
-              stagger={2}
-              expand={{
-                hint: "closed P&L per strategy, all time",
-                content: (
-                  <Table head={["Strategy", "Realized", "Open", "Net"]}>
-                    {perStrategy.map((p) => (
-                      <Row key={p.id} onClick={() => onOpenStrategy(p.id)}>
-                        <Cell className="font-semibold text-bright">{p.id}</Cell>
-                        <Cell className={`font-mono ${p.realized == null ? "text-muted" : p.realized >= 0 ? "text-up" : "text-down"}`}>{money(p.realized)}</Cell>
-                        <Cell className={`font-mono ${positionsStale ? "text-faint" : "text-muted"}`}>{money(p.open)}</Cell>
-                        <Cell>
-                          <MoneyDelta value={p.net} dim={positionsStale} />
-                        </Cell>
-                      </Row>
-                    ))}
-                  </Table>
-                ),
-              }}
-            />
-            <Stat
-              label="Trades"
-              value={totalTrades == null ? "—" : String(totalTrades)}
-              stagger={2}
-              expand={{
-                hint: "fills per strategy",
-                content: (
-                  <Table head={["Strategy", "Fills", "Buys", "Sells", "Volume"]}>
-                    {perStrategy.map((p) => (
-                      <Row key={p.id} onClick={() => onOpenStrategy(p.id)}>
-                        <Cell className="font-semibold text-bright">{p.id}</Cell>
-                        <Cell className="font-mono">{p.stats?.tradeCount ?? "—"}</Cell>
-                        <Cell className="font-mono text-up">{p.stats?.buyCount ?? "—"}</Cell>
-                        <Cell className="font-mono text-down">{p.stats?.sellCount ?? "—"}</Cell>
-                        <Cell className="font-mono text-muted">{num(p.stats?.volume)}</Cell>
-                      </Row>
-                    ))}
-                  </Table>
-                ),
-              }}
-            />
-            <Stat
-              label="Strategies"
-              value={String(rows.length)}
-              stagger={3}
-              expand={{
-                hint: "click one to drill in",
-                content: (
-                  <Table head={["Strategy", "Net", "Win rate", "Sharpe", "Last seen"]}>
-                    {perStrategy.map((p) => (
-                      <Row key={p.id} onClick={() => onOpenStrategy(p.id)}>
-                        <Cell className="font-semibold text-bright">{p.id}</Cell>
-                        <Cell>
-                          <MoneyDelta value={p.net} dim={positionsStale} />
-                        </Cell>
-                        <Cell className="font-mono text-muted">{pct(p.stats?.winRate)}</Cell>
-                        <Cell className="font-mono text-muted">{num(p.stats?.sharpe)}</Cell>
-                        <Cell className="text-muted">{age(p.row.lastSeen)}</Cell>
-                      </Row>
-                    ))}
-                  </Table>
-                ),
-              }}
-            />
-            <Stat
-              label="Instances live"
-              value={`${liveInstances}/${(health.data ?? []).length}`}
-              tone={liveInstances > 0 ? "accent" : "neutral"}
-              stagger={3}
-              expand={{
-                hint: "live = event in the last 30s",
-                content: (
-                  <Table head={["Instance", "Status", "Last event", "Last seq", "Strategies"]}>
-                    {(health.data ?? []).map((h) => {
-                      const fresh = Date.now() - h.lastSeen < 30_000;
-                      return (
-                        <Row key={h.instanceId}>
-                          <Cell className="font-semibold text-bright">
-                            <span className="flex items-center gap-2.5">
-                              <LiveDot on={fresh} />
-                              {h.instanceId}
-                            </span>
-                          </Cell>
-                          <Cell>
-                            <Pill tone={fresh ? "up" : "neutral"}>{fresh ? "live" : "idle"}</Pill>
-                          </Cell>
-                          <Cell className="text-muted">{age(h.lastSeen)}</Cell>
-                          <Cell className="font-mono text-muted">{h.lastSeq}</Cell>
-                          <Cell className="font-mono text-muted">{h.strategies}</Cell>
-                        </Row>
-                      );
-                    })}
-                    {(health.data ?? []).length === 0 && <Empty colSpan={5}>No instances reporting yet</Empty>}
-                  </Table>
-                ),
-              }}
-            />
-          </div>
-
-          <Panel stagger={3} title="System" hint="live transport and collector state">
-            <div className="grid gap-3 p-4 text-sm">
-              <div className="flex items-center justify-between gap-4">
-                <span className="text-muted">Broker state push</span>
-                <span className="flex items-center gap-2 font-mono text-bright">
-                  <LiveDot on={live.length > 0} />
-                  {live.length > 0 ? `${live.length} recent` : "waiting"}
-                </span>
-              </div>
-              <div className="flex items-center justify-between gap-4">
-                <span className="text-muted">Instance heartbeat</span>
-                <span className="font-mono text-bright">
-                  {health.data?.find((h) => h.instanceId === instanceId)?.lastSeen == null
-                    ? "—"
-                    : age(health.data.find((h) => h.instanceId === instanceId)!.lastSeen)}
-                </span>
-              </div>
-              <div className="flex items-center justify-between gap-4">
-                <span className="text-muted">Collector queue</span>
-                <span className="font-mono text-bright">
-                  {health.data?.find((h) => h.instanceId === instanceId)?.insightsQueued ?? "—"}
-                </span>
-              </div>
-              <div className="flex items-center justify-between gap-4">
-                <span className="text-muted">Journal backlog</span>
-                <span className="font-mono text-bright">
-                  {health.data?.find((h) => h.instanceId === instanceId)?.insightsJournalPending ?? "—"}
-                </span>
-              </div>
-            </div>
-          </Panel>
-        </div>
-      </div>
+      <Loadable
+        loading={rows.length > 0 && (perf.some((query) => query.isPending) || curves.some((query) => query.isPending))}
+        error={perf.some((query) => query.isError) || curves.some((query) => query.isError)}
+        retry={() => { void Promise.all([...perf, ...curves].map((query) => query.refetch())); }}
+        what="overview analysis"
+        lines={8}
+      >
+        <OverviewDashboard
+          data={{
+            instanceId,
+            dailyNets: combinedDaily,
+            closes: combinedCloses,
+            reports,
+            normalized,
+            excursions,
+            execution,
+            series,
+            accountEquity,
+            accountBalance,
+            accountOpenPnl,
+            totalAllocated,
+            dailyLossCap,
+            drawdownCap,
+            health: health.data?.find((h) => h.instanceId === instanceId) ?? null,
+            recentStateEvents: live.length,
+            strategies: rows.length,
+          }}
+        />
+      </Loadable>
 
       <div className="mt-8">
         <div className="rise flex items-baseline justify-between" style={{ "--stagger": 3 } as React.CSSProperties}>
