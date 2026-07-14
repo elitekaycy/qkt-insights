@@ -1,7 +1,7 @@
 import { describe, it, expect } from "vitest";
 import {
   openDb, ingestEvents, dowHourMatrix, rollingStats, costDecomposition, contributionRanking,
-  tradeBreakdowns, performanceReport, type Db,
+  tradeBreakdowns, performanceReport, normalizedPerformance, excursionStats, executionQuality, type Db,
 } from "../src/index.js";
 import type { Envelope } from "@qkt-insights/contract";
 
@@ -212,5 +212,70 @@ describe("contributionRanking", () => {
     const db = openDb(":memory:");
     seedStrategy(db, 10000);
     expect(contributionRanking(db, F)).toBeNull();
+  });
+});
+
+describe("normalizedPerformance", () => {
+  it("reports result per traded unit and numeric planned reward/risk", () => {
+    const db = openDb(":memory:");
+    seedStrategy(db, 10000);
+    roundTrip(db, 1, { openTs: T0, closeTs: T0 + HOUR, profit: 10 });
+    roundTrip(db, 2, { openTs: T0 + HOUR, closeTs: T0 + 2 * HOUR, profit: -4 });
+    ingestEvents(db, "qkt-prod", [{
+      v: 1, instanceId: "qkt-prod", id: "planned-bracket", seq: ++seq, ts: T0,
+      strategyId: "hedge_straddle", type: "order.submit",
+      payload: { orderId: "planned", orderType: "Limit", symbol: "EXNESS:XAUUSD", side: "BUY", qty: 0.01,
+        entryPrice: 100, stopLoss: 99, takeProfit: 103 },
+    } as Envelope]);
+
+    expect(normalizedPerformance(db, F)).toEqual({
+      trades: 2,
+      totalQty: 0.02,
+      netPerUnit: 300,
+      averageQty: 0.01,
+      averagePlannedRiskReward: 3,
+      plannedRiskRewardSample: 1,
+    });
+  });
+});
+
+describe("excursionStats", () => {
+  it("derives sampled MAE, MFE, capture, and coverage from position valuations", () => {
+    const db = openDb(":memory:");
+    seedStrategy(db, 10000);
+    roundTrip(db, 1, { openTs: T0, closeTs: T0 + HOUR, profit: 6 });
+    roundTrip(db, 2, { openTs: T0, closeTs: T0 + 2 * HOUR, profit: -2 });
+    const insert = db.prepare(
+      `INSERT INTO position_valuations
+       (instance_id, broker, ticket, ts, symbol, side, qty, entry_price, current_price, profit, swap, strategy_id)
+       VALUES (?,?,?,?,?,?,?,?,?,?,?,?)`,
+    );
+    insert.run("qkt-prod", "EXNESS", "1", T0 + 100, "EXNESS:XAUUSD", "BUY", 0.01, 4300, 4298, -3, 0, "hedge_straddle");
+    insert.run("qkt-prod", "EXNESS", "1", T0 + 200, "EXNESS:XAUUSD", "BUY", 0.01, 4300, 4308, 10, 0, "hedge_straddle");
+
+    const result = excursionStats(db, F)!;
+    expect(result).toMatchObject({ closedTrades: 2, sampledTrades: 1, coveragePct: 50, averageMae: -3, averageMfe: 10, averageCapturePct: 60, sampled: true });
+    expect(result.rows[0]).toMatchObject({ ticket: "1", exitPnl: 6, mae: -3, mfe: 10, capturePct: 60, observations: 2 });
+  });
+});
+
+describe("executionQuality", () => {
+  it("reconstructs acceptance, rejection, fill latency, and adverse slippage", () => {
+    const db = openDb(":memory:");
+    seedStrategy(db, 10000);
+    const event = (id: string, type: Envelope["type"], ts: number, payload: Record<string, unknown>, strategyId?: string): Envelope => ({
+      v: 1, instanceId: "qkt-prod", id, seq: ++seq, ts, strategyId, type, payload,
+    } as Envelope);
+    ingestEvents(db, "qkt-prod", [
+      event("submit-1", "order.submit", T0, { orderId: "o1", orderType: "Market", symbol: "XAUUSD", side: "BUY", qty: 1, entryPrice: 100 }, "hedge_straddle"),
+      event("accepted-1", "order.accepted", T0 + 100, { orderId: "o1", brokerOrderId: "b1" }),
+      event("filled-1", "order.filled", T0 + 500, { orderId: "o1", brokerOrderId: "b1", symbol: "XAUUSD", price: 100.2, qty: 1 }),
+      event("submit-2", "order.submit", T0 + 1000, { orderId: "o2", orderType: "Market", symbol: "XAUUSD", side: "SELL", qty: 1, entryPrice: 101 }, "hedge_straddle"),
+      event("rejected-2", "order.rejected", T0 + 1050, { orderId: "o2", reason: "venue limit" }),
+    ]);
+
+    const result = executionQuality(db, F);
+    expect(result).toMatchObject({ submitted: 2, accepted: 1, filled: 1, rejected: 1, rejectionRate: 50, averageAcceptMs: 100, p95FillMs: 500, slippageSample: 1 });
+    expect(result.averageAdverseSlippage).toBeCloseTo(0.2);
   });
 });

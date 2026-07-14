@@ -33,6 +33,9 @@ always-read version.
 - SQLite uses `better-sqlite3`.
 - The app is a qkt observability dashboard with contract, collector, store, API,
   web UI, and server modes.
+- Before adding or materially changing a chart, dashboard widget, metric card,
+  or visualization layout, read and follow
+  `.claude/skills/qkt-insights-chart-design/SKILL.md`.
 
 ## TypeScript Rules
 

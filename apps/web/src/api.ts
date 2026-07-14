@@ -198,6 +198,9 @@ export interface PerformanceBundle {
   rolling?: RollingPoint[];
   costs?: CostDecomposition | null;
   contribution?: ContributionRanking | null;
+  normalized?: NormalizedPerformance;
+  excursions?: ExcursionStats | null;
+  execution?: ExecutionQuality;
 }
 export interface LiveAccount {
   instanceId: string;
@@ -344,4 +347,44 @@ export interface ContributionRanking {
   bySymbol: ContributionRow[];
   byDirection: ContributionRow[];
   totalNet: number;
+}
+export interface NormalizedPerformance {
+  trades: number;
+  totalQty: number;
+  netPerUnit: number | null;
+  averageQty: number | null;
+  averagePlannedRiskReward: number | null;
+  plannedRiskRewardSample: number;
+}
+export interface ExcursionRow {
+  ticket: string;
+  symbol: string;
+  side: string;
+  ts: number;
+  exitPnl: number;
+  mae: number;
+  mfe: number;
+  capturePct: number | null;
+  observations: number;
+}
+export interface ExcursionStats {
+  rows: ExcursionRow[];
+  closedTrades: number;
+  sampledTrades: number;
+  coveragePct: number;
+  averageMae: number;
+  averageMfe: number;
+  averageCapturePct: number | null;
+  sampled: true;
+}
+export interface ExecutionQuality {
+  submitted: number;
+  accepted: number;
+  filled: number;
+  rejected: number;
+  rejectionRate: number | null;
+  averageAcceptMs: number | null;
+  p95FillMs: number | null;
+  averageAdverseSlippage: number | null;
+  slippageSample: number;
 }

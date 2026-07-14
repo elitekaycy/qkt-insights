@@ -1,33 +1,16 @@
 import type { DrawdownPeriod, EquityPoint } from "../api";
-import { money } from "../format";
-import { EChart, qktChartAxis, qktChartGrid, qktChartTooltip, type QktChartOption } from "./EChart";
+import { compact, money } from "../format";
+import { chartColors, EChart, qktChartAxis, qktChartGrid, qktChartTooltip, qktInsideZoom, type QktChartOption } from "./EChart";
 
 function timeFmt(ms: number): string {
   return new Date(ms).toLocaleString("en-GB", { month: "short", day: "2-digit", hour: "2-digit", minute: "2-digit" });
-}
-
-function dataZoom(fill = "rgba(200,247,74,0.16)"): QktChartOption["dataZoom"] {
-  return [
-    { type: "inside", throttle: 50 },
-    {
-      type: "slider",
-      height: 16,
-      bottom: 4,
-      borderColor: "#22272d",
-      fillerColor: fill,
-      textStyle: { color: "#f2f4f6", fontFamily: "JetBrains Mono, ui-monospace, monospace" },
-      handleStyle: { color: "#f2f4f6" },
-      moveHandleStyle: { color: "#f2f4f6" },
-    },
-  ];
 }
 
 export function EquityChart({ points, shade, height = 260 }: { points: EquityPoint[]; shade?: DrawdownPeriod[]; height?: number }) {
   if (points.length === 0) {
     return <div className="flex h-40 items-center justify-center text-sm text-faint">No equity snapshots yet</div>;
   }
-  const up = points[points.length - 1]!.equity >= points[0]!.equity;
-  const color = up ? "#3fe08c" : "#ff6b6b";
+  const color = chartColors.primary;
   const lastTs = points[points.length - 1]!.ts;
   // Drawdown spans shaded peak → recovery (or the curve's end while still underwater).
   const markArea = shade && shade.length > 0
@@ -50,18 +33,18 @@ export function EquityChart({ points, shade, height = 260 }: { points: EquityPoi
         return `${timeFmt(first.value[0])}<br/>equity ${money(first.value[1])}`;
       },
     },
-    dataZoom: dataZoom(up ? "rgba(63,224,140,0.16)" : "rgba(255,107,107,0.16)"),
+    dataZoom: qktInsideZoom(),
     xAxis: { type: "time", ...qktChartAxis },
-    yAxis: { type: "value", scale: true, ...qktChartAxis },
+    yAxis: { type: "value", scale: true, splitNumber: 4, ...qktChartAxis, axisLabel: { ...qktChartAxis.axisLabel, formatter: (v: number) => compact(v) } },
     series: [
       {
         name: "equity",
         type: "line",
         showSymbol: false,
-        smooth: true,
+        smooth: false,
         data: points.map((p) => [p.ts, p.equity]),
         lineStyle: { color, width: 2 },
-        areaStyle: { color, opacity: 0.12 },
+        areaStyle: { color, opacity: 0.07 },
         markArea,
       },
     ],
@@ -104,14 +87,14 @@ export function ComparisonChart({ series, height = 320 }: { series: ComparisonSe
         ].join("<br/>");
       },
     },
-    dataZoom: dataZoom("rgba(92,184,255,0.16)"),
+    dataZoom: qktInsideZoom(),
     xAxis: { type: "time", ...qktChartAxis },
-    yAxis: { type: "value", scale: true, ...qktChartAxis, axisLabel: { ...qktChartAxis.axisLabel, formatter: "{value}%" } },
+    yAxis: { type: "value", scale: true, splitNumber: 4, ...qktChartAxis, axisLabel: { ...qktChartAxis.axisLabel, formatter: (v: number) => `${compact(v)}%` } },
     series: active.map((s) => ({
       name: s.strategyId,
       type: "line",
       showSymbol: false,
-      smooth: true,
+      smooth: false,
       data: s.points.map((p) => [p.ts, p.pct]),
       lineStyle: { width: 2 },
     })),
@@ -142,7 +125,7 @@ export function UnderwaterChart({ points, height = 180 }: { points: EquityPoint[
         return `${timeFmt(first.value[0])}<br/>drawdown ${Math.abs(first.value[1]).toFixed(2)}%`;
       },
     },
-    dataZoom: dataZoom("rgba(255,107,107,0.16)"),
+    dataZoom: qktInsideZoom(),
     xAxis: { type: "time", ...qktChartAxis },
     yAxis: { type: "value", max: 0, ...qktChartAxis, axisLabel: { ...qktChartAxis.axisLabel, formatter: "{value}%" } },
     series: [
@@ -150,7 +133,7 @@ export function UnderwaterChart({ points, height = 180 }: { points: EquityPoint[
         name: "drawdown",
         type: "line",
         showSymbol: false,
-        smooth: true,
+        smooth: false,
         data,
         lineStyle: { color: "#ff6b6b", width: 2 },
         areaStyle: { color: "#ff6b6b", opacity: 0.18 },
