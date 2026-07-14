@@ -1,5 +1,5 @@
 import type { FastifyInstance } from "fastify";
-import { listInstances, listStrategies, listOrders, listTrades, searchEvents, equityCurve, instanceHealth, listLogs, strategyStats, performanceReport, dailyNets, drawdownPeriods, postLossStats, tradeBreakdowns, closedTrades, listDeals, accountEquity, listIngestObservations, dowHourMatrix, rollingStats, costDecomposition, contributionRanking, type Db, type LiveStateStore } from "@qkt-insights/store";
+import { listInstances, listStrategies, listOrders, listTrades, searchEvents, equityCurve, instanceHealth, listLogs, strategyStats, performanceReport, dailyNets, drawdownPeriods, postLossStats, tradeBreakdowns, closedTrades, listDeals, accountEquity, listIngestObservations, dowHourMatrix, rollingStats, costDecomposition, contributionRanking, normalizedPerformance, excursionStats, executionQuality, type Db, type LiveStateStore } from "@qkt-insights/store";
 import { requireSession } from "./auth.js";
 import { TtlCache } from "./cache.js";
 
@@ -72,6 +72,9 @@ export function registerRest(app: FastifyInstance, deps: RestDeps): void {
       rolling: want("rolling") ? rollingStats(deps.db, f, q.window ? Number(q.window) : undefined) : undefined,
       costs: want("costs") ? costDecomposition(deps.db, f) : undefined,
       contribution: want("contribution") ? contributionRanking(deps.db, f) : undefined,
+      normalized: want("normalized") ? normalizedPerformance(deps.db, f) : undefined,
+      excursions: want("excursions") ? excursionStats(deps.db, f) : undefined,
+      execution: want("execution") ? executionQuality(deps.db, f) : undefined,
     }));
   });
 

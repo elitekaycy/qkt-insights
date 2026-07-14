@@ -732,6 +732,189 @@ export function contributionRanking(db: Db, f: AnalyticsFilter): ContributionRan
   return { bySymbol: build((r) => r.symbol), byDirection: build((r) => r.side), totalNet };
 }
 
+export interface NormalizedPerformance {
+  trades: number;
+  totalQty: number;
+  netPerUnit: number | null;
+  averageQty: number | null;
+  averagePlannedRiskReward: number | null;
+  plannedRiskRewardSample: number;
+}
+
+/** Size-normalized results plus planned price R:R from numeric bracket submits. */
+export function normalizedPerformance(db: Db, f: AnalyticsFilter): NormalizedPerformance {
+  const rows = closes(db, f);
+  const totalQty = rows.reduce((a, r) => a + Math.abs(r.qty), 0);
+  const totalNet = rows.reduce((a, r) => a + r.realized, 0);
+  const cl = ["instance_id=@instanceId", "type='order.submit'", "COALESCE(strategy_id,json_extract(payload,'$.strategyId'))=@strategyId"];
+  if (f.from != null) cl.push("ts>=@from");
+  if (f.to != null) cl.push("ts<=@to");
+  const submits = db.prepare(`SELECT payload FROM events WHERE ${cl.join(" AND ")}`).all(f) as { payload: string }[];
+  const planned: number[] = [];
+  for (const row of submits) {
+    const p = JSON.parse(row.payload) as Record<string, unknown>;
+    const entry = finite(p.entryPrice) ?? finite(p.limitPrice) ?? finite(p.stopPrice);
+    const stop = finite(p.stopLoss);
+    const target = finite(p.takeProfit);
+    if (entry == null || stop == null || target == null) continue;
+    const risk = Math.abs(entry - stop);
+    if (risk > 0) planned.push(Math.abs(target - entry) / risk);
+  }
+  return {
+    trades: rows.length,
+    totalQty,
+    netPerUnit: totalQty > 0 ? totalNet / totalQty : null,
+    averageQty: rows.length > 0 ? totalQty / rows.length : null,
+    averagePlannedRiskReward: planned.length > 0 ? planned.reduce((a, b) => a + b, 0) / planned.length : null,
+    plannedRiskRewardSample: planned.length,
+  };
+}
+
+export interface ExcursionRow {
+  ticket: string;
+  symbol: string;
+  side: string;
+  ts: number;
+  exitPnl: number;
+  mae: number;
+  mfe: number;
+  capturePct: number | null;
+  observations: number;
+}
+
+export interface ExcursionStats {
+  rows: ExcursionRow[];
+  closedTrades: number;
+  sampledTrades: number;
+  coveragePct: number;
+  averageMae: number;
+  averageMfe: number;
+  averageCapturePct: number | null;
+  sampled: true;
+}
+
+/**
+ * Sampled MAE/MFE from the broker position poll. Values between polls are not
+ * observed, so coverage and the sampled flag are part of the result contract.
+ */
+export function excursionStats(db: Db, f: AnalyticsFilter): ExcursionStats | null {
+  if (!hasClosingDeals(db, f)) return null;
+  const trades = dealClosedTrades(db, f);
+  const rows: ExcursionRow[] = [];
+  for (const trade of trades) {
+    if (!trade.orderId || trade.entryTs == null) continue;
+    const values = db.prepare(
+      `SELECT profit, ts FROM position_valuations
+       WHERE instance_id=? AND ticket=? AND ts>=? AND ts<=?
+         AND (strategy_id=? OR strategy_id IS NULL)
+       ORDER BY ts ASC`,
+    ).all(f.instanceId, trade.orderId, trade.entryTs, trade.ts, f.strategyId) as Array<{ profit: number | null; ts: number }>;
+    const pnl = values.map((x) => x.profit).filter((x): x is number => x != null && Number.isFinite(x));
+    if (pnl.length === 0) continue;
+    const mae = pnl.reduce((lowest, value) => Math.min(lowest, value), 0);
+    const mfe = pnl.reduce((highest, value) => Math.max(highest, value), 0);
+    rows.push({
+      ticket: trade.orderId,
+      symbol: trade.symbol,
+      side: trade.side,
+      ts: trade.ts,
+      exitPnl: trade.realized,
+      mae,
+      mfe,
+      capturePct: mfe > 0 ? (trade.realized / mfe) * 100 : null,
+      observations: pnl.length,
+    });
+  }
+  if (rows.length === 0) return null;
+  const captures = rows.map((x) => x.capturePct).filter((x): x is number => x != null && Number.isFinite(x));
+  return {
+    rows,
+    closedTrades: trades.length,
+    sampledTrades: rows.length,
+    coveragePct: trades.length > 0 ? (rows.length / trades.length) * 100 : 0,
+    averageMae: rows.reduce((a, x) => a + x.mae, 0) / rows.length,
+    averageMfe: rows.reduce((a, x) => a + x.mfe, 0) / rows.length,
+    averageCapturePct: captures.length > 0 ? captures.reduce((a, x) => a + x, 0) / captures.length : null,
+    sampled: true,
+  };
+}
+
+export interface ExecutionQuality {
+  submitted: number;
+  accepted: number;
+  filled: number;
+  rejected: number;
+  rejectionRate: number | null;
+  averageAcceptMs: number | null;
+  p95FillMs: number | null;
+  averageAdverseSlippage: number | null;
+  slippageSample: number;
+}
+
+/** Order lifecycle latency and price slippage reconstructed from stored events. */
+export function executionQuality(db: Db, f: AnalyticsFilter): ExecutionQuality {
+  const cl = ["instance_id=@instanceId", "type='order.submit'", "COALESCE(strategy_id,json_extract(payload,'$.strategyId'))=@strategyId"];
+  if (f.from != null) cl.push("ts>=@from");
+  if (f.to != null) cl.push("ts<=@to");
+  const submits = db.prepare(`SELECT ts, payload FROM events WHERE ${cl.join(" AND ")} ORDER BY ts`).all(f) as Array<{ ts: number; payload: string }>;
+  const events = db.prepare(
+    `SELECT type, ts, payload FROM events
+     WHERE instance_id=? AND type IN ('order.accepted','order.filled','order.partially_filled','order.rejected')
+     ORDER BY ts ASC`,
+  ).all(f.instanceId) as Array<{ type: string; ts: number; payload: string }>;
+  const byOrder = new Map<string, Array<{ type: string; ts: number; payload: Record<string, unknown> }>>();
+  for (const event of events) {
+    const payload = JSON.parse(event.payload) as Record<string, unknown>;
+    if (typeof payload.orderId !== "string") continue;
+    const list = byOrder.get(payload.orderId) ?? [];
+    list.push({ ...event, payload });
+    byOrder.set(payload.orderId, list);
+  }
+  const accepts: number[] = [], fills: number[] = [], slippage: number[] = [];
+  let accepted = 0, filled = 0, rejected = 0;
+  for (const submit of submits) {
+    const p = JSON.parse(submit.payload) as Record<string, unknown>;
+    if (typeof p.orderId !== "string") continue;
+    const lifecycle = (byOrder.get(p.orderId) ?? []).filter((x) => x.ts >= submit.ts);
+    const accept = lifecycle.find((x) => x.type === "order.accepted");
+    const fill = lifecycle.find((x) => x.type === "order.filled" || x.type === "order.partially_filled");
+    const reject = lifecycle.find((x) => x.type === "order.rejected");
+    if (accept) { accepted++; accepts.push(accept.ts - submit.ts); }
+    if (fill) {
+      filled++;
+      fills.push(fill.ts - submit.ts);
+      const expected = finite(p.entryPrice) ?? finite(p.limitPrice) ?? finite(p.stopPrice);
+      const actual = finite(fill.payload.price);
+      if (expected != null && actual != null && (p.side === "BUY" || p.side === "SELL")) {
+        slippage.push(p.side === "BUY" ? actual - expected : expected - actual);
+      }
+    }
+    if (reject) rejected++;
+  }
+  return {
+    submitted: submits.length,
+    accepted,
+    filled,
+    rejected,
+    rejectionRate: submits.length > 0 ? (rejected / submits.length) * 100 : null,
+    averageAcceptMs: accepts.length > 0 ? accepts.reduce((a, b) => a + b, 0) / accepts.length : null,
+    p95FillMs: percentile(fills, 0.95),
+    averageAdverseSlippage: slippage.length > 0 ? slippage.reduce((a, b) => a + b, 0) / slippage.length : null,
+    slippageSample: slippage.length,
+  };
+}
+
+function finite(value: unknown): number | null {
+  const parsed = typeof value === "number" ? value : typeof value === "string" ? Number(value) : NaN;
+  return Number.isFinite(parsed) ? parsed : null;
+}
+
+function percentile(values: number[], q: number): number | null {
+  if (values.length === 0) return null;
+  const sorted = [...values].sort((a, b) => a - b);
+  return sorted[Math.min(sorted.length - 1, Math.ceil(sorted.length * q) - 1)]!;
+}
+
 function walkPeriods(snaps: SnapRow[]): DrawdownPeriod[] {
   const out: DrawdownPeriod[] = [];
   let peak = snaps[0]!.equity, peakTs = snaps[0]!.ts, inDd = false, trough = 0, troughTs = 0;

@@ -70,3 +70,6 @@ If you catch yourself writing "new", "old", "legacy", "wrapper", "unified", "enh
 
 - Node project, uses `pnpm`. Tests with Vitest. SQLite via better-sqlite3.
 - TypeScript strict. No `any` in exported signatures.
+- Before adding or materially changing a chart, dashboard widget, metric card,
+  or visualization layout, read and follow
+  `.claude/skills/qkt-insights-chart-design/SKILL.md`.
