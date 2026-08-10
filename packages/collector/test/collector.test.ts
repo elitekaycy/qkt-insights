@@ -63,7 +63,7 @@ describe("POST /ingest", () => {
     expect(db.prepare("SELECT type FROM events").get()).toMatchObject({ type: "marketdata.stale" });
   });
 
-  it("returns ingest observations in the ack when a batch introduces a gap", async () => {
+  it("does not report producer-local sequence gaps as delivery loss", async () => {
     const res = await app.inject({
       method: "POST", url: "/ingest",
       headers: { authorization: "Bearer secret" },
@@ -73,9 +73,7 @@ describe("POST /ingest", () => {
       ] },
     });
     expect(res.statusCode).toBe(200);
-    expect(res.json().ack.observations).toMatchObject([
-      { kind: "gap", eventId: "e3", seq: 3, previousSeq: 1, expectedSeq: 2 },
-    ]);
+    expect(res.json().ack.observations).toEqual([]);
   });
 
   it("routes state.* into the live store, never the db, and still publishes", async () => {

@@ -25,37 +25,6 @@ const OBS_SQL =
      (instance_id, kind, event_id, type, seq, previous_seq, expected_seq, ts, detail)
    VALUES (@instanceId,@kind,@eventId,@type,@seq,@previousSeq,@expectedSeq,@ts,@detail)`;
 
-function observeSeq(db: Db, instanceId: string, e: { id?: string; type?: string; seq: number; ts: number }): void {
-  if (e.seq <= 0) return;
-  const row = db.prepare("SELECT last_seq lastSeq FROM instances WHERE id=?").get(instanceId) as { lastSeq: number } | undefined;
-  if (!row) return;
-  if (e.seq > row.lastSeq + 1) {
-    db.prepare(OBS_SQL).run({
-      instanceId,
-      kind: "gap",
-      eventId: e.id ?? null,
-      type: e.type ?? null,
-      seq: e.seq,
-      previousSeq: row.lastSeq,
-      expectedSeq: row.lastSeq + 1,
-      ts: e.ts,
-      detail: null,
-    });
-  } else if (e.seq < row.lastSeq) {
-    db.prepare(OBS_SQL).run({
-      instanceId,
-      kind: "regression",
-      eventId: e.id ?? null,
-      type: e.type ?? null,
-      seq: e.seq,
-      previousSeq: row.lastSeq,
-      expectedSeq: null,
-      ts: e.ts,
-      detail: null,
-    });
-  }
-}
-
 function observeDuplicate(db: Db, instanceId: string, e: Envelope): void {
   db.prepare(OBS_SQL).run({
     instanceId,
@@ -84,7 +53,6 @@ function decimalText(v: unknown): string | null {
  * so Health reads the live poller, not the last trade hours ago.
  */
 export function touchInstance(db: Db, instanceId: string, ts: number, seq: number): void {
-  observeSeq(db, instanceId, { type: "state.*", seq, ts });
   db.prepare(UP_INSTANCE_SQL).run({ id: instanceId, ts, seq });
 }
 
@@ -209,7 +177,6 @@ export function ingestEvents(db: Db, instanceId: string, events: Envelope[]): nu
   const tx = db.transaction((evs: Envelope[]) => {
     let accepted = 0;
     for (const e of evs) {
-      observeSeq(db, instanceId, e);
       // Logs are high-volume operational data, not trading history: they get their
       // own table + FTS index and stay out of the events record.
       if (e.type === "log") {
@@ -333,10 +300,10 @@ function resolveDealStrategy(db: Db, instanceId: string, positionTicket: string 
   return null;
 }
 
-// Events can reach the collector out of seq order (qkt's bus dispatch is re-entrant:
-// a paper fill publishes inside the submit's dispatch, so the sink sees the fill first).
-// The fold therefore keys authority on seq: only an event with seq >= the last applied
-// one may change state; older stragglers just backfill fields the row is missing.
+// Events can reach the collector out of order because qkt's bus dispatch is re-entrant,
+// and bus sequences restart for each strategy session. Event time is authoritative
+// across sessions; seq breaks ties within one clock instant. Older stragglers only
+// backfill fields the row is missing.
 function foldOrder(db: Db, instanceId: string, e: Envelope): void {
   const state = ORDER_STATE[e.type];
   if (!state) return;
@@ -359,7 +326,7 @@ function foldOrder(db: Db, instanceId: string, e: Envelope): void {
        VALUES (@i,@o,@s,@sym,@side,@t,@st,@qty,@cum,@avg,@b,@ts,@ts,@seq,@qtyDecimal,@cumDecimal,@avgDecimal)`,
     ).run({ ...fields, st: state, cum: cumFinal, seq: e.seq,
       qtyDecimal: decimalText(fields.qty), cumDecimal: decimalText(cumFinal), avgDecimal: decimalText(fields.avg) });
-  } else if (e.seq >= existing.last_event_seq) {
+  } else if (e.ts > existing.updated_ts || (e.ts === existing.updated_ts && e.seq >= existing.last_event_seq)) {
     db.prepare(
       `UPDATE orders SET state=@st, cum_qty=@cum, last_event_seq=@seq, updated_ts=@ts,
          strategy_id=COALESCE(strategy_id,@s), symbol=COALESCE(symbol,@sym), side=COALESCE(side,@side),

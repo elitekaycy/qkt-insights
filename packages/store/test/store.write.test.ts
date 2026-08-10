@@ -99,7 +99,7 @@ describe("ingestEvents", () => {
     expect(db.prepare("SELECT COUNT(*) c FROM events").get()).toMatchObject({ c: 1 });
   });
 
-  it("records seq gaps, regressions, and duplicate observations", () => {
+  it("records duplicate observations without treating producer-local seq as delivery continuity", () => {
     const db = openDb(":memory:");
     const trade = (id: string, seq: number) => env({
       id, seq, type: "trade",
@@ -107,8 +107,6 @@ describe("ingestEvents", () => {
     });
     ingestEvents(db, "qkt-prod", [trade("e1", 1), trade("e3", 3), trade("e2", 2), trade("e3", 3)]);
     expect(db.prepare("SELECT kind, event_id eventId, seq, previous_seq previousSeq, expected_seq expectedSeq FROM ingest_observations ORDER BY id").all()).toEqual([
-      { kind: "gap", eventId: "e3", seq: 3, previousSeq: 1, expectedSeq: 2 },
-      { kind: "regression", eventId: "e2", seq: 2, previousSeq: 3, expectedSeq: null },
       { kind: "duplicate", eventId: "e3", seq: 3, previousSeq: null, expectedSeq: null },
     ]);
   });
@@ -252,6 +250,23 @@ describe("foldOrder out-of-order delivery", () => {
     expect(row.qty).toBe(0.1);
     expect(row.strategy_id).toBe("latch");
     expect(row.avg_price).toBe(2350);
+  });
+
+  it("accepts a later lifecycle event after the producer sequence restarts", () => {
+    const db = openDb(":memory:");
+    ingestEvents(db, "qkt-prod", [
+      env({ seq: 99, ts: 1718000000000, type: "order.submit", payload: {
+        orderId: "o1", orderType: "Market", symbol: "XAUUSD", side: "BUY", qty: 0.1,
+      } }),
+      env({ seq: 1, ts: 1718000001000, type: "order.filled", payload: {
+        orderId: "o1", brokerOrderId: "b1", symbol: "XAUUSD", price: 2350, qty: 0.1,
+      } }),
+    ]);
+
+    const row: any = db.prepare("SELECT * FROM orders WHERE order_id='o1'").get();
+    expect(row.state).toBe("FILLED");
+    expect(row.last_event_seq).toBe(1);
+    expect(row.updated_ts).toBe(1718000001000);
   });
 });
 

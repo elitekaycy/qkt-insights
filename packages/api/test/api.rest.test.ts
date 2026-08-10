@@ -222,14 +222,14 @@ describe("broker state REST", () => {
   });
 });
 
-describe("ingest repair REST", () => {
-  it("serves persisted ingest observations for repair planning", async () => {
-    ingestEvents(db, "qkt-prod", [
-      env({ id: "gap-1", seq: 10, type: "trade",
-        payload: { orderId: "gap-1", symbol: "XAUUSD", side: "BUY", price: 2350, qty: 0.1, ts: 1718000000000 } }),
-    ]);
+describe("ingest observations REST", () => {
+  it("serves persisted duplicate observations", async () => {
+    const duplicate = env({ id: "duplicate-1", seq: 10, type: "trade",
+      payload: { orderId: "duplicate-1", symbol: "XAUUSD", side: "BUY", price: 2350, qty: 0.1, ts: 1718000000000 } });
+    ingestEvents(db, "qkt-prod", [duplicate]);
+    ingestEvents(db, "qkt-prod", [duplicate]);
     expect((await get("/ingest/observations")).statusCode).toBe(400);
-    const rows = (await get("/ingest/observations?instance=qkt-prod&kind=gap")).json();
-    expect(rows[0]).toMatchObject({ kind: "gap", eventId: "gap-1", expectedSeq: 2 });
+    const rows = (await get("/ingest/observations?instance=qkt-prod&kind=duplicate")).json();
+    expect(rows[0]).toMatchObject({ kind: "duplicate", eventId: "duplicate-1", seq: 10 });
   });
 });
