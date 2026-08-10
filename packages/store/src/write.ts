@@ -124,9 +124,14 @@ export function persistStateEvent(db: Db, instanceId: string, e: Envelope): void
        @qtyDecimal,@entryPriceDecimal,@currentPriceDecimal,@profitDecimal,@swapDecimal)`,
   );
   const tx = db.transaction(() => {
+    const existing = db.prepare(
+      "SELECT ticket, strategy_id strategyId FROM positions_current WHERE instance_id=? AND broker=?",
+    ).all(instanceId, p.broker) as { ticket: string; strategyId: string | null }[];
+    const knownStrategies = new Map(existing.map((row) => [row.ticket, row.strategyId]));
     const tickets = new Set<string>();
     for (const pos of positions) {
       tickets.add(pos.ticket);
+      const strategyId = pos.strategyId ?? knownStrategies.get(pos.ticket) ?? null;
       const row = {
         instanceId,
         broker: p.broker,
@@ -139,7 +144,7 @@ export function persistStateEvent(db: Db, instanceId: string, e: Envelope): void
         profit: pos.profit ?? null,
         swap: pos.swap ?? null,
         openedAt: pos.openedAt ?? null,
-        strategyId: pos.strategyId ?? null,
+        strategyId,
         qtyDecimal: decimalText(pos.qty),
         entryPriceDecimal: decimalText(pos.entryPrice),
         currentPriceDecimal: decimalText(pos.currentPrice),
@@ -150,9 +155,8 @@ export function persistStateEvent(db: Db, instanceId: string, e: Envelope): void
       };
       upCurrent.run(row);
       insValuation.run(row);
+      if (strategyId) knownStrategies.set(pos.ticket, strategyId);
     }
-    const existing = db.prepare("SELECT ticket FROM positions_current WHERE instance_id=? AND broker=?")
-      .all(instanceId, p.broker) as { ticket: string }[];
     const del = db.prepare("DELETE FROM positions_current WHERE instance_id=? AND broker=? AND ticket=?");
     for (const row of existing) {
       if (!tickets.has(row.ticket)) del.run(instanceId, p.broker, row.ticket);

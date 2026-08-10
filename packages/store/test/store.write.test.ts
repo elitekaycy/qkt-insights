@@ -196,6 +196,30 @@ describe("broker state ingest hygiene", () => {
     expect(db.prepare("SELECT COUNT(*) c FROM position_valuations").get()).toMatchObject({ c: 3 });
   });
 
+  it("does not lose durable position attribution to a sibling poller", () => {
+    const db = openDb(":memory:");
+    const attributed = env({ id: "posn-owner", seq: 10, ts: 1718000000000, type: "state.positions", payload: {
+      broker: "EXNESS", positions: [
+        { ticket: "123", symbol: "EXNESS:XAUUSD", side: "BUY", qty: 0.01,
+          entryPrice: 2300.5, currentPrice: 2310.2, profit: 9.7, strategyId: "hedge_straddle" },
+      ],
+    } });
+    const sibling = env({ id: "posn-sibling", seq: 11, ts: 1718000001000, type: "state.positions", payload: {
+      broker: "EXNESS", positions: [
+        { ticket: "123", symbol: "EXNESS:XAUUSD", side: "BUY", qty: 0.01,
+          entryPrice: 2300.5, currentPrice: 2310.3, profit: 9.8, strategyId: null },
+      ],
+    } });
+
+    persistStateEvent(db, "qkt-prod", attributed);
+    persistStateEvent(db, "qkt-prod", sibling);
+
+    expect(db.prepare("SELECT strategy_id, profit FROM positions_current WHERE ticket='123'").get())
+      .toMatchObject({ strategy_id: "hedge_straddle", profit: 9.8 });
+    expect(db.prepare("SELECT strategy_id FROM position_valuations WHERE ticket='123' ORDER BY ts DESC LIMIT 1").get())
+      .toMatchObject({ strategy_id: "hedge_straddle" });
+  });
+
   it("re-ingesting a deal upgrades the NULL strategy once it becomes resolvable", () => {
     const db = openDb(":memory:");
     // A deal whose dsl- comment names a strategy the store hasn't registered yet.
