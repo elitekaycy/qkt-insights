@@ -56,7 +56,7 @@ type Envelope = {
   v: 1                    // schema version, for forward evolution
   instanceId: string      // which qkt instance/account, e.g. "qkt-prod"
   id: string              // globally unique event id (uuid)
-  seq: number             // qkt EventBus sequenceId — monotonic per instance, for ordering/gap detection
+  seq: number             // qkt EventBus sequenceId — producer-local ordering tie-breaker
   ts: number              // event timestamp (epoch ms), bus-stamped on the qkt side
   strategyId?: string     // owning strategy; absent for daemon-level events
   type: EventType
@@ -176,7 +176,8 @@ Snapshots flow through the same lossy sink as everything else.
 
 - `POST /ingest` — authenticates the `INGEST_TOKEN`, Zod-validates the batch, then in a single transaction: insert into `events`, fold `order.*` into `orders`, upsert `instances`/`strategies`, append `equity_snapshots` from `snapshot.equity`, index into `events_fts`.
 - After commit, emits each accepted envelope to an in-process `EventEmitter` that the API's WS hub subscribes to, so live push and durable write share one path.
-- Detects sequence gaps per instance (`seq` discontinuity) and records them for the health view.
+- Records duplicate event ids as ingest observations; filtered, re-entrant producer
+  sequences are not treated as delivery-continuity signals.
 
 ### `packages/api` — query + live
 
@@ -190,7 +191,7 @@ Snapshots flow through the same lossy sink as everything else.
   - `GET /events?type=&…&limit=&cursor=`
   - `GET /search?q=&type=&instance=` — FTS5-backed
   - `GET /equity?instance=&strategy=&from=&to=`
-  - `GET /health/instances` — connection/last-seen/gap/dropped summary
+  - `GET /health/instances` — connection/last-seen/duplicate/dropped summary
 - WS `/live` — client subscribes by `{instance?, strategy?, types?}`; server pushes matching envelopes as the collector ingests them.
 
 Collector and API share the in-process store + emitter, so in `serve`/`run` they are **one process** — no IPC, no second SQLite writer.
@@ -289,7 +290,7 @@ Just enough UI to prove the whole pipe with real data; the rich pages are Spec 2
 
 - **App shell + login.** Login page posts to `/auth/login`. Authenticated shell with a left sidebar.
 - **Sidebar:** instance switcher at the top (the multi-qkt "account switch"); nav items: **Health**, **Orderflow**. Remaining items (Strategies, Trades, Logs, Search, Equity) appear as disabled stubs so the shape is visible.
-- **Health page** (per selected instance): connected?, strategies up, last-event age, sequence-gap indicator, dropped-event counter.
+- **Health page** (per selected instance): connected?, strategies up, last-event age, duplicate-ingest indicator, dropped-event counter.
 - **Live Orderflow page:** a live WS feed of orders/trades modeled as orderflow (state transitions visible), with filters by strategy / type / symbol, backed by `/orders` + `/trades` for history and `/live` for the tail.
 - Data layer: TanStack Query for REST, a small `useLiveStream` hook over WS `/live`. Styling: Tailwind, clean minimal components. Charts/analytics deferred.
 

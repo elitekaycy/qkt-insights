@@ -10,9 +10,14 @@ function accountEnv(ts: number, payload: Record<string, unknown> = {}): Envelope
     payload: { broker: "EXNESS", currency: "USD", balance: 7824.05, equity: 7676.54, openProfit: -147.51, ...payload } } as Envelope;
 }
 
-function positionsEnv(ts: number, positions: unknown[]): Envelope {
-  return { v: 1, instanceId: "qkt-prod", id: `posn-EXNESS-${ts}`, seq: 1, ts, type: "state.positions",
-    payload: { broker: "EXNESS", positions } } as Envelope;
+function positionsEnv(ts: number, positions: unknown[], broker = "EXNESS"): Envelope {
+  return { v: 1, instanceId: "qkt-prod", id: `posn-${broker}-${ts}`, seq: 1, ts, type: "state.positions",
+    payload: { broker, positions } } as Envelope;
+}
+
+function ordersEnv(ts: number, orders: unknown[], broker = "EXNESS"): Envelope {
+  return { v: 1, instanceId: "qkt-prod", id: `ordr-${broker}-${ts}`, seq: 1, ts, type: "state.orders",
+    payload: { broker, orders } } as Envelope;
 }
 
 const pos = { ticket: "123", symbol: "EXNESS:XAUUSD", side: "BUY", qty: 0.01,
@@ -40,6 +45,32 @@ describe("LiveStateStore", () => {
     });
   });
 
+  it("deduplicates account state from sibling broker profiles on the same venue account", () => {
+    const store = new LiveStateStore();
+    store.upsert("qkt-prod", accountEnv(T0, {
+      broker: "EXNESS_S10",
+      login: "476422618",
+      server: "Exness-MT5Trial9",
+      equity: 5000000,
+    }));
+    store.upsert("qkt-prod", accountEnv(T0 + 1000, {
+      broker: "EXNESS_S11",
+      login: "476422618",
+      server: "Exness-MT5Trial9",
+      equity: 4999990,
+    }));
+
+    const accounts = store.snapshot(T0 + 2000).accounts;
+    expect(accounts).toHaveLength(1);
+    expect(accounts[0]).toMatchObject({
+      instanceId: "qkt-prod",
+      broker: "EXNESS",
+      login: "476422618",
+      server: "Exness-MT5Trial9",
+      equity: 4999990,
+    });
+  });
+
   it("replaces the full position list per state.positions envelope", () => {
     const store = new LiveStateStore();
     store.upsert("qkt-prod", positionsEnv(T0, [pos, { ...pos, ticket: "124" }]));
@@ -49,6 +80,69 @@ describe("LiveStateStore", () => {
     expect(snap.positions[0]!.list).toHaveLength(1);
     expect(snap.positions[0]!.list[0]).toMatchObject({ ticket: "123", strategyId: "hedge_straddle" });
     expect(snap.positions[0]!.stale).toBe(false);
+  });
+
+  it("does not lose known position attribution to a sibling poller", () => {
+    const store = new LiveStateStore();
+    store.upsert("qkt-prod", positionsEnv(T0, [pos]));
+    store.upsert("qkt-prod", positionsEnv(T0 + 1000, [{ ...pos, strategyId: null, profit: 10.1 }]));
+    expect(store.snapshot(T0 + 1001).positions[0]!.list[0]).toMatchObject({
+      ticket: "123", strategyId: "hedge_straddle", profit: 10.1,
+    });
+  });
+
+  it("adopts position attribution when a later poller knows the owner", () => {
+    const store = new LiveStateStore();
+    store.upsert("qkt-prod", positionsEnv(T0, [{ ...pos, strategyId: null }]));
+    store.upsert("qkt-prod", positionsEnv(T0 + 1000, [pos]));
+    expect(store.snapshot(T0 + 1001).positions[0]!.list[0]!.strategyId).toBe("hedge_straddle");
+  });
+
+  it("collapses sibling broker profile position groups in the visible snapshot", () => {
+    const store = new LiveStateStore();
+    store.upsert("qkt-prod", positionsEnv(T0, [], "EXNESS_S10"));
+    store.upsert("qkt-prod", positionsEnv(T0 + 1000, [pos], "EXNESS_S11"));
+    store.upsert("qkt-prod", positionsEnv(T0 + 2000, [], "EXNESS_S12"));
+
+    const groups = store.snapshot(T0 + 3000).positions;
+    expect(groups).toHaveLength(1);
+    expect(groups[0]).toMatchObject({
+      instanceId: "qkt-prod",
+      broker: "EXNESS",
+      stale: false,
+    });
+    expect(groups[0]!.list).toHaveLength(1);
+    expect(groups[0]!.list[0]).toMatchObject({ ticket: "123", strategyId: "hedge_straddle" });
+  });
+
+  it("does not lose known pending-order attribution to a sibling poller", () => {
+    const store = new LiveStateStore();
+    const order = { ticket: "456", symbol: "EXNESS:EURUSD", side: "BUY", qty: 0.01,
+      price: 1.08, strategyId: "breakout" };
+    store.upsert("qkt-prod", ordersEnv(T0, [order]));
+    store.upsert("qkt-prod", ordersEnv(T0 + 1000, [{ ...order, strategyId: null, price: 1.081 }]));
+    expect(store.snapshot(T0 + 1001).orders[0]!.list[0]).toMatchObject({
+      ticket: "456", strategyId: "breakout", price: 1.081,
+    });
+  });
+
+  it("collapses sibling broker profile pending-order groups in the visible snapshot", () => {
+    const store = new LiveStateStore();
+    const order = { ticket: "456", symbol: "EXNESS:EURUSD", side: "BUY", qty: 0.01,
+      price: 1.08, strategyId: "breakout" };
+    store.upsert("qkt-prod", ordersEnv(T0, [], "EXNESS_S10"));
+    store.upsert("qkt-prod", ordersEnv(T0 + 1000, [order], "EXNESS_S11"));
+    store.upsert("qkt-prod", ordersEnv(T0 + 2000, [], "EXNESS_S12"));
+
+    const groups = store.snapshot(T0 + 3000).orders;
+    expect(groups).toHaveLength(1);
+    expect(groups[0]).toMatchObject({
+      instanceId: "qkt-prod",
+      broker: "EXNESS",
+      stale: false,
+    });
+    expect(groups[0]!.list).toHaveLength(1);
+    expect(groups[0]!.list[0]).toMatchObject({ ticket: "456", strategyId: "breakout" });
   });
 
   it("upsert returns false when nothing changed", () => {
@@ -86,6 +180,27 @@ describe("LiveStateStore", () => {
     const updated: any = db.prepare("SELECT equity FROM account_equity WHERE instance_id='qkt-prod' AND minute_ts=?").get(minute);
     expect(updated.equity).toBe(7700);
     expect(db.prepare("SELECT COUNT(*) c FROM account_equity").get()).toMatchObject({ c: 2 });
+  });
+
+  it("flushRollup writes one account_equity row for sibling profiles on one account", () => {
+    const db = openDb(":memory:");
+    const store = new LiveStateStore();
+    store.upsert("qkt-prod", accountEnv(T0, {
+      broker: "EXNESS_S10",
+      login: "476422618",
+      server: "Exness-MT5Trial9",
+      equity: 5000000,
+    }));
+    store.upsert("qkt-prod", accountEnv(T0 + 1000, {
+      broker: "EXNESS_S11",
+      login: "476422618",
+      server: "Exness-MT5Trial9",
+      equity: 4999990,
+    }));
+
+    store.flushRollup(db, T0 + 2000);
+    const rows: any[] = db.prepare("SELECT broker, equity FROM account_equity").all();
+    expect(rows).toEqual([{ broker: "EXNESS", equity: 4999990 }]);
   });
 
   it("flushRollup skips a stale account so an outage leaves a gap, not a flat plateau", () => {

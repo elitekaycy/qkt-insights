@@ -15,7 +15,7 @@ Recommended baseline:
 - Raw events, orders, deals, risk events, position projections: retain for at least 1 year.
 - Account equity and position valuation history: retain for at least 1 year, then archive by month if the DB grows beyond operational limits.
 - Logs: retain 30-90 days unless needed for an incident.
-- Ingest observations: retain at least as long as raw events so delivery gaps remain auditable.
+- Ingest observations: retain at least as long as raw events so duplicate delivery remains auditable.
 
 Do not delete broker deals or order history until tax, audit, and strategy-review requirements are satisfied.
 

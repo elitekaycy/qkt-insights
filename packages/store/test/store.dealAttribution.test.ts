@@ -31,7 +31,11 @@ function seedStrategy(db: Db, id: string): void {
 }
 
 function strategyOf(db: Db, ticket: string): string | null {
-  return (db.prepare("SELECT strategy_id s FROM deals WHERE deal_ticket=?").get(ticket) as any).s;
+  return ((db.prepare("SELECT strategy_id s FROM deals WHERE deal_ticket=?").get(ticket) as any) ?? { s: null }).s;
+}
+
+function dealCount(db: Db): number {
+  return (db.prepare("SELECT COUNT(*) c FROM deals").get() as any).c;
 }
 
 describe("broker.deal strategy resolution at ingest", () => {
@@ -73,6 +77,7 @@ describe("broker.deal strategy resolution at ingest", () => {
 
   it("prefers the position sibling over the comment", () => {
     const db = openDb(":memory:");
+    seedStrategy(db, "hedge_straddle");
     seedStrategy(db, "latch_stack");
     ingestEvents(db, "qkt-prod", [
       dealEnv({ ticket: "9", positionTicket: "107", entry: "IN", strategyId: "hedge_straddle" }),
@@ -92,6 +97,28 @@ describe("broker.deal strategy resolution at ingest", () => {
     ]);
     expect(strategyOf(db, "11")).toBe("hedge_straddle");
     expect(strategyOf(db, "12")).toBe("hedge_straddle");
+  });
+
+  it("drops unattributed account-wide backfill after the instance has a local strategy", () => {
+    const db = openDb(":memory:");
+    seedStrategy(db, "hedge_straddle");
+    ingestEvents(db, "qkt-prod", [
+      dealEnv({ ticket: "13", positionTicket: "201", strategyId: null, comment: "dsl-unrelated_strategy" }),
+      dealEnv({ ticket: "14", positionTicket: "202", strategyId: null, comment: "" }),
+    ]);
+    expect(dealCount(db)).toBe(0);
+  });
+
+  it("drops explicit foreign strategy deals in an already-scoped instance", () => {
+    const db = openDb(":memory:");
+    seedStrategy(db, "hedge_straddle");
+    ingestEvents(db, "qkt-prod", [
+      dealEnv({ ticket: "15", positionTicket: "203", strategyId: "foreign_breakout", comment: "dsl-foreign_breakout" }),
+      dealEnv({ ticket: "16", positionTicket: "204", strategyId: "hedge_straddle", comment: "dsl-hedge_straddle" }),
+    ]);
+    expect(dealCount(db)).toBe(1);
+    expect(strategyOf(db, "16")).toBe("hedge_straddle");
+    expect(strategyOf(db, "15")).toBeNull();
   });
 });
 

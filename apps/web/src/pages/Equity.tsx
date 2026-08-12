@@ -7,6 +7,10 @@ import { duration, human, money, tsDay } from "../format";
 
 const PALETTE = ["#c8f74a", "#5cb8ff", "#a78bfa", "#3fe08c", "#fbbf24", "#ff6b6b", "#f472b6", "#22d3ee"];
 
+function accountBrokerGroup(broker: string): string {
+  return broker.replace(/_S\d+$/u, "");
+}
+
 export default function Equity({ instanceId }: { instanceId: string | null }) {
   const strategies = useQuery({
     queryKey: ["strategies", instanceId],
@@ -61,13 +65,20 @@ export default function Equity({ instanceId }: { instanceId: string | null }) {
     .filter((s) => s.points.length > 0);
 
   // EquityChart wants EquityPoint; realized/unrealized are unused by the chart.
-  const accountByBroker = new Map<string, EquityPoint[]>();
+  const accountByBrokerMinute = new Map<string, Map<number, EquityPoint>>();
   for (const p of account.data ?? []) {
     if (p.equity == null) continue;
-    const arr = accountByBroker.get(p.broker) ?? [];
-    arr.push({ ts: p.minuteTs, equity: p.equity, realized: p.balance ?? 0, unrealized: p.openProfit ?? 0 });
-    accountByBroker.set(p.broker, arr);
+    const broker = accountBrokerGroup(p.broker);
+    const byMinute = accountByBrokerMinute.get(broker) ?? new Map<number, EquityPoint>();
+    byMinute.set(p.minuteTs, { ts: p.minuteTs, equity: p.equity, realized: p.balance ?? 0, unrealized: p.openProfit ?? 0 });
+    accountByBrokerMinute.set(broker, byMinute);
   }
+  const accountByBroker = new Map(
+    [...accountByBrokerMinute.entries()].map(([broker, byMinute]) => [
+      broker,
+      [...byMinute.values()].sort((a, b) => a.ts - b.ts),
+    ]),
+  );
 
   const periods = performance.data?.drawdownPeriods ?? [];
   const ddSelect = (
