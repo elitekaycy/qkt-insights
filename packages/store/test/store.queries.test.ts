@@ -130,16 +130,18 @@ describe("deals and account equity", () => {
 
   it("listDeals returns newest first with strategy, limit, and before filters", () => {
     ingestEvents(db, "qkt-prod", [
+      env({ strategyId: "hedge_straddle", type: "strategy.started", ts: 1718000000000,
+        payload: { strategyId: "hedge_straddle", ts: 1718000000000 } }),
       deal("deal-EXNESS-1", 1718000001000, { entry: "IN" }),
       deal("deal-EXNESS-2", 1718000002000),
-      deal("deal-EXNESS-3", 1718000003000, { strategyId: null }),
+      deal("deal-EXNESS-3", 1718000003000),
     ]);
     const all = listDeals(db, { instanceId: "qkt-prod", limit: 50 });
     expect(all.map((d) => d.dealTicket)).toEqual(["3", "2", "1"]);
     expect(all[1]).toMatchObject({ broker: "EXNESS", symbol: "EXNESS:XAUUSD", side: "SELL",
       entry: "OUT", qty: 0.01, price: 2310.2, profit: 9.7, commission: -0.07, swap: -0.12,
       strategyId: "hedge_straddle", ts: 1718000002000 });
-    expect(listDeals(db, { instanceId: "qkt-prod", strategyId: "hedge_straddle", limit: 50 })).toHaveLength(2);
+    expect(listDeals(db, { instanceId: "qkt-prod", strategyId: "hedge_straddle", limit: 50 })).toHaveLength(3);
     expect(listDeals(db, { instanceId: "qkt-prod", limit: 1 }).map((d) => d.dealTicket)).toEqual(["3"]);
     expect(listDeals(db, { instanceId: "qkt-prod", limit: 50, before: 1718000003000 }).map((d) => d.dealTicket)).toEqual(["2", "1"]);
   });

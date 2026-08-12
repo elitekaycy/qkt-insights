@@ -202,6 +202,7 @@ export function ingestEvents(db: Db, instanceId: string, events: Envelope[]): nu
       if (e.type === "broker.deal") {
         const p = e.payload;
         const strategyId = p.strategyId ?? resolveDealStrategy(db, instanceId, p.positionTicket ?? null, p.comment ?? null);
+        if (!isDealLocalToInstance(db, instanceId, strategyId)) continue;
         const info = insDeal.run(e.id, instanceId, p.broker, p.dealTicket, p.positionTicket ?? null, p.orderTicket ?? null,
           p.symbol ?? null, p.side ?? null, p.entry ?? null, p.qty, p.price, p.profit, p.commission ?? null,
           p.swap ?? null, p.fee ?? null, p.magic ?? null, p.comment ?? null, strategyId, p.ts,
@@ -275,6 +276,12 @@ export function ingestEvents(db: Db, instanceId: string, events: Envelope[]): nu
     return accepted;
   });
   return tx(events);
+}
+
+function isDealLocalToInstance(db: Db, instanceId: string, strategyId: string | null): boolean {
+  const known = db.prepare("SELECT strategy_id strategyId FROM strategies WHERE instance_id=?").all(instanceId) as { strategyId: string }[];
+  if (known.length === 0) return true;
+  return strategyId != null && known.some((row) => row.strategyId === strategyId);
 }
 
 // MT5 overwrites the close-leg comment when SL/TP fires (e.g. "[tp 4332.689]"),

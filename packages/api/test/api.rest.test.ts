@@ -183,6 +183,8 @@ describe("broker state REST", () => {
 
   it("serves deals filtered by instance and strategy", async () => {
     ingestEvents(db, "qkt-prod", [
+      env({ strategyId: "hedge_straddle", type: "strategy.started", ts: 1718000000000,
+        payload: { strategyId: "hedge_straddle", ts: 1718000000000 } }),
       env({ id: "deal-EXNESS-1", type: "broker.deal", ts: 1718000001000, payload: {
         broker: "EXNESS", dealTicket: "1", symbol: "EXNESS:XAUUSD", side: "SELL", entry: "OUT",
         qty: 0.01, price: 2310.2, profit: 9.7, commission: -0.07, swap: -0.12,
