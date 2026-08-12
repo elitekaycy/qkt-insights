@@ -45,6 +45,32 @@ describe("LiveStateStore", () => {
     });
   });
 
+  it("deduplicates account state from sibling broker profiles on the same venue account", () => {
+    const store = new LiveStateStore();
+    store.upsert("qkt-prod", accountEnv(T0, {
+      broker: "EXNESS_S10",
+      login: "476422618",
+      server: "Exness-MT5Trial9",
+      equity: 5000000,
+    }));
+    store.upsert("qkt-prod", accountEnv(T0 + 1000, {
+      broker: "EXNESS_S11",
+      login: "476422618",
+      server: "Exness-MT5Trial9",
+      equity: 4999990,
+    }));
+
+    const accounts = store.snapshot(T0 + 2000).accounts;
+    expect(accounts).toHaveLength(1);
+    expect(accounts[0]).toMatchObject({
+      instanceId: "qkt-prod",
+      broker: "EXNESS",
+      login: "476422618",
+      server: "Exness-MT5Trial9",
+      equity: 4999990,
+    });
+  });
+
   it("replaces the full position list per state.positions envelope", () => {
     const store = new LiveStateStore();
     store.upsert("qkt-prod", positionsEnv(T0, [pos, { ...pos, ticket: "124" }]));
@@ -118,6 +144,27 @@ describe("LiveStateStore", () => {
     const updated: any = db.prepare("SELECT equity FROM account_equity WHERE instance_id='qkt-prod' AND minute_ts=?").get(minute);
     expect(updated.equity).toBe(7700);
     expect(db.prepare("SELECT COUNT(*) c FROM account_equity").get()).toMatchObject({ c: 2 });
+  });
+
+  it("flushRollup writes one account_equity row for sibling profiles on one account", () => {
+    const db = openDb(":memory:");
+    const store = new LiveStateStore();
+    store.upsert("qkt-prod", accountEnv(T0, {
+      broker: "EXNESS_S10",
+      login: "476422618",
+      server: "Exness-MT5Trial9",
+      equity: 5000000,
+    }));
+    store.upsert("qkt-prod", accountEnv(T0 + 1000, {
+      broker: "EXNESS_S11",
+      login: "476422618",
+      server: "Exness-MT5Trial9",
+      equity: 4999990,
+    }));
+
+    store.flushRollup(db, T0 + 2000);
+    const rows: any[] = db.prepare("SELECT broker, equity FROM account_equity").all();
+    expect(rows).toEqual([{ broker: "EXNESS", equity: 4999990 }]);
   });
 
   it("flushRollup skips a stale account so an outage leaves a gap, not a flat plateau", () => {
