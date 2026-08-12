@@ -1,6 +1,6 @@
 import { useEffect } from "react";
 import { useQuery, useQueryClient, type UseQueryResult } from "@tanstack/react-query";
-import { get, type LiveAccount, type LivePositionGroup, type LivePositionRow, type LiveStateSnapshot } from "./api";
+import { get, type LiveAccount, type LiveStateSnapshot } from "./api";
 import type { LiveEnvelope } from "./useLiveStream";
 
 function replaceOrAppend<T>(list: T[], match: (x: T) => boolean, next: T): T[] {
@@ -20,22 +20,12 @@ function displayBroker(broker: string): string {
   return broker.replace(/_S\d+$/u, "");
 }
 
-/** Folds a pushed state.* envelope into the cached snapshot so values tick instantly. */
+/** Folds pushed account state into the cached snapshot so values tick instantly. */
 function applyEnvelope(prev: LiveStateSnapshot | undefined, e: LiveEnvelope): LiveStateSnapshot {
   const snap = prev ?? { accounts: [], positions: [], orders: [] };
-  if (e.type === "state.account") {
-    const p = e.payload as unknown as Omit<LiveAccount, "instanceId" | "lastSeen" | "stale">;
-    const next: LiveAccount = { ...p, broker: displayBroker(p.broker), instanceId: e.instanceId, lastSeen: e.ts, stale: false };
-    return { ...snap, accounts: replaceOrAppend(snap.accounts, (a) => accountKey(a.instanceId, a) === accountKey(e.instanceId, next), next) };
-  }
-  if (e.type === "state.orders") {
-    const p = e.payload as unknown as { broker: string; orders: LiveStateSnapshot["orders"][number]["list"] };
-    const next = { instanceId: e.instanceId, broker: p.broker, at: e.ts, stale: false, list: p.orders };
-    return { ...snap, orders: replaceOrAppend(snap.orders, (g) => g.instanceId === e.instanceId && g.broker === p.broker, next) };
-  }
-  const p = e.payload as unknown as { broker: string; positions: LivePositionRow[] };
-  const next: LivePositionGroup = { instanceId: e.instanceId, broker: p.broker, at: e.ts, stale: false, list: p.positions };
-  return { ...snap, positions: replaceOrAppend(snap.positions, (g) => g.instanceId === e.instanceId && g.broker === p.broker, next) };
+  const p = e.payload as unknown as Omit<LiveAccount, "instanceId" | "lastSeen" | "stale">;
+  const next: LiveAccount = { ...p, broker: displayBroker(p.broker), instanceId: e.instanceId, lastSeen: e.ts, stale: false };
+  return { ...snap, accounts: replaceOrAppend(snap.accounts, (a) => accountKey(a.instanceId, a) === accountKey(e.instanceId, next), next) };
 }
 
 /**
@@ -54,8 +44,10 @@ export function useLiveState(live: LiveEnvelope[] = []): UseQueryResult<LiveStat
   });
   const newest = live[0];
   useEffect(() => {
-    if (newest?.type === "state.account" || newest?.type === "state.positions" || newest?.type === "state.orders") {
+    if (newest?.type === "state.account") {
       qc.setQueryData<LiveStateSnapshot>(["live-state"], (prev) => applyEnvelope(prev, newest));
+    } else if (newest?.type === "state.positions" || newest?.type === "state.orders") {
+      void qc.invalidateQueries({ queryKey: ["live-state"] });
     }
   }, [newest, qc]);
   return query;
