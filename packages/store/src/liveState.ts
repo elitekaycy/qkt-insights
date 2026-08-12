@@ -77,9 +77,10 @@ export class LiveStateStore {
       const p = e.payload;
       const key = `${instanceId}:${p.broker}`;
       const prev = this.positions.get(key);
+      const previousStrategies = new Map(prev?.list.map((x) => [x.ticket, x.strategyId]));
       const list: LivePosition[] = p.positions.map((x: LivePosition) => ({ ticket: x.ticket, symbol: x.symbol, side: x.side,
         qty: x.qty, entryPrice: x.entryPrice, currentPrice: x.currentPrice, profit: x.profit, swap: x.swap,
-        openedAt: x.openedAt, strategyId: x.strategyId,
+        openedAt: x.openedAt, strategyId: x.strategyId ?? previousStrategies.get(x.ticket) ?? null,
         stopLoss: x.stopLoss, takeProfit: x.takeProfit,
         requestedStopLoss: x.requestedStopLoss, requestedTakeProfit: x.requestedTakeProfit,
         magic: x.magic, clientOrderId: x.clientOrderId }));
@@ -90,10 +91,12 @@ export class LiveStateStore {
       const p = e.payload;
       const key = `${instanceId}:${p.broker}`;
       const prev = this.orders.get(key);
+      const previousStrategies = new Map(prev?.list.map((x) => [x.ticket, x.strategyId]));
       const list: LivePendingOrder[] = p.orders.map((x: LivePendingOrder) => ({ ticket: x.ticket, symbol: x.symbol,
         side: x.side, orderType: x.orderType, qty: x.qty, price: x.price,
         stopLoss: x.stopLoss, takeProfit: x.takeProfit, expiresAt: x.expiresAt, createdAt: x.createdAt,
-        magic: x.magic, clientOrderId: x.clientOrderId, strategyId: x.strategyId }));
+        magic: x.magic, clientOrderId: x.clientOrderId,
+        strategyId: x.strategyId ?? previousStrategies.get(x.ticket) ?? null }));
       this.orders.set(key, { at: e.ts, list });
       return !prev || JSON.stringify(prev.list) !== JSON.stringify(list);
     }

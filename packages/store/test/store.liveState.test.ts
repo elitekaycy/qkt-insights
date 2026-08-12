@@ -15,6 +15,11 @@ function positionsEnv(ts: number, positions: unknown[]): Envelope {
     payload: { broker: "EXNESS", positions } } as Envelope;
 }
 
+function ordersEnv(ts: number, orders: unknown[]): Envelope {
+  return { v: 1, instanceId: "qkt-prod", id: `ordr-EXNESS-${ts}`, seq: 1, ts, type: "state.orders",
+    payload: { broker: "EXNESS", orders } } as Envelope;
+}
+
 const pos = { ticket: "123", symbol: "EXNESS:XAUUSD", side: "BUY", qty: 0.01,
   entryPrice: 2300.5, currentPrice: 2310.2, profit: 9.7, strategyId: "hedge_straddle" };
 
@@ -49,6 +54,33 @@ describe("LiveStateStore", () => {
     expect(snap.positions[0]!.list).toHaveLength(1);
     expect(snap.positions[0]!.list[0]).toMatchObject({ ticket: "123", strategyId: "hedge_straddle" });
     expect(snap.positions[0]!.stale).toBe(false);
+  });
+
+  it("does not lose known position attribution to a sibling poller", () => {
+    const store = new LiveStateStore();
+    store.upsert("qkt-prod", positionsEnv(T0, [pos]));
+    store.upsert("qkt-prod", positionsEnv(T0 + 1000, [{ ...pos, strategyId: null, profit: 10.1 }]));
+    expect(store.snapshot(T0 + 1001).positions[0]!.list[0]).toMatchObject({
+      ticket: "123", strategyId: "hedge_straddle", profit: 10.1,
+    });
+  });
+
+  it("adopts position attribution when a later poller knows the owner", () => {
+    const store = new LiveStateStore();
+    store.upsert("qkt-prod", positionsEnv(T0, [{ ...pos, strategyId: null }]));
+    store.upsert("qkt-prod", positionsEnv(T0 + 1000, [pos]));
+    expect(store.snapshot(T0 + 1001).positions[0]!.list[0]!.strategyId).toBe("hedge_straddle");
+  });
+
+  it("does not lose known pending-order attribution to a sibling poller", () => {
+    const store = new LiveStateStore();
+    const order = { ticket: "456", symbol: "EXNESS:EURUSD", side: "BUY", qty: 0.01,
+      price: 1.08, strategyId: "breakout" };
+    store.upsert("qkt-prod", ordersEnv(T0, [order]));
+    store.upsert("qkt-prod", ordersEnv(T0 + 1000, [{ ...order, strategyId: null, price: 1.081 }]));
+    expect(store.snapshot(T0 + 1001).orders[0]!.list[0]).toMatchObject({
+      ticket: "456", strategyId: "breakout", price: 1.081,
+    });
   });
 
   it("upsert returns false when nothing changed", () => {
