@@ -10,14 +10,14 @@ function accountEnv(ts: number, payload: Record<string, unknown> = {}): Envelope
     payload: { broker: "EXNESS", currency: "USD", balance: 7824.05, equity: 7676.54, openProfit: -147.51, ...payload } } as Envelope;
 }
 
-function positionsEnv(ts: number, positions: unknown[]): Envelope {
-  return { v: 1, instanceId: "qkt-prod", id: `posn-EXNESS-${ts}`, seq: 1, ts, type: "state.positions",
-    payload: { broker: "EXNESS", positions } } as Envelope;
+function positionsEnv(ts: number, positions: unknown[], broker = "EXNESS"): Envelope {
+  return { v: 1, instanceId: "qkt-prod", id: `posn-${broker}-${ts}`, seq: 1, ts, type: "state.positions",
+    payload: { broker, positions } } as Envelope;
 }
 
-function ordersEnv(ts: number, orders: unknown[]): Envelope {
-  return { v: 1, instanceId: "qkt-prod", id: `ordr-EXNESS-${ts}`, seq: 1, ts, type: "state.orders",
-    payload: { broker: "EXNESS", orders } } as Envelope;
+function ordersEnv(ts: number, orders: unknown[], broker = "EXNESS"): Envelope {
+  return { v: 1, instanceId: "qkt-prod", id: `ordr-${broker}-${ts}`, seq: 1, ts, type: "state.orders",
+    payload: { broker, orders } } as Envelope;
 }
 
 const pos = { ticket: "123", symbol: "EXNESS:XAUUSD", side: "BUY", qty: 0.01,
@@ -98,6 +98,23 @@ describe("LiveStateStore", () => {
     expect(store.snapshot(T0 + 1001).positions[0]!.list[0]!.strategyId).toBe("hedge_straddle");
   });
 
+  it("collapses sibling broker profile position groups in the visible snapshot", () => {
+    const store = new LiveStateStore();
+    store.upsert("qkt-prod", positionsEnv(T0, [], "EXNESS_S10"));
+    store.upsert("qkt-prod", positionsEnv(T0 + 1000, [pos], "EXNESS_S11"));
+    store.upsert("qkt-prod", positionsEnv(T0 + 2000, [], "EXNESS_S12"));
+
+    const groups = store.snapshot(T0 + 3000).positions;
+    expect(groups).toHaveLength(1);
+    expect(groups[0]).toMatchObject({
+      instanceId: "qkt-prod",
+      broker: "EXNESS",
+      stale: false,
+    });
+    expect(groups[0]!.list).toHaveLength(1);
+    expect(groups[0]!.list[0]).toMatchObject({ ticket: "123", strategyId: "hedge_straddle" });
+  });
+
   it("does not lose known pending-order attribution to a sibling poller", () => {
     const store = new LiveStateStore();
     const order = { ticket: "456", symbol: "EXNESS:EURUSD", side: "BUY", qty: 0.01,
@@ -107,6 +124,25 @@ describe("LiveStateStore", () => {
     expect(store.snapshot(T0 + 1001).orders[0]!.list[0]).toMatchObject({
       ticket: "456", strategyId: "breakout", price: 1.081,
     });
+  });
+
+  it("collapses sibling broker profile pending-order groups in the visible snapshot", () => {
+    const store = new LiveStateStore();
+    const order = { ticket: "456", symbol: "EXNESS:EURUSD", side: "BUY", qty: 0.01,
+      price: 1.08, strategyId: "breakout" };
+    store.upsert("qkt-prod", ordersEnv(T0, [], "EXNESS_S10"));
+    store.upsert("qkt-prod", ordersEnv(T0 + 1000, [order], "EXNESS_S11"));
+    store.upsert("qkt-prod", ordersEnv(T0 + 2000, [], "EXNESS_S12"));
+
+    const groups = store.snapshot(T0 + 3000).orders;
+    expect(groups).toHaveLength(1);
+    expect(groups[0]).toMatchObject({
+      instanceId: "qkt-prod",
+      broker: "EXNESS",
+      stale: false,
+    });
+    expect(groups[0]!.list).toHaveLength(1);
+    expect(groups[0]!.list[0]).toMatchObject({ ticket: "456", strategyId: "breakout" });
   });
 
   it("upsert returns false when nothing changed", () => {
