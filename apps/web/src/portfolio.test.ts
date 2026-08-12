@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 import type { StrategyRow } from "./api";
-import { summarizePortfolio } from "./portfolio";
+import { logicalPortfolioId, portfolioGroupId, summarizePortfolio } from "./portfolio";
 
 function child(
   strategyId: string,
@@ -20,6 +20,15 @@ function child(
 }
 
 describe("summarizePortfolio", () => {
+  it("groups generated shard portfolio ids under one logical portfolio", () => {
+    const row = child("forward_bench_2:s0", 1000, null, 0);
+    row.metadata = { portfolioId: "forward_bench_2", allocatedCapital: 1000 };
+
+    expect(logicalPortfolioId("forward_bench_2")).toBe("forward_bench");
+    expect(logicalPortfolioId("forward_bench")).toBe("forward_bench");
+    expect(portfolioGroupId(row)).toBe("forward_bench");
+  });
+
   it("combines child allocation and attributed PnL without broker account equity", () => {
     const summary = summarizePortfolio(
       "book",
