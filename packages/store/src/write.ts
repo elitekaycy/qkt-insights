@@ -25,37 +25,6 @@ const OBS_SQL =
      (instance_id, kind, event_id, type, seq, previous_seq, expected_seq, ts, detail)
    VALUES (@instanceId,@kind,@eventId,@type,@seq,@previousSeq,@expectedSeq,@ts,@detail)`;
 
-function observeSeq(db: Db, instanceId: string, e: { id?: string; type?: string; seq: number; ts: number }): void {
-  if (e.seq <= 0) return;
-  const row = db.prepare("SELECT last_seq lastSeq FROM instances WHERE id=?").get(instanceId) as { lastSeq: number } | undefined;
-  if (!row) return;
-  if (e.seq > row.lastSeq + 1) {
-    db.prepare(OBS_SQL).run({
-      instanceId,
-      kind: "gap",
-      eventId: e.id ?? null,
-      type: e.type ?? null,
-      seq: e.seq,
-      previousSeq: row.lastSeq,
-      expectedSeq: row.lastSeq + 1,
-      ts: e.ts,
-      detail: null,
-    });
-  } else if (e.seq < row.lastSeq) {
-    db.prepare(OBS_SQL).run({
-      instanceId,
-      kind: "regression",
-      eventId: e.id ?? null,
-      type: e.type ?? null,
-      seq: e.seq,
-      previousSeq: row.lastSeq,
-      expectedSeq: null,
-      ts: e.ts,
-      detail: null,
-    });
-  }
-}
-
 function observeDuplicate(db: Db, instanceId: string, e: Envelope): void {
   db.prepare(OBS_SQL).run({
     instanceId,
@@ -84,7 +53,6 @@ function decimalText(v: unknown): string | null {
  * so Health reads the live poller, not the last trade hours ago.
  */
 export function touchInstance(db: Db, instanceId: string, ts: number, seq: number): void {
-  observeSeq(db, instanceId, { type: "state.*", seq, ts });
   db.prepare(UP_INSTANCE_SQL).run({ id: instanceId, ts, seq });
 }
 
@@ -124,9 +92,14 @@ export function persistStateEvent(db: Db, instanceId: string, e: Envelope): void
        @qtyDecimal,@entryPriceDecimal,@currentPriceDecimal,@profitDecimal,@swapDecimal)`,
   );
   const tx = db.transaction(() => {
+    const existing = db.prepare(
+      "SELECT ticket, strategy_id strategyId FROM positions_current WHERE instance_id=? AND broker=?",
+    ).all(instanceId, p.broker) as { ticket: string; strategyId: string | null }[];
+    const knownStrategies = new Map(existing.map((row) => [row.ticket, row.strategyId]));
     const tickets = new Set<string>();
     for (const pos of positions) {
       tickets.add(pos.ticket);
+      const strategyId = pos.strategyId ?? knownStrategies.get(pos.ticket) ?? null;
       const row = {
         instanceId,
         broker: p.broker,
@@ -139,7 +112,7 @@ export function persistStateEvent(db: Db, instanceId: string, e: Envelope): void
         profit: pos.profit ?? null,
         swap: pos.swap ?? null,
         openedAt: pos.openedAt ?? null,
-        strategyId: pos.strategyId ?? null,
+        strategyId,
         qtyDecimal: decimalText(pos.qty),
         entryPriceDecimal: decimalText(pos.entryPrice),
         currentPriceDecimal: decimalText(pos.currentPrice),
@@ -150,9 +123,8 @@ export function persistStateEvent(db: Db, instanceId: string, e: Envelope): void
       };
       upCurrent.run(row);
       insValuation.run(row);
+      if (strategyId) knownStrategies.set(pos.ticket, strategyId);
     }
-    const existing = db.prepare("SELECT ticket FROM positions_current WHERE instance_id=? AND broker=?")
-      .all(instanceId, p.broker) as { ticket: string }[];
     const del = db.prepare("DELETE FROM positions_current WHERE instance_id=? AND broker=? AND ticket=?");
     for (const row of existing) {
       if (!tickets.has(row.ticket)) del.run(instanceId, p.broker, row.ticket);
@@ -205,7 +177,6 @@ export function ingestEvents(db: Db, instanceId: string, events: Envelope[]): nu
   const tx = db.transaction((evs: Envelope[]) => {
     let accepted = 0;
     for (const e of evs) {
-      observeSeq(db, instanceId, e);
       // Logs are high-volume operational data, not trading history: they get their
       // own table + FTS index and stay out of the events record.
       if (e.type === "log") {
@@ -231,6 +202,7 @@ export function ingestEvents(db: Db, instanceId: string, events: Envelope[]): nu
       if (e.type === "broker.deal") {
         const p = e.payload;
         const strategyId = p.strategyId ?? resolveDealStrategy(db, instanceId, p.positionTicket ?? null, p.comment ?? null);
+        if (!isDealLocalToInstance(db, instanceId, strategyId)) continue;
         const info = insDeal.run(e.id, instanceId, p.broker, p.dealTicket, p.positionTicket ?? null, p.orderTicket ?? null,
           p.symbol ?? null, p.side ?? null, p.entry ?? null, p.qty, p.price, p.profit, p.commission ?? null,
           p.swap ?? null, p.fee ?? null, p.magic ?? null, p.comment ?? null, strategyId, p.ts,
@@ -306,6 +278,12 @@ export function ingestEvents(db: Db, instanceId: string, events: Envelope[]): nu
   return tx(events);
 }
 
+function isDealLocalToInstance(db: Db, instanceId: string, strategyId: string | null): boolean {
+  const known = db.prepare("SELECT strategy_id strategyId FROM strategies WHERE instance_id=?").all(instanceId) as { strategyId: string }[];
+  if (known.length === 0) return true;
+  return strategyId != null && known.some((row) => row.strategyId === strategyId);
+}
+
 // MT5 overwrites the close-leg comment when SL/TP fires (e.g. "[tp 4332.689]"),
 // so a venue-closed deal can never name its strategy itself. Two recoveries, in
 // order of trust: any attributed sibling of the same position (the IN leg keeps
@@ -329,10 +307,10 @@ function resolveDealStrategy(db: Db, instanceId: string, positionTicket: string 
   return null;
 }
 
-// Events can reach the collector out of seq order (qkt's bus dispatch is re-entrant:
-// a paper fill publishes inside the submit's dispatch, so the sink sees the fill first).
-// The fold therefore keys authority on seq: only an event with seq >= the last applied
-// one may change state; older stragglers just backfill fields the row is missing.
+// Events can reach the collector out of order because qkt's bus dispatch is re-entrant,
+// and bus sequences restart for each strategy session. Event time is authoritative
+// across sessions; seq breaks ties within one clock instant. Older stragglers only
+// backfill fields the row is missing.
 function foldOrder(db: Db, instanceId: string, e: Envelope): void {
   const state = ORDER_STATE[e.type];
   if (!state) return;
@@ -355,7 +333,7 @@ function foldOrder(db: Db, instanceId: string, e: Envelope): void {
        VALUES (@i,@o,@s,@sym,@side,@t,@st,@qty,@cum,@avg,@b,@ts,@ts,@seq,@qtyDecimal,@cumDecimal,@avgDecimal)`,
     ).run({ ...fields, st: state, cum: cumFinal, seq: e.seq,
       qtyDecimal: decimalText(fields.qty), cumDecimal: decimalText(cumFinal), avgDecimal: decimalText(fields.avg) });
-  } else if (e.seq >= existing.last_event_seq) {
+  } else if (e.ts > existing.updated_ts || (e.ts === existing.updated_ts && e.seq >= existing.last_event_seq)) {
     db.prepare(
       `UPDATE orders SET state=@st, cum_qty=@cum, last_event_seq=@seq, updated_ts=@ts,
          strategy_id=COALESCE(strategy_id,@s), symbol=COALESCE(symbol,@sym), side=COALESCE(side,@side),

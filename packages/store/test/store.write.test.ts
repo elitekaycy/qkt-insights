@@ -99,7 +99,7 @@ describe("ingestEvents", () => {
     expect(db.prepare("SELECT COUNT(*) c FROM events").get()).toMatchObject({ c: 1 });
   });
 
-  it("records seq gaps, regressions, and duplicate observations", () => {
+  it("records duplicate observations without treating producer-local seq as delivery continuity", () => {
     const db = openDb(":memory:");
     const trade = (id: string, seq: number) => env({
       id, seq, type: "trade",
@@ -107,8 +107,6 @@ describe("ingestEvents", () => {
     });
     ingestEvents(db, "qkt-prod", [trade("e1", 1), trade("e3", 3), trade("e2", 2), trade("e3", 3)]);
     expect(db.prepare("SELECT kind, event_id eventId, seq, previous_seq previousSeq, expected_seq expectedSeq FROM ingest_observations ORDER BY id").all()).toEqual([
-      { kind: "gap", eventId: "e3", seq: 3, previousSeq: 1, expectedSeq: 2 },
-      { kind: "regression", eventId: "e2", seq: 2, previousSeq: 3, expectedSeq: null },
       { kind: "duplicate", eventId: "e3", seq: 3, previousSeq: null, expectedSeq: null },
     ]);
   });
@@ -196,6 +194,30 @@ describe("broker state ingest hygiene", () => {
     expect(db.prepare("SELECT COUNT(*) c FROM position_valuations").get()).toMatchObject({ c: 3 });
   });
 
+  it("does not lose durable position attribution to a sibling poller", () => {
+    const db = openDb(":memory:");
+    const attributed = env({ id: "posn-owner", seq: 10, ts: 1718000000000, type: "state.positions", payload: {
+      broker: "EXNESS", positions: [
+        { ticket: "123", symbol: "EXNESS:XAUUSD", side: "BUY", qty: 0.01,
+          entryPrice: 2300.5, currentPrice: 2310.2, profit: 9.7, strategyId: "hedge_straddle" },
+      ],
+    } });
+    const sibling = env({ id: "posn-sibling", seq: 11, ts: 1718000001000, type: "state.positions", payload: {
+      broker: "EXNESS", positions: [
+        { ticket: "123", symbol: "EXNESS:XAUUSD", side: "BUY", qty: 0.01,
+          entryPrice: 2300.5, currentPrice: 2310.3, profit: 9.8, strategyId: null },
+      ],
+    } });
+
+    persistStateEvent(db, "qkt-prod", attributed);
+    persistStateEvent(db, "qkt-prod", sibling);
+
+    expect(db.prepare("SELECT strategy_id, profit FROM positions_current WHERE ticket='123'").get())
+      .toMatchObject({ strategy_id: "hedge_straddle", profit: 9.8 });
+    expect(db.prepare("SELECT strategy_id FROM position_valuations WHERE ticket='123' ORDER BY ts DESC LIMIT 1").get())
+      .toMatchObject({ strategy_id: "hedge_straddle" });
+  });
+
   it("re-ingesting a deal upgrades the NULL strategy once it becomes resolvable", () => {
     const db = openDb(":memory:");
     // A deal whose dsl- comment names a strategy the store hasn't registered yet.
@@ -228,6 +250,23 @@ describe("foldOrder out-of-order delivery", () => {
     expect(row.qty).toBe(0.1);
     expect(row.strategy_id).toBe("latch");
     expect(row.avg_price).toBe(2350);
+  });
+
+  it("accepts a later lifecycle event after the producer sequence restarts", () => {
+    const db = openDb(":memory:");
+    ingestEvents(db, "qkt-prod", [
+      env({ seq: 99, ts: 1718000000000, type: "order.submit", payload: {
+        orderId: "o1", orderType: "Market", symbol: "XAUUSD", side: "BUY", qty: 0.1,
+      } }),
+      env({ seq: 1, ts: 1718000001000, type: "order.filled", payload: {
+        orderId: "o1", brokerOrderId: "b1", symbol: "XAUUSD", price: 2350, qty: 0.1,
+      } }),
+    ]);
+
+    const row: any = db.prepare("SELECT * FROM orders WHERE order_id='o1'").get();
+    expect(row.state).toBe("FILLED");
+    expect(row.last_event_seq).toBe(1);
+    expect(row.updated_ts).toBe(1718000001000);
   });
 });
 

@@ -90,7 +90,7 @@ A pnpm workspace of small, single-purpose packages:
 |---|---|
 | `packages/contract` | the wire truth — Zod schemas for every envelope type; validation at the boundary, types everywhere else |
 | `packages/store` | the only SQLite writer — WAL, FTS5, forward-only migrations, order-state folding, stats (Sharpe, drawdown, win rate) |
-| `packages/collector` | `POST /ingest` — bearer auth, Zod-validated, idempotent on event id, seq-aware against out-of-order delivery |
+| `packages/collector` | `POST /ingest` — bearer auth, Zod-validated, idempotent on event id, timestamp/seq-aware order folding |
 | `packages/api` | REST + WS `/live` behind the session guard |
 | `apps/web` | React + Vite + Tailwind dashboard |
 | `src/server.ts` | one entry, boots subsystems by mode |
