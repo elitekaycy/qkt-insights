@@ -11,13 +11,22 @@ function replaceOrAppend<T>(list: T[], match: (x: T) => boolean, next: T): T[] {
   return out;
 }
 
+function accountKey(instanceId: string, account: Pick<LiveAccount, "broker" | "login" | "server">): string {
+  if (account.login && account.server) return JSON.stringify([instanceId, account.server, account.login]);
+  return JSON.stringify([instanceId, account.broker]);
+}
+
+function displayBroker(broker: string): string {
+  return broker.replace(/_S\d+$/u, "");
+}
+
 /** Folds a pushed state.* envelope into the cached snapshot so values tick instantly. */
 function applyEnvelope(prev: LiveStateSnapshot | undefined, e: LiveEnvelope): LiveStateSnapshot {
   const snap = prev ?? { accounts: [], positions: [], orders: [] };
   if (e.type === "state.account") {
     const p = e.payload as unknown as Omit<LiveAccount, "instanceId" | "lastSeen" | "stale">;
-    const next: LiveAccount = { ...p, instanceId: e.instanceId, lastSeen: e.ts, stale: false };
-    return { ...snap, accounts: replaceOrAppend(snap.accounts, (a) => a.instanceId === e.instanceId && a.broker === p.broker, next) };
+    const next: LiveAccount = { ...p, broker: displayBroker(p.broker), instanceId: e.instanceId, lastSeen: e.ts, stale: false };
+    return { ...snap, accounts: replaceOrAppend(snap.accounts, (a) => accountKey(a.instanceId, a) === accountKey(e.instanceId, next), next) };
   }
   if (e.type === "state.orders") {
     const p = e.payload as unknown as { broker: string; orders: LiveStateSnapshot["orders"][number]["list"] };

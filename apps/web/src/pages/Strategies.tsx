@@ -13,7 +13,7 @@ import {
 import { age, money, num, pct, ts, tsDay } from "../format";
 import { buildCloseMap } from "../useCloses";
 import { useLiveState } from "../useLiveState";
-import { summarizePortfolio } from "../portfolio";
+import { physicalPortfolioId, portfolioGroupId, summarizePortfolio } from "../portfolio";
 
 /** Open P&L per strategy from the live broker positions of one instance, with a staleness flag. */
 function useOpenByStrategy(instanceId: string | null) {
@@ -47,7 +47,7 @@ function sourceName(path: string | null): string | null {
 }
 
 function portfolioId(row: StrategyRow): string | null {
-  return metaString(row.metadata, "portfolioId");
+  return portfolioGroupId(row);
 }
 
 function portfolioAlias(row: StrategyRow): string | null {
@@ -63,8 +63,10 @@ function strategyMetaLine(row: StrategyRow): string | null {
   const version = metaNumber(row.metadata, "dslVersion");
   const src = sourceName(metaString(row.metadata, "sourcePath"));
   const portfolio = portfolioId(row);
+  const physicalPortfolio = physicalPortfolioId(row);
   const alias = portfolioAlias(row);
-  const role = portfolio ? `portfolio ${portfolio}${alias ? ` / ${alias}` : ""}` : "standalone";
+  const shard = physicalPortfolio && portfolio && physicalPortfolio !== portfolio ? ` · shard ${physicalPortfolio}` : "";
+  const role = portfolio ? `portfolio ${portfolio}${shard}${alias ? ` / ${alias}` : ""}` : "standalone";
   return [role, runtime, version == null ? null : `v${version}`, src].filter(Boolean).join(" · ") || null;
 }
 
@@ -156,6 +158,7 @@ export default function Strategies({
             </h3>
             <div className="mt-3 grid grid-cols-1 gap-4 md:grid-cols-2 xl:grid-cols-3">
               {portfolioEntries.map(([id, children], i) => {
+                const physicalIds = new Set(children.map(physicalPortfolioId).filter((value): value is string => value != null));
                 const summary = summarizePortfolio(
                   id,
                   children,
@@ -183,6 +186,7 @@ export default function Strategies({
                       <div className="mt-2 flex flex-wrap items-center gap-1.5">
                         <Pill tone="accent">portfolio</Pill>
                         <Pill>{summary.childCount} children</Pill>
+                        {physicalIds.size > 1 && <Pill>{physicalIds.size} shards</Pill>}
                       </div>
                       <div
                         className="mt-2.5 flex items-baseline gap-3"
@@ -316,6 +320,7 @@ function StrategyCard({
             <>
               <Pill tone="info">portfolio child</Pill>
               <Pill>{portfolioId(s)}</Pill>
+              {physicalPortfolioId(s) !== portfolioId(s) && physicalPortfolioId(s) && <Pill>{physicalPortfolioId(s)}</Pill>}
               {portfolioAlias(s) && <Pill>{portfolioAlias(s)}</Pill>}
             </>
           ) : (
@@ -512,7 +517,7 @@ function PortfolioDetail({
               <Empty colSpan={4}>Account state unavailable.</Empty>
             )}
             {accounts.map((a) => (
-              <Row key={a.broker}>
+              <Row key={`${a.broker}:${a.login ?? ""}:${a.server ?? ""}`}>
                 <Cell>
                   <span className="font-semibold text-bright">{a.broker}</span>
                   {a.stale && <div className="text-xs text-warn">stale</div>}

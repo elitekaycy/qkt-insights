@@ -17,6 +17,25 @@ function allocatedCapital(row: StrategyRow): number | null {
   return typeof value === "number" ? value : row.startingBalance;
 }
 
+function metaString(row: StrategyRow, key: string): string | null {
+  const value = row.metadata?.[key];
+  return typeof value === "string" && value.length > 0 ? value : null;
+}
+
+/** qkt-forge can shard one logical forward book as book, book_2, book_3. */
+export function logicalPortfolioId(portfolioId: string): string {
+  return portfolioId.replace(/_\d+$/u, "");
+}
+
+export function physicalPortfolioId(row: StrategyRow): string | null {
+  return metaString(row, "portfolioId");
+}
+
+export function portfolioGroupId(row: StrategyRow): string | null {
+  const id = physicalPortfolioId(row);
+  return id == null ? null : logicalPortfolioId(id);
+}
+
 /** Aggregates only child-attributed values; broker account equity is intentionally excluded. */
 export function summarizePortfolio(
   portfolioId: string,
