@@ -154,6 +154,65 @@ describe("enriched qkt payloads", () => {
     expect((modified.payload as any).changes.newLimitPrice).toBe(2355.5);
   });
 
+  it("accepts qkt causal decision and fill-accounting payloads", () => {
+    expect(EnvelopeSchema.parse({ ...base, strategyId: "latch", type: "decision.rule_evaluated",
+      payload: {
+        decisionId: "decision-1",
+        ruleId: "latch#0",
+        strategyFingerprint: "a".repeat(64),
+        ruleFingerprint: "b".repeat(64),
+        conditionFingerprint: "c".repeat(64),
+        conditionResult: true,
+        alias: "asset1",
+        broker: "EXNESS",
+        timeframe: "1m",
+        signalCount: 1,
+        candle: {
+          symbol: "EXNESS:EURUSD",
+          startTimeMs: base.ts - 60_000,
+          endTimeMs: base.ts,
+          open: 1,
+          high: 1,
+          low: 1,
+          close: 1,
+          volume: 1,
+        },
+      } }).type).toBe("decision.rule_evaluated");
+    expect(EnvelopeSchema.parse({ ...base, strategyId: "latch", type: "decision.order_linked",
+      payload: { decisionId: "decision-1", ruleId: "latch#0", signalIndex: 0, orderId: "o1" } }).type)
+      .toBe("decision.order_linked");
+    expect(EnvelopeSchema.parse({ ...base, strategyId: "latch", type: "fill.accounted",
+      payload: {
+        orderId: "o1",
+        symbol: "EXNESS:EURUSD",
+        fillSliceId: "o1:1",
+        sourceFillSequenceId: 1,
+        cumulativeFilled: 0.01,
+        modeledCommissionAccount: 0,
+        venueCostsAccount: 0,
+        totalCostsAccount: 0,
+        accountNativeRealized: 0,
+        strategyNativeRealized: 0,
+        nativeCurrency: "USD",
+        grossAccountRealized: 0,
+        grossStrategyAccountRealized: 0,
+        accountCurrency: "USD",
+        netAccountRealized: 0,
+        netStrategyAccountRealized: 0,
+      } }).type).toBe("fill.accounted");
+  });
+
+  it("accepts qkt bot close audit payloads", () => {
+    expect(EnvelopeSchema.parse({ ...base, strategyId: "manual", type: "bot.close",
+      payload: {
+        symbol: "EXNESS:EURUSD",
+        ticket: "3073111647",
+        ok: "true",
+        deal: "2525951538",
+        price: "1.1540700000000002",
+      } }).type).toBe("bot.close");
+  });
+
   it("accepts cancel and latch signal variants", () => {
     expect(EnvelopeSchema.parse({ ...base, type: "signal.cancel",
       payload: { intent: "CANCEL_PENDING_FOR_SYMBOL", symbol: "XAUUSD" } }).type).toBe("signal.cancel");
