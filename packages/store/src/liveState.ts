@@ -39,6 +39,22 @@ export interface LiveStateSnapshot {
   orders: Array<{ instanceId: string; broker: string; at: number; stale: boolean; list: LivePendingOrder[] }>;
 }
 
+interface PositionGroup {
+  instanceId: string;
+  broker: string;
+  at: number;
+  stale: boolean;
+  list: LivePosition[];
+}
+
+interface OrderGroup {
+  instanceId: string;
+  broker: string;
+  at: number;
+  stale: boolean;
+  list: LivePendingOrder[];
+}
+
 function splitKey(key: string): [string, string] {
   const i = key.lastIndexOf(":");
   return [key.slice(0, i), key.slice(i + 1)];
@@ -109,14 +125,8 @@ export class LiveStateStore {
 
   snapshot(now: number, staleAfterMs = 30_000): LiveStateSnapshot {
     const accounts = [...this.accounts.values()].map((a) => ({ ...a, stale: now - a.lastSeen > staleAfterMs }));
-    const positions = [...this.positions.entries()].map(([key, p]) => {
-      const [instanceId, broker] = splitKey(key);
-      return { instanceId, broker, at: p.at, stale: now - p.at > staleAfterMs, list: p.list };
-    });
-    const orders = [...this.orders.entries()].map(([key, o]) => {
-      const [instanceId, broker] = splitKey(key);
-      return { instanceId, broker, at: o.at, stale: now - o.at > staleAfterMs, list: o.list };
-    });
+    const positions = collapsePositions(this.positions, now, staleAfterMs);
+    const orders = collapseOrders(this.orders, now, staleAfterMs);
     return { accounts, positions, orders };
   }
 
@@ -152,4 +162,64 @@ function accountKey(instanceId: string, p: { broker: string; login?: string; ser
 
 function displayBroker(broker: string): string {
   return broker.replace(/_S\d+$/u, "");
+}
+
+function collapsedKey(instanceId: string, broker: string): string {
+  return JSON.stringify([instanceId, displayBroker(broker)]);
+}
+
+function collapsePositions(
+  positions: Map<string, { at: number; list: LivePosition[] }>,
+  now: number,
+  staleAfterMs: number,
+): PositionGroup[] {
+  const groups = new Map<string, PositionGroup>();
+  for (const [key, value] of positions) {
+    const [instanceId, broker] = splitKey(key);
+    const display = displayBroker(broker);
+    const groupKey = collapsedKey(instanceId, broker);
+    const stale = now - value.at > staleAfterMs;
+    const group = groups.get(groupKey) ?? { instanceId, broker: display, at: value.at, stale: true, list: [] };
+    const byTicket = new Map(group.list.map((position) => [position.ticket, position]));
+    for (const position of value.list) {
+      const prev = byTicket.get(position.ticket);
+      byTicket.set(position.ticket, {
+        ...position,
+        strategyId: position.strategyId ?? prev?.strategyId ?? null,
+      });
+    }
+    group.at = Math.max(group.at, value.at);
+    group.stale = group.stale && stale;
+    group.list = [...byTicket.values()];
+    groups.set(groupKey, group);
+  }
+  return [...groups.values()];
+}
+
+function collapseOrders(
+  orders: Map<string, { at: number; list: LivePendingOrder[] }>,
+  now: number,
+  staleAfterMs: number,
+): OrderGroup[] {
+  const groups = new Map<string, OrderGroup>();
+  for (const [key, value] of orders) {
+    const [instanceId, broker] = splitKey(key);
+    const display = displayBroker(broker);
+    const groupKey = collapsedKey(instanceId, broker);
+    const stale = now - value.at > staleAfterMs;
+    const group = groups.get(groupKey) ?? { instanceId, broker: display, at: value.at, stale: true, list: [] };
+    const byTicket = new Map(group.list.map((order) => [order.ticket, order]));
+    for (const order of value.list) {
+      const prev = byTicket.get(order.ticket);
+      byTicket.set(order.ticket, {
+        ...order,
+        strategyId: order.strategyId ?? prev?.strategyId ?? null,
+      });
+    }
+    group.at = Math.max(group.at, value.at);
+    group.stale = group.stale && stale;
+    group.list = [...byTicket.values()];
+    groups.set(groupKey, group);
+  }
+  return [...groups.values()];
 }
