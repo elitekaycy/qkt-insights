@@ -193,12 +193,20 @@ export default function Strategies({
                       </div>
                       <div
                         className="mt-2.5 flex items-baseline gap-3"
-                        title="allocated child capital plus child-attributed realized and open P&L"
+                        title="realized + open P&L attributed to this portfolio's sleeves — not the shared broker account equity"
                       >
                         <span
-                          className={`font-mono text-2xl font-semibold ${summary.portfolioEquity == null || live.stale ? "text-faint" : "text-bright"}`}
+                          className={`font-mono text-2xl font-semibold ${
+                            summary.netPnl == null || live.stale
+                              ? "text-faint"
+                              : summary.netPnl > 0
+                                ? "text-up"
+                                : summary.netPnl < 0
+                                  ? "text-down"
+                                  : "text-bright"
+                          }`}
                         >
-                          {money(summary.portfolioEquity)}
+                          {money(summary.netPnl)}
                         </span>
                         <ReturnPct
                           net={summary.netPnl}
@@ -207,17 +215,16 @@ export default function Strategies({
                         />
                       </div>
                       <div className="mt-1 text-[11px] font-semibold uppercase tracking-[0.08em] text-faint">
-                        portfolio equity · attributed
+                        attributed net P&L
                       </div>
                       <div
                         className={`mt-1 text-xs ${live.stale ? "text-faint" : "text-muted"}`}
                       >
-                        net {money(summary.netPnl)} · realized{" "}
-                        {money(summary.realizedPnl)} · open{" "}
+                        realized {money(summary.realizedPnl)} · open{" "}
                         {money(summary.openPnl)}
                       </div>
                       <div className="mt-0.5 text-[11px] text-faint">
-                        capital {money(summary.allocatedCapital)} ·{" "}
+                        {money(summary.allocatedCapital)} allocated ·{" "}
                         {summary.dealCount} deal
                         {summary.dealCount === 1 ? "" : "s"}
                       </div>
@@ -400,9 +407,9 @@ function PortfolioDetail({
       />
       <div className="mt-6 grid grid-cols-2 gap-3 md:grid-cols-3 xl:grid-cols-6">
         <Stat
-          label="Portfolio equity"
-          value={money(summary.portfolioEquity)}
-          sub="capital + attributed P&L"
+          label="Allocated capital"
+          value={money(summary.allocatedCapital)}
+          sub={`${summary.tradedCount}/${summary.childCount} sleeves traded`}
         />
         <Stat
           label="Net P&L"
