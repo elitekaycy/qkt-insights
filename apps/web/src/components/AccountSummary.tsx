@@ -120,11 +120,7 @@ export function AccountSummary({
           </Panel>
         </div>
         <div className="lg:col-span-2">
-          <Panel stagger={3} title="P&L calendar" hint="realized net by UTC close day, all strategies">
-            <div className="p-4">
-              <CalendarView days={daily} startingBalance={totalAllocated} />
-            </div>
-          </Panel>
+          <CalendarView days={daily} startingBalance={totalAllocated} />
         </div>
       </div>
     </section>
