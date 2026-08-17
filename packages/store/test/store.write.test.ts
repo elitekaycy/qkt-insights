@@ -194,6 +194,38 @@ describe("broker state ingest hygiene", () => {
     expect(db.prepare("SELECT COUNT(*) c FROM position_valuations").get()).toMatchObject({ c: 3 });
   });
 
+  it("resolves a position tagged with the DSL stream alias to its sleeve id via the deal", () => {
+    const db = openDb(":memory:");
+    // deal attributes broker position ticket 3079627120 to the sleeve forward_bench_2:s0
+    ingestEvents(db, "qkt-prod", [env({ id: "deal-nz", strategyId: "forward_bench_2:s0", type: "broker.deal", payload: {
+      broker: "EXNESS", dealTicket: "d1", positionTicket: "3079627120", orderTicket: "o1",
+      symbol: "EXNESS_S10:NZDUSD", side: "SELL", entry: "IN", qty: 0.28, price: 0.58596,
+      profit: 0, magic: 20010, comment: "dsl-fx2_NZDUSD_0--0", ts: 1718000000000, strategyId: "forward_bench_2:s0",
+    } })]);
+    // the live position for the same ticket arrives tagged with the DSL stream alias
+    persistStateEvent(db, "qkt-prod", env({ id: "posn-nz", seq: 5, ts: 1718000060000, type: "state.positions", payload: {
+      broker: "EXNESS",
+      positions: [
+        { ticket: "3079627120", symbol: "EXNESS_S10:NZDUSD", side: "SELL", qty: 0.28, entryPrice: 0.58596, currentPrice: 0.5918, profit: -163.52, strategyId: "fx2_NZDUSD_0" },
+      ],
+    } }));
+
+    expect(db.prepare("SELECT strategy_id FROM positions_current WHERE ticket='3079627120'").get())
+      .toMatchObject({ strategy_id: "forward_bench_2:s0" });
+    expect(db.prepare("SELECT DISTINCT strategy_id s FROM position_valuations WHERE ticket='3079627120'").get())
+      .toMatchObject({ s: "forward_bench_2:s0" });
+  });
+
+  it("keeps the raw position strategy id when no deal has attributed the ticket yet", () => {
+    const db = openDb(":memory:");
+    persistStateEvent(db, "qkt-prod", env({ id: "posn-raw", seq: 5, ts: 1718000060000, type: "state.positions", payload: {
+      broker: "EXNESS",
+      positions: [{ ticket: "999", symbol: "EXNESS:EURUSD", side: "BUY", qty: 0.1, entryPrice: 1.08, currentPrice: 1.081, profit: 10, strategyId: "some_stream" }],
+    } }));
+    expect(db.prepare("SELECT strategy_id FROM positions_current WHERE ticket='999'").get())
+      .toMatchObject({ strategy_id: "some_stream" });
+  });
+
   it("does not lose durable position attribution to a sibling poller", () => {
     const db = openDb(":memory:");
     const attributed = env({ id: "posn-owner", seq: 10, ts: 1718000000000, type: "state.positions", payload: {

@@ -99,7 +99,12 @@ export function persistStateEvent(db: Db, instanceId: string, e: Envelope): void
     const tickets = new Set<string>();
     for (const pos of positions) {
       tickets.add(pos.ticket);
-      const strategyId = pos.strategyId ?? knownStrategies.get(pos.ticket) ?? null;
+      const strategyId = resolvePositionStrategy(
+        db,
+        instanceId,
+        pos.ticket,
+        pos.strategyId ?? knownStrategies.get(pos.ticket) ?? null,
+      );
       const row = {
         instanceId,
         broker: p.broker,
@@ -357,6 +362,19 @@ function foldOrder(db: Db, instanceId: string, e: Envelope): void {
   }
 }
 
+// The engine tags a live position with the DSL stream alias it was opened by (e.g. "fx2_NZDUSD_0"),
+// while its deals, trades and the strategy list all use the sleeve id (e.g. "forward_bench_2:s0").
+// Left unresolved, a position shows a name that matches nothing in the Strategies tab. The deals for
+// the same broker position ticket carry the authoritative sleeve attribution, so prefer that; fall
+// back to the raw id when no deal has landed yet (corrected on the next position update).
+// e.g. position ticket 3079627120 tagged "fx2_NZDUSD_0" but its IN deal is "forward_bench_2:s0" -> the latter.
+function resolvePositionStrategy(db: Db, instanceId: string, ticket: string, raw: string | null): string | null {
+  const viaDeal = db.prepare(
+    "SELECT strategy_id s FROM deals WHERE instance_id=? AND position_ticket=? AND strategy_id IS NOT NULL LIMIT 1",
+  ).get(instanceId, ticket) as { s: string } | undefined;
+  return viaDeal?.s ?? raw;
+}
+
 function foldPosition(db: Db, instanceId: string, e: Envelope): void {
   const p: any = e.payload;
   if (e.type === "position.reconciled") {
@@ -390,7 +408,7 @@ function foldPosition(db: Db, instanceId: string, e: Envelope): void {
     profit: p.profit ?? null,
     swap: p.swap ?? null,
     openedAt: p.openedAt ?? null,
-    strategyId: p.strategyId ?? e.strategyId ?? null,
+    strategyId: resolvePositionStrategy(db, instanceId, ticket, p.strategyId ?? e.strategyId ?? null),
     qtyDecimal: decimalText(p.qty),
     entryPriceDecimal: decimalText(p.entryPrice ?? p.price),
     currentPriceDecimal: decimalText(p.currentPrice ?? p.price),
