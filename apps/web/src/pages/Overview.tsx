@@ -1,10 +1,10 @@
 import { useQueries, useQuery } from "@tanstack/react-query";
-import { get, type DayNet, type EquityPoint, type HealthRow, type PerformanceBundle, type StrategyRow, type StrategyStats } from "../api";
+import { get, type DayNet, type EquityPoint, type HealthRow, type PerformanceBundle, type StrategyRow } from "../api";
+import { AccountSummary } from "../components/AccountSummary";
 import type { ComparisonSeries } from "../components/EquityChart";
 import { OverviewDashboard } from "../components/OverviewDashboard";
-import { Sparkline } from "../components/Sparkline";
-import { Card, Cell, Empty, FlashValue, LiveDot, Loadable, PageHeader, Panel, Pill, ReturnPct, Row, SideTag, Stat, Table } from "../components/ui";
-import { age, money, num, pct } from "../format";
+import { Card, Cell, Empty, FlashValue, LiveDot, Loadable, PageHeader, Panel, Pill, Row, SideTag, Stat, Table } from "../components/ui";
+import { age, duration, money, num } from "../format";
 import { useLiveState } from "../useLiveState";
 import { useLiveStream } from "../useLiveStream";
 
@@ -52,7 +52,6 @@ function aggregateRiskCap(rows: StrategyRow[], keys: string[]): number | null {
 
 export default function Overview({
   instanceId,
-  onOpenStrategy,
 }: {
   instanceId: string | null;
   onOpenStrategy: (strategyId: string) => void;
@@ -80,15 +79,6 @@ export default function Overview({
       refetchInterval: 10000,
     })),
   });
-  const stats = useQueries({
-    queries: ids.map((id) => ({
-      queryKey: ["stats", instanceId, id],
-      queryFn: () =>
-        get<StrategyStats>(`/stats?instance=${encodeURIComponent(instanceId!)}&strategy=${encodeURIComponent(id)}`),
-      refetchInterval: 10000,
-    })),
-  });
-
   const live = useLiveStream(instanceId, 40, FEED_TYPES);
   const liveState = useLiveState(live);
   // One bounded bundle per strategy feeds every account-level review widget.
@@ -96,7 +86,7 @@ export default function Overview({
     queries: ids.map((id) => ({
       queryKey: ["perf-daily", instanceId, id],
       queryFn: () =>
-        get<Partial<PerformanceBundle>>(`/performance?instance=${encodeURIComponent(instanceId!)}&strategy=${encodeURIComponent(id)}&include=dailyNets,report,closes,normalized,excursions,execution`),
+        get<Partial<PerformanceBundle>>(`/performance?instance=${encodeURIComponent(instanceId!)}&strategy=${encodeURIComponent(id)}&include=dailyNets,report,closes,normalized,excursions,execution,costs,contribution`),
       refetchInterval: 60000,
     })),
   });
@@ -116,31 +106,12 @@ export default function Overview({
   const accountEquity = accounts.length > 0 ? accounts.reduce((a, x) => a + x.equity, 0) : null;
   const accountBalance = accounts.length > 0 ? accounts.reduce((a, x) => a + x.balance, 0) : null;
   const accountOpenPnl = accounts.length > 0 ? accounts.reduce((a, x) => a + (x.openProfit ?? 0), 0) : null;
-  const positionsStale = brokerPositions.length > 0 && brokerPositions.every((g) => g.stale);
-  const openByStrategy = new Map<string, number>();
-  for (const g of brokerPositions)
-    for (const p of g.list)
-      if (p.strategyId) openByStrategy.set(p.strategyId, (openByStrategy.get(p.strategyId) ?? 0) + (p.profit ?? 0));
-
-  // Per-strategy slice of everything the stat cards aggregate, for their breakdown modals.
-  const perStrategy = ids.map((id, i) => {
-    const row = rows[i]!;
-    const realized = row.realizedNet ?? stats[i]?.data?.realizedPnl ?? null;
-    const open = openByStrategy.get(id) ?? (brokerPositions.length > 0 ? 0 : null);
-    const net = realized == null && open == null ? null : (realized ?? 0) + (open ?? 0);
-    return {
-      id,
-      row,
-      stats: stats[i]?.data,
-      realized,
-      open,
-      net,
-    };
-  });
   const totalAllocated = rows.reduce((a, s) => a + (s.startingBalance ?? 0), 0);
   const combinedDaily = aggregateDaily(perf.flatMap((q) => q.data?.dailyNets ?? []));
   const combinedCloses = perf.flatMap((q) => q.data?.closes ?? []);
   const reports = perf.flatMap((q) => q.data?.report ? [q.data.report] : []);
+  const costs = perf.flatMap((q) => q.data?.costs ? [q.data.costs] : []);
+  const contribution = perf.flatMap((q) => q.data?.contribution ? [q.data.contribution] : []);
   const normalized = perf.flatMap((q) => q.data?.normalized ? [q.data.normalized] : []);
   const excursions = perf.flatMap((q) => q.data?.excursions ? [q.data.excursions] : []);
   const execution = perf.flatMap((q) => q.data?.execution ? [q.data.execution] : []);
@@ -218,7 +189,7 @@ export default function Overview({
               retry={() => liveState.refetch()}
               what="open positions"
             >
-            <Table head={["Ticket", "Symbol", "Side", "Qty", "Entry", "Current", "Profit", "Swap", "Strategy"]}>
+            <Table head={["Ticket", "Symbol", "Side", "Qty", "Entry", "Current", "Held", "Profit", "Swap", "Strategy"]}>
               {brokerPositions.flatMap((g) =>
                 g.list.map((p) => (
                   <Row key={`${g.broker}-${p.ticket}`}>
@@ -230,6 +201,11 @@ export default function Overview({
                     <Cell className="font-mono">{p.qty}</Cell>
                     <Cell className="font-mono text-muted">@ {p.entryPrice}</Cell>
                     <Cell className="font-mono">{p.currentPrice ?? "—"}</Cell>
+                    <Cell className="text-muted">
+                      <span title={p.openedAt ? new Date(p.openedAt).toISOString() : undefined}>
+                        {p.openedAt ? duration(Date.now() - p.openedAt) : "—"}
+                      </span>
+                    </Cell>
                     <Cell
                       className={`font-mono font-semibold ${p.profit == null ? "text-faint" : p.profit > 0 ? "text-up" : p.profit < 0 ? "text-down" : "text-muted"}`}
                     >
@@ -243,7 +219,7 @@ export default function Overview({
                 )),
               )}
               {brokerPositions.every((g) => g.list.length === 0) && (
-                <Empty colSpan={9}>
+                <Empty colSpan={10}>
                   {brokerPositions.length === 0 ? "No broker state yet." : "Flat — no open broker positions."}
                 </Empty>
               )}
@@ -260,6 +236,16 @@ export default function Overview({
         what="overview analysis"
         lines={8}
       >
+        <AccountSummary
+          daily={combinedDaily}
+          closes={combinedCloses}
+          reports={reports}
+          costs={costs}
+          contribution={contribution}
+          accountEquity={accountEquity}
+          accountBalance={accountBalance}
+          totalAllocated={totalAllocated}
+        />
         <OverviewDashboard
           data={{
             instanceId,
@@ -283,59 +269,6 @@ export default function Overview({
         />
       </Loadable>
 
-      <div className="mt-8">
-        <div className="rise flex items-baseline justify-between" style={{ "--stagger": 3 } as React.CSSProperties}>
-          <h3 className="text-sm font-bold uppercase tracking-[0.08em] text-body">Strategies</h3>
-          <span className="text-xs text-faint">click one to drill in</span>
-        </div>
-        <Loadable loading={strategies.isPending} error={strategies.isError} retry={() => strategies.refetch()} what="strategies">
-        <div className="mt-3 grid grid-cols-1 gap-4 md:grid-cols-2 xl:grid-cols-3">
-          {rows.length === 0 && <Card className="p-8 text-center text-faint md:col-span-2 xl:col-span-3">No strategies yet.</Card>}
-          {rows.map((s, i) => {
-            const st = stats[i]?.data;
-            const pts = curves[i]?.data ?? [];
-            const p = perStrategy[i]!;
-            return (
-              <button key={s.strategyId} onClick={() => onOpenStrategy(s.strategyId)} className="group text-left">
-                <Card
-                  className="p-5 transition group-hover:border-accent/50 group-hover:bg-raised"
-                  stagger={4 + i}
-                >
-                  <div className="flex items-baseline justify-between">
-                    <span className="font-bold text-bright">{s.strategyId}</span>
-                    <span className="text-xs text-faint">{age(s.lastSeen)}</span>
-                  </div>
-                  <div className="mt-2.5 flex items-baseline gap-3" title="net P&L = realized + open (this strategy, on a shared account)">
-                    <span className={`font-mono text-2xl font-semibold ${p.net == null || positionsStale ? "text-faint" : p.net >= 0 ? "text-up" : "text-down"}`}>
-                      {p.net == null ? "—" : `${p.net >= 0 ? "+" : "−"}${money(Math.abs(p.net))}`}
-                    </span>
-                    <ReturnPct net={p.net} base={p.row.startingBalance} dim={positionsStale} />
-                  </div>
-                  <div className="mt-1 text-[11px] font-semibold uppercase tracking-[0.08em] text-faint">net P&L · notional {money(p.row.startingBalance)}</div>
-                  <div className={`mt-1 text-xs ${positionsStale ? "text-faint" : "text-muted"}`}>
-                    realized {money(p.realized)} · open {money(p.open)}
-                  </div>
-                  <div className="mt-2 -mx-1">
-                    <Sparkline points={pts} />
-                  </div>
-                  <div className="mt-2 flex gap-4 text-xs text-muted">
-                    <span>
-                      win <span className="font-mono text-body">{pct(st?.winRate)}</span>
-                    </span>
-                    <span>
-                      sharpe <span className="font-mono text-body">{num(st?.sharpe)}</span>
-                    </span>
-                    <span>
-                      trades <span className="font-mono text-body">{st?.tradeCount ?? "—"}</span>
-                    </span>
-                  </div>
-                </Card>
-              </button>
-            );
-          })}
-        </div>
-        </Loadable>
-      </div>
 
       <div className="mt-8">
         <Panel stagger={6} title="Instances" hint="every qkt box the collector has heard from">
