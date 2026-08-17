@@ -3,7 +3,7 @@ import argon2 from "argon2";
 import cookie from "@fastify/cookie";
 import websocket from "@fastify/websocket";
 import fastifyStatic from "@fastify/static";
-import { openDb, LiveBus, LiveStateStore } from "@qkt-insights/store";
+import { openDb, LiveBus, LiveStateStore, pruneRetention } from "@qkt-insights/store";
 import { registerCollector } from "@qkt-insights/collector";
 import { registerAuth, registerRest, registerLive, hasSession } from "@qkt-insights/api";
 import { existsSync } from "node:fs";
@@ -33,6 +33,24 @@ export async function buildServer(mode: Mode) {
   app.get("/healthz", async () => ({ ok: true, mode }));
 
   registerCollector(app, { db, bus, liveState, ingestToken: env("INGEST_TOKEN") });
+
+  // Retention: prune operational logs/events and stale position marks past the window so the DB
+  // does not grow unbounded (trade events and open-position history are kept — see pruneRetention).
+  // Run once shortly after boot (covers restart-heavy periods) and weekly thereafter. unref so
+  // neither timer holds the process open.
+  const prune = () => {
+    try {
+      const r = pruneRetention(db, Date.now());
+      if (r.logs || r.events || r.valuations)
+        app.log.info({ ...r }, "retention prune");
+    } catch (e) {
+      app.log.error(e, "retention prune failed");
+    }
+  };
+  const firstPrune = setTimeout(prune, 5 * 60_000);
+  firstPrune.unref();
+  const retention = setInterval(prune, 7 * 24 * 60 * 60_000);
+  retention.unref();
 
   if (mode === "serve" || mode === "run") {
     await app.register(cookie);
