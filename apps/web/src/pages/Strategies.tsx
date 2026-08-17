@@ -186,6 +186,9 @@ export default function Strategies({
                       <div className="mt-2 flex flex-wrap items-center gap-1.5">
                         <Pill tone="accent">portfolio</Pill>
                         <Pill>{summary.childCount} children</Pill>
+                        <Pill tone={summary.tradedCount > 0 ? "accent" : undefined}>
+                          {summary.tradedCount} traded
+                        </Pill>
                         {physicalIds.size > 1 && <Pill>{physicalIds.size} shards</Pill>}
                       </div>
                       <div
