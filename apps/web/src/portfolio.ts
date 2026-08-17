@@ -10,7 +10,6 @@ export interface PortfolioSummary {
   realizedPnl: number;
   openPnl: number | null;
   netPnl: number | null;
-  portfolioEquity: number | null;
   dealCount: number;
   lastSeen: number;
 }
@@ -70,7 +69,6 @@ export function summarizePortfolio(
     realizedPnl: realized,
     openPnl: open,
     netPnl: net,
-    portfolioEquity: capital == null || net == null ? null : capital + net,
     dealCount: children.reduce((sum, child) => sum + child.dealCount, 0),
     lastSeen: children.reduce(
       (latest, child) => Math.max(latest, child.lastSeen),

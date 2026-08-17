@@ -45,7 +45,6 @@ describe("summarizePortfolio", () => {
       realizedPnl: 90,
       openPnl: 10,
       netPnl: 100,
-      portfolioEquity: 10_100,
       dealCount: 3,
       childCount: 2,
       tradedCount: 2,
@@ -76,6 +75,5 @@ describe("summarizePortfolio", () => {
     expect(summary.realizedPnl).toBe(120);
     expect(summary.openPnl).toBeNull();
     expect(summary.netPnl).toBeNull();
-    expect(summary.portfolioEquity).toBeNull();
   });
 });
