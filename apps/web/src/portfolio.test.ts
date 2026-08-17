@@ -48,8 +48,21 @@ describe("summarizePortfolio", () => {
       portfolioEquity: 10_100,
       dealCount: 3,
       childCount: 2,
+      tradedCount: 2,
       lastSeen: 20,
     });
+  });
+
+  it("counts only children that actually traded, not every registered sleeve", () => {
+    const summary = summarizePortfolio(
+      "book",
+      [child("book:a", 1_000, 0, 1), child("book:b", 1_000, null, 0), child("book:c", 1_000, null, 0)],
+      new Map(),
+      false,
+    );
+
+    expect(summary.childCount).toBe(3);
+    expect(summary.tradedCount).toBe(1);
   });
 
   it("does not claim net PnL or equity while live open PnL is unavailable", () => {

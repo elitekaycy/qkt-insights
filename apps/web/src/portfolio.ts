@@ -3,6 +3,9 @@ import type { StrategyRow } from "./api";
 export interface PortfolioSummary {
   portfolioId: string;
   childCount: number;
+  /** Children that have at least one broker deal — i.e. sleeves that actually traded, not just
+   * registered. A book can register 40 sleeves yet have only 1 that ever fired. */
+  tradedCount: number;
   allocatedCapital: number | null;
   realizedPnl: number;
   openPnl: number | null;
@@ -62,6 +65,7 @@ export function summarizePortfolio(
   return {
     portfolioId,
     childCount: children.length,
+    tradedCount: children.filter((child) => child.dealCount > 0).length,
     allocatedCapital: capital,
     realizedPnl: realized,
     openPnl: open,
