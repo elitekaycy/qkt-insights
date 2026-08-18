@@ -1,5 +1,5 @@
 import { describe, it, expect, beforeEach } from "vitest";
-import { openDb, ingestEvents, listInstances, listStrategies, listOrders, listTrades, searchEvents, equityCurve, instanceHealth, listDeals, accountEquity, strategyStats, persistStateEvent, listCurrentPositions, listRiskEvents, listPortfolioEquity, replaceRoster } from "../src/index.js";
+import { openDb, ingestEvents, listInstances, listStrategies, listOrders, listTrades, searchEvents, equityCurve, instanceHealth, listDeals, accountEquity, strategyStats, persistStateEvent, listCurrentPositions, listRiskEvents, listPortfolioEquity, upsertRoster, ROSTER_WINDOW_MS } from "../src/index.js";
 import type { Db } from "../src/index.js";
 import type { Envelope } from "@qkt-insights/contract";
 
@@ -35,25 +35,42 @@ describe("queries", () => {
   it("marks every strategy active when the instance has never reported a roster", () => {
     expect(listStrategies(db, "qkt-prod").every((s) => s.active)).toBe(true);
   });
-  it("marks strategies in the latest roster active and the rest retired", () => {
+  it("marks a strategy absent from the roster retired", () => {
     ingestEvents(db, "qkt-prod", [
       env({ strategyId: "old_sleeve", type: "strategy.started", ts: 1717999999000,
         payload: { strategyId: "old_sleeve", ts: 1717999999000, sourcePath: "/srv/qkt/old.qkt", dslVersion: 1, runtimeMode: "paper", symbols: ["XAUUSD"] } }),
     ]);
-    // A reshard leaves old_sleeve behind; the live roster is just latch.
-    replaceRoster(db, "qkt-prod", ["latch"], 1718000100000);
+    // A reshard leaves old_sleeve behind; the live roster only bumps latch.
+    upsertRoster(db, "qkt-prod", ["latch"], 1718000100000);
     const byId = Object.fromEntries(listStrategies(db, "qkt-prod").map((s) => [s.strategyId, s.active]));
     expect(byId).toEqual({ latch: true, old_sleeve: false });
   });
-  it("lets the newest roster supersede the previous one", () => {
-    replaceRoster(db, "qkt-prod", ["someone_else"], 1718000100000);
-    expect(listStrategies(db, "qkt-prod").find((s) => s.strategyId === "latch")!.active).toBe(false);
-    replaceRoster(db, "qkt-prod", ["latch"], 1718000200000);
-    expect(listStrategies(db, "qkt-prod").find((s) => s.strategyId === "latch")!.active).toBe(true);
+  it("unions ids across sessions bumped in the same window", () => {
+    ingestEvents(db, "qkt-prod", [
+      env({ strategyId: "sib", type: "strategy.started", ts: 1717999999000,
+        payload: { strategyId: "sib", ts: 1717999999000, sourcePath: "/srv/qkt/sib.qkt", dslVersion: 1, runtimeMode: "paper", symbols: ["EURUSD"] } }),
+    ]);
+    // Two sessions of one daemon each announce only their own id.
+    upsertRoster(db, "qkt-prod", ["latch"], 1718000100000);
+    upsertRoster(db, "qkt-prod", ["sib"], 1718000105000);
+    const byId = Object.fromEntries(listStrategies(db, "qkt-prod").map((s) => [s.strategyId, s.active]));
+    expect(byId).toEqual({ latch: true, sib: true });
   });
-  it("ignores an empty roster so a momentary blank never wipes the live set", () => {
-    replaceRoster(db, "qkt-prod", ["latch"], 1718000100000);
-    replaceRoster(db, "qkt-prod", [], 1718000200000);
+  it("ages out an id no longer bumped once outside the window", () => {
+    upsertRoster(db, "qkt-prod", ["latch"], 1718000000000);
+    // A much newer bump for a sibling advances the instance's newest ts past the window.
+    ingestEvents(db, "qkt-prod", [
+      env({ strategyId: "sib", type: "strategy.started", ts: 1717999999000,
+        payload: { strategyId: "sib", ts: 1717999999000, sourcePath: "/srv/qkt/sib.qkt", dslVersion: 1, runtimeMode: "paper", symbols: ["EURUSD"] } }),
+    ]);
+    upsertRoster(db, "qkt-prod", ["sib"], 1718000000000 + ROSTER_WINDOW_MS + 1);
+    const byId = Object.fromEntries(listStrategies(db, "qkt-prod").map((s) => [s.strategyId, s.active]));
+    expect(byId).toMatchObject({ latch: false, sib: true });
+  });
+  it("keeps the max ts and ignores an empty roster", () => {
+    upsertRoster(db, "qkt-prod", ["latch"], 1718000100000);
+    upsertRoster(db, "qkt-prod", ["latch"], 1718000000000); // out-of-order, older — must not regress
+    upsertRoster(db, "qkt-prod", [], 1718000200000);
     expect(listStrategies(db, "qkt-prod").find((s) => s.strategyId === "latch")!.active).toBe(true);
   });
   it("lists orders filtered by instance and state", () => {

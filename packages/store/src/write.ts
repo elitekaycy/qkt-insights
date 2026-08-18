@@ -57,17 +57,20 @@ export function touchInstance(db: Db, instanceId: string, ts: number, seq: numbe
 }
 
 /**
- * Replace an instance's deployed strategy roster wholesale. The daemon emits the
- * full current roster every poll cycle, so the freshest envelope is authoritative:
- * ids absent from it (left over from a prior bench topology) drop out and read as
- * retired. Empty roster is ignored — a momentary blank must not wipe the live set.
+ * Bump the roster timestamp for each currently-deployed strategy. Additive, not a
+ * wholesale replace: one daemon fans an instance across several sessions that each
+ * announce only their own ids, so replacing would let them clobber each other. A
+ * strategy counts as live while its bumped `ts` stays within the freshness window of
+ * the instance's newest bump (see `listStrategies`); one left behind by a reshard
+ * stops being bumped and ages out. Empty roster is a no-op.
  */
-export function replaceRoster(db: Db, instanceId: string, strategyIds: string[], ts: number): void {
+export function upsertRoster(db: Db, instanceId: string, strategyIds: string[], ts: number): void {
   if (strategyIds.length === 0) return;
-  const del = db.prepare("DELETE FROM instance_roster WHERE instance_id=?");
-  const ins = db.prepare("INSERT OR REPLACE INTO instance_roster (instance_id, strategy_id, ts) VALUES (?,?,?)");
+  const ins = db.prepare(
+    `INSERT INTO instance_roster (instance_id, strategy_id, ts) VALUES (?,?,?)
+     ON CONFLICT(instance_id, strategy_id) DO UPDATE SET ts=excluded.ts WHERE excluded.ts > ts`,
+  );
   db.transaction(() => {
-    del.run(instanceId);
     for (const s of strategyIds) ins.run(instanceId, s, ts);
   })();
 }

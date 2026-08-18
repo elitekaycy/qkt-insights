@@ -1,6 +1,11 @@
 import type { Db } from "./db.js";
 import { closedTrades, hasClosingDeals, strategyEquityCurve, tradePnls, type StrategyEquityPoint } from "./analytics.js";
 
+// A strategy stays "active" while its roster bump is within this window of the
+// instance's newest bump. Comfortably exceeds the state-poll cadence (~30s) times the
+// number of sessions, so all of one daemon's sessions read as live between bumps.
+export const ROSTER_WINDOW_MS = 300_000;
+
 export interface InstanceRow { id: string; name: string | null; firstSeen: number; lastSeen: number; lastSeq: number }
 export interface StrategyRow { strategyId: string; firstSeen: number; lastSeen: number; startingBalance: number | null; metadata: Record<string, unknown> | null; realizedNet: number | null; dealCount: number; active: boolean }
 export interface OrderRow { orderId: string; strategyId: string | null; symbol: string | null; side: string | null; type: string | null; state: string; qty: number | null; cumQty: number; avgPrice: number | null; createdTs: number; updatedTs: number }
@@ -28,18 +33,22 @@ export function listStrategies(db: Db, instanceId: string): StrategyRow[] {
   // realizedNet and dealCount come from closedTrades — broker deals when polled, else the engine's
   // trade.closed rows — the same fallback report/contribution use, so a card and its detail page can
   // never disagree (a live book that trades without polled deals still shows its P&L, not a blank card).
-  // `active` = present in the instance's latest deployed roster. An instance that has
-  // never reported a roster (older daemon) has no roster rows, so every strategy stays
-  // active — the feature only ever hides ids a live roster has superseded.
+  // `active` = bumped in the roster within ROSTER_WINDOW_MS of the instance's newest
+  // roster bump. An instance that has never reported a roster (older daemon) has no
+  // roster rows, so every strategy stays active — the feature only ever hides ids a
+  // live roster has superseded, and reshard leftovers age out once un-bumped.
   const rows = db.prepare(
     `SELECT s.strategy_id strategyId, s.first_seen firstSeen, s.last_seen lastSeen, s.starting_balance startingBalance, s.metadata,
        CASE
          WHEN NOT EXISTS (SELECT 1 FROM instance_roster ir WHERE ir.instance_id=s.instance_id) THEN 1
-         WHEN EXISTS (SELECT 1 FROM instance_roster ir WHERE ir.instance_id=s.instance_id AND ir.strategy_id=s.strategy_id) THEN 1
+         WHEN EXISTS (
+           SELECT 1 FROM instance_roster ir WHERE ir.instance_id=s.instance_id AND ir.strategy_id=s.strategy_id
+             AND ir.ts >= (SELECT MAX(ts) FROM instance_roster i2 WHERE i2.instance_id=s.instance_id) - ?
+         ) THEN 1
          ELSE 0
        END active
      FROM strategies s WHERE s.instance_id=? ORDER BY s.strategy_id`,
-  ).all(instanceId) as Array<Omit<StrategyRow, "realizedNet" | "dealCount" | "metadata" | "active"> & { metadata: string | null; active: number }>;
+  ).all(ROSTER_WINDOW_MS, instanceId) as Array<Omit<StrategyRow, "realizedNet" | "dealCount" | "metadata" | "active"> & { metadata: string | null; active: number }>;
   return rows.map((r) => {
     const closes = closedTrades(db, { instanceId, strategyId: r.strategyId });
     const metadata = typeof r.metadata === "string" ? JSON.parse(r.metadata) as Record<string, unknown> : null;
