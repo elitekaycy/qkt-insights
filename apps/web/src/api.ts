@@ -53,6 +53,8 @@ export interface StrategyRow {
   metadata: Record<string, unknown> | null;
   realizedNet: number | null;
   dealCount: number;
+  /** In the instance's latest deployed roster. False = lingering from a prior bench topology. */
+  active: boolean;
 }
 export interface OrderRow {
   orderId: string;

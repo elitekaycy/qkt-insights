@@ -16,6 +16,7 @@ function child(
     metadata: { portfolioId: "book", allocatedCapital: capital },
     realizedNet,
     dealCount,
+    active: true,
   };
 }
 

@@ -69,7 +69,9 @@ export default function Overview({
     refetchInterval: 5000,
   });
 
-  const rows = strategies.data ?? [];
+  // Only the live deployed roster feeds the overview aggregates; ids left over from a
+  // prior bench topology (active=false) are excluded from counts, curves, and allocation.
+  const rows = (strategies.data ?? []).filter((s) => s.active);
   const ids = rows.map((s) => s.strategyId);
 
   const curves = useQueries({
