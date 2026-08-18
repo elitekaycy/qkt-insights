@@ -1,6 +1,6 @@
 import type { FastifyInstance } from "fastify";
 import { BatchSchema } from "@qkt-insights/contract";
-import { ingestAck, ingestEvents, persistStateEvent, replaceRoster, touchInstance, type Db, type LiveBus, type LiveStateStore } from "@qkt-insights/store";
+import { ingestAck, ingestEvents, persistStateEvent, touchInstance, upsertRoster, type Db, type LiveBus, type LiveStateStore } from "@qkt-insights/store";
 
 export interface CollectorDeps { db: Db; bus: LiveBus; liveState: LiveStateStore; ingestToken: string }
 
@@ -31,10 +31,9 @@ export function registerCollector(app: FastifyInstance, deps: CollectorDeps): vo
       deps.liveState.upsert(instanceId, e);
       persistStateEvent(deps.db, instanceId, e);
     }
-    // The newest roster envelope in the batch wins — it's the current deployed set.
-    const newestRoster = rosterEvents.reduce<typeof rosterEvents[number] | null>(
-      (acc, e) => (acc == null || e.ts > acc.ts ? e : acc), null);
-    if (newestRoster) replaceRoster(deps.db, instanceId, newestRoster.payload.strategies, newestRoster.ts);
+    // Each session announces only its own ids; upsert them all so sessions union
+    // instead of overwriting, and each bump refreshes that id's freshness.
+    for (const e of rosterEvents) upsertRoster(deps.db, instanceId, e.payload.strategies, e.ts);
     // state.* and instance.roster write no durable row, but the poll cycle that emits
     // them is the freshest proof the instance is alive — bump the heartbeat so Health
     // doesn't read it as stale.
