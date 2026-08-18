@@ -1,5 +1,5 @@
 import { describe, it, expect } from "vitest";
-import { openDb, ingestEvents, performanceReport, dailyNets, drawdownPeriods, postLossStats, tradeBreakdowns, closedTrades, strategyStats, type Db } from "../src/index.js";
+import { openDb, ingestEvents, performanceReport, dailyNets, drawdownPeriods, postLossStats, tradeBreakdowns, closedTrades, strategyStats, listStrategies, type Db } from "../src/index.js";
 import type { Envelope } from "@qkt-insights/contract";
 
 const DAY = 86_400_000;
@@ -147,6 +147,35 @@ describe("postLossStats", () => {
     expect(n2.sample).toBe(1);
     expect(n2.nextWinRate).toBe(100);
     expect(rows.find((r) => r.n === 3)).toBeUndefined();
+  });
+});
+
+describe("engine-native fills (trade.closed, no polled deals) populate every view", () => {
+  function close(ts: number, realized: number, opts: { symbol?: string; qty?: number } = {}): Envelope {
+    return env({ strategyId: "latch", ts, type: "trade.closed",
+      payload: { orderId: "o" + ts, symbol: opts.symbol ?? "XAGUSD", side: "SELL", qty: opts.qty ?? 2.29,
+        price: 64.989, realized, ts } });
+  }
+  it("dailyNets, strategyStats and the strategy card read trade.closed when deals were not polled", () => {
+    const db = openDb(":memory:");
+    // one closed loss, no broker deals, no equity snapshots — the bot1 case
+    ingestEvents(db, "qkt-prod", [close(T0 + 1000, -336.63)]);
+
+    // calendar / account-performance source
+    const days = dailyNets(db, F);
+    expect(days).toHaveLength(1);
+    expect(days[0]!.net).toBeCloseTo(-336.63, 2);
+    expect(days[0]!.trades).toBe(1);
+
+    // strategy detail
+    const st = strategyStats(db, F);
+    expect(st.realizedPnl).toBeCloseTo(-336.63, 2);
+    expect(st.tradeCount).toBe(1);
+
+    // strategy card in the Strategies tab
+    const card = listStrategies(db, "qkt-prod").find((s) => s.strategyId === "latch")!;
+    expect(card.realizedNet).toBeCloseTo(-336.63, 2);
+    expect(card.dealCount).toBe(1);
   });
 });
 
