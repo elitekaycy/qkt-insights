@@ -50,3 +50,66 @@ export function pruneRetention(db: Database, now: number, retentionDays = RETENT
     return { logs, events, valuations };
   })();
 }
+
+export interface StaleStrategyResult {
+  /** strategy registrations removed. */
+  strategies: number;
+  /** total per-strategy data rows removed across every table. */
+  rows: number;
+}
+
+/** Per-strategy tables to purge when a strategy is retired. Only those actually present with an
+ * `(instance_id, strategy_id)` shape are touched, so a schema change can't crash the sweep. */
+const STRATEGY_SCOPED_TABLES = [
+  "logs",
+  "events",
+  "deals",
+  "trade_closes",
+  "equity_snapshots",
+  "position_valuations",
+  "positions_current",
+  "risk_events",
+  "risk_snapshots",
+] as const;
+
+function hasStrategyScope(db: Database, table: string): boolean {
+  const cols = db.prepare(`PRAGMA table_info(${table})`).all() as { name: string }[];
+  const names = new Set(cols.map((c) => c.name));
+  return names.has("instance_id") && names.has("strategy_id");
+}
+
+/** Remove strategies that stopped reporting more than `retentionDays` ago, and ALL of their data.
+ *
+ * Swapping a book only changes what the daemon trades — insights keeps a permanent registration for
+ * every strategy that ever reported, so the old children linger in the dashboard forever. A
+ * still-deployed strategy re-emits lifecycle/trade/log events (each bumps `last_seen`), and the
+ * daemon re-registers every deployed strategy on each restart/redeploy — far more often than the
+ * window — so only genuinely removed strategies age out. Unlike [pruneRetention]'s row-level,
+ * analytics-preserving cut, a departed strategy's history is no longer relevant, so this deletes
+ * everything keyed to it (registration + deals/trades/events/logs/marks/risk rows + FTS mirrors).
+ *
+ * e.g. the 14 children of a book swapped out 31 days ago all disappear on the next sweep; the 5
+ * strategies deployed today keep reporting, so their `last_seen` stays inside the window. */
+export function pruneStaleStrategies(db: Database, now: number, retentionDays = RETENTION_DAYS): StaleStrategyResult {
+  const cutoff = now - retentionDays * DAY_MS;
+  const tables = STRATEGY_SCOPED_TABLES.filter((t) => hasStrategyScope(db, t));
+  return db.transaction(() => {
+    const stale = db
+      .prepare("SELECT instance_id AS i, strategy_id AS s FROM strategies WHERE last_seen < ?")
+      .all(cutoff) as { i: string; s: string }[];
+    let rows = 0;
+    for (const { i, s } of stale) {
+      db.prepare(
+        "DELETE FROM logs_fts WHERE log_rowid IN (SELECT rowid FROM logs WHERE instance_id=? AND strategy_id=?)",
+      ).run(i, s);
+      db.prepare(
+        "DELETE FROM events_fts WHERE event_rowid IN (SELECT rowid FROM events WHERE instance_id=? AND strategy_id=?)",
+      ).run(i, s);
+      for (const t of tables) {
+        rows += db.prepare(`DELETE FROM ${t} WHERE instance_id=? AND strategy_id=?`).run(i, s).changes;
+      }
+    }
+    const strategies = db.prepare("DELETE FROM strategies WHERE last_seen < ?").run(cutoff).changes;
+    return { strategies, rows };
+  })();
+}
