@@ -56,6 +56,22 @@ export function touchInstance(db: Db, instanceId: string, ts: number, seq: numbe
   db.prepare(UP_INSTANCE_SQL).run({ id: instanceId, ts, seq });
 }
 
+/**
+ * Replace an instance's deployed strategy roster wholesale. The daemon emits the
+ * full current roster every poll cycle, so the freshest envelope is authoritative:
+ * ids absent from it (left over from a prior bench topology) drop out and read as
+ * retired. Empty roster is ignored — a momentary blank must not wipe the live set.
+ */
+export function replaceRoster(db: Db, instanceId: string, strategyIds: string[], ts: number): void {
+  if (strategyIds.length === 0) return;
+  const del = db.prepare("DELETE FROM instance_roster WHERE instance_id=?");
+  const ins = db.prepare("INSERT OR REPLACE INTO instance_roster (instance_id, strategy_id, ts) VALUES (?,?,?)");
+  db.transaction(() => {
+    del.run(instanceId);
+    for (const s of strategyIds) ins.run(instanceId, s, ts);
+  })();
+}
+
 export function persistStateEvent(db: Db, instanceId: string, e: Envelope): void {
   if (e.type !== "state.positions") return;
   const p = e.payload;

@@ -1,5 +1,5 @@
 import { describe, it, expect, beforeEach } from "vitest";
-import { openDb, ingestEvents, listInstances, listStrategies, listOrders, listTrades, searchEvents, equityCurve, instanceHealth, listDeals, accountEquity, strategyStats, persistStateEvent, listCurrentPositions, listRiskEvents, listPortfolioEquity } from "../src/index.js";
+import { openDb, ingestEvents, listInstances, listStrategies, listOrders, listTrades, searchEvents, equityCurve, instanceHealth, listDeals, accountEquity, strategyStats, persistStateEvent, listCurrentPositions, listRiskEvents, listPortfolioEquity, replaceRoster } from "../src/index.js";
 import type { Db } from "../src/index.js";
 import type { Envelope } from "@qkt-insights/contract";
 
@@ -31,6 +31,30 @@ describe("queries", () => {
     const rows = listStrategies(db, "qkt-prod");
     expect(rows.map((s) => s.strategyId)).toEqual(["latch"]);
     expect(rows[0]!.metadata).toMatchObject({ sourcePath: "/srv/qkt/latch.qkt", runtimeMode: "paper" });
+  });
+  it("marks every strategy active when the instance has never reported a roster", () => {
+    expect(listStrategies(db, "qkt-prod").every((s) => s.active)).toBe(true);
+  });
+  it("marks strategies in the latest roster active and the rest retired", () => {
+    ingestEvents(db, "qkt-prod", [
+      env({ strategyId: "old_sleeve", type: "strategy.started", ts: 1717999999000,
+        payload: { strategyId: "old_sleeve", ts: 1717999999000, sourcePath: "/srv/qkt/old.qkt", dslVersion: 1, runtimeMode: "paper", symbols: ["XAUUSD"] } }),
+    ]);
+    // A reshard leaves old_sleeve behind; the live roster is just latch.
+    replaceRoster(db, "qkt-prod", ["latch"], 1718000100000);
+    const byId = Object.fromEntries(listStrategies(db, "qkt-prod").map((s) => [s.strategyId, s.active]));
+    expect(byId).toEqual({ latch: true, old_sleeve: false });
+  });
+  it("lets the newest roster supersede the previous one", () => {
+    replaceRoster(db, "qkt-prod", ["someone_else"], 1718000100000);
+    expect(listStrategies(db, "qkt-prod").find((s) => s.strategyId === "latch")!.active).toBe(false);
+    replaceRoster(db, "qkt-prod", ["latch"], 1718000200000);
+    expect(listStrategies(db, "qkt-prod").find((s) => s.strategyId === "latch")!.active).toBe(true);
+  });
+  it("ignores an empty roster so a momentary blank never wipes the live set", () => {
+    replaceRoster(db, "qkt-prod", ["latch"], 1718000100000);
+    replaceRoster(db, "qkt-prod", [], 1718000200000);
+    expect(listStrategies(db, "qkt-prod").find((s) => s.strategyId === "latch")!.active).toBe(true);
   });
   it("lists orders filtered by instance and state", () => {
     const rows = listOrders(db, { instanceId: "qkt-prod", state: "FILLED", limit: 50 });

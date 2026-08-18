@@ -200,6 +200,7 @@ export const payloadByType = {
   "portfolio.allocation.updated": object({ portfolioId: z.string(), ts: z.number().optional() }),
   "portfolio.exposure.updated": object({ portfolioId: z.string(), ts: z.number().optional() }),
   "portfolio.equity.updated": object({ portfolioId: z.string(), equity: z.number().optional(), realized: z.number().optional(), unrealized: z.number().optional(), ts: z.number().optional() }),
+  "instance.roster": object({ strategies: z.array(z.string()) }),
 } as const;
 
 export type EventType = keyof typeof payloadByType;

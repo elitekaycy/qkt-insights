@@ -65,6 +65,7 @@ export default function Strategies({
 }) {
   const [selected, setSelected] = useState<string | null>(focus);
   const [selectedPortfolio, setSelectedPortfolio] = useState<string | null>(null);
+  const [showRetired, setShowRetired] = useState(false);
 
   const strategies = useQuery({
     queryKey: ["strategies", instanceId],
@@ -87,7 +88,11 @@ export default function Strategies({
       />
     );
 
-  const rows = strategies.data ?? [];
+  const allRows = strategies.data ?? [];
+  const retiredCount = allRows.filter((row) => !row.active).length;
+  // Default to the live deployed roster; ids left over from a prior bench topology
+  // (active=false) are hidden unless the operator opts to see them.
+  const rows = showRetired ? allRows : allRows.filter((row) => row.active);
   const portfolioGroups = rows.reduce((acc, row) => {
     const id = portfolioId(row);
     if (!id) return acc;
@@ -122,7 +127,17 @@ export default function Strategies({
     <div>
       <PageHeader
         title="Strategies"
-        sub={`${standalone.length} standalone · ${portfolioGroups.size} portfolio${portfolioGroups.size === 1 ? "" : "s"} · ${rows.length} reported strategy rows`}
+        sub={`${rows.length} deployed · ${standalone.length} standalone · ${portfolioGroups.size} portfolio${portfolioGroups.size === 1 ? "" : "s"}${retiredCount > 0 ? ` · ${retiredCount} retired` : ""}`}
+        right={
+          retiredCount > 0 ? (
+            <button
+              onClick={() => setShowRetired((v) => !v)}
+              className="h-8 rounded-lg border border-line bg-raised px-3 text-xs font-semibold text-muted transition hover:border-line-strong hover:text-body"
+            >
+              {showRetired ? "Hide retired" : `Show ${retiredCount} retired`}
+            </button>
+          ) : undefined
+        }
       />
       <Loadable
         loading={strategies.isPending}
