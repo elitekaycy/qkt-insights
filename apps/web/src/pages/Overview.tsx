@@ -5,6 +5,7 @@ import type { ComparisonSeries } from "../components/EquityChart";
 import { OverviewDashboard } from "../components/OverviewDashboard";
 import { Card, Cell, Empty, FlashValue, LiveDot, Loadable, PageHeader, Panel, Pill, Row, SideTag, Stat, Table } from "../components/ui";
 import { age, duration, money, num } from "../format";
+import { strategyDisplayName } from "../portfolio";
 import { useLiveState } from "../useLiveState";
 import { useLiveStream } from "../useLiveStream";
 
@@ -101,6 +102,7 @@ export default function Overview({
 
   const accounts = (liveState.data?.accounts ?? []).filter((a) => a.instanceId === instanceId);
   const brokerPositions = (liveState.data?.positions ?? []).filter((p) => p.instanceId === instanceId);
+  const nameByStrategy = new Map(rows.map((r) => [r.strategyId, strategyDisplayName(r)]));
 
   // Live truth: account figures summed across brokers, open P&L attributed per strategy.
   const accountEquity = accounts.length > 0 ? accounts.reduce((a, x) => a + x.equity, 0) : null;
@@ -214,7 +216,13 @@ export default function Overview({
                       </FlashValue>
                     </Cell>
                     <Cell className="font-mono text-muted">{p.swap ?? "—"}</Cell>
-                    <Cell>{p.strategyId ? p.strategyId : <Pill>unattributed</Pill>}</Cell>
+                    <Cell>
+                      {p.strategyId ? (
+                        <span title={p.strategyId}>{nameByStrategy.get(p.strategyId) ?? p.strategyId}</span>
+                      ) : (
+                        <Pill>unattributed</Pill>
+                      )}
+                    </Cell>
                   </Row>
                 )),
               )}

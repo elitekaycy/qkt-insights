@@ -38,6 +38,19 @@ export function portfolioGroupId(row: StrategyRow): string | null {
   return id == null ? null : logicalPortfolioId(id);
 }
 
+/**
+ * Human label for a strategy: its own DSL name, prefixed with the portfolio it
+ * runs in. The raw strategyId is a deploy slot (`forward_bench_2:s0`) that says
+ * nothing about what the strategy is.
+ * e.g. portfolio `forward_bench` + dslName `gold_eur_rel2` -> `forward_bench / gold_eur_rel2`.
+ */
+export function strategyDisplayName(row: StrategyRow): string {
+  const dsl = metaString(row, "dslName");
+  const portfolio = metaString(row, "portfolioName") ?? portfolioGroupId(row);
+  if (dsl && portfolio) return `${portfolio} / ${dsl}`;
+  return dsl ?? row.strategyId;
+}
+
 /** Aggregates only child-attributed values; broker account equity is intentionally excluded. */
 export function summarizePortfolio(
   portfolioId: string,

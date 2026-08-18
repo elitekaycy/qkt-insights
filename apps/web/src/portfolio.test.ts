@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 import type { StrategyRow } from "./api";
-import { logicalPortfolioId, portfolioGroupId, summarizePortfolio } from "./portfolio";
+import { logicalPortfolioId, portfolioGroupId, strategyDisplayName, summarizePortfolio } from "./portfolio";
 
 function child(
   strategyId: string,
@@ -75,5 +75,31 @@ describe("summarizePortfolio", () => {
     expect(summary.realizedPnl).toBe(120);
     expect(summary.openPnl).toBeNull();
     expect(summary.netPnl).toBeNull();
+  });
+});
+
+describe("strategyDisplayName", () => {
+  it("prefixes the DSL name with the portfolio name", () => {
+    const row = child("forward_bench_2:s0", 1000, null, 0);
+    row.metadata = { portfolioName: "forward_bench", dslName: "gold_eur_rel2" };
+    expect(strategyDisplayName(row)).toBe("forward_bench / gold_eur_rel2");
+  });
+
+  it("falls back to the grouped portfolio id when portfolioName is absent", () => {
+    const row = child("forward_bench_2:s0", 1000, null, 0);
+    row.metadata = { portfolioId: "forward_bench_2", dslName: "gold_eur_rel2" };
+    expect(strategyDisplayName(row)).toBe("forward_bench / gold_eur_rel2");
+  });
+
+  it("shows the bare DSL name for a standalone strategy", () => {
+    const row = child("solo", 1000, null, 0);
+    row.metadata = { dslName: "gold_eur_rel2" };
+    expect(strategyDisplayName(row)).toBe("gold_eur_rel2");
+  });
+
+  it("falls back to the strategyId when no DSL name is reported", () => {
+    const row = child("forward_bench_2:s0", 1000, null, 0);
+    row.metadata = { portfolioName: "forward_bench" };
+    expect(strategyDisplayName(row)).toBe("forward_bench_2:s0");
   });
 });

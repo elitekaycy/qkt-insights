@@ -13,7 +13,7 @@ import {
 import { age, money, num, pct, ts, tsDay } from "../format";
 import { buildCloseMap } from "../useCloses";
 import { useLiveState } from "../useLiveState";
-import { physicalPortfolioId, portfolioGroupId, summarizePortfolio } from "../portfolio";
+import { physicalPortfolioId, portfolioGroupId, strategyDisplayName as displayName, summarizePortfolio } from "../portfolio";
 
 /** Open P&L per strategy from the live broker positions of one instance, with a staleness flag. */
 function useOpenByStrategy(instanceId: string | null) {
@@ -288,8 +288,8 @@ function StrategyCard({
         stagger={stagger}
       >
         <div className="flex items-start justify-between gap-3">
-          <span className="min-w-0 truncate font-bold text-bright">
-            {s.strategyId}
+          <span className="min-w-0 truncate font-bold text-bright" title={s.strategyId}>
+            {displayName(s)}
           </span>
           <span className="shrink-0 text-xs text-faint">{age(s.lastSeen)}</span>
         </div>
@@ -430,8 +430,8 @@ function PortfolioDetail({
                     onClick={() => onSelectChild(child.strategyId)}
                   >
                     <Cell>
-                      <div className="font-semibold text-bright">
-                        {child.strategyId}
+                      <div className="font-semibold text-bright" title={child.strategyId}>
+                        {displayName(child)}
                       </div>
                       {portfolioAlias(child) && (
                         <div className="text-xs text-faint">
@@ -569,7 +569,7 @@ function StrategyDetail({ instanceId, strategyId, onBack }: { instanceId: string
       </button>
       <div className="mt-2 flex flex-wrap items-end justify-between gap-4">
         <div className="rise">
-          <h2 className="text-2xl font-extrabold tracking-tight text-bright">{strategyId}</h2>
+          <h2 className="text-2xl font-extrabold tracking-tight text-bright" title={strategyId}>{row ? displayName(row) : strategyId}</h2>
           <div className="mt-2 flex flex-wrap items-center gap-1.5">
             {parentPortfolio ? (
               <>
