@@ -1,5 +1,5 @@
 import type { Db } from "./db.js";
-import { dealClosedTrades, hasClosingDeals, strategyEquityCurve, tradePnls, type StrategyEquityPoint } from "./analytics.js";
+import { closedTrades, hasClosingDeals, strategyEquityCurve, tradePnls, type StrategyEquityPoint } from "./analytics.js";
 
 export interface InstanceRow { id: string; name: string | null; firstSeen: number; lastSeen: number; lastSeq: number }
 export interface StrategyRow { strategyId: string; firstSeen: number; lastSeen: number; startingBalance: number | null; metadata: Record<string, unknown> | null; realizedNet: number | null; dealCount: number }
@@ -25,14 +25,15 @@ export function listInstances(db: Db): InstanceRow[] {
 }
 
 export function listStrategies(db: Db, instanceId: string): StrategyRow[] {
-  // realizedNet and dealCount come from the same dealClosedTrades rows every
-  // other analytics number uses, so a card and its detail page can never disagree.
+  // realizedNet and dealCount come from closedTrades — broker deals when polled, else the engine's
+  // trade.closed rows — the same fallback report/contribution use, so a card and its detail page can
+  // never disagree (a live book that trades without polled deals still shows its P&L, not a blank card).
   const rows = db.prepare(
     `SELECT strategy_id strategyId, first_seen firstSeen, last_seen lastSeen, starting_balance startingBalance, metadata
      FROM strategies WHERE instance_id=? ORDER BY strategy_id`,
   ).all(instanceId) as Array<Omit<StrategyRow, "realizedNet" | "dealCount" | "metadata"> & { metadata: string | null }>;
   return rows.map((r) => {
-    const closes = dealClosedTrades(db, { instanceId, strategyId: r.strategyId });
+    const closes = closedTrades(db, { instanceId, strategyId: r.strategyId });
     const metadata = typeof r.metadata === "string" ? JSON.parse(r.metadata) as Record<string, unknown> : null;
     return {
       ...r,
@@ -274,7 +275,7 @@ export interface StrategyStats {
  * Per-strategy performance summary. Broker deals are ground truth when they
  * exist; the paper ledger (snapshots + tradePnls) covers everything else.
  *
- * - tradeCount/realizedPnl/winRate: from dealClosedTrades — the same rows the
+ * - tradeCount/realizedPnl/winRate: from closedTrades (deals or trade.closed) — the same rows the
  *   performance report uses, so the overview and performance tabs must never
  *   disagree on the same number. winRate skips zero-P&L closes, like the report.
  * - maxDrawdownPct/sharpe: over the deals-rebuilt equity curve (else snapshots);
@@ -299,7 +300,9 @@ export function strategyStats(db: Db, f: { instanceId: string; strategyId: strin
     "SELECT starting_balance sb FROM strategies WHERE instance_id=@instanceId AND strategy_id=@strategyId",
   ).get(f);
 
-  const dealRows = dealClosedTrades(db, f);
+  // Closed trades: broker deals when polled, else the engine's trade.closed rows — so a live book
+  // that trades without polled deals still shows realized P&L, equity and drawdown, not blanks.
+  const dealRows = closedTrades(db, f);
   const fromDeals = dealRows.length > 0;
   const snaps = fromDeals
     ? strategyEquityCurve(db, f)
