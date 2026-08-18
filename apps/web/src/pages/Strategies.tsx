@@ -54,22 +54,6 @@ function portfolioAlias(row: StrategyRow): string | null {
   return metaString(row.metadata, "portfolioAlias");
 }
 
-function strategyKind(row: StrategyRow): "portfolio_child" | "standalone" {
-  return metaString(row.metadata, "kind") === "portfolio_child" || portfolioId(row) ? "portfolio_child" : "standalone";
-}
-
-function strategyMetaLine(row: StrategyRow): string | null {
-  const runtime = metaString(row.metadata, "runtimeMode");
-  const version = metaNumber(row.metadata, "dslVersion");
-  const src = sourceName(metaString(row.metadata, "sourcePath"));
-  const portfolio = portfolioId(row);
-  const physicalPortfolio = physicalPortfolioId(row);
-  const alias = portfolioAlias(row);
-  const shard = physicalPortfolio && portfolio && physicalPortfolio !== portfolio ? ` · shard ${physicalPortfolio}` : "";
-  const role = portfolio ? `portfolio ${portfolio}${shard}${alias ? ` / ${alias}` : ""}` : "standalone";
-  return [role, runtime, version == null ? null : `v${version}`, src].filter(Boolean).join(" · ") || null;
-}
-
 export default function Strategies({
   instanceId,
   focus = null,
@@ -172,7 +156,7 @@ export default function Strategies({
                     className="group text-left"
                   >
                     <Card
-                      className="h-full p-5 transition group-hover:border-accent/50 group-hover:bg-raised"
+                      className="flex h-full flex-col justify-between p-5 transition group-hover:border-accent/50 group-hover:bg-raised"
                       stagger={i}
                     >
                       <div className="flex items-start justify-between gap-3">
@@ -185,14 +169,13 @@ export default function Strategies({
                       </div>
                       <div className="mt-2 flex flex-wrap items-center gap-1.5">
                         <Pill tone="accent">portfolio</Pill>
-                        <Pill>{summary.childCount} children</Pill>
                         <Pill tone={summary.tradedCount > 0 ? "accent" : undefined}>
-                          {summary.tradedCount} traded
+                          {summary.tradedCount}/{summary.childCount} traded
                         </Pill>
                         {physicalIds.size > 1 && <Pill>{physicalIds.size} shards</Pill>}
                       </div>
                       <div
-                        className="mt-2.5 flex items-baseline gap-3"
+                        className="mt-4 flex items-baseline gap-3"
                         title="realized + open P&L attributed to this portfolio's sleeves — not the shared broker account equity"
                       >
                         <span
@@ -213,20 +196,6 @@ export default function Strategies({
                           base={summary.allocatedCapital}
                           dim={live.stale}
                         />
-                      </div>
-                      <div className="mt-1 text-[11px] font-semibold uppercase tracking-[0.08em] text-faint">
-                        attributed net P&L
-                      </div>
-                      <div
-                        className={`mt-1 text-xs ${live.stale ? "text-faint" : "text-muted"}`}
-                      >
-                        realized {money(summary.realizedPnl)} · open{" "}
-                        {money(summary.openPnl)}
-                      </div>
-                      <div className="mt-0.5 text-[11px] text-faint">
-                        {money(summary.allocatedCapital)} allocated ·{" "}
-                        {summary.dealCount} deal
-                        {summary.dealCount === 1 ? "" : "s"}
                       </div>
                     </Card>
                   </button>
@@ -301,7 +270,6 @@ export default function Strategies({
 function StrategyCard({
   row: s,
   net,
-  open,
   liveStale,
   stagger,
   onClick,
@@ -316,7 +284,7 @@ function StrategyCard({
   return (
     <button onClick={onClick} className="group text-left">
       <Card
-        className="h-full p-5 transition group-hover:border-accent/50 group-hover:bg-raised"
+        className="flex h-full flex-col justify-between p-5 transition group-hover:border-accent/50 group-hover:bg-raised"
         stagger={stagger}
       >
         <div className="flex items-start justify-between gap-3">
@@ -325,25 +293,8 @@ function StrategyCard({
           </span>
           <span className="shrink-0 text-xs text-faint">{age(s.lastSeen)}</span>
         </div>
-        <div className="mt-2 flex flex-wrap items-center gap-1.5">
-          {strategyKind(s) === "portfolio_child" ? (
-            <>
-              <Pill tone="info">portfolio child</Pill>
-              <Pill>{portfolioId(s)}</Pill>
-              {physicalPortfolioId(s) !== portfolioId(s) && physicalPortfolioId(s) && <Pill>{physicalPortfolioId(s)}</Pill>}
-              {portfolioAlias(s) && <Pill>{portfolioAlias(s)}</Pill>}
-            </>
-          ) : (
-            <Pill>standalone</Pill>
-          )}
-        </div>
-        {strategyMetaLine(s) && (
-          <div className="mt-1.5 truncate text-xs text-faint">
-            {strategyMetaLine(s)}
-          </div>
-        )}
         <div
-          className="mt-2.5 flex items-baseline gap-3"
+          className="mt-4 flex items-baseline gap-3"
           title="net P&L = realized + open (this strategy, on a shared account)"
         >
           <span
@@ -354,18 +305,6 @@ function StrategyCard({
               : `${net >= 0 ? "+" : "−"}${money(Math.abs(net))}`}
           </span>
           <ReturnPct net={net} base={s.startingBalance} dim={liveStale} />
-        </div>
-        <div className="mt-1 text-[11px] font-semibold uppercase tracking-[0.08em] text-faint">
-          net P&L · this strategy
-        </div>
-        <div
-          className={`mt-1 text-xs ${liveStale ? "text-faint" : "text-muted"}`}
-        >
-          realized {money(s.realizedNet)} · open {money(open)}
-        </div>
-        <div className="mt-0.5 text-[11px] text-faint">
-          notional {money(s.startingBalance)} · {s.dealCount} deal
-          {s.dealCount === 1 ? "" : "s"}
         </div>
       </Card>
     </button>

@@ -10,16 +10,20 @@ export type DashboardWidgetId = "pnl" | "outcomes" | "risk" | "behavior" | "dire
 type WidgetSize = "medium" | "large";
 interface Placement { id: DashboardWidgetId; size: WidgetSize }
 
+// Full-width charts anchor the view; the metric tiles then run as one uniform
+// band so like sits next to like instead of a pie beside progress bars beside
+// number cells. Order: headline P&L and equity charts, the excursion scatter,
+// then every metric tile, then the operational review and system panels.
 const DEFAULT_LAYOUT: Placement[] = [
   { id: "pnl", size: "large" },
+  { id: "equity", size: "large" },
+  { id: "excursions", size: "large" },
   { id: "outcomes", size: "medium" },
+  { id: "direction", size: "medium" },
   { id: "risk", size: "medium" },
   { id: "behavior", size: "medium" },
-  { id: "direction", size: "medium" },
-  { id: "equity", size: "large" },
   { id: "normalized", size: "medium" },
   { id: "execution", size: "medium" },
-  { id: "excursions", size: "large" },
   { id: "review", size: "medium" },
   { id: "system", size: "medium" },
 ];
