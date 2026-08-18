@@ -1,6 +1,6 @@
 import { describe, it, expect } from "vitest";
 import { openDb } from "../src/db.js";
-import { pruneRetention } from "../src/retention.js";
+import { pruneRetention, pruneStaleStrategies } from "../src/retention.js";
 
 const NOW = 1_700_000_000_000;
 const DAY = 86_400_000;
@@ -77,5 +77,52 @@ describe("pruneRetention", () => {
     seedLog(db, "log-new", RECENT, "new line");
     seedEvent(db, "ev-new", RECENT, "insights.health");
     expect(pruneRetention(db, NOW)).toEqual({ logs: 0, events: 0, valuations: 0 });
+  });
+});
+
+function seedStrategy(db: any, sid: string, lastSeen: number) {
+  db.prepare(
+    "INSERT INTO strategies (instance_id, strategy_id, first_seen, last_seen) VALUES (?,?,?,?)",
+  ).run("qkt-prod", sid, lastSeen, lastSeen);
+}
+
+function seedStratLog(db: any, id: string, sid: string, ts: number) {
+  db.prepare(
+    "INSERT INTO logs (id, instance_id, strategy_id, level, logger, message, ts, seq) VALUES (?,?,?,?,?,?,?,?)",
+  ).run(id, "qkt-prod", sid, "INFO", "lg", "x", ts, 1);
+  const rowid = db.prepare("SELECT rowid FROM logs WHERE instance_id='qkt-prod' AND id=?").get(id).rowid;
+  db.prepare("INSERT INTO logs_fts (text, instance_id, log_rowid) VALUES (?,?,?)").run("x", "qkt-prod", rowid);
+}
+
+describe("pruneStaleStrategies", () => {
+  it("removes strategies (and all their data) that stopped reporting past the window; keeps active ones", () => {
+    const db = openDb(":memory:");
+    // 'gone' is a swapped-out strategy last seen 40d ago; 'live' still reports (5d ago)
+    seedStrategy(db, "gone", OLD);
+    seedStrategy(db, "live", RECENT);
+    seedStratLog(db, "gl1", "gone", OLD);
+    seedStratLog(db, "gl2", "gone", OLD);
+    seedStratLog(db, "ll1", "live", RECENT);
+    db.prepare(
+      "INSERT INTO deals (id, instance_id, broker, deal_ticket, symbol, side, entry, qty, price, strategy_id, ts) VALUES (?,?,?,?,?,?,?,?,?,?,?)",
+    ).run("d-gone", "qkt-prod", "exness", "1", "XAUUSD", "BUY", "IN", 0.1, 2350, "gone", OLD);
+
+    const r = pruneStaleStrategies(db, NOW);
+
+    expect(r.strategies).toBe(1);
+    expect(r.rows).toBeGreaterThanOrEqual(3); // 2 logs + 1 deal
+    expect(db.prepare("SELECT strategy_id FROM strategies ORDER BY strategy_id").all().map((x: any) => x.strategy_id)).toEqual(["live"]);
+    expect(db.prepare("SELECT COUNT(*) c FROM logs WHERE strategy_id='gone'").get().c).toBe(0);
+    expect(db.prepare("SELECT COUNT(*) c FROM logs_fts").get().c).toBe(1); // only 'live' log's mirror remains
+    expect(db.prepare("SELECT COUNT(*) c FROM deals WHERE strategy_id='gone'").get().c).toBe(0);
+    // active strategy untouched
+    expect(db.prepare("SELECT COUNT(*) c FROM logs WHERE strategy_id='live'").get().c).toBe(1);
+  });
+
+  it("is a no-op when every strategy is inside the window", () => {
+    const db = openDb(":memory:");
+    seedStrategy(db, "a", RECENT);
+    seedStrategy(db, "b", NOW - 29 * DAY);
+    expect(pruneStaleStrategies(db, NOW)).toEqual({ strategies: 0, rows: 0 });
   });
 });

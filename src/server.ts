@@ -3,7 +3,7 @@ import argon2 from "argon2";
 import cookie from "@fastify/cookie";
 import websocket from "@fastify/websocket";
 import fastifyStatic from "@fastify/static";
-import { openDb, LiveBus, LiveStateStore, pruneRetention } from "@qkt-insights/store";
+import { openDb, LiveBus, LiveStateStore, pruneRetention, pruneStaleStrategies } from "@qkt-insights/store";
 import { registerCollector } from "@qkt-insights/collector";
 import { registerAuth, registerRest, registerLive, hasSession } from "@qkt-insights/api";
 import { existsSync } from "node:fs";
@@ -40,9 +40,15 @@ export async function buildServer(mode: Mode) {
   // neither timer holds the process open.
   const prune = () => {
     try {
-      const r = pruneRetention(db, Date.now());
+      const now = Date.now();
+      const r = pruneRetention(db, now);
       if (r.logs || r.events || r.valuations)
         app.log.info({ ...r }, "retention prune");
+      // Retire strategies that stopped reporting past the window (e.g. a swapped-out book) along
+      // with all their data, so old registrations don't linger in the dashboard forever.
+      const s = pruneStaleStrategies(db, now);
+      if (s.strategies)
+        app.log.info({ ...s }, "stale strategies pruned");
     } catch (e) {
       app.log.error(e, "retention prune failed");
     }
