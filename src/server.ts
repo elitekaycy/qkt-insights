@@ -3,7 +3,7 @@ import argon2 from "argon2";
 import cookie from "@fastify/cookie";
 import websocket from "@fastify/websocket";
 import fastifyStatic from "@fastify/static";
-import { openDb, LiveBus, LiveStateStore } from "@qkt-insights/store";
+import { openDb, checkpoint, purgeExpired, LiveBus, LiveStateStore } from "@qkt-insights/store";
 import { registerCollector } from "@qkt-insights/collector";
 import { registerAuth, registerRest, registerLive, hasSession } from "@qkt-insights/api";
 import { existsSync } from "node:fs";
@@ -33,6 +33,17 @@ export async function buildServer(mode: Mode) {
   app.get("/healthz", async () => ({ ok: true, mode }));
 
   registerCollector(app, { db, bus, liveState, ingestToken: env("INGEST_TOKEN") });
+  // Storage upkeep: fold the WAL back into the main file and drop expired telemetry.
+  // Runs in every mode that owns the database file; unref so it never holds the process open.
+  const upkeep = setInterval(() => {
+    try {
+      purgeExpired(db, Date.now());
+      checkpoint(db);
+    } catch (err) {
+      app.log.error({ err }, "storage upkeep failed");
+    }
+  }, 10 * 60_000);
+  upkeep.unref();
 
   if (mode === "serve" || mode === "run") {
     await app.register(cookie);

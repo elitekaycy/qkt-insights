@@ -139,9 +139,7 @@ export function instanceHealth(db: Db): HealthRow[] {
             json_extract(h.payload, '$.journalPending') insightsJournalPending,
             h.ts insightsHealthTs
      FROM instances i
-     LEFT JOIN events h ON h.rowid = (
-       SELECT e.rowid FROM events e WHERE e.instance_id=i.id AND e.type='insights.health' ORDER BY e.ts DESC LIMIT 1
-     )
+     LEFT JOIN instance_health h ON h.instance_id = i.id
      ORDER BY i.id`,
   ).all() as HealthRow[];
 }
