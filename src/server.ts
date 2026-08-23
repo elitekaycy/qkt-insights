@@ -3,7 +3,7 @@ import argon2 from "argon2";
 import cookie from "@fastify/cookie";
 import websocket from "@fastify/websocket";
 import fastifyStatic from "@fastify/static";
-import { openDb, LiveBus, LiveStateStore, pruneRetention, pruneStaleStrategies } from "@qkt-insights/store";
+import { openDb, checkpoint, LiveBus, LiveStateStore, pruneRetention, pruneStaleStrategies } from "@qkt-insights/store";
 import { registerCollector } from "@qkt-insights/collector";
 import { registerAuth, registerRest, registerLive, hasSession } from "@qkt-insights/api";
 import { existsSync } from "node:fs";
@@ -33,6 +33,16 @@ export async function buildServer(mode: Mode) {
   app.get("/healthz", async () => ({ ok: true, mode }));
 
   registerCollector(app, { db, bus, liveState, ingestToken: env("INGEST_TOKEN") });
+  // WAL upkeep: fold the WAL back into the main file every 10 minutes so it cannot grow
+  // past its size limit between checkpoints. unref so the timer never holds the process open.
+  const upkeep = setInterval(() => {
+    try {
+      checkpoint(db);
+    } catch (err) {
+      app.log.error({ err }, "wal checkpoint failed");
+    }
+  }, 10 * 60_000);
+  upkeep.unref();
 
   // Retention: prune operational logs/events and stale position marks past the window so the DB
   // does not grow unbounded (trade events and open-position history are kept — see pruneRetention).
