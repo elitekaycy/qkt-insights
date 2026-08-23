@@ -7,6 +7,14 @@ const VALUATION_HEARTBEAT_MS = 5 * 60_000;
 /** Last valuation row written per `instance|broker|ticket`; restart simply writes once more. */
 const lastValuationWrite = new Map<string, number>();
 
+/** `strategy.started` carries the configured starting balance under `risk.startingBalance`. */
+export function startingBalanceOf(payload: unknown): number | null {
+  const risk = (payload as { risk?: { startingBalance?: unknown } } | null)?.risk;
+  const v = risk?.startingBalance;
+  const n = typeof v === "number" ? v : typeof v === "string" ? Number(v) : NaN;
+  return Number.isFinite(n) && n > 0 ? n : null;
+}
+
 function ftsText(e: Envelope): string {
   const p: any = e.payload;
   return [e.type, e.strategyId, p.symbol, p.side, p.orderId, p.brokerOrderId, p.reason]
@@ -198,6 +206,9 @@ export function ingestEvents(db: Db, instanceId: string, events: Envelope[]): nu
      ON CONFLICT(instance_id) DO UPDATE SET ts=excluded.ts, seq=excluded.seq, payload=excluded.payload
      WHERE excluded.ts >= instance_health.ts`,
   );
+  const setStartingBalance = db.prepare(
+    "UPDATE strategies SET starting_balance=@sb WHERE instance_id=@i AND strategy_id=@s AND starting_balance IS NULL",
+  );
   const upInstance = db.prepare(UP_INSTANCE_SQL);
   const upStrategy = db.prepare(
     `INSERT INTO strategies (instance_id, strategy_id, first_seen, last_seen) VALUES (@i,@s,@ts,@ts)
@@ -330,7 +341,13 @@ export function ingestEvents(db: Db, instanceId: string, events: Envelope[]): nu
       upInstance.run({ id: instanceId, ts: e.ts, seq: e.seq });
       if (e.type === "strategy.started") {
         const strategyId = (e.payload as any).strategyId ?? e.strategyId;
-        if (strategyId) upStrategyMetadata.run({ i: instanceId, s: strategyId, ts: e.ts, metadata: JSON.stringify(e.payload) });
+        if (strategyId) {
+          upStrategyMetadata.run({ i: instanceId, s: strategyId, ts: e.ts, metadata: JSON.stringify(e.payload) });
+          // qkt retired snapshot.equity, which used to carry the starting balance; the
+          // deploy provenance still does. Anchor the equity curve from it when unset.
+          const sb = startingBalanceOf(e.payload);
+          if (sb != null) setStartingBalance.run({ i: instanceId, s: strategyId, sb });
+        }
       } else if (e.strategyId) {
         upStrategy.run({ i: instanceId, s: e.strategyId, ts: e.ts });
       }

@@ -43,7 +43,7 @@ describe("insights.health storage", () => {
   it("migrates existing health events into instance_health and drops them from events", () => {
     const db = openDb(":memory:");
     // Simulate a pre-013 database: insert raw health events, then re-run the migration body.
-    db.prepare("DELETE FROM _migrations WHERE name='013_instance_health_retention.sql'").run();
+    db.prepare("DELETE FROM _migrations WHERE name='014_instance_health.sql'").run();
     const ins = db.prepare("INSERT INTO events (id, instance_id, type, strategy_id, seq, ts, payload) VALUES (?,?,?,?,?,?,?)");
     ins.run("old-1", "qkt-prod", "insights.health", null, 1, T0, JSON.stringify({ sent: 5 }));
     ins.run("old-2", "qkt-prod", "insights.health", null, 2, T0 + 1000, JSON.stringify({ sent: 6 }));
