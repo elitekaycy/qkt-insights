@@ -883,7 +883,9 @@ export function executionQuality(db: Db, f: AnalyticsFilter): ExecutionQuality {
     if (fill) {
       filled++;
       fills.push(fill.ts - submit.ts);
-      const expected = finite(p.entryPrice) ?? finite(p.limitPrice) ?? finite(p.stopPrice);
+      // Market entries carry no price of their own; qkt stamps the sided quote it saw at
+      // submission as referencePrice so the fill can be measured against it.
+      const expected = finite(p.entryPrice) ?? finite(p.limitPrice) ?? finite(p.stopPrice) ?? finite(p.referencePrice);
       const actual = finite(fill.payload.price);
       if (expected != null && actual != null && (p.side === "BUY" || p.side === "SELL")) {
         slippage.push(p.side === "BUY" ? actual - expected : expected - actual);
