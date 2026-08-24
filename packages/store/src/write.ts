@@ -1,6 +1,20 @@
 import type { Db } from "./db.js";
 import type { Envelope } from "@qkt-insights/contract";
 
+/** A flat position still records one valuation this often so its holding period is visible. */
+const VALUATION_HEARTBEAT_MS = 5 * 60_000;
+
+/** Last valuation row written per `instance|broker|ticket`; restart simply writes once more. */
+const lastValuationWrite = new Map<string, number>();
+
+/** `strategy.started` carries the configured starting balance under `risk.startingBalance`. */
+export function startingBalanceOf(payload: unknown): number | null {
+  const risk = (payload as { risk?: { startingBalance?: unknown } } | null)?.risk;
+  const v = risk?.startingBalance;
+  const n = typeof v === "number" ? v : typeof v === "string" ? Number(v) : NaN;
+  return Number.isFinite(n) && n > 0 ? n : null;
+}
+
 function ftsText(e: Envelope): string {
   const p: any = e.payload;
   return [e.type, e.strategyId, p.symbol, p.side, p.orderId, p.brokerOrderId, p.reason]
@@ -112,9 +126,14 @@ export function persistStateEvent(db: Db, instanceId: string, e: Envelope): void
   );
   const tx = db.transaction(() => {
     const existing = db.prepare(
-      "SELECT ticket, strategy_id strategyId FROM positions_current WHERE instance_id=? AND broker=?",
-    ).all(instanceId, p.broker) as { ticket: string; strategyId: string | null }[];
+      `SELECT ticket, strategy_id strategyId, current_price currentPrice, profit, swap, qty
+       FROM positions_current WHERE instance_id=? AND broker=?`,
+    ).all(instanceId, p.broker) as Array<{
+      ticket: string; strategyId: string | null; currentPrice: number | null; profit: number | null;
+      swap: number | null; qty: number;
+    }>;
     const knownStrategies = new Map(existing.map((row) => [row.ticket, row.strategyId]));
+    const previous = new Map(existing.map((row) => [row.ticket, row]));
     const tickets = new Set<string>();
     for (const pos of positions) {
       tickets.add(pos.ticket);
@@ -146,12 +165,32 @@ export function persistStateEvent(db: Db, instanceId: string, e: Envelope): void
         seq: e.seq,
       };
       upCurrent.run(row);
-      insValuation.run(row);
+      // A valuation row per poll per position was the largest table by far, and most
+      // rows repeated the previous one. Keep the ones that move the excursion curve,
+      // plus a heartbeat so a flat position still shows it was held.
+      const prior = previous.get(pos.ticket);
+      const key = `${instanceId}|${p.broker}|${pos.ticket}`;
+      const lastWrite = lastValuationWrite.get(key);
+      const changed =
+        prior == null ||
+        lastWrite == null ||
+        prior.currentPrice !== row.currentPrice ||
+        prior.profit !== row.profit ||
+        prior.swap !== row.swap ||
+        prior.qty !== row.qty ||
+        e.ts - lastWrite >= VALUATION_HEARTBEAT_MS;
+      if (changed) {
+        insValuation.run(row);
+        lastValuationWrite.set(key, e.ts);
+      }
       if (strategyId) knownStrategies.set(pos.ticket, strategyId);
     }
     const del = db.prepare("DELETE FROM positions_current WHERE instance_id=? AND broker=? AND ticket=?");
     for (const row of existing) {
-      if (!tickets.has(row.ticket)) del.run(instanceId, p.broker, row.ticket);
+      if (!tickets.has(row.ticket)) {
+        del.run(instanceId, p.broker, row.ticket);
+        lastValuationWrite.delete(`${instanceId}|${p.broker}|${row.ticket}`);
+      }
     }
   });
   tx();
@@ -162,6 +201,14 @@ export function ingestEvents(db: Db, instanceId: string, events: Envelope[]): nu
     "INSERT OR IGNORE INTO events (id, instance_id, type, strategy_id, seq, ts, payload) VALUES (?,?,?,?,?,?,?)",
   );
   const insFts = db.prepare("INSERT INTO events_fts (text, instance_id, event_rowid) VALUES (?,?,?)");
+  const upHealth = db.prepare(
+    `INSERT INTO instance_health (instance_id, ts, seq, payload) VALUES (@i, @ts, @seq, @payload)
+     ON CONFLICT(instance_id) DO UPDATE SET ts=excluded.ts, seq=excluded.seq, payload=excluded.payload
+     WHERE excluded.ts >= instance_health.ts`,
+  );
+  const setStartingBalance = db.prepare(
+    "UPDATE strategies SET starting_balance=@sb WHERE instance_id=@i AND strategy_id=@s AND starting_balance IS NULL",
+  );
   const upInstance = db.prepare(UP_INSTANCE_SQL);
   const upStrategy = db.prepare(
     `INSERT INTO strategies (instance_id, strategy_id, first_seen, last_seen) VALUES (@i,@s,@ts,@ts)
@@ -274,6 +321,12 @@ export function ingestEvents(db: Db, instanceId: string, events: Envelope[]): nu
         upInstance.run({ id: instanceId, ts: e.ts, seq: e.seq });
         continue;
       }
+      if (e.type === "insights.health") {
+        accepted++;
+        upHealth.run({ i: instanceId, ts: e.ts, seq: e.seq, payload: JSON.stringify(e.payload) });
+        upInstance.run({ id: instanceId, ts: e.ts, seq: e.seq });
+        continue;
+      }
       const info = insEvent.run(e.id, instanceId, e.type, e.strategyId ?? null, e.seq, e.ts, JSON.stringify(e.payload));
       if (info.changes === 0) {
         observeDuplicate(db, instanceId, e);
@@ -288,7 +341,13 @@ export function ingestEvents(db: Db, instanceId: string, events: Envelope[]): nu
       upInstance.run({ id: instanceId, ts: e.ts, seq: e.seq });
       if (e.type === "strategy.started") {
         const strategyId = (e.payload as any).strategyId ?? e.strategyId;
-        if (strategyId) upStrategyMetadata.run({ i: instanceId, s: strategyId, ts: e.ts, metadata: JSON.stringify(e.payload) });
+        if (strategyId) {
+          upStrategyMetadata.run({ i: instanceId, s: strategyId, ts: e.ts, metadata: JSON.stringify(e.payload) });
+          // qkt retired snapshot.equity, which used to carry the starting balance; the
+          // deploy provenance still does. Anchor the equity curve from it when unset.
+          const sb = startingBalanceOf(e.payload);
+          if (sb != null) setStartingBalance.run({ i: instanceId, s: strategyId, sb });
+        }
       } else if (e.strategyId) {
         upStrategy.run({ i: instanceId, s: e.strategyId, ts: e.ts });
       }
