@@ -13,6 +13,10 @@
   <a href="https://github.com/elitekaycy/qkt-insights/pkgs/container/qkt-insights"><img src="https://img.shields.io/badge/ghcr.io-qkt--insights-2496ED?logo=docker&logoColor=white" alt="container"></a>
 </p>
 
+<p align="center">
+  <img src="docs/assets/qkt-insights-demo.gif" alt="Clone qkt-insights, install, build, and start the server — all from the terminal" width="880">
+</p>
+
 ---
 
 > Live dashboard for [qkt](https://github.com/elitekaycy/qkt). Sibling project — same brand, same engineering style.
@@ -37,6 +41,12 @@ InsightsSink   POST /ingest             single writer, one file
 - **Equity** — all strategies on one normalized comparison chart; drawdown periods shaded on the focused curve.
 - **Edge** — when a strategy makes money: day-of-week × hour P&L heatmap (UTC), weekday/hour bars with per-bucket n and ±SE, rolling Sharpe/win-rate stability, strategy-comparison radar. Buckets under 30 trades render greyed — thin slices are noise, and the UI says so.
 - **Single-admin auth** — username + password from env, hashed with argon2 at startup, signed httpOnly session cookie; ingest guarded by a bearer token.
+
+<p align="center">
+  <img src="docs/assets/screenshots/overview.png" alt="qkt-insights Overview page" width="880">
+</p>
+
+See [`docs/PAGES.md`](docs/PAGES.md) for a screenshot of every page.
 
 ## Quick start (Docker)
 
