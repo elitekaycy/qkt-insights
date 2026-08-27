@@ -43,7 +43,7 @@ InsightsSink   POST /ingest             single writer, one file
 - **Single-admin auth** — username + password from env, hashed with argon2 at startup, signed httpOnly session cookie; ingest guarded by a bearer token.
 
 <p align="center">
-  <img src="docs/assets/screenshots/overview.png" alt="qkt-insights Overview page" width="880">
+  <img src="docs/assets/screenshots/overview-hero.png" alt="qkt-insights Overview page" width="880">
 </p>
 
 See [`docs/PAGES.md`](docs/PAGES.md) for a screenshot of every page.
@@ -66,6 +66,10 @@ docker run -d --name qkt-insights \
 ```
 
 Or with compose: copy `docker-compose.yml`, set the four env vars, `docker compose up -d`. The production image exposes `GET /healthz` and includes a Docker `HEALTHCHECK`; use an immutable `:v*` or `:sha-*` tag for pinned deployments and `:latest` only for tracking `main`.
+
+<p align="center">
+  <img src="docs/assets/qkt-insights-demo-docker.gif" alt="Clone qkt-insights, build the image, and run it with Docker — all from the terminal" width="880">
+</p>
 
 ## Run modes
 
