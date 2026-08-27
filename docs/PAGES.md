@@ -7,7 +7,10 @@ placeholders — everything else (balance, positions, strategies, trades, logs) 
 ## Overview
 
 Everything the selected instance is doing right now: account snapshot, open
-positions, and every reporting instance at a glance.
+positions, account performance (net P&L, win rate, expectancy, drawdown), a
+trading calendar, monthly returns, and a full performance dashboard —
+daily/cumulative P&L, strategy equity, trade excursion, outcomes, risk budget,
+trading behavior, and execution quality — down to every reporting instance.
 
 ![Overview](assets/screenshots/overview.png)
 
