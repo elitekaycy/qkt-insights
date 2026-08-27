@@ -48,6 +48,21 @@ InsightsSink   POST /ingest             single writer, one file
 
 See [`docs/PAGES.md`](docs/PAGES.md) for a screenshot of every page.
 
+## Prerequisites
+
+qkt-insights is a collector and dashboard — on its own it has nothing to show. You need
+a running [**qkt**](https://github.com/elitekaycy/qkt) instance to feed it, and if that
+instance trades live on MetaTrader 5, qkt talks to the broker through
+[**mt5-gateway**](https://github.com/elitekaycy/mt5-gateway).
+
+<p align="center">
+  <a href="https://github.com/elitekaycy/qkt"><img src="https://img.shields.io/badge/qkt-trading%20engine-c8f74a?style=for-the-badge&logo=github&logoColor=black" alt="qkt on GitHub"></a>
+  <a href="https://github.com/elitekaycy/mt5-gateway"><img src="https://img.shields.io/badge/mt5--gateway-MT5%20broker%20bridge-5cb8ff?style=for-the-badge&logo=github&logoColor=black" alt="mt5-gateway on GitHub"></a>
+</p>
+
+Set up qkt (and mt5-gateway, if you're trading live) first, then come back here and
+point it at this collector — see [Connecting a qkt instance](#connecting-a-qkt-instance).
+
 ## Quick start (Docker)
 
 ```bash
