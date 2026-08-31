@@ -255,6 +255,28 @@ describe("broker state ingest hygiene", () => {
     expect(closedTrades(db, { instanceId: "qkt-prod", strategyId: "forward_bench:s0" })).toHaveLength(0);
   });
 
+  it("does not fan a close out when several order rows share a broker order id", () => {
+    const db = openDb(":memory:");
+    db.prepare("INSERT INTO strategies (instance_id, strategy_id, first_seen, last_seen) VALUES (?,?,1,1)")
+      .run("qkt-prod", "gold_donchian_breakout");
+    // one venue close; the entry order was registered once per broker profile
+    for (const [oid, ts] of [["ord-a", 1], ["ord-b", 2], ["ord-c", 3]] as const)
+      db.prepare(`INSERT INTO orders (instance_id, order_id, strategy_id, broker_order_id, state, created_ts, updated_ts)
+        VALUES ('qkt-prod', ?, 'gold_donchian_breakout', 'B1', 'FILLED', ?, ?)`).run(oid, ts, ts);
+    ingestEvents(db, "qkt-prod", [
+      env({ id: "d-in", strategyId: "gold_donchian_breakout", type: "broker.deal", payload: {
+        broker: "ICM_S03", dealTicket: "10", positionTicket: "500", orderTicket: "B1", symbol: "ICM_S03:XAUUSD",
+        side: "BUY", entry: "IN", qty: 0.1, price: 4400, profit: 0, commission: 0, swap: 0, magic: 10103, comment: "dsl-gold_donchian", ts: 1718000100000, strategyId: "gold_donchian_breakout" } }),
+      env({ id: "d-out", strategyId: "gold_donchian_breakout", type: "broker.deal", payload: {
+        broker: "ICM_S03", dealTicket: "11", positionTicket: "500", orderTicket: "B1", symbol: "ICM_S03:XAUUSD",
+        side: "SELL", entry: "OUT", qty: 0.1, price: 4410, profit: 100, commission: 0, swap: 0, magic: 10103, comment: "", ts: 1718000200000, strategyId: "gold_donchian_breakout" } }),
+    ]);
+    const c = closedTrades(db, { instanceId: "qkt-prod", strategyId: "gold_donchian_breakout" });
+    expect(c).toHaveLength(1);
+    expect(c[0]!.realized).toBeCloseTo(100);
+    expect(c[0]!.entryOrderId).toBe("ord-a");
+  });
+
   it("does not lose durable position attribution to a sibling poller", () => {
     const db = openDb(":memory:");
     const attributed = env({ id: "posn-owner", seq: 10, ts: 1718000000000, type: "state.positions", payload: {
