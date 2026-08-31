@@ -188,7 +188,10 @@ export default function Overview({
                 stagger={1}
               />
               {(() => {
-                const dd = (drawdown.data ?? []).find((d) => d.broker === a.broker) ?? (drawdown.data ?? [])[0];
+                const all = drawdown.data ?? [];
+                // TOTAL spans broker relabels and multi-account portfolios; a
+                // single-label history has no TOTAL row and the label matches.
+                const dd = all.find((d) => d.broker === "TOTAL") ?? all.find((d) => d.broker === a.broker) ?? all[0];
                 const cur = dd?.currentDdPct; const max = dd?.maxDdPct;
                 return (
                   <>

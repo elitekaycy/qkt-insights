@@ -314,6 +314,53 @@ export function accountDrawdown(db: Db, f: { instanceId: string }): AccountDrawd
     cur.peakTs = peakTs > 0 ? peakTs : null;
   }
   if (cur) out.push(cur);
+  // TOTAL: the whole account's drawdown across broker labels. A relabeled
+  // state poller (profile rework) splits one account's history into
+  // time-disjoint series under different labels — those are CHAINED into one
+  // continuous curve, never summed (summing would keep the dead label's last
+  // equity alive and double-count the account). Genuinely concurrent brokers
+  // (overlapping ranges = separate accounts) are forward-filled and summed
+  // into the portfolio curve.
+  if (out.length > 1) {
+    const byBroker = new Map<string, Array<{ ts: number; equity: number }>>();
+    for (const r of rows) {
+      let a = byBroker.get(r.broker);
+      if (!a) { a = []; byBroker.set(r.broker, a); }
+      a.push({ ts: r.ts, equity: r.equity });
+    }
+    const series = [...byBroker.values()].sort((a, b) => a[0]!.ts - b[0]!.ts);
+    const chains: Array<Array<{ ts: number; equity: number }>> = [];
+    for (const sr of series) {
+      const chain = chains.find((c) => c[c.length - 1]!.ts < sr[0]!.ts);
+      if (chain) chain.push(...sr);
+      else chains.push([...sr]);
+    }
+    const minutes = [...new Set(rows.map((r) => r.ts))].sort((a, b) => a - b);
+    const idx = chains.map(() => 0);
+    const lastVal: Array<number | null> = chains.map(() => null);
+    const tot: AccountDrawdownRow = { broker: "TOTAL", currentEquity: null, peakEquity: null, peakTs: null, currentDdPct: null, maxDdPct: null, points: 0 };
+    let tPeak = 0; let tPeakTs = 0;
+    for (const ts of minutes) {
+      for (let c = 0; c < chains.length; c++) {
+        while (idx[c]! < chains[c]!.length && chains[c]![idx[c]!]!.ts <= ts) {
+          lastVal[c] = chains[c]![idx[c]!]!.equity; idx[c]!++;
+        }
+      }
+      let sum = 0;
+      for (const v of lastVal) if (v != null) sum += v;
+      tot.points++;
+      if (sum > tPeak) { tPeak = sum; tPeakTs = ts; }
+      if (tPeak > 0) {
+        const dd = ((tPeak - sum) / tPeak) * 100;
+        if (tot.maxDdPct == null || dd > tot.maxDdPct) tot.maxDdPct = dd;
+        tot.currentDdPct = dd;
+      }
+      tot.currentEquity = sum;
+      tot.peakEquity = tPeak > 0 ? tPeak : null;
+      tot.peakTs = tPeakTs > 0 ? tPeakTs : null;
+    }
+    out.push(tot);
+  }
   return out;
 }
 
