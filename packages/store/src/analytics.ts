@@ -146,19 +146,26 @@ export function dealClosedTrades(db: Db, f: AnalyticsFilter): DealClosedTrade[] 
   const cl = ["o.instance_id=@instanceId", "o.strategy_id=@strategyId", `o.entry IN ${OUT_LEGS}`, canonicalDeal("o")];
   if (f.from != null) cl.push("o.ts>=@from");
   if (f.to != null) cl.push("o.ts<=@to");
+  // The order-id lookups are scalar subselects, NOT joins: several order rows can
+  // share a broker_order_id (one per broker profile after a multi-profile deploy),
+  // and a join would fan each closing deal out into one row per copy — every
+  // extra row re-counting the close's realized P&L.
   const rows = db.prepare(
     `SELECT o.position_ticket orderId, o.symbol, o.side outSide, i.side inSide, o.qty,
             i.price entryPrice, o.price exitPrice, i.ts entryTs, o.ts ts,
             o.profit + COALESCE(o.commission,0) + COALESCE(o.swap,0) + COALESCE(o.fee,0) realized,
-            eo.order_id entryOrderId, xo.order_id exitOrderId
+            (SELECT eo.order_id FROM orders eo
+              WHERE eo.instance_id=o.instance_id AND eo.broker_order_id=i.order_ticket
+              ORDER BY eo.created_ts ASC LIMIT 1) entryOrderId,
+            (SELECT xo.order_id FROM orders xo
+              WHERE xo.instance_id=o.instance_id AND xo.broker_order_id=o.order_ticket
+              ORDER BY xo.created_ts ASC LIMIT 1) exitOrderId
      FROM deals o
      LEFT JOIN deals i ON i.rowid = (
        SELECT rowid FROM deals x
        WHERE x.instance_id=o.instance_id AND x.position_ticket=o.position_ticket AND x.entry='IN'
        ORDER BY x.ts ASC LIMIT 1
      )
-     LEFT JOIN orders eo ON eo.instance_id=o.instance_id AND eo.broker_order_id=i.order_ticket
-     LEFT JOIN orders xo ON xo.instance_id=o.instance_id AND xo.broker_order_id=o.order_ticket
      WHERE ${cl.join(" AND ")}
      ORDER BY o.ts ASC`,
   ).all(f) as any[];
