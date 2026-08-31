@@ -1,8 +1,13 @@
 import type { Db } from "./db.js";
-import { dealClosedTrades, hasClosingDeals, strategyEquityCurve, tradePnls, type StrategyEquityPoint } from "./analytics.js";
+import { closedTrades, hasClosingDeals, strategyEquityCurve, tradePnls, type StrategyEquityPoint } from "./analytics.js";
+
+// A strategy stays "active" while its roster bump is within this window of the
+// instance's newest bump. Comfortably exceeds the state-poll cadence (~30s) times the
+// number of sessions, so all of one daemon's sessions read as live between bumps.
+export const ROSTER_WINDOW_MS = 300_000;
 
 export interface InstanceRow { id: string; name: string | null; firstSeen: number; lastSeen: number; lastSeq: number }
-export interface StrategyRow { strategyId: string; firstSeen: number; lastSeen: number; startingBalance: number | null; metadata: Record<string, unknown> | null; realizedNet: number | null; dealCount: number }
+export interface StrategyRow { strategyId: string; firstSeen: number; lastSeen: number; startingBalance: number | null; metadata: Record<string, unknown> | null; realizedNet: number | null; dealCount: number; active: boolean }
 export interface OrderRow { orderId: string; strategyId: string | null; symbol: string | null; side: string | null; type: string | null; state: string; qty: number | null; cumQty: number; avgPrice: number | null; createdTs: number; updatedTs: number }
 export interface TradeRow { id: string; strategyId: string | null; ts: number; payload: unknown }
 export interface SearchHit { id: string; instanceId: string; type: string; ts: number; payload: unknown }
@@ -25,18 +30,32 @@ export function listInstances(db: Db): InstanceRow[] {
 }
 
 export function listStrategies(db: Db, instanceId: string): StrategyRow[] {
-  // realizedNet and dealCount come from the same dealClosedTrades rows every
-  // other analytics number uses, so a card and its detail page can never disagree.
+  // realizedNet and dealCount come from closedTrades — broker deals when polled, else the engine's
+  // trade.closed rows — the same fallback report/contribution use, so a card and its detail page can
+  // never disagree (a live book that trades without polled deals still shows its P&L, not a blank card).
+  // `active` = bumped in the roster within ROSTER_WINDOW_MS of the instance's newest
+  // roster bump. An instance that has never reported a roster (older daemon) has no
+  // roster rows, so every strategy stays active — the feature only ever hides ids a
+  // live roster has superseded, and reshard leftovers age out once un-bumped.
   const rows = db.prepare(
-    `SELECT strategy_id strategyId, first_seen firstSeen, last_seen lastSeen, starting_balance startingBalance, metadata
-     FROM strategies WHERE instance_id=? ORDER BY strategy_id`,
-  ).all(instanceId) as Array<Omit<StrategyRow, "realizedNet" | "dealCount" | "metadata"> & { metadata: string | null }>;
+    `SELECT s.strategy_id strategyId, s.first_seen firstSeen, s.last_seen lastSeen, s.starting_balance startingBalance, s.metadata,
+       CASE
+         WHEN NOT EXISTS (SELECT 1 FROM instance_roster ir WHERE ir.instance_id=s.instance_id) THEN 1
+         WHEN EXISTS (
+           SELECT 1 FROM instance_roster ir WHERE ir.instance_id=s.instance_id AND ir.strategy_id=s.strategy_id
+             AND ir.ts >= (SELECT MAX(ts) FROM instance_roster i2 WHERE i2.instance_id=s.instance_id) - ?
+         ) THEN 1
+         ELSE 0
+       END active
+     FROM strategies s WHERE s.instance_id=? ORDER BY s.strategy_id`,
+  ).all(ROSTER_WINDOW_MS, instanceId) as Array<Omit<StrategyRow, "realizedNet" | "dealCount" | "metadata" | "active"> & { metadata: string | null; active: number }>;
   return rows.map((r) => {
-    const closes = dealClosedTrades(db, { instanceId, strategyId: r.strategyId });
+    const closes = closedTrades(db, { instanceId, strategyId: r.strategyId });
     const metadata = typeof r.metadata === "string" ? JSON.parse(r.metadata) as Record<string, unknown> : null;
     return {
       ...r,
       metadata,
+      active: r.active === 1,
       realizedNet: closes.length > 0 ? closes.reduce((a, c) => a + c.realized, 0) : null,
       dealCount: closes.length,
     };
@@ -139,9 +158,7 @@ export function instanceHealth(db: Db): HealthRow[] {
             json_extract(h.payload, '$.journalPending') insightsJournalPending,
             h.ts insightsHealthTs
      FROM instances i
-     LEFT JOIN events h ON h.rowid = (
-       SELECT e.rowid FROM events e WHERE e.instance_id=i.id AND e.type='insights.health' ORDER BY e.ts DESC LIMIT 1
-     )
+     LEFT JOIN instance_health h ON h.instance_id = i.id
      ORDER BY i.id`,
   ).all() as HealthRow[];
 }
@@ -274,7 +291,7 @@ export interface StrategyStats {
  * Per-strategy performance summary. Broker deals are ground truth when they
  * exist; the paper ledger (snapshots + tradePnls) covers everything else.
  *
- * - tradeCount/realizedPnl/winRate: from dealClosedTrades — the same rows the
+ * - tradeCount/realizedPnl/winRate: from closedTrades (deals or trade.closed) — the same rows the
  *   performance report uses, so the overview and performance tabs must never
  *   disagree on the same number. winRate skips zero-P&L closes, like the report.
  * - maxDrawdownPct/sharpe: over the deals-rebuilt equity curve (else snapshots);
@@ -299,7 +316,9 @@ export function strategyStats(db: Db, f: { instanceId: string; strategyId: strin
     "SELECT starting_balance sb FROM strategies WHERE instance_id=@instanceId AND strategy_id=@strategyId",
   ).get(f);
 
-  const dealRows = dealClosedTrades(db, f);
+  // Closed trades: broker deals when polled, else the engine's trade.closed rows — so a live book
+  // that trades without polled deals still shows realized P&L, equity and drawdown, not blanks.
+  const dealRows = closedTrades(db, f);
   const fromDeals = dealRows.length > 0;
   const snaps = fromDeals
     ? strategyEquityCurve(db, f)

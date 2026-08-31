@@ -176,7 +176,7 @@ export function strategyEquityCurve(
   db: Db,
   f: { instanceId: string; strategyId: string; from?: number; to?: number },
 ): StrategyEquityPoint[] {
-  const rows = dealClosedTrades(db, { instanceId: f.instanceId, strategyId: f.strategyId });
+  const rows = closes(db, { instanceId: f.instanceId, strategyId: f.strategyId });
   if (rows.length === 0) return [];
   const sb = (db.prepare("SELECT starting_balance sb FROM strategies WHERE instance_id=? AND strategy_id=?")
     .get(f.instanceId, f.strategyId) as { sb: number | null } | undefined)?.sb ?? 0;
@@ -248,11 +248,14 @@ function utcDay(ts: number): string {
 }
 
 export function dailyNets(db: Db, f: AnalyticsFilter): DayNet[] {
-  // Deals path: group the closed trades per UTC day directly — net is the day's
-  // realized sum, trades the number of closing legs that day.
-  if (hasClosingDeals(db, f)) {
+  // Closed-trades path: group per UTC day — net is the day's realized sum, trades the number of
+  // closing legs. Uses closes() so it falls back to trade.closed rows when broker deals were not
+  // polled (engine-native fills), matching report/contribution; otherwise a live book that trades
+  // but has no deals shows an empty calendar/equity while the report shows the P&L.
+  const trades = closes(db, f);
+  if (trades.length > 0) {
     const byDay = new Map<string, DayNet>();
-    for (const c of dealClosedTrades(db, f)) {
+    for (const c of trades) {
       const day = utcDay(c.ts);
       const cur = byDay.get(day) ?? { day, net: 0, trades: 0 };
       cur.net += c.realized;
@@ -883,7 +886,9 @@ export function executionQuality(db: Db, f: AnalyticsFilter): ExecutionQuality {
     if (fill) {
       filled++;
       fills.push(fill.ts - submit.ts);
-      const expected = finite(p.entryPrice) ?? finite(p.limitPrice) ?? finite(p.stopPrice);
+      // Market entries carry no price of their own; qkt stamps the sided quote it saw at
+      // submission as referencePrice so the fill can be measured against it.
+      const expected = finite(p.entryPrice) ?? finite(p.limitPrice) ?? finite(p.stopPrice) ?? finite(p.referencePrice);
       const actual = finite(fill.payload.price);
       if (expected != null && actual != null && (p.side === "BUY" || p.side === "SELL")) {
         slippage.push(p.side === "BUY" ? actual - expected : expected - actual);

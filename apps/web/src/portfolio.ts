@@ -3,11 +3,13 @@ import type { StrategyRow } from "./api";
 export interface PortfolioSummary {
   portfolioId: string;
   childCount: number;
+  /** Children that have at least one broker deal — i.e. sleeves that actually traded, not just
+   * registered. A book can register 40 sleeves yet have only 1 that ever fired. */
+  tradedCount: number;
   allocatedCapital: number | null;
   realizedPnl: number;
   openPnl: number | null;
   netPnl: number | null;
-  portfolioEquity: number | null;
   dealCount: number;
   lastSeen: number;
 }
@@ -36,6 +38,19 @@ export function portfolioGroupId(row: StrategyRow): string | null {
   return id == null ? null : logicalPortfolioId(id);
 }
 
+/**
+ * Human label for a strategy: its own DSL name, prefixed with the portfolio it
+ * runs in. The raw strategyId is a deploy slot (`forward_bench_2:s0`) that says
+ * nothing about what the strategy is.
+ * e.g. portfolio `forward_bench` + dslName `gold_eur_rel2` -> `forward_bench / gold_eur_rel2`.
+ */
+export function strategyDisplayName(row: StrategyRow): string {
+  const dsl = metaString(row, "dslName");
+  const portfolio = metaString(row, "portfolioName") ?? portfolioGroupId(row);
+  if (dsl && portfolio) return `${portfolio} / ${dsl}`;
+  return dsl ?? row.strategyId;
+}
+
 /** Aggregates only child-attributed values; broker account equity is intentionally excluded. */
 export function summarizePortfolio(
   portfolioId: string,
@@ -62,11 +77,11 @@ export function summarizePortfolio(
   return {
     portfolioId,
     childCount: children.length,
+    tradedCount: children.filter((child) => child.dealCount > 0).length,
     allocatedCapital: capital,
     realizedPnl: realized,
     openPnl: open,
     netPnl: net,
-    portfolioEquity: capital == null || net == null ? null : capital + net,
     dealCount: children.reduce((sum, child) => sum + child.dealCount, 0),
     lastSeen: children.reduce(
       (latest, child) => Math.max(latest, child.lastSeen),

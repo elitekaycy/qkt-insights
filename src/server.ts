@@ -3,7 +3,7 @@ import argon2 from "argon2";
 import cookie from "@fastify/cookie";
 import websocket from "@fastify/websocket";
 import fastifyStatic from "@fastify/static";
-import { openDb, LiveBus, LiveStateStore } from "@qkt-insights/store";
+import { openDb, checkpoint, LiveBus, LiveStateStore, pruneRetention, pruneStaleStrategies } from "@qkt-insights/store";
 import { registerCollector } from "@qkt-insights/collector";
 import { registerAuth, registerRest, registerLive, hasSession } from "@qkt-insights/api";
 import { existsSync } from "node:fs";
@@ -33,6 +33,40 @@ export async function buildServer(mode: Mode) {
   app.get("/healthz", async () => ({ ok: true, mode }));
 
   registerCollector(app, { db, bus, liveState, ingestToken: env("INGEST_TOKEN") });
+  // WAL upkeep: fold the WAL back into the main file every 10 minutes so it cannot grow
+  // past its size limit between checkpoints. unref so the timer never holds the process open.
+  const upkeep = setInterval(() => {
+    try {
+      checkpoint(db);
+    } catch (err) {
+      app.log.error({ err }, "wal checkpoint failed");
+    }
+  }, 10 * 60_000);
+  upkeep.unref();
+
+  // Retention: prune operational logs/events and stale position marks past the window so the DB
+  // does not grow unbounded (trade events and open-position history are kept — see pruneRetention).
+  // Run once shortly after boot (covers restart-heavy periods) and weekly thereafter. unref so
+  // neither timer holds the process open.
+  const prune = () => {
+    try {
+      const now = Date.now();
+      const r = pruneRetention(db, now);
+      if (r.logs || r.events || r.valuations)
+        app.log.info({ ...r }, "retention prune");
+      // Retire strategies that stopped reporting past the window (e.g. a swapped-out book) along
+      // with all their data, so old registrations don't linger in the dashboard forever.
+      const s = pruneStaleStrategies(db, now);
+      if (s.strategies)
+        app.log.info({ ...s }, "stale strategies pruned");
+    } catch (e) {
+      app.log.error(e, "retention prune failed");
+    }
+  };
+  const firstPrune = setTimeout(prune, 5 * 60_000);
+  firstPrune.unref();
+  const retention = setInterval(prune, 7 * 24 * 60 * 60_000);
+  retention.unref();
 
   if (mode === "serve" || mode === "run") {
     await app.register(cookie);

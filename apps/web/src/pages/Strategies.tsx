@@ -13,7 +13,7 @@ import {
 import { age, money, num, pct, ts, tsDay } from "../format";
 import { buildCloseMap } from "../useCloses";
 import { useLiveState } from "../useLiveState";
-import { physicalPortfolioId, portfolioGroupId, summarizePortfolio } from "../portfolio";
+import { physicalPortfolioId, portfolioGroupId, strategyDisplayName as displayName, summarizePortfolio } from "../portfolio";
 
 /** Open P&L per strategy from the live broker positions of one instance, with a staleness flag. */
 function useOpenByStrategy(instanceId: string | null) {
@@ -54,22 +54,6 @@ function portfolioAlias(row: StrategyRow): string | null {
   return metaString(row.metadata, "portfolioAlias");
 }
 
-function strategyKind(row: StrategyRow): "portfolio_child" | "standalone" {
-  return metaString(row.metadata, "kind") === "portfolio_child" || portfolioId(row) ? "portfolio_child" : "standalone";
-}
-
-function strategyMetaLine(row: StrategyRow): string | null {
-  const runtime = metaString(row.metadata, "runtimeMode");
-  const version = metaNumber(row.metadata, "dslVersion");
-  const src = sourceName(metaString(row.metadata, "sourcePath"));
-  const portfolio = portfolioId(row);
-  const physicalPortfolio = physicalPortfolioId(row);
-  const alias = portfolioAlias(row);
-  const shard = physicalPortfolio && portfolio && physicalPortfolio !== portfolio ? ` · shard ${physicalPortfolio}` : "";
-  const role = portfolio ? `portfolio ${portfolio}${shard}${alias ? ` / ${alias}` : ""}` : "standalone";
-  return [role, runtime, version == null ? null : `v${version}`, src].filter(Boolean).join(" · ") || null;
-}
-
 export default function Strategies({
   instanceId,
   focus = null,
@@ -81,6 +65,7 @@ export default function Strategies({
 }) {
   const [selected, setSelected] = useState<string | null>(focus);
   const [selectedPortfolio, setSelectedPortfolio] = useState<string | null>(null);
+  const [showRetired, setShowRetired] = useState(false);
 
   const strategies = useQuery({
     queryKey: ["strategies", instanceId],
@@ -103,7 +88,11 @@ export default function Strategies({
       />
     );
 
-  const rows = strategies.data ?? [];
+  const allRows = strategies.data ?? [];
+  const retiredCount = allRows.filter((row) => !row.active).length;
+  // Default to the live deployed roster; ids left over from a prior bench topology
+  // (active=false) are hidden unless the operator opts to see them.
+  const rows = showRetired ? allRows : allRows.filter((row) => row.active);
   const portfolioGroups = rows.reduce((acc, row) => {
     const id = portfolioId(row);
     if (!id) return acc;
@@ -138,7 +127,17 @@ export default function Strategies({
     <div>
       <PageHeader
         title="Strategies"
-        sub={`${standalone.length} standalone · ${portfolioGroups.size} portfolio${portfolioGroups.size === 1 ? "" : "s"} · ${rows.length} reported strategy rows`}
+        sub={`${rows.length} deployed · ${standalone.length} standalone · ${portfolioGroups.size} portfolio${portfolioGroups.size === 1 ? "" : "s"}${retiredCount > 0 ? ` · ${retiredCount} retired` : ""}`}
+        right={
+          retiredCount > 0 ? (
+            <button
+              onClick={() => setShowRetired((v) => !v)}
+              className="h-8 rounded-lg border border-line bg-raised px-3 text-xs font-semibold text-muted transition hover:border-line-strong hover:text-body"
+            >
+              {showRetired ? "Hide retired" : `Show ${retiredCount} retired`}
+            </button>
+          ) : undefined
+        }
       />
       <Loadable
         loading={strategies.isPending}
@@ -172,7 +171,7 @@ export default function Strategies({
                     className="group text-left"
                   >
                     <Card
-                      className="h-full p-5 transition group-hover:border-accent/50 group-hover:bg-raised"
+                      className="flex h-full flex-col justify-between p-5 transition group-hover:border-accent/50 group-hover:bg-raised"
                       stagger={i}
                     >
                       <div className="flex items-start justify-between gap-3">
@@ -185,38 +184,33 @@ export default function Strategies({
                       </div>
                       <div className="mt-2 flex flex-wrap items-center gap-1.5">
                         <Pill tone="accent">portfolio</Pill>
-                        <Pill>{summary.childCount} children</Pill>
+                        <Pill tone={summary.tradedCount > 0 ? "accent" : undefined}>
+                          {summary.tradedCount}/{summary.childCount} traded
+                        </Pill>
                         {physicalIds.size > 1 && <Pill>{physicalIds.size} shards</Pill>}
                       </div>
                       <div
-                        className="mt-2.5 flex items-baseline gap-3"
-                        title="allocated child capital plus child-attributed realized and open P&L"
+                        className="mt-4 flex items-baseline gap-3"
+                        title="realized + open P&L attributed to this portfolio's sleeves — not the shared broker account equity"
                       >
                         <span
-                          className={`font-mono text-2xl font-semibold ${summary.portfolioEquity == null || live.stale ? "text-faint" : "text-bright"}`}
+                          className={`font-mono text-2xl font-semibold ${
+                            summary.netPnl == null || live.stale
+                              ? "text-faint"
+                              : summary.netPnl > 0
+                                ? "text-up"
+                                : summary.netPnl < 0
+                                  ? "text-down"
+                                  : "text-bright"
+                          }`}
                         >
-                          {money(summary.portfolioEquity)}
+                          {money(summary.netPnl)}
                         </span>
                         <ReturnPct
                           net={summary.netPnl}
                           base={summary.allocatedCapital}
                           dim={live.stale}
                         />
-                      </div>
-                      <div className="mt-1 text-[11px] font-semibold uppercase tracking-[0.08em] text-faint">
-                        portfolio equity · attributed
-                      </div>
-                      <div
-                        className={`mt-1 text-xs ${live.stale ? "text-faint" : "text-muted"}`}
-                      >
-                        net {money(summary.netPnl)} · realized{" "}
-                        {money(summary.realizedPnl)} · open{" "}
-                        {money(summary.openPnl)}
-                      </div>
-                      <div className="mt-0.5 text-[11px] text-faint">
-                        capital {money(summary.allocatedCapital)} ·{" "}
-                        {summary.dealCount} deal
-                        {summary.dealCount === 1 ? "" : "s"}
                       </div>
                     </Card>
                   </button>
@@ -291,7 +285,6 @@ export default function Strategies({
 function StrategyCard({
   row: s,
   net,
-  open,
   liveStale,
   stagger,
   onClick,
@@ -306,34 +299,17 @@ function StrategyCard({
   return (
     <button onClick={onClick} className="group text-left">
       <Card
-        className="h-full p-5 transition group-hover:border-accent/50 group-hover:bg-raised"
+        className="flex h-full flex-col justify-between p-5 transition group-hover:border-accent/50 group-hover:bg-raised"
         stagger={stagger}
       >
         <div className="flex items-start justify-between gap-3">
-          <span className="min-w-0 truncate font-bold text-bright">
-            {s.strategyId}
+          <span className="min-w-0 truncate font-bold text-bright" title={s.strategyId}>
+            {displayName(s)}
           </span>
           <span className="shrink-0 text-xs text-faint">{age(s.lastSeen)}</span>
         </div>
-        <div className="mt-2 flex flex-wrap items-center gap-1.5">
-          {strategyKind(s) === "portfolio_child" ? (
-            <>
-              <Pill tone="info">portfolio child</Pill>
-              <Pill>{portfolioId(s)}</Pill>
-              {physicalPortfolioId(s) !== portfolioId(s) && physicalPortfolioId(s) && <Pill>{physicalPortfolioId(s)}</Pill>}
-              {portfolioAlias(s) && <Pill>{portfolioAlias(s)}</Pill>}
-            </>
-          ) : (
-            <Pill>standalone</Pill>
-          )}
-        </div>
-        {strategyMetaLine(s) && (
-          <div className="mt-1.5 truncate text-xs text-faint">
-            {strategyMetaLine(s)}
-          </div>
-        )}
         <div
-          className="mt-2.5 flex items-baseline gap-3"
+          className="mt-4 flex items-baseline gap-3"
           title="net P&L = realized + open (this strategy, on a shared account)"
         >
           <span
@@ -344,18 +320,6 @@ function StrategyCard({
               : `${net >= 0 ? "+" : "−"}${money(Math.abs(net))}`}
           </span>
           <ReturnPct net={net} base={s.startingBalance} dim={liveStale} />
-        </div>
-        <div className="mt-1 text-[11px] font-semibold uppercase tracking-[0.08em] text-faint">
-          net P&L · this strategy
-        </div>
-        <div
-          className={`mt-1 text-xs ${liveStale ? "text-faint" : "text-muted"}`}
-        >
-          realized {money(s.realizedNet)} · open {money(open)}
-        </div>
-        <div className="mt-0.5 text-[11px] text-faint">
-          notional {money(s.startingBalance)} · {s.dealCount} deal
-          {s.dealCount === 1 ? "" : "s"}
         </div>
       </Card>
     </button>
@@ -397,9 +361,9 @@ function PortfolioDetail({
       />
       <div className="mt-6 grid grid-cols-2 gap-3 md:grid-cols-3 xl:grid-cols-6">
         <Stat
-          label="Portfolio equity"
-          value={money(summary.portfolioEquity)}
-          sub="capital + attributed P&L"
+          label="Allocated capital"
+          value={money(summary.allocatedCapital)}
+          sub={`${summary.tradedCount}/${summary.childCount} sleeves traded`}
         />
         <Stat
           label="Net P&L"
@@ -481,8 +445,8 @@ function PortfolioDetail({
                     onClick={() => onSelectChild(child.strategyId)}
                   >
                     <Cell>
-                      <div className="font-semibold text-bright">
-                        {child.strategyId}
+                      <div className="font-semibold text-bright" title={child.strategyId}>
+                        {displayName(child)}
                       </div>
                       {portfolioAlias(child) && (
                         <div className="text-xs text-faint">
@@ -620,7 +584,7 @@ function StrategyDetail({ instanceId, strategyId, onBack }: { instanceId: string
       </button>
       <div className="mt-2 flex flex-wrap items-end justify-between gap-4">
         <div className="rise">
-          <h2 className="text-2xl font-extrabold tracking-tight text-bright">{strategyId}</h2>
+          <h2 className="text-2xl font-extrabold tracking-tight text-bright" title={strategyId}>{row ? displayName(row) : strategyId}</h2>
           <div className="mt-2 flex flex-wrap items-center gap-1.5">
             {parentPortfolio ? (
               <>

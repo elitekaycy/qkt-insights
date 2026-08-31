@@ -1,6 +1,20 @@
 import type { Db } from "./db.js";
 import type { Envelope } from "@qkt-insights/contract";
 
+/** A flat position still records one valuation this often so its holding period is visible. */
+const VALUATION_HEARTBEAT_MS = 5 * 60_000;
+
+/** Last valuation row written per `instance|broker|ticket`; restart simply writes once more. */
+const lastValuationWrite = new Map<string, number>();
+
+/** `strategy.started` carries the configured starting balance under `risk.startingBalance`. */
+export function startingBalanceOf(payload: unknown): number | null {
+  const risk = (payload as { risk?: { startingBalance?: unknown } } | null)?.risk;
+  const v = risk?.startingBalance;
+  const n = typeof v === "number" ? v : typeof v === "string" ? Number(v) : NaN;
+  return Number.isFinite(n) && n > 0 ? n : null;
+}
+
 function ftsText(e: Envelope): string {
   const p: any = e.payload;
   return [e.type, e.strategyId, p.symbol, p.side, p.orderId, p.brokerOrderId, p.reason]
@@ -56,6 +70,25 @@ export function touchInstance(db: Db, instanceId: string, ts: number, seq: numbe
   db.prepare(UP_INSTANCE_SQL).run({ id: instanceId, ts, seq });
 }
 
+/**
+ * Bump the roster timestamp for each currently-deployed strategy. Additive, not a
+ * wholesale replace: one daemon fans an instance across several sessions that each
+ * announce only their own ids, so replacing would let them clobber each other. A
+ * strategy counts as live while its bumped `ts` stays within the freshness window of
+ * the instance's newest bump (see `listStrategies`); one left behind by a reshard
+ * stops being bumped and ages out. Empty roster is a no-op.
+ */
+export function upsertRoster(db: Db, instanceId: string, strategyIds: string[], ts: number): void {
+  if (strategyIds.length === 0) return;
+  const ins = db.prepare(
+    `INSERT INTO instance_roster (instance_id, strategy_id, ts) VALUES (?,?,?)
+     ON CONFLICT(instance_id, strategy_id) DO UPDATE SET ts=excluded.ts WHERE excluded.ts > ts`,
+  );
+  db.transaction(() => {
+    for (const s of strategyIds) ins.run(instanceId, s, ts);
+  })();
+}
+
 export function persistStateEvent(db: Db, instanceId: string, e: Envelope): void {
   if (e.type !== "state.positions") return;
   const p = e.payload;
@@ -93,13 +126,23 @@ export function persistStateEvent(db: Db, instanceId: string, e: Envelope): void
   );
   const tx = db.transaction(() => {
     const existing = db.prepare(
-      "SELECT ticket, strategy_id strategyId FROM positions_current WHERE instance_id=? AND broker=?",
-    ).all(instanceId, p.broker) as { ticket: string; strategyId: string | null }[];
+      `SELECT ticket, strategy_id strategyId, current_price currentPrice, profit, swap, qty
+       FROM positions_current WHERE instance_id=? AND broker=?`,
+    ).all(instanceId, p.broker) as Array<{
+      ticket: string; strategyId: string | null; currentPrice: number | null; profit: number | null;
+      swap: number | null; qty: number;
+    }>;
     const knownStrategies = new Map(existing.map((row) => [row.ticket, row.strategyId]));
+    const previous = new Map(existing.map((row) => [row.ticket, row]));
     const tickets = new Set<string>();
     for (const pos of positions) {
       tickets.add(pos.ticket);
-      const strategyId = pos.strategyId ?? knownStrategies.get(pos.ticket) ?? null;
+      const strategyId = resolvePositionStrategy(
+        db,
+        instanceId,
+        pos.ticket,
+        pos.strategyId ?? knownStrategies.get(pos.ticket) ?? null,
+      );
       const row = {
         instanceId,
         broker: p.broker,
@@ -122,12 +165,32 @@ export function persistStateEvent(db: Db, instanceId: string, e: Envelope): void
         seq: e.seq,
       };
       upCurrent.run(row);
-      insValuation.run(row);
+      // A valuation row per poll per position was the largest table by far, and most
+      // rows repeated the previous one. Keep the ones that move the excursion curve,
+      // plus a heartbeat so a flat position still shows it was held.
+      const prior = previous.get(pos.ticket);
+      const key = `${instanceId}|${p.broker}|${pos.ticket}`;
+      const lastWrite = lastValuationWrite.get(key);
+      const changed =
+        prior == null ||
+        lastWrite == null ||
+        prior.currentPrice !== row.currentPrice ||
+        prior.profit !== row.profit ||
+        prior.swap !== row.swap ||
+        prior.qty !== row.qty ||
+        e.ts - lastWrite >= VALUATION_HEARTBEAT_MS;
+      if (changed) {
+        insValuation.run(row);
+        lastValuationWrite.set(key, e.ts);
+      }
       if (strategyId) knownStrategies.set(pos.ticket, strategyId);
     }
     const del = db.prepare("DELETE FROM positions_current WHERE instance_id=? AND broker=? AND ticket=?");
     for (const row of existing) {
-      if (!tickets.has(row.ticket)) del.run(instanceId, p.broker, row.ticket);
+      if (!tickets.has(row.ticket)) {
+        del.run(instanceId, p.broker, row.ticket);
+        lastValuationWrite.delete(`${instanceId}|${p.broker}|${row.ticket}`);
+      }
     }
   });
   tx();
@@ -138,6 +201,14 @@ export function ingestEvents(db: Db, instanceId: string, events: Envelope[]): nu
     "INSERT OR IGNORE INTO events (id, instance_id, type, strategy_id, seq, ts, payload) VALUES (?,?,?,?,?,?,?)",
   );
   const insFts = db.prepare("INSERT INTO events_fts (text, instance_id, event_rowid) VALUES (?,?,?)");
+  const upHealth = db.prepare(
+    `INSERT INTO instance_health (instance_id, ts, seq, payload) VALUES (@i, @ts, @seq, @payload)
+     ON CONFLICT(instance_id) DO UPDATE SET ts=excluded.ts, seq=excluded.seq, payload=excluded.payload
+     WHERE excluded.ts >= instance_health.ts`,
+  );
+  const setStartingBalance = db.prepare(
+    "UPDATE strategies SET starting_balance=@sb WHERE instance_id=@i AND strategy_id=@s AND starting_balance IS NULL",
+  );
   const upInstance = db.prepare(UP_INSTANCE_SQL);
   const upStrategy = db.prepare(
     `INSERT INTO strategies (instance_id, strategy_id, first_seen, last_seen) VALUES (@i,@s,@ts,@ts)
@@ -250,6 +321,12 @@ export function ingestEvents(db: Db, instanceId: string, events: Envelope[]): nu
         upInstance.run({ id: instanceId, ts: e.ts, seq: e.seq });
         continue;
       }
+      if (e.type === "insights.health") {
+        accepted++;
+        upHealth.run({ i: instanceId, ts: e.ts, seq: e.seq, payload: JSON.stringify(e.payload) });
+        upInstance.run({ id: instanceId, ts: e.ts, seq: e.seq });
+        continue;
+      }
       const info = insEvent.run(e.id, instanceId, e.type, e.strategyId ?? null, e.seq, e.ts, JSON.stringify(e.payload));
       if (info.changes === 0) {
         observeDuplicate(db, instanceId, e);
@@ -264,7 +341,13 @@ export function ingestEvents(db: Db, instanceId: string, events: Envelope[]): nu
       upInstance.run({ id: instanceId, ts: e.ts, seq: e.seq });
       if (e.type === "strategy.started") {
         const strategyId = (e.payload as any).strategyId ?? e.strategyId;
-        if (strategyId) upStrategyMetadata.run({ i: instanceId, s: strategyId, ts: e.ts, metadata: JSON.stringify(e.payload) });
+        if (strategyId) {
+          upStrategyMetadata.run({ i: instanceId, s: strategyId, ts: e.ts, metadata: JSON.stringify(e.payload) });
+          // qkt retired snapshot.equity, which used to carry the starting balance; the
+          // deploy provenance still does. Anchor the equity curve from it when unset.
+          const sb = startingBalanceOf(e.payload);
+          if (sb != null) setStartingBalance.run({ i: instanceId, s: strategyId, sb });
+        }
       } else if (e.strategyId) {
         upStrategy.run({ i: instanceId, s: e.strategyId, ts: e.ts });
       }
@@ -357,6 +440,19 @@ function foldOrder(db: Db, instanceId: string, e: Envelope): void {
   }
 }
 
+// The engine tags a live position with the DSL stream alias it was opened by (e.g. "fx2_NZDUSD_0"),
+// while its deals, trades and the strategy list all use the sleeve id (e.g. "forward_bench_2:s0").
+// Left unresolved, a position shows a name that matches nothing in the Strategies tab. The deals for
+// the same broker position ticket carry the authoritative sleeve attribution, so prefer that; fall
+// back to the raw id when no deal has landed yet (corrected on the next position update).
+// e.g. position ticket 3079627120 tagged "fx2_NZDUSD_0" but its IN deal is "forward_bench_2:s0" -> the latter.
+function resolvePositionStrategy(db: Db, instanceId: string, ticket: string, raw: string | null): string | null {
+  const viaDeal = db.prepare(
+    "SELECT strategy_id s FROM deals WHERE instance_id=? AND position_ticket=? AND strategy_id IS NOT NULL LIMIT 1",
+  ).get(instanceId, ticket) as { s: string } | undefined;
+  return viaDeal?.s ?? raw;
+}
+
 function foldPosition(db: Db, instanceId: string, e: Envelope): void {
   const p: any = e.payload;
   if (e.type === "position.reconciled") {
@@ -390,7 +486,7 @@ function foldPosition(db: Db, instanceId: string, e: Envelope): void {
     profit: p.profit ?? null,
     swap: p.swap ?? null,
     openedAt: p.openedAt ?? null,
-    strategyId: p.strategyId ?? e.strategyId ?? null,
+    strategyId: resolvePositionStrategy(db, instanceId, ticket, p.strategyId ?? e.strategyId ?? null),
     qtyDecimal: decimalText(p.qty),
     entryPriceDecimal: decimalText(p.entryPrice ?? p.price),
     currentPriceDecimal: decimalText(p.currentPrice ?? p.price),
