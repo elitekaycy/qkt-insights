@@ -1,6 +1,7 @@
 import { describe, it, expect } from "vitest";
 import { openDb } from "../src/db.js";
 import { ingestEvents, persistStateEvent } from "../src/index.js";
+import { closedTrades } from "../src/analytics.js";
 import type { Envelope } from "@qkt-insights/contract";
 
 function env(p: Partial<Envelope> & { type: Envelope["type"]; payload: any }): Envelope {
@@ -224,6 +225,36 @@ describe("broker state ingest hygiene", () => {
     } }));
     expect(db.prepare("SELECT strategy_id FROM positions_current WHERE ticket='999'").get())
       .toMatchObject({ strategy_id: "some_stream" });
+  });
+
+
+  it("counts a deal once when several broker profiles polling one account store copies", () => {
+    const db = openDb(":memory:");
+    const dealPayload = (broker: string, strategyId: string | null, id: string) => env({ id, strategyId: strategyId ?? undefined, type: "broker.deal", payload: {
+      broker, dealTicket: "777", positionTicket: "70", orderTicket: "o7",
+      symbol: `${broker}:XAUUSD`, side: "SELL", entry: "OUT", qty: 0.01, price: 4460,
+      profit: -18.12, commission: 0, swap: 0, magic: 20009, comment: "",
+      ts: 1718000200000, strategyId,
+    } });
+    // the owning profile stores first with the right sleeve; a sibling profile
+    // polls the same account later and guesses a different sleeve
+    ingestEvents(db, "qkt-prod", [dealPayload("EXNESS_S9", "forward_bench:s9", "deal-own")]);
+    ingestEvents(db, "qkt-prod", [dealPayload("EXNESS_S0", "forward_bench:s0", "deal-sibling")]);
+    // write-side dedupe drops the sibling copy outright on a fresh schema; DBs
+    // created before that constraint still hold copies, which canonicalDeal
+    // collapses at query time — simulate one such legacy row.
+    expect(db.prepare("SELECT COUNT(*) c FROM deals WHERE deal_ticket='777'").get()).toMatchObject({ c: 1 });
+    db.prepare(`INSERT INTO deals (id, instance_id, broker, deal_ticket, position_ticket, order_ticket,
+        symbol, side, entry, qty, price, profit, commission, swap, magic, comment, strategy_id, ts)
+      VALUES ('deal-legacy-copy','qkt-prod','EXNESS_S0','777','70','o7','EXNESS_S0:XAUUSD','SELL','OUT',
+        0.01,4460,-18.12,0,0,20009,'','forward_bench:s0',1718000200000)`).run();
+    expect(db.prepare("SELECT COUNT(*) c FROM deals WHERE deal_ticket='777'").get()).toMatchObject({ c: 2 });
+
+    const own = closedTrades(db, { instanceId: "qkt-prod", strategyId: "forward_bench:s9" });
+    expect(own).toHaveLength(1);
+    expect(own[0]!.realized).toBeCloseTo(-18.12);
+    // the sibling copy is not a second trade anywhere
+    expect(closedTrades(db, { instanceId: "qkt-prod", strategyId: "forward_bench:s0" })).toHaveLength(0);
   });
 
   it("does not lose durable position attribution to a sibling poller", () => {

@@ -110,9 +110,26 @@ export interface DealClosedTrade extends ClosedTradeRow {
 const OUT_LEGS = "('OUT','INOUT','OUT_BY')";
 
 /** True when broker deals closed positions for this strategy — the deals source is authoritative then. */
+
+/**
+ * Predicate keeping ONE copy of a broker deal. Every qkt broker profile that
+ * polls the same venue account reports the account's deals, so an instance
+ * running several profiles (per-strategy magics, portfolio child accounts)
+ * stores the same deal_ticket once per profile — with the copy's strategy
+ * attribution occasionally guessed differently. The first-stored row is the
+ * canonical one: it comes from the poller that owned the fill and attributed
+ * it, so summing anything over deals without this predicate multiplies P&L by
+ * the number of profiles.
+ */
+function canonicalDeal(alias: string): string {
+  return `${alias}.rowid = (SELECT MIN(dd.rowid) FROM deals dd
+    WHERE dd.instance_id=${alias}.instance_id AND dd.deal_ticket=${alias}.deal_ticket)`;
+}
+
 export function hasClosingDeals(db: Db, f: { instanceId: string; strategyId: string }): boolean {
   return db.prepare(
-    `SELECT 1 FROM deals WHERE instance_id=? AND strategy_id=? AND entry IN ${OUT_LEGS} LIMIT 1`,
+    `SELECT 1 FROM deals d WHERE d.instance_id=? AND d.strategy_id=? AND d.entry IN ${OUT_LEGS}
+       AND ${canonicalDeal("d")} LIMIT 1`,
   ).get(f.instanceId, f.strategyId) != null;
 }
 
@@ -126,7 +143,7 @@ export function hasClosingDeals(db: Db, f: { instanceId: string; strategyId: str
  * the IN leg to one of several partial closes would double-count it anyway.
  */
 export function dealClosedTrades(db: Db, f: AnalyticsFilter): DealClosedTrade[] {
-  const cl = ["o.instance_id=@instanceId", "o.strategy_id=@strategyId", `o.entry IN ${OUT_LEGS}`];
+  const cl = ["o.instance_id=@instanceId", "o.strategy_id=@strategyId", `o.entry IN ${OUT_LEGS}`, canonicalDeal("o")];
   if (f.from != null) cl.push("o.ts>=@from");
   if (f.to != null) cl.push("o.ts<=@to");
   const rows = db.prepare(
@@ -654,7 +671,7 @@ export interface CostDecomposition { byMonth: CostRow[]; total: CostRow }
  */
 export function costDecomposition(db: Db, f: AnalyticsFilter): CostDecomposition | null {
   if (!hasClosingDeals(db, f)) return null;
-  const cl = ["instance_id=@instanceId", "strategy_id=@strategyId", `entry IN ${OUT_LEGS}`];
+  const cl = ["instance_id=@instanceId", "strategy_id=@strategyId", `entry IN ${OUT_LEGS}`, canonicalDeal("deals")];
   if (f.from != null) cl.push("ts>=@from");
   if (f.to != null) cl.push("ts<=@to");
   const rows = db.prepare(
