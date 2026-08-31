@@ -22,6 +22,13 @@ describe("EnvelopeSchema", () => {
     expect(EnvelopeSchema.parse(env).type).toBe("snapshot.equity");
   });
 
+  it("accepts a bot.session.intent envelope", () => {
+    const env = { ...base, strategyId: "qkt-ai-paper", type: "bot.session.intent",
+      payload: { orderId: "bot-run-1", symbol: "EXNESS_PAPER0:XAUUSD", sha256: "ab", lots: "0.01",
+        simMs: "1788131701347", run: "paper-exp-0076-20260830-2034" } };
+    expect(EnvelopeSchema.parse(env).type).toBe("bot.session.intent");
+  });
+
   it("rejects an envelope with a wrong payload for its type", () => {
     const env = { ...base, type: "trade", payload: { nonsense: true } };
     expect(() => EnvelopeSchema.parse(env)).toThrow();

@@ -71,6 +71,16 @@ export const payloadByType = {
     deal: z.string().optional(),
     price: z.string().optional(),
   }),
+  // A bot-session order intent (qkt `bot session start` runs, e.g. the AI lab's
+  // paper/live sessions). Values arrive as strings from the session trail.
+  "bot.session.intent": object({
+    orderId: z.string(),
+    symbol: z.string(),
+    sha256: z.string().optional(),
+    lots: z.string().optional(),
+    simMs: z.string().optional(),
+    run: z.string().optional(),
+  }),
   "decision.rule_evaluated": object({
     decisionId: z.string(),
     ruleId: z.string(),
