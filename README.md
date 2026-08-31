@@ -13,6 +13,10 @@
   <a href="https://github.com/elitekaycy/qkt-insights/pkgs/container/qkt-insights"><img src="https://img.shields.io/badge/ghcr.io-qkt--insights-2496ED?logo=docker&logoColor=white" alt="container"></a>
 </p>
 
+<p align="center">
+  <img src="docs/assets/qkt-insights-demo.gif" alt="Clone qkt-insights, install, build, and start the server — all from the terminal" width="880">
+</p>
+
 ---
 
 > Live dashboard for [qkt](https://github.com/elitekaycy/qkt). Sibling project — same brand, same engineering style.
@@ -38,6 +42,27 @@ InsightsSink   POST /ingest             single writer, one file
 - **Edge** — when a strategy makes money: day-of-week × hour P&L heatmap (UTC), weekday/hour bars with per-bucket n and ±SE, rolling Sharpe/win-rate stability, strategy-comparison radar. Buckets under 30 trades render greyed — thin slices are noise, and the UI says so.
 - **Single-admin auth** — username + password from env, hashed with argon2 at startup, signed httpOnly session cookie; ingest guarded by a bearer token.
 
+<p align="center">
+  <img src="docs/assets/screenshots/overview-hero.png" alt="qkt-insights Overview page" width="880">
+</p>
+
+See [`docs/PAGES.md`](docs/PAGES.md) for a screenshot of every page.
+
+## Prerequisites
+
+qkt-insights is a collector and dashboard — on its own it has nothing to show. You need
+a running [**qkt**](https://github.com/elitekaycy/qkt) instance to feed it, and if that
+instance trades live on MetaTrader 5, qkt talks to the broker through
+[**mt5-gateway**](https://github.com/elitekaycy/mt5-gateway).
+
+<p align="center">
+  <a href="https://github.com/elitekaycy/qkt"><img src="https://img.shields.io/badge/qkt-trading%20engine-c8f74a?style=for-the-badge&logo=github&logoColor=black" alt="qkt on GitHub"></a>
+  <a href="https://github.com/elitekaycy/mt5-gateway"><img src="https://img.shields.io/badge/mt5--gateway-MT5%20broker%20bridge-5cb8ff?style=for-the-badge&logo=github&logoColor=black" alt="mt5-gateway on GitHub"></a>
+</p>
+
+Set up qkt (and mt5-gateway, if you're trading live) first, then come back here and
+point it at this collector — see [Connecting a qkt instance](#connecting-a-qkt-instance).
+
 ## Quick start (Docker)
 
 ```bash
@@ -56,6 +81,10 @@ docker run -d --name qkt-insights \
 ```
 
 Or with compose: copy `docker-compose.yml`, set the four env vars, `docker compose up -d`. The production image exposes `GET /healthz` and includes a Docker `HEALTHCHECK`; use an immutable `:v*` or `:sha-*` tag for pinned deployments and `:latest` only for tracking `main`.
+
+<p align="center">
+  <img src="docs/assets/qkt-insights-demo-docker.gif" alt="Clone qkt-insights, build the image, and run it with Docker — all from the terminal" width="880">
+</p>
 
 ## Run modes
 

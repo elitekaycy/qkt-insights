@@ -1,6 +1,7 @@
 import { describe, it, expect } from "vitest";
 import { openDb } from "../src/db.js";
 import { ingestEvents, persistStateEvent } from "../src/index.js";
+import { closedTrades } from "../src/analytics.js";
 import type { Envelope } from "@qkt-insights/contract";
 
 function env(p: Partial<Envelope> & { type: Envelope["type"]; payload: any }): Envelope {
@@ -224,6 +225,34 @@ describe("broker state ingest hygiene", () => {
     } }));
     expect(db.prepare("SELECT strategy_id FROM positions_current WHERE ticket='999'").get())
       .toMatchObject({ strategy_id: "some_stream" });
+  });
+
+
+  it("counts a deal once when several broker profiles polling one account store copies", () => {
+    const db = openDb(":memory:");
+    // both sleeves are registered (live instances register every deployed strategy)
+    for (const sid of ["forward_bench:s9", "forward_bench:s0"])
+      db.prepare("INSERT INTO strategies (instance_id, strategy_id, first_seen, last_seen) VALUES (?,?,1,1)")
+        .run("qkt-prod", sid);
+    const dealPayload = (broker: string, strategyId: string, id: string) => env({ id, strategyId, type: "broker.deal", payload: {
+      broker, dealTicket: "777", positionTicket: "70", orderTicket: "o7",
+      symbol: `${broker}:XAUUSD`, side: "SELL", entry: "OUT", qty: 0.01, price: 4460,
+      profit: -18.12, commission: 0, swap: 0, magic: 20009, comment: "",
+      ts: 1718000200000, strategyId,
+    } });
+    // the owning profile stores first with the right sleeve; a sibling profile
+    // polling the same venue account stores its own copy later with a guessed,
+    // wrong attribution — nothing at write time collapses the two (distinct
+    // envelope ids, both sleeves local to the instance)
+    ingestEvents(db, "qkt-prod", [dealPayload("EXNESS_S9", "forward_bench:s9", "deal-own")]);
+    ingestEvents(db, "qkt-prod", [dealPayload("EXNESS_S0", "forward_bench:s0", "deal-sibling")]);
+    expect(db.prepare("SELECT COUNT(*) c FROM deals WHERE deal_ticket='777'").get()).toMatchObject({ c: 2 });
+
+    // canonicalDeal keeps the first-stored copy: one close, owned by the right sleeve
+    const own = closedTrades(db, { instanceId: "qkt-prod", strategyId: "forward_bench:s9" });
+    expect(own).toHaveLength(1);
+    expect(own[0]!.realized).toBeCloseTo(-18.12);
+    expect(closedTrades(db, { instanceId: "qkt-prod", strategyId: "forward_bench:s0" })).toHaveLength(0);
   });
 
   it("does not lose durable position attribution to a sibling poller", () => {

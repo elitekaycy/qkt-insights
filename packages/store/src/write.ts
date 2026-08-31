@@ -376,7 +376,7 @@ function isDealLocalToInstance(db: Db, instanceId: string, strategyId: string | 
 function resolveDealStrategy(db: Db, instanceId: string, positionTicket: string | null, comment: string | null): string | null {
   if (positionTicket) {
     const hit = db.prepare(
-      "SELECT strategy_id s FROM deals WHERE instance_id=? AND position_ticket=? AND strategy_id IS NOT NULL LIMIT 1",
+      "SELECT strategy_id s FROM deals WHERE instance_id=? AND position_ticket=? AND strategy_id IS NOT NULL ORDER BY rowid LIMIT 1",
     ).get(instanceId, positionTicket) as { s: string } | undefined;
     if (hit) return hit.s;
   }
@@ -448,7 +448,7 @@ function foldOrder(db: Db, instanceId: string, e: Envelope): void {
 // e.g. position ticket 3079627120 tagged "fx2_NZDUSD_0" but its IN deal is "forward_bench_2:s0" -> the latter.
 function resolvePositionStrategy(db: Db, instanceId: string, ticket: string, raw: string | null): string | null {
   const viaDeal = db.prepare(
-    "SELECT strategy_id s FROM deals WHERE instance_id=? AND position_ticket=? AND strategy_id IS NOT NULL LIMIT 1",
+    "SELECT strategy_id s FROM deals WHERE instance_id=? AND position_ticket=? AND strategy_id IS NOT NULL ORDER BY rowid LIMIT 1",
   ).get(instanceId, ticket) as { s: string } | undefined;
   return viaDeal?.s ?? raw;
 }
