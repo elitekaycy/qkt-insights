@@ -1,5 +1,5 @@
 import { useQueries, useQuery } from "@tanstack/react-query";
-import { get, type DayNet, type EquityPoint, type HealthRow, type PerformanceBundle, type StrategyRow } from "../api";
+import { get, type AccountDrawdownRow, type DayNet, type EquityPoint, type HealthRow, type PerformanceBundle, type StrategyRow } from "../api";
 import { AccountSummary } from "../components/AccountSummary";
 import type { ComparisonSeries } from "../components/EquityChart";
 import { OverviewDashboard } from "../components/OverviewDashboard";
@@ -102,6 +102,12 @@ export default function Overview({
     );
   }
 
+  const drawdown = useQuery({
+    queryKey: ["accountDrawdown", instanceId],
+    queryFn: () => get<AccountDrawdownRow[]>(`/account/drawdown?instance=${encodeURIComponent(instanceId!)}`),
+    enabled: instanceId != null,
+    refetchInterval: 60_000,
+  });
   const accounts = (liveState.data?.accounts ?? []).filter((a) => a.instanceId === instanceId);
   const brokerPositions = (liveState.data?.positions ?? []).filter((p) => p.instanceId === instanceId);
   const nameByStrategy = new Map(rows.map((r) => [r.strategyId, strategyDisplayName(r)]));
@@ -166,7 +172,7 @@ export default function Overview({
               {a.name && <span className="text-xs text-muted">{a.name}</span>}
               {a.stale && <Pill>stale {Math.max(0, Math.floor((Date.now() - a.lastSeen) / 1000))}s</Pill>}
             </div>
-            <div className="mt-3 grid grid-cols-2 gap-4 sm:grid-cols-4">
+            <div className="mt-3 grid grid-cols-2 gap-4 sm:grid-cols-3 lg:grid-cols-6">
               <Stat label="Balance" value={money(a.balance)} sub={a.currency} stagger={0} />
               <Stat label="Equity" value={<FlashValue value={a.equity}>{money(a.equity)}</FlashValue>} stagger={0} />
               <Stat
@@ -181,6 +187,28 @@ export default function Overview({
                 sub={a.margin != null ? `margin ${money(a.margin)}` : undefined}
                 stagger={1}
               />
+              {(() => {
+                const dd = (drawdown.data ?? []).find((d) => d.broker === a.broker) ?? (drawdown.data ?? [])[0];
+                const cur = dd?.currentDdPct; const max = dd?.maxDdPct;
+                return (
+                  <>
+                    <Stat
+                      label="DD from peak"
+                      value={cur == null ? "\u2014" : `${num(cur)}%`}
+                      sub={dd?.peakEquity != null ? `peak ${money(dd.peakEquity)}` : undefined}
+                      tone={cur == null ? "neutral" : cur > 5 ? "down" : cur > 0.005 ? "neutral" : "up"}
+                      stagger={2}
+                    />
+                    <Stat
+                      label="Max DD"
+                      value={max == null ? "\u2014" : `${num(max)}%`}
+                      sub="whole retained history"
+                      tone={max != null && max > 5 ? "down" : "neutral"}
+                      stagger={2}
+                    />
+                  </>
+                );
+              })()}
             </div>
           </div>
         ))}

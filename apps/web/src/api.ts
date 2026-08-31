@@ -204,6 +204,11 @@ export interface PerformanceBundle {
   excursions?: ExcursionStats | null;
   execution?: ExecutionQuality;
 }
+export interface AccountDrawdownRow {
+  broker: string; currentEquity: number | null; peakEquity: number | null;
+  peakTs: number | null; currentDdPct: number | null; maxDdPct: number | null; points: number;
+}
+
 export interface LiveAccount {
   instanceId: string;
   broker: string;

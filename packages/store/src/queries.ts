@@ -276,6 +276,47 @@ export function accountEquity(db: Db, f: { instanceId: string; from?: number; to
   ).all(f) as AccountEquityPoint[];
 }
 
+export interface AccountDrawdownRow {
+  broker: string; currentEquity: number | null; peakEquity: number | null;
+  peakTs: number | null; currentDdPct: number | null; maxDdPct: number | null; points: number;
+}
+
+/**
+ * Account-level drawdown over the retained equity history, per broker.
+ * currentDdPct = how far the latest equity sits below the all-time equity peak;
+ * maxDdPct = the deepest peak-to-trough excursion in the series. Both in
+ * percent of the peak at the time — the figures a prop-firm limit is written
+ * against.
+ */
+export function accountDrawdown(db: Db, f: { instanceId: string }): AccountDrawdownRow[] {
+  const rows = db.prepare(
+    `SELECT broker, minute_ts ts, equity FROM account_equity
+     WHERE instance_id=? AND equity IS NOT NULL ORDER BY broker, minute_ts ASC`,
+  ).all(f.instanceId) as Array<{ broker: string; ts: number; equity: number }>;
+  const out: AccountDrawdownRow[] = [];
+  let cur: AccountDrawdownRow | null = null;
+  let peak = 0; let peakTs = 0;
+  for (const r of rows) {
+    if (!cur || cur.broker !== r.broker) {
+      if (cur) out.push(cur);
+      cur = { broker: r.broker, currentEquity: null, peakEquity: null, peakTs: null, currentDdPct: null, maxDdPct: null, points: 0 };
+      peak = 0; peakTs = 0;
+    }
+    cur.points++;
+    if (r.equity > peak) { peak = r.equity; peakTs = r.ts; }
+    if (peak > 0) {
+      const dd = ((peak - r.equity) / peak) * 100;
+      if (cur.maxDdPct == null || dd > cur.maxDdPct) cur.maxDdPct = dd;
+      cur.currentDdPct = dd;
+    }
+    cur.currentEquity = r.equity;
+    cur.peakEquity = peak > 0 ? peak : null;
+    cur.peakTs = peakTs > 0 ? peakTs : null;
+  }
+  if (cur) out.push(cur);
+  return out;
+}
+
 export interface StrategyStats {
   tradeCount: number;
   buyCount: number;
