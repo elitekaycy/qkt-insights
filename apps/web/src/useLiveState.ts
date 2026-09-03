@@ -40,7 +40,7 @@ export function useLiveState(live: LiveEnvelope[] = []): UseQueryResult<LiveStat
   const query = useQuery({
     queryKey: ["live-state"],
     queryFn: () => get<LiveStateSnapshot>("/live/state"),
-    refetchInterval: 10000,
+    refetchInterval: 30_000,
   });
   const newest = live[0];
   useEffect(() => {

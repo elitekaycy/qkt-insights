@@ -1,5 +1,5 @@
-import { useState } from "react";
-import { useInstallPrompt } from "../hooks/useInstallPrompt";
+import { useId, useState } from "react";
+import { useInstallPrompt, type InstallPlatform } from "../hooks/useInstallPrompt";
 import { useBrand } from "../useBrand";
 
 function DownloadIcon({ className = "h-4 w-4" }: { className?: string }) {
@@ -10,42 +10,47 @@ function DownloadIcon({ className = "h-4 w-4" }: { className?: string }) {
   );
 }
 
-function IosHint() {
+const ROUTE: Record<InstallPlatform, { steps: [string, string]; then: string }> = {
+  ios: { steps: ["Share", "Add to Home Screen"], then: "It opens full screen with its own icon." },
+  android: { steps: ["Browser menu (⋮)", "Add to Home screen"], then: "Some browsers call it Install app." },
+  desktop: { steps: ["Install icon in the address bar", "Install"], then: "Or the browser menu → Install." },
+  other: { steps: ["Browser menu", "Add to Home screen"], then: "Or Install, depending on the browser." },
+};
+
+function InstallHint({ id, platform }: { id: string; platform: InstallPlatform }) {
+  const r = ROUTE[platform];
   return (
-    <div className="rise mt-2.5 rounded-lg border border-line bg-raised px-3 py-2.5 text-xs leading-relaxed text-muted">
-      Tap <span className="font-semibold text-body">Share</span> in the browser bar, then{" "}
-      <span className="font-semibold text-body">Add to Home Screen</span>.
+    <div id={id} role="note" className="rise mt-2.5 rounded-lg border border-line bg-raised px-3 py-2.5 text-xs leading-relaxed text-muted">
+      Tap <span className="font-semibold text-body">{r.steps[0]}</span>, then <span className="font-semibold text-body">{r.steps[1]}</span>. {r.then}
     </div>
   );
 }
 
-/** Install-to-home-screen control. Renders nothing once the app is already running standalone,
- *  or on a browser that offers neither a native prompt nor iOS's manual add-to-home-screen flow. */
+/** Install-to-home-screen control. Hidden only once the app is already running
+ *  standalone; where the browser offers no native prompt it explains that
+ *  browser's own route instead of vanishing. */
 export function InstallApp({ variant, iconsOnly }: { variant: "sidebar" | "login"; iconsOnly?: boolean }) {
-  const { installed, canPrompt, promptInstall, isIos } = useInstallPrompt();
+  const { installed, canPrompt, promptInstall, platform } = useInstallPrompt();
   const brand = useBrand();
-  const [showIosHint, setShowIosHint] = useState(false);
+  const [showHint, setShowHint] = useState(false);
+  const hintId = useId();
 
-  if (installed || (!canPrompt && !isIos)) return null;
+  if (installed) return null;
   const label = brand ? `Install ${brand}` : "Install app";
-
   const onClick = () => {
-    if (canPrompt) promptInstall();
-    else setShowIosHint((v) => !v);
+    if (canPrompt) void promptInstall();
+    else setShowHint((v) => !v);
   };
+  const aria = canPrompt ? {} : { "aria-expanded": showHint, "aria-controls": hintId };
 
   if (variant === "login") {
     return (
       <div className="mt-5 border-t border-line pt-4">
-        <button
-          type="button"
-          onClick={onClick}
-          className="mx-auto flex items-center gap-2 text-sm font-medium text-muted transition hover:text-bright"
-        >
+        <button type="button" onClick={onClick} {...aria} className="mx-auto flex items-center gap-2 text-sm font-medium text-muted transition hover:text-bright">
           <DownloadIcon className="h-4 w-4 text-accent" />
           {label}
         </button>
-        {showIosHint && <IosHint />}
+        {showHint && !canPrompt && <InstallHint id={hintId} platform={platform} />}
       </div>
     );
   }
@@ -53,7 +58,9 @@ export function InstallApp({ variant, iconsOnly }: { variant: "sidebar" | "login
   return (
     <div>
       <button
+        type="button"
         onClick={onClick}
+        {...aria}
         title={label}
         className={`flex w-full items-center gap-3 rounded-lg px-3.5 py-2.5 text-left text-[15px] font-medium text-muted transition hover:bg-raised hover:text-body ${
           iconsOnly ? "justify-center px-0" : ""
@@ -62,7 +69,7 @@ export function InstallApp({ variant, iconsOnly }: { variant: "sidebar" | "login
         <DownloadIcon className="h-5 w-5" />
         {!iconsOnly && label}
       </button>
-      {showIosHint && !iconsOnly && <IosHint />}
+      {showHint && !canPrompt && !iconsOnly && <InstallHint id={hintId} platform={platform} />}
     </div>
   );
 }

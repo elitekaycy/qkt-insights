@@ -106,12 +106,12 @@ export default function Health() {
   const health = useQuery({
     queryKey: ["health"],
     queryFn: () => get<HealthRow[]>("/health/instances"),
-    refetchInterval: 5000,
+    refetchInterval: 15_000,
   });
   const liveState = useQuery({
     queryKey: ["live-state"],
     queryFn: () => get<LiveStateSnapshot>("/live/state"),
-    refetchInterval: 5000,
+    refetchInterval: 15_000,
   });
 
   const rows = health.data ?? [];

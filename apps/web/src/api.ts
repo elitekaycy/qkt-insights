@@ -11,18 +11,32 @@ export async function get<T>(url: string): Promise<T> {
   return (await res.json()) as T;
 }
 
-export async function login(username: string, password: string): Promise<boolean> {
-  const res = await fetch("/auth/login", {
-    method: "POST",
-    headers: { "content-type": "application/json" },
-    body: JSON.stringify({ username, password }),
-    credentials: "same-origin",
-  });
-  return res.ok;
+export type LoginResult = "ok" | "denied" | "unreachable";
+
+export async function login(username: string, password: string): Promise<LoginResult> {
+  let res: Response;
+  try {
+    res = await fetch("/auth/login", {
+      method: "POST",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify({ username, password }),
+      credentials: "same-origin",
+    });
+  } catch {
+    return "unreachable";
+  }
+  return res.ok ? "ok" : "denied";
 }
 
-export async function logout(): Promise<void> {
-  await fetch("/auth/logout", { method: "POST", credentials: "same-origin" });
+/** Ends the server session. Resolves false when the request could not be sent — the
+ *  caller decides how to finish the sign-out once the link is back. */
+export async function logout(): Promise<boolean> {
+  try {
+    const res = await fetch("/auth/logout", { method: "POST", credentials: "same-origin" });
+    return res.ok;
+  } catch {
+    return false;
+  }
 }
 
 export interface InstanceRow {
