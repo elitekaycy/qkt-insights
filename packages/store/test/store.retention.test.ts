@@ -53,7 +53,7 @@ describe("pruneRetention", () => {
 
     const r = pruneRetention(db, NOW);
 
-    expect(r).toEqual({ logs: 1, events: 1, valuations: 1 });
+    expect(r).toEqual({ logs: 1, events: 1, valuations: 1, monitors: 0 });
 
     const logIds = db.prepare("SELECT id FROM logs ORDER BY id").all().map((x: any) => x.id);
     expect(logIds).toEqual(["log-new"]);
@@ -76,7 +76,7 @@ describe("pruneRetention", () => {
     const db = openDb(":memory:");
     seedLog(db, "log-new", RECENT, "new line");
     seedEvent(db, "ev-new", RECENT, "insights.health");
-    expect(pruneRetention(db, NOW)).toEqual({ logs: 0, events: 0, valuations: 0 });
+    expect(pruneRetention(db, NOW)).toEqual({ logs: 0, events: 0, valuations: 0, monitors: 0 });
   });
 });
 
