@@ -163,6 +163,29 @@ DEADMAN_URL=
 `INSIGHTS_NAME` prefixes every alert, so several boxes can share one chat. Monitoring runs in
 `collect` and `run` modes, next to the collector that receives the heartbeats.
 
+What to expect, and the edges that are deliberate:
+
+- **First boot says UP once per monitor.** That is the monitor being created, not a recovery.
+  Restarts are silent: the last transition is restored from the database.
+- **Heartbeats are judged on the collector's clock**, not the instance's. A VPS whose clock
+  drifts by minutes still reads as alive as long as the collector keeps hearing from it.
+- **An instance silent for 30 days leaves the monitor list** (its outage was announced long
+  ago) rather than staying red forever; it is still listed under Runtime health.
+- **Three failures, then down; one success, then up.** A gateway that flaps every couple of
+  minutes will send a message each way every time. There is no cooldown yet; if that happens
+  the fix is on the gateway side, not a quieter alert.
+- **`DEADMAN_URL` means "the collector is alive", nothing more.** It is pinged even while
+  every monitor is down; the outside service pages only when the pings stop, which is what
+  catches the whole box going dark.
+- **A malformed `INSIGHTS_MONITORS` refuses to start** with a message naming the field, the
+  same way a bad guardian config does. A monitoring stack that silently ignores half its
+  config is worse than one that fails loudly at boot.
+- **Weekends stay quiet.** Heartbeats keep flowing and the gateway stays logged in while the
+  market is closed, so neither monitor kind fires on a Saturday. Session-aware checks (no
+  ticks during a trading session) are the next layer and are not built yet.
+- **Probes send `headers` verbatim and follow redirects; 5s timeout; 2xx required.** Assert on
+  `expect` fields rather than status alone whenever the endpoint can answer 200 while degraded.
+
 ## Architecture
 
 A pnpm workspace of small, single-purpose packages:
