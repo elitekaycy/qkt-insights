@@ -3,9 +3,10 @@ import argon2 from "argon2";
 import cookie from "@fastify/cookie";
 import websocket from "@fastify/websocket";
 import fastifyStatic from "@fastify/static";
-import { openDb, checkpoint, LiveBus, LiveStateStore, pruneRetention, pruneStaleStrategies } from "@qkt-insights/store";
+import { openDb, checkpoint, LiveBus, LiveStateStore, Monitors, pruneRetention, pruneStaleStrategies } from "@qkt-insights/store";
 import { registerCollector } from "@qkt-insights/collector";
 import { registerAuth, registerRest, registerLive, hasSession } from "@qkt-insights/api";
+import { channelsFromEnv, parseHttpMonitors, startMonitors } from "./monitors.js";
 import { existsSync, readFileSync } from "node:fs";
 import { join, dirname } from "node:path";
 import { fileURLToPath } from "node:url";
@@ -28,11 +29,23 @@ export async function buildServer(mode: Mode) {
   const db = openDb(env("INSIGHTS_DB", "/data/insights.db"));
   const bus = new LiveBus();
   const liveState = new LiveStateStore();
+  const monitors = new Monitors(db);
   const app = Fastify({ logger: process.env.NODE_ENV !== "test" });
+  // One image serves many dashboards (one per qkt box). INSIGHTS_NAME is the
+  // label that tells the installed apps apart on a phone's home screen and the
+  // prefix on every alert from this box.
+  const brand = process.env.INSIGHTS_NAME?.trim() || null;
 
   app.get("/healthz", async () => ({ ok: true, mode }));
 
   registerCollector(app, { db, bus, liveState, ingestToken: env("INGEST_TOKEN") });
+  // Uptime runs beside the collector: it is the process that receives the heartbeats.
+  const stopMonitors = startMonitors({
+    db, monitors, brand, log: app.log,
+    http: parseHttpMonitors(process.env.INSIGHTS_MONITORS),
+    channels: channelsFromEnv(process.env),
+  });
+  app.addHook("onClose", async () => stopMonitors());
   // WAL upkeep: fold the WAL back into the main file every 10 minutes so it cannot grow
   // past its size limit between checkpoints. unref so the timer never holds the process open.
   const upkeep = setInterval(() => {
@@ -56,6 +69,7 @@ export async function buildServer(mode: Mode) {
         app.log.info({ ...r }, "retention prune");
       // Retire strategies that stopped reporting past the window (e.g. a swapped-out book) along
       // with all their data, so old registrations don't linger in the dashboard forever.
+      if (r.monitors) app.log.info({ monitors: r.monitors }, "monitor history pruned");
       const s = pruneStaleStrategies(db, now);
       if (s.strategies)
         app.log.info({ ...s }, "stale strategies pruned");
@@ -76,7 +90,7 @@ export async function buildServer(mode: Mode) {
       passwordHash: await argon2.hash(env("ADMIN_PASSWORD")),
       sessionSecret: env("SESSION_SECRET", env("INGEST_TOKEN")),
     });
-    registerRest(app, { db, liveState });
+    registerRest(app, { db, liveState, monitors });
     registerLive(app, { bus, authenticate: hasSession });
     // Persist the in-memory account state once a minute so the equity curve
     // survives restarts; unref so the timer never holds the process open.
@@ -87,10 +101,7 @@ export async function buildServer(mode: Mode) {
   if (mode === "run") {
     const webDist = join(dirname(fileURLToPath(import.meta.url)), "..", "web");
     if (existsSync(webDist)) {
-      // One image serves many dashboards (one per qkt box). INSIGHTS_NAME is the
-      // label that tells the installed apps apart on a phone's home screen; it is
-      // stamped into the manifest here rather than at build time.
-      const brand = process.env.INSIGHTS_NAME?.trim() || null;
+      // The brand is stamped into the manifest here rather than at build time.
       app.get("/brand", async () => ({ name: brand }));
       const manifestPath = join(webDist, "manifest.webmanifest");
       if (brand && existsSync(manifestPath)) {

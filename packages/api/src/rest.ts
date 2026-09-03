@@ -1,9 +1,9 @@
 import type { FastifyInstance } from "fastify";
-import { listInstances, listStrategies, listOrders, listTrades, searchEvents, equityCurve, instanceHealth, listLogs, strategyStats, performanceReport, dailyNets, drawdownPeriods, postLossStats, tradeBreakdowns, closedTrades, listDeals, accountEquity, accountDrawdown, listIngestObservations, dowHourMatrix, rollingStats, costDecomposition, contributionRanking, normalizedPerformance, excursionStats, executionQuality, type Db, type LiveStateStore } from "@qkt-insights/store";
+import { listInstances, listStrategies, listOrders, listTrades, searchEvents, equityCurve, instanceHealth, listLogs, strategyStats, performanceReport, dailyNets, drawdownPeriods, postLossStats, tradeBreakdowns, closedTrades, listDeals, accountEquity, accountDrawdown, listIngestObservations, dowHourMatrix, rollingStats, costDecomposition, contributionRanking, normalizedPerformance, excursionStats, executionQuality, monitorSummaries, listMonitorEvents, type Db, type LiveStateStore, type Monitors } from "@qkt-insights/store";
 import { requireSession } from "./auth.js";
 import { TtlCache } from "./cache.js";
 
-export interface RestDeps { db: Db; liveState: LiveStateStore }
+export interface RestDeps { db: Db; liveState: LiveStateStore; monitors: Monitors }
 
 const LIMIT = (q: Record<string, string | undefined>) => Math.min(Number(q.limit ?? 200), 1000);
 
@@ -18,6 +18,10 @@ export function registerRest(app: FastifyInstance, deps: RestDeps): void {
 
   app.get("/instances", guard, async () => listInstances(deps.db));
   app.get("/health/instances", guard, async () => instanceHealth(deps.db));
+  app.get("/health/monitors", guard, async () => ({
+    monitors: monitorSummaries(deps.db, deps.monitors, Date.now()),
+    events: listMonitorEvents(deps.db, 50),
+  }));
 
   app.get<{ Querystring: Record<string, string> }>("/strategies", guard, async (req, reply) => {
     const i = req.query.instance; if (!need(reply, i, "instance")) return;
