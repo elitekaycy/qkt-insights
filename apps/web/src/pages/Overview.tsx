@@ -237,7 +237,7 @@ export default function Overview({
                     <SideTag side={p.side} />
                   </Cell>
                   <Cell className="font-mono">{p.qty}</Cell>
-                  <Cell className="font-mono text-muted">@ {p.entryPrice}</Cell>
+                  <Cell className="whitespace-nowrap font-mono text-muted">@ {p.entryPrice}</Cell>
                   <Cell className="font-mono">{p.currentPrice ?? "—"}</Cell>
                   <Cell className="text-muted">
                     <span title={p.openedAt ? new Date(p.openedAt).toISOString() : undefined}>
@@ -335,11 +335,15 @@ export default function Overview({
             {(health.data ?? []).map((h) => {
               const fresh = Date.now() - h.lastSeen < 30_000;
               return (
-                <div key={h.instanceId} className="flex items-center gap-3 rounded-lg border border-line bg-raised px-4 py-2.5">
+                <div
+                  key={h.instanceId}
+                  className="flex w-full flex-wrap items-center gap-x-3 gap-y-1 rounded-lg border border-line bg-raised px-4 py-2.5 sm:w-auto"
+                >
                   <LiveDot on={fresh} />
-                  <span className="font-semibold text-bright">{h.instanceId}</span>
-                  <span className="text-xs text-muted">{age(h.lastSeen)}</span>
-                  <span className="font-mono text-xs text-faint">seq {h.lastSeq}</span>
+                  <span className="min-w-0 flex-1 truncate font-semibold text-bright sm:flex-none">{h.instanceId}</span>
+                  <span className="order-last basis-full text-xs text-muted sm:order-none sm:basis-auto">
+                    {age(h.lastSeen)} · <span className="font-mono text-faint">seq {h.lastSeq}</span>
+                  </span>
                   <Pill tone={fresh ? "up" : "neutral"}>{fresh ? "live" : "idle"}</Pill>
                 </div>
               );

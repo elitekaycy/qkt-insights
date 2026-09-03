@@ -1,6 +1,6 @@
 import type { BreakdownRow, ContributionRanking, CostDecomposition, DowHourCell, PerformanceReport, RollingPoint } from "../api";
 import { money } from "../format";
-import { EChart, qktChartAxis, qktChartGrid, qktChartTooltip, type QktChartOption } from "./EChart";
+import { EChart, qktBottomLegend, qktChartAxis, qktChartGrid, qktChartTooltip, useNarrowChart, type QktChartOption } from "./EChart";
 
 /*
  * Edge-analytics charts. Shared design rules (the institutional contract):
@@ -26,10 +26,14 @@ function symExtent(values: number[]): number {
 
 /** 7×24 day-of-week × hour heatmap. Cell color = mean P&L; label = net; sub-MIN_N cells desaturate. */
 export function DowHourHeatmap({ cells, height = 320 }: { cells: DowHourCell[]; height?: number }) {
+  const narrow = useNarrowChart();
   const ext = symExtent(cells.map((c) => c.mean));
+  // A phone cannot fit 24 labelled columns plus a side legend: the legend drops
+  // below, every third hour is labelled, and cells rely on color alone — the
+  // tooltip still carries n and the exact numbers.
   const option: QktChartOption = {
     backgroundColor: "transparent",
-    grid: { ...qktChartGrid, left: 58, right: 76, top: 24, bottom: 36 },
+    grid: narrow ? { ...qktChartGrid, left: 40, right: 6, top: 10, bottom: 74 } : { ...qktChartGrid, left: 58, right: 76, top: 24, bottom: 36 },
     tooltip: {
       ...qktChartTooltip(),
       formatter: (params: unknown) => {
@@ -44,29 +48,44 @@ export function DowHourHeatmap({ cells, height = 320 }: { cells: DowHourCell[]; 
       type: "category",
       data: Array.from({ length: 24 }, (_, h) => String(h).padStart(2, "0")),
       ...qktChartAxis,
+      axisLabel: { ...qktChartAxis.axisLabel, interval: narrow ? 2 : "auto", fontSize: narrow ? 10 : 11 },
       splitLine: { show: false },
       name: "hour (UTC)",
       nameLocation: "middle",
-      nameGap: 26,
+      nameGap: 22,
     },
     yAxis: { type: "category", data: DOW, inverse: true, ...qktChartAxis, splitLine: { show: false } },
-    visualMap: {
-      min: -ext,
-      max: ext,
-      calculable: false,
-      orient: "vertical",
-      right: 0,
-      top: "center",
-      itemHeight: 120,
-      text: ["mean +", "mean −"],
-      textStyle: { color: "#f2f4f6", fontFamily: MONO, fontSize: 10 },
-      inRange: { color: [DOWN, "#22272d", UP] },
-    },
+    visualMap: narrow
+      ? {
+          min: -ext,
+          max: ext,
+          calculable: false,
+          orient: "horizontal",
+          left: "center",
+          bottom: 0,
+          itemWidth: 10,
+          itemHeight: 140,
+          text: ["mean +", "mean −"],
+          textStyle: { color: "#f2f4f6", fontFamily: MONO, fontSize: 10 },
+          inRange: { color: [DOWN, "#22272d", UP] },
+        }
+      : {
+          min: -ext,
+          max: ext,
+          calculable: false,
+          orient: "vertical",
+          right: 0,
+          top: "center",
+          itemHeight: 120,
+          text: ["mean +", "mean −"],
+          textStyle: { color: "#f2f4f6", fontFamily: MONO, fontSize: 10 },
+          inRange: { color: [DOWN, "#22272d", UP] },
+        },
     series: [
       {
         type: "heatmap",
         label: {
-          show: true,
+          show: !narrow,
           fontFamily: MONO,
           fontSize: 9,
           color: "#f2f4f6",
@@ -75,7 +94,7 @@ export function DowHourHeatmap({ cells, height = 320 }: { cells: DowHourCell[]; 
             return cell.n >= MIN_N ? money(cell.net) : `n${cell.n}`;
           },
         },
-        itemStyle: { borderColor: "#12161a", borderWidth: 2 },
+        itemStyle: { borderColor: "#12161a", borderWidth: narrow ? 1 : 2 },
         data: cells.map((c) => ({
           value: [c.hour, c.dow, c.mean],
           cell: c,
@@ -167,12 +186,15 @@ export function HonestBucketBars({ rows, height = 260 }: { rows: BreakdownRow[];
 
 /** Rolling Sharpe + win rate on twin axes; warmup nulls leave visible gaps. */
 export function RollingChart({ points, height = 260 }: { points: RollingPoint[]; height?: number }) {
+  const narrow = useNarrowChart();
+  const below = qktBottomLegend(true);
   const option: QktChartOption = {
     backgroundColor: "transparent",
     color: ["#c8f74a", "#5cb8ff"],
-    grid: { ...qktChartGrid, right: 58 },
+    // the top-right legend would sit on the left axis name once the plot is phone-wide
+    grid: narrow ? { ...qktChartGrid, left: 46, right: 44, top: 24, bottom: below.gridBottom } : { ...qktChartGrid, right: 58 },
     tooltip: { ...qktChartTooltip(), trigger: "axis" },
-    legend: { top: 0, right: 0, textStyle: { color: "#f2f4f6", fontFamily: MONO } },
+    legend: narrow ? below.legend : { top: 0, right: 0, textStyle: { color: "#f2f4f6", fontFamily: MONO } },
     xAxis: { type: "category", data: points.map((p) => p.day), ...qktChartAxis },
     yAxis: [
       { type: "value", name: "sharpe", ...qktChartAxis },
@@ -265,6 +287,7 @@ const RADAR_COLORS = ["#c8f74a", "#5cb8ff", "#ff9ff3", "#ffb86b"];
  * shape is only meaningful relative to the other polygons on screen.
  */
 export function StrategyRadar({ entries, height = 320 }: { entries: RadarEntry[]; height?: number }) {
+  const narrow = useNarrowChart();
   const shown = entries.slice(0, 4);
   const axes = [
     { name: "win rate", get: (r: PerformanceReport) => r.winRate ?? 0 },
@@ -283,12 +306,17 @@ export function StrategyRadar({ entries, height = 320 }: { entries: RadarEntry[]
     backgroundColor: "transparent",
     color: RADAR_COLORS,
     tooltip: qktChartTooltip(),
-    legend: { top: 0, textStyle: { color: "#f2f4f6", fontFamily: MONO } },
+    legend: narrow
+      ? { ...qktBottomLegend(true).legend, type: "plain", itemGap: 8 }
+      : { top: 0, textStyle: { color: "#f2f4f6", fontFamily: MONO } },
     radar: {
-      center: ["50%", "58%"],
-      radius: "62%",
+      // phone: at most four names wrap under the plot (no paging), and the
+      // polygon shrinks so the axis names ("profit factor", "expectancy") stay
+      // inside the card
+      center: ["50%", narrow ? "42%" : "58%"],
+      radius: narrow ? "46%" : "62%",
       indicator: axes.map((a) => ({ name: a.name, max: 1 })),
-      axisName: { color: "#f2f4f6", fontFamily: MONO, fontSize: 10 },
+      axisName: { color: "#f2f4f6", fontFamily: MONO, fontSize: narrow ? 9 : 10 },
       splitLine: { lineStyle: { color: "#22272d" } },
       splitArea: { show: false },
       axisLine: { lineStyle: { color: "#2f363e" } },

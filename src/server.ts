@@ -6,7 +6,7 @@ import fastifyStatic from "@fastify/static";
 import { openDb, checkpoint, LiveBus, LiveStateStore, pruneRetention, pruneStaleStrategies } from "@qkt-insights/store";
 import { registerCollector } from "@qkt-insights/collector";
 import { registerAuth, registerRest, registerLive, hasSession } from "@qkt-insights/api";
-import { existsSync } from "node:fs";
+import { existsSync, readFileSync } from "node:fs";
 import { join, dirname } from "node:path";
 import { fileURLToPath } from "node:url";
 
@@ -87,7 +87,20 @@ export async function buildServer(mode: Mode) {
   if (mode === "run") {
     const webDist = join(dirname(fileURLToPath(import.meta.url)), "..", "web");
     if (existsSync(webDist)) {
-      await app.register(fastifyStatic, { root: webDist, wildcard: false });
+      // One image serves many dashboards (one per qkt box). INSIGHTS_NAME is the
+      // label that tells the installed apps apart on a phone's home screen; it is
+      // stamped into the manifest here rather than at build time.
+      const brand = process.env.INSIGHTS_NAME?.trim() || null;
+      app.get("/brand", async () => ({ name: brand }));
+      const manifestPath = join(webDist, "manifest.webmanifest");
+      if (brand && existsSync(manifestPath)) {
+        const manifest = JSON.parse(readFileSync(manifestPath, "utf8")) as Record<string, unknown>;
+        const branded = JSON.stringify({ ...manifest, name: `${brand} · qkt-insights`, short_name: brand.slice(0, 12) });
+        app.get("/manifest.webmanifest", async (_req, reply) => reply.type("application/manifest+json").send(branded));
+      }
+      // wildcard: the explicit routes above win over the static handler, and assets
+      // written after boot are still served
+      await app.register(fastifyStatic, { root: webDist });
       app.setNotFoundHandler((req, reply) => {
         if (req.raw.method === "GET" && !req.url.startsWith("/api")) return reply.sendFile("index.html");
         return reply.code(404).send({ error: "not found" });

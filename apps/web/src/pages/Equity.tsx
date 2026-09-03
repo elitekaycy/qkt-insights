@@ -2,7 +2,7 @@ import { useState } from "react";
 import { useQueries, useQuery } from "@tanstack/react-query";
 import { get, type AccountEquityPoint, type DrawdownPeriod, type EquityPoint, type PerformanceBundle, type StrategyRow } from "../api";
 import { ComparisonChart, EquityChart, UnderwaterChart, type ComparisonSeries } from "../components/EquityChart";
-import { Card, Cell, Empty, Field, Loadable, Modal, PageHeader, Panel, Pill, Row, Select, Table } from "../components/ui";
+import { DataList, Card, Cell, Empty, Field, Loadable, Modal, PageHeader, Panel, Pill, Row, Select, Table } from "../components/ui";
 import { duration, human, money, tsDay } from "../format";
 
 const PALETTE = ["#c8f74a", "#5cb8ff", "#a78bfa", "#3fe08c", "#fbbf24", "#ff6b6b", "#f472b6", "#22d3ee"];
@@ -141,7 +141,7 @@ export default function Equity({ instanceId }: { instanceId: string | null }) {
         </Loadable>
       </Panel>
 
-      <div className="mt-5 grid grid-cols-1 gap-5 xl:grid-cols-2">
+      <div className="mt-5 grid grid-cols-1 gap-5 2xl:grid-cols-2">
         <Panel stagger={2} title="Underwater" hint="5 deepest drawdowns shaded on the curve, depth below" toolbar={ddSelect}>
           <Loadable
             loading={strategies.isPending || (focusIdx >= 0 && (curves[focusIdx]?.isPending ?? false))}
@@ -161,16 +161,21 @@ export default function Equity({ instanceId }: { instanceId: string | null }) {
           </Loadable>
         </Panel>
 
-        <Panel stagger={3} title="Drawdown periods" hint={`${focusId} · click a row to inspect`} scroll="max-h-[20rem]">
+        <Panel stagger={3} title="Drawdown periods" hint={`${focusId} · click a row to inspect`}>
           <Loadable
             loading={!!focusId && performance.isPending}
             error={performance.isError}
             retry={() => performance.refetch()}
             what="drawdown periods"
           >
-          <Table head={["Peak", "Trough", "Depth", "Length", "Recovery"]}>
-            {periods.map((p) => (
-              <Row key={p.peakTs} onClick={() => setOpenDd(p)}>
+          <DataList
+            head={["Peak", "Trough", "Depth", "Length", "Recovery"]}
+            rows={periods}
+            keyOf={(p) => String(p.peakTs)}
+            onRow={(p) => setOpenDd(p)}
+            empty="No drawdowns recorded — flat or rising equity."
+            cells={(p) => (
+              <>
                 <Cell className="whitespace-nowrap text-muted">{tsDay(p.peakTs).slice(0, 14)}</Cell>
                 <Cell className="whitespace-nowrap text-muted">{tsDay(p.troughTs).slice(0, 14)}</Cell>
                 <Cell className="font-mono text-down">
@@ -184,10 +189,30 @@ export default function Equity({ instanceId }: { instanceId: string | null }) {
                     <Pill tone="warn">ongoing</Pill>
                   )}
                 </Cell>
-              </Row>
-            ))}
-            {periods.length === 0 && <Empty colSpan={5}>No drawdowns recorded — flat or rising equity.</Empty>}
-          </Table>
+              </>
+            )}
+            card={(p) => (
+              <>
+                <div className="flex items-baseline gap-2">
+                  <span className="font-mono text-sm font-semibold text-down">{money(-p.depth)}</span>
+                  <span className="font-mono text-xs text-faint">({p.depthPct.toFixed(2)}%)</span>
+                  <span className="ml-auto shrink-0">
+                    {p.recoveryTs != null ? (
+                      <Pill tone="up">recovered {p.recoveryDays!.toFixed(1)}d</Pill>
+                    ) : (
+                      <Pill tone="warn">ongoing</Pill>
+                    )}
+                  </span>
+                </div>
+                <div className="mt-1 flex items-center gap-2 text-xs text-faint">
+                  <span className="whitespace-nowrap">
+                    {tsDay(p.peakTs).slice(4, 14)} → {tsDay(p.troughTs).slice(4, 14)}
+                  </span>
+                  <span className="ml-auto whitespace-nowrap font-mono">{p.lengthDays.toFixed(1)}d</span>
+                </div>
+              </>
+            )}
+          />
           </Loadable>
         </Panel>
       </div>

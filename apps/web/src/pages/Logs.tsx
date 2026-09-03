@@ -1,11 +1,8 @@
 import { useState } from "react";
 import { useQuery } from "@tanstack/react-query";
 import { get, type LogRow, type StrategyRow } from "../api";
-import {
-  Card, Empty, LEVEL_TONE, Loadable, LoadMore, PageHeader, Panel, Pill, RangeSelect, rangeStart, SearchInput, Select,
-  type RangeKey,
-} from "../components/ui";
-import { ts, tsShort } from "../format";
+import { Card, Empty, Loadable, LoadMore, PageHeader, Panel, RangeSelect, rangeStart, SearchInput, Select, type RangeKey } from "../components/ui";
+import { LogLine } from "../components/LogLine";
 import { useLiveStream } from "../useLiveStream";
 
 const LEVELS = ["ERROR", "WARN", "INFO", "DEBUG"];
@@ -147,15 +144,3 @@ function PulseDot() {
   return <span className="live-dot inline-block h-2 w-2 rounded-full bg-up" />;
 }
 
-function LogLine({ log }: { log: LogRow }) {
-  return (
-    <div className="flex flex-wrap items-start gap-2 border-b border-line/50 px-2 py-1.5 font-mono text-xs last:border-b-0 sm:flex-nowrap">
-      <span className="whitespace-nowrap text-faint sm:hidden">{tsShort(log.ts)}</span>
-      <span className="hidden whitespace-nowrap text-faint sm:inline">{ts(log.ts)}</span>
-      <Pill tone={LEVEL_TONE[log.level] ?? "neutral"}>{log.level}</Pill>
-      {log.strategyId && <span className="truncate text-muted">[{log.strategyId}]</span>}
-      <span className="w-full break-words text-body sm:w-auto">{log.message}</span>
-      <span className="ml-auto hidden whitespace-nowrap text-faint lg:inline">{log.logger.split(".").pop()}</span>
-    </div>
-  );
-}

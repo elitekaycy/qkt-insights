@@ -67,6 +67,30 @@ export const chartColors = {
 
 export const qktChartGrid = { left: 54, right: 18, top: 28, bottom: 34, containLabel: false };
 
+const NARROW = "(max-width: 639px)";
+
+/** True below Tailwind's `sm` breakpoint. Charts use it to trade legend/label
+ *  density for plot width — the same option object cannot serve both a phone
+ *  and a desktop pane. */
+export function useNarrowChart(): boolean {
+  const [narrow, setNarrow] = useState(() => (typeof window === "undefined" ? false : window.matchMedia(NARROW).matches));
+  useEffect(() => {
+    const mq = window.matchMedia(NARROW);
+    const onChange = () => setNarrow(mq.matches);
+    mq.addEventListener("change", onChange);
+    return () => mq.removeEventListener("change", onChange);
+  }, []);
+  return narrow;
+}
+
+/** Legend under the plot instead of over it; the grid gives the row back. */
+export function qktBottomLegend(mono = false) {
+  return {
+    legend: { type: "scroll" as const, bottom: 0, left: "center" as const, itemWidth: 14, itemHeight: 8, textStyle: { color: "#f2f4f6", fontFamily: mono ? "JetBrains Mono, ui-monospace, monospace" : "Archivo, system-ui, sans-serif", fontSize: 11 } },
+    gridBottom: 58,
+  };
+}
+
 export const qktChartAxis = {
   axisLine: { show: false },
   axisTick: { show: false },

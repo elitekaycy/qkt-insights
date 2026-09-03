@@ -104,6 +104,11 @@ browser chrome, its own icon, and the notch/home-indicator insets respected.
 Live trading figures are never cached: the service worker precaches the app shell only,
 so a screen you open is always talking to the collector, never replaying a stale number.
 
+**Running several dashboards?** Set `INSIGHTS_NAME` on each (`-e INSIGHTS_NAME=hypergrowth`).
+It becomes the home-screen label and app name for that install, the browser-tab title,
+and a tag on the login card and sidebar — so three installed dashboards are not three
+identical `qkt-insights` icons. Keep it short; home screens truncate past ~12 characters.
+
 ## Run modes
 
 One image, one entrypoint, three shapes — pick with the container command:

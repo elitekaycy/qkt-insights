@@ -13,6 +13,7 @@ import Equity from "./pages/Equity";
 import { Edge } from "./pages/Edge";
 import { InstallApp } from "./components/InstallApp";
 import { Drawer } from "./components/Drawer";
+import { useBrand } from "./useBrand";
 
 type Page = "overview" | "health" | "strategies" | "edge" | "trades" | "equity" | "logs" | "search";
 
@@ -90,6 +91,7 @@ export default function App() {
   const [focusStrategy, setFocusStrategy] = useState<string | null>(null);
   const [collapsed, setCollapsed] = useState(false);
   const [drawer, setDrawer] = useState(false);
+  const brand = useBrand();
 
   const instances = useQuery({
     queryKey: ["instances"],
@@ -137,8 +139,11 @@ export default function App() {
       <div className={`flex items-center gap-3 px-5 pb-5 pt-6 ${iconsOnly ? "justify-center px-0" : ""}`}>
         <Mark />
         {!iconsOnly && (
-          <div className="text-lg font-extrabold tracking-tight text-bright">
-            qkt<span className="text-accent">·</span>insights
+          <div className="min-w-0">
+            <div className="text-lg font-extrabold leading-tight tracking-tight text-bright">
+              qkt<span className="text-accent">·</span>insights
+            </div>
+            {brand && <div className="truncate text-xs font-semibold text-accent">{brand}</div>}
           </div>
         )}
       </div>
@@ -245,8 +250,12 @@ export default function App() {
           <NavIcon d="M4 6h16M4 12h16M4 18h16" big />
         </button>
         <Mark />
-        <div className="truncate text-[15px] font-extrabold tracking-tight text-bright">
-          qkt<span className="text-accent">·</span>insights
+        <div className="min-w-0 truncate text-[15px] font-extrabold tracking-tight text-bright">
+          {brand ?? (
+            <>
+              qkt<span className="text-accent">·</span>insights
+            </>
+          )}
         </div>
         <span className="ml-auto flex items-center gap-2 pr-1">
           <span className="max-w-[7rem] truncate text-xs text-muted">{selected ?? "no instance"}</span>

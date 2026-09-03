@@ -179,8 +179,27 @@ th,
   animation: scrim-in 0.26s ease-out both;
 }
 
+/* modal as a phone bottom sheet: rises from the bottom edge */
+@keyframes sheet-in {
+  from {
+    transform: translateY(100%);
+  }
+  to {
+    transform: translateY(0);
+  }
+}
+.sheet-in {
+  animation: sheet-in 0.28s cubic-bezier(0.32, 0.72, 0, 1) both;
+}
+@media (min-width: 640px) {
+  .sheet-in {
+    animation: rise 0.45s cubic-bezier(0.22, 1, 0.36, 1) both;
+  }
+}
+
 @media (prefers-reduced-motion: reduce) {
   .rise,
+  .sheet-in,
   .drawer-panel,
   .drawer-scrim,
   .live-dot,

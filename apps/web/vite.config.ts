@@ -11,25 +11,15 @@ export default defineConfig({
     tailwindcss(),
     VitePWA({
       registerType: "autoUpdate",
-      includeAssets: ["favicon.svg", "favicon.ico", "apple-touch-icon.png"],
-      manifest: {
-        name: "qkt-insights",
-        short_name: "qkt-insights",
-        description: "Real-time view into qkt strategies, fills, equity, and risk state.",
-        // chrome matches the top bar; the splash behind it is the page ground
-        theme_color: "#121518",
-        background_color: "#0a0c0e",
-        display: "standalone",
-        start_url: "/",
-        icons: [
-          { src: "pwa-192.png", sizes: "192x192", type: "image/png" },
-          { src: "pwa-512.png", sizes: "512x512", type: "image/png" },
-          { src: "pwa-512.png", sizes: "512x512", type: "image/png", purpose: "maskable" },
-        ],
-      },
+      includeAssets: ["favicon.svg", "favicon.ico", "apple-touch-icon.png", "pwa-192.png", "pwa-512.png"],
+      // The manifest is a static file in public/ and linked from index.html rather
+      // than generated here: the plugin would precache anything it generates, and
+      // the server rewrites the manifest per deployment (INSIGHTS_NAME) — a
+      // precached copy would pin every install to the build-time name.
+      manifest: false,
       workbox: {
         // Live trading data — never let the service worker serve a stale API response.
-        navigateFallbackDenylist: [/^\/(auth|instances|strategies|orders|trades|search|equity|health|live)(\/|$)/],
+        navigateFallbackDenylist: [/^\/(auth|brand|instances|strategies|orders|trades|search|equity|health|live)(\/|$)/],
       },
     }),
   ],

@@ -1,0 +1,16 @@
+{
+  "name": "qkt-insights",
+  "short_name": "qkt-insights",
+  "description": "Real-time view into qkt strategies, fills, equity, and risk state.",
+  "start_url": "/",
+  "scope": "/",
+  "display": "standalone",
+  "lang": "en",
+  "background_color": "#0a0c0e",
+  "theme_color": "#121518",
+  "icons": [
+    { "src": "pwa-192.png", "sizes": "192x192", "type": "image/png" },
+    { "src": "pwa-512.png", "sizes": "512x512", "type": "image/png" },
+    { "src": "pwa-512.png", "sizes": "512x512", "type": "image/png", "purpose": "maskable" }
+  ]
+}
