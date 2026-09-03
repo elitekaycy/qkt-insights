@@ -1,6 +1,6 @@
 import type { DrawdownPeriod, EquityPoint } from "../api";
 import { compact, money } from "../format";
-import { chartColors, EChart, qktChartAxis, qktChartGrid, qktChartTooltip, qktInsideZoom, type QktChartOption } from "./EChart";
+import { chartColors, EChart, qktBottomLegend, qktChartAxis, qktChartGrid, qktChartTooltip, qktInsideZoom, useNarrowChart, type QktChartOption } from "./EChart";
 
 function timeFmt(ms: number): string {
   return new Date(ms).toLocaleString("en-GB", { month: "short", day: "2-digit", hour: "2-digit", minute: "2-digit" });
@@ -60,20 +60,24 @@ export interface ComparisonSeries {
 
 /** Normalized (% from first snapshot) curves so strategies with different capital compare fairly. */
 export function ComparisonChart({ series, height = 320 }: { series: ComparisonSeries[]; height?: number | `${number}%` }) {
+  const narrow = useNarrowChart();
   const active = series.filter((s) => s.points.length > 0);
   if (active.length === 0) {
     return <div className="flex h-40 items-center justify-center text-sm text-faint">No equity snapshots yet</div>;
   }
+  const below = qktBottomLegend(true);
   const option: QktChartOption = {
     backgroundColor: "transparent",
     color: active.map((s) => s.color),
-    grid: qktChartGrid,
-    legend: {
-      type: "scroll",
-      top: 0,
-      right: 0,
-      textStyle: { color: "#f2f4f6", fontFamily: "JetBrains Mono, ui-monospace, monospace", fontSize: 11 },
-    },
+    grid: narrow ? { ...qktChartGrid, left: 46, top: 12, bottom: below.gridBottom } : qktChartGrid,
+    legend: narrow
+      ? below.legend
+      : {
+          type: "scroll",
+          top: 0,
+          right: 0,
+          textStyle: { color: "#f2f4f6", fontFamily: "JetBrains Mono, ui-monospace, monospace", fontSize: 11 },
+        },
     tooltip: {
       ...qktChartTooltip(),
       trigger: "axis",

@@ -7,10 +7,11 @@ import { EquityChart } from "../components/EquityChart";
 import { EdgeDetailPanels, PerformancePanels, TradeAnalysisPanels } from "../components/Performance";
 import { Sparkline } from "../components/Sparkline";
 import {
-  Card, Cell, Empty, LEVEL_TONE, Loadable, LoadMore, PageHeader, Panel, Pill, RangeSelect, rangeStart, ReturnPct, Row, SearchInput, Select, SideTag, Stat, Table,
+  Card, Cell, DataList, Empty, Loadable, LoadMore, PageHeader, Panel, Pill, RangeSelect, rangeStart, ReturnPct, Row, SearchInput, Select, SideTag, Stat, Table, TimeCell,
   type RangeKey,
 } from "../components/ui";
-import { age, money, num, pct, ts, tsDay } from "../format";
+import { LogLine } from "../components/LogLine";
+import { age, money, num, pct, tsShort } from "../format";
 import { buildCloseMap } from "../useCloses";
 import { useLiveState } from "../useLiveState";
 import { physicalPortfolioId, portfolioGroupId, strategyDisplayName as displayName, summarizePortfolio } from "../portfolio";
@@ -625,7 +626,7 @@ function StrategyDetail({ instanceId, strategyId, onBack }: { instanceId: string
           </button>
         ))}
         {tab !== "overview" && (
-          <div className="ml-auto">
+          <div className="w-full sm:ml-auto sm:w-auto">
             <RangeSelect value={range} onChange={setRange} />
           </div>
         )}
@@ -752,12 +753,11 @@ function StrategyDetail({ instanceId, strategyId, onBack }: { instanceId: string
         </Loadable>
       </Panel>
 
-      <div className="mt-6 grid grid-cols-1 gap-6 xl:grid-cols-2">
+      <div className="mt-6 grid grid-cols-1 gap-6 2xl:grid-cols-2">
         <Panel
           stagger={3}
           title="Trades"
           hint={usingDealTrades ? "broker deal closes" : "click a row to inspect"}
-          scroll="max-h-[26rem]"
           toolbar={
             <>
               <SearchInput
@@ -791,39 +791,57 @@ function StrategyDetail({ instanceId, strategyId, onBack }: { instanceId: string
           }
         >
           <Loadable loading={!performance.data && trades.isPending} error={trades.isError} retry={() => { void trades.refetch(); void performance.refetch(); }} what="trades">
-          <Table>
-            {tradeRows.slice(0, tradeCap).map((t) => {
-              const raw = t.raw;
+          <DataList
+            head={["Time", "Symbol", "Side", "Qty", "Price", "P&L"]}
+            rows={tradeRows.slice(0, tradeCap)}
+            keyOf={(t) => t.key}
+            onRow={usingDealTrades ? undefined : (t) => t.raw && setOpenTrade(t.raw)}
+            empty="No trades yet"
+            cells={(t) => {
               const r = t.realized;
-              const rcls = r == null ? "text-faint" : r > 0 ? "text-up" : r < 0 ? "text-down" : "text-muted";
               return (
-                <Row key={t.key} onClick={raw ? () => setOpenTrade(raw) : undefined}>
-                  <Cell className="whitespace-nowrap text-muted">{tsDay(t.ts)}</Cell>
+                <>
+                  <TimeCell ts={t.ts} />
                   <Cell className="font-semibold text-bright">{t.symbol}</Cell>
                   <Cell>
                     <SideTag side={t.side} />
                   </Cell>
                   <Cell className="font-mono">{t.qty}</Cell>
-                  <Cell className="font-mono text-muted">@ {t.price}</Cell>
-                  <Cell className={`font-mono font-semibold ${rcls}`}>{r == null ? "—" : `${r > 0 ? "+" : ""}${r.toFixed(2)}`}</Cell>
-                </Row>
+                  <Cell className="whitespace-nowrap font-mono text-muted">@ {t.price}</Cell>
+                  <Cell className={`font-mono font-semibold ${realizedTone(r)}`}>{r == null ? "—" : `${r > 0 ? "+" : ""}${r.toFixed(2)}`}</Cell>
+                </>
               );
-            })}
-            {tradeRows.length === 0 && <Empty colSpan={6}>No trades yet</Empty>}
-          </Table>
+            }}
+            card={(t) => {
+              const r = t.realized;
+              return (
+                <>
+                  <div className="flex items-baseline gap-2">
+                    <span className="min-w-0 truncate font-semibold text-bright">{t.symbol}</span>
+                    <SideTag side={t.side} />
+                    <span className={`ml-auto shrink-0 font-mono text-sm font-semibold ${realizedTone(r)}`}>
+                      {r == null ? "—" : `${r > 0 ? "+" : ""}${r.toFixed(2)}`}
+                    </span>
+                  </div>
+                  <div className="mt-1 flex items-center gap-2 font-mono text-xs text-faint">
+                    <span className="whitespace-nowrap">
+                      {t.qty} @ {t.price}
+                    </span>
+                    <span className="ml-auto whitespace-nowrap">{tsShort(t.ts)}</span>
+                  </div>
+                </>
+              );
+            }}
+          />
           <LoadMore shown={Math.min(tradeCap, tradeRows.length)} total={tradeRows.length} onMore={() => setTradeCap((c) => c + 20)} />
           </Loadable>
         </Panel>
 
-        <Panel stagger={4} title="Recent logs" scroll="max-h-[26rem]">
+        <Panel stagger={4} title="Recent logs">
           <Loadable loading={logs.isPending} error={logs.isError} retry={() => logs.refetch()} what="logs">
           <div className="p-2">
             {logRows.slice(0, logCap).map((l) => (
-              <div key={l.id} className="flex items-start gap-2 border-b border-line/50 px-2 py-1.5 font-mono text-xs last:border-b-0">
-                <span className="whitespace-nowrap text-faint">{ts(l.ts)}</span>
-                <Pill tone={LEVEL_TONE[l.level] ?? "neutral"}>{l.level}</Pill>
-                <span className="break-all text-body">{l.message}</span>
-              </div>
+              <LogLine key={l.id} log={l} showStrategy={false} />
             ))}
             {logRows.length === 0 && <Empty>No logs yet</Empty>}
           </div>
@@ -837,4 +855,10 @@ function StrategyDetail({ instanceId, strategyId, onBack }: { instanceId: string
       <TradeDetail trade={openTrade} instanceId={instanceId} onClose={() => setOpenTrade(null)} close={openTrade ? closeByOrder.get(openTrade.payload.orderId) : null} />
     </div>
   );
+}
+
+function realizedTone(v: number | null | undefined): string {
+  if (v == null) return "text-faint";
+  if (v === 0) return "text-muted";
+  return v > 0 ? "text-up" : "text-down";
 }

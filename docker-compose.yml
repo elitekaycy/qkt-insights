@@ -10,4 +10,5 @@ services:
       ADMIN_USERNAME: ${ADMIN_USERNAME}
       ADMIN_PASSWORD: ${ADMIN_PASSWORD}
       SESSION_SECRET: ${SESSION_SECRET}
+      INSIGHTS_NAME: ${INSIGHTS_NAME:-}
 volumes: { insights-data: {} }

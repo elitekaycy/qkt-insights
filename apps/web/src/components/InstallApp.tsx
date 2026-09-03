@@ -1,5 +1,6 @@
 import { useState } from "react";
 import { useInstallPrompt } from "../hooks/useInstallPrompt";
+import { useBrand } from "../useBrand";
 
 function DownloadIcon({ className = "h-4 w-4" }: { className?: string }) {
   return (
@@ -22,9 +23,11 @@ function IosHint() {
  *  or on a browser that offers neither a native prompt nor iOS's manual add-to-home-screen flow. */
 export function InstallApp({ variant, iconsOnly }: { variant: "sidebar" | "login"; iconsOnly?: boolean }) {
   const { installed, canPrompt, promptInstall, isIos } = useInstallPrompt();
+  const brand = useBrand();
   const [showIosHint, setShowIosHint] = useState(false);
 
   if (installed || (!canPrompt && !isIos)) return null;
+  const label = brand ? `Install ${brand}` : "Install app";
 
   const onClick = () => {
     if (canPrompt) promptInstall();
@@ -40,7 +43,7 @@ export function InstallApp({ variant, iconsOnly }: { variant: "sidebar" | "login
           className="mx-auto flex items-center gap-2 text-sm font-medium text-muted transition hover:text-bright"
         >
           <DownloadIcon className="h-4 w-4 text-accent" />
-          Install app
+          {label}
         </button>
         {showIosHint && <IosHint />}
       </div>
@@ -51,13 +54,13 @@ export function InstallApp({ variant, iconsOnly }: { variant: "sidebar" | "login
     <div>
       <button
         onClick={onClick}
-        title="Install app"
+        title={label}
         className={`flex w-full items-center gap-3 rounded-lg px-3.5 py-2.5 text-left text-[15px] font-medium text-muted transition hover:bg-raised hover:text-body ${
           iconsOnly ? "justify-center px-0" : ""
         }`}
       >
         <DownloadIcon className="h-5 w-5" />
-        {!iconsOnly && "Install app"}
+        {!iconsOnly && label}
       </button>
       {showIosHint && !iconsOnly && <IosHint />}
     </div>

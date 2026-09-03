@@ -2,12 +2,14 @@ import { useState } from "react";
 import { login } from "../api";
 import { Button, Input } from "../components/ui";
 import { InstallApp } from "../components/InstallApp";
+import { useBrand } from "../useBrand";
 
 export default function Login({ onLoggedIn }: { onLoggedIn: () => void }) {
   const [username, setUsername] = useState("");
   const [password, setPassword] = useState("");
   const [error, setError] = useState(false);
   const [busy, setBusy] = useState(false);
+  const brand = useBrand();
 
   const submit = async (e: React.FormEvent) => {
     e.preventDefault();
@@ -31,7 +33,15 @@ export default function Login({ onLoggedIn }: { onLoggedIn: () => void }) {
         <div className="text-xl font-extrabold tracking-tight text-bright">
           qkt<span className="text-accent">·</span>insights
         </div>
-        <p className="mt-1 text-sm text-muted">Sign in to continue</p>
+        <p className="mt-1 text-sm text-muted">
+          {brand ? (
+            <>
+              Sign in to <span className="font-semibold text-accent">{brand}</span>
+            </>
+          ) : (
+            "Sign in to continue"
+          )}
+        </p>
         <Input
           type="text"
           autoFocus

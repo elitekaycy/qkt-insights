@@ -96,7 +96,8 @@ export function Edge({ instanceId }: { instanceId: string | null }) {
           {cells && cells.length > 0
             ? (
               <div className="overflow-x-auto p-3">
-                <div className="min-w-[860px]"><DowHourHeatmap cells={cells} /></div>
+                {/* wide screens keep 24 labelled columns readable; the chart's own phone layout fits the width */}
+                <div className="min-w-0 sm:min-w-[860px]"><DowHourHeatmap cells={cells} /></div>
               </div>
             )
             : <Empty>No closed trades in this range — the heatmap needs exact per-trade data (broker deals or trade.closed).</Empty>}

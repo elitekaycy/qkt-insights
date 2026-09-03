@@ -1,6 +1,6 @@
-import { useEffect, useState, type ReactNode } from "react";
+import { useEffect, useRef, useState, type ReactNode } from "react";
 import { createPortal } from "react-dom";
-import { money } from "../format";
+import { money, tsDay, tsShort } from "../format";
 
 /*
  * The component kit every page is built from. Pages compose these and never
@@ -19,7 +19,7 @@ export function Card({
 }) {
   return (
     <div
-      className={`rise rounded-card border border-line bg-panel ${className}`}
+      className={`rise @container rounded-card border border-line bg-panel ${className}`}
       style={stagger != null ? ({ "--stagger": stagger } as React.CSSProperties) : undefined}
     >
       {children}
@@ -69,31 +69,60 @@ export function Modal({
   if (!open) return null;
   // Portal to <body>: ancestors with a transform (e.g. the .rise entrance) would
   // otherwise become the containing block and trap this fixed overlay inside a card.
+  // On a phone the panel is a bottom sheet — full width, rising from the edge,
+  // dismissed by a drag on its header — and a centered card from `sm` up.
   return createPortal(
     <div
-      className="fixed inset-0 z-50 flex items-center justify-center bg-ink/70 p-3 backdrop-blur-md sm:p-6"
+      className="fixed inset-0 z-50 flex items-end justify-center bg-ink/70 backdrop-blur-md sm:items-center sm:p-6"
       onMouseDown={(e) => {
         if (e.target === e.currentTarget) onClose();
       }}
     >
       <div
-        className="rise flex max-h-[90vh] flex-col overflow-hidden rounded-card border border-line-strong bg-panel shadow-2xl shadow-black/60"
-        style={{ width }}
+        role="dialog"
+        aria-modal="true"
+        aria-label={title}
+        className="sheet-in pad-safe-bottom @container flex max-h-[92dvh] w-full flex-col overflow-hidden rounded-t-card border border-line-strong bg-panel shadow-2xl shadow-black/60 sm:rise sm:max-h-[90vh] sm:w-[var(--modal-w)] sm:rounded-card"
+        style={{ "--modal-w": width } as React.CSSProperties}
       >
-        <div className="flex flex-wrap items-center gap-3 border-b border-line px-5 py-3.5">
-          <div className="flex items-baseline gap-2.5">
+        <SheetHeader onClose={onClose}>
+          <div className="flex min-w-0 flex-col gap-0.5 sm:flex-row sm:items-baseline sm:gap-2.5">
             <h3 className="text-sm font-bold uppercase tracking-[0.08em] text-bright">{title}</h3>
-            {hint && <span className="text-xs text-faint">{hint}</span>}
+            {hint && <span className="truncate text-xs text-faint">{hint}</span>}
           </div>
-          <div className="ml-auto flex flex-wrap items-center gap-2">
+          <div className="ml-auto flex shrink-0 flex-wrap items-center justify-end gap-2">
             {toolbar}
             <IconButton label="close" onClick={onClose} d="M18 6L6 18M6 6l12 12" />
           </div>
-        </div>
-        <div className="min-h-0 flex-1 overflow-auto">{children}</div>
+        </SheetHeader>
+        <div className="min-h-0 flex-1 overflow-auto overscroll-contain">{children}</div>
       </div>
     </div>,
     document.body,
+  );
+}
+
+const SHEET_DISMISS_PX = 70;
+
+/** Modal header: grab handle on phones, and a downward drag on it closes the sheet. */
+function SheetHeader({ onClose, children }: { onClose: () => void; children: ReactNode }) {
+  const startY = useRef<number | null>(null);
+  return (
+    <div
+      className="shrink-0 border-b border-line"
+      onTouchStart={(e) => {
+        startY.current = e.touches[0]?.clientY ?? null;
+      }}
+      onTouchEnd={(e) => {
+        const y0 = startY.current;
+        const y1 = e.changedTouches[0]?.clientY;
+        startY.current = null;
+        if (y0 != null && y1 != null && y1 - y0 > SHEET_DISMISS_PX) onClose();
+      }}
+    >
+      <div aria-hidden className="mx-auto mt-2 h-1 w-10 rounded-full bg-line-strong sm:hidden" />
+      <div className="flex flex-wrap items-center gap-3 px-4 py-3 sm:px-5 sm:py-3.5">{children}</div>
+    </div>
   );
 }
 
@@ -126,12 +155,14 @@ export function Panel({
   return (
     <>
       <Card stagger={stagger} className={className}>
-        <div className="flex flex-col gap-3 border-b border-line px-5 py-3 sm:flex-row sm:items-center">
-          <div className="flex shrink-0 flex-col items-start gap-0.5 sm:flex-row sm:items-baseline sm:gap-2.5">
-            <h3 className="text-sm font-bold uppercase tracking-[0.08em] text-body">{title}</h3>
+        {/* header lays out by the panel's own width: a half-width column stacks the
+            toolbar under the title instead of wrapping its controls one per line */}
+        <div className="flex flex-col gap-3 border-b border-line px-5 py-3 @3xl:flex-row @3xl:items-center">
+          <div className="flex min-w-0 flex-col items-start gap-0.5 @3xl:flex-row @3xl:items-baseline @3xl:gap-2.5">
+            <h3 className="shrink-0 text-sm font-bold uppercase tracking-[0.08em] text-body">{title}</h3>
             {hint && <span className="text-xs text-faint">{hint}</span>}
           </div>
-          <div className="flex min-w-0 flex-wrap items-center gap-2 sm:ml-auto sm:justify-end">
+          <div className="flex min-w-0 flex-wrap items-center gap-2 @3xl:ml-auto @3xl:shrink-0 @3xl:justify-end">
             {toolbar}
             {right}
             {/* expanding to a near-full-screen modal buys nothing on a phone */}
@@ -359,7 +390,7 @@ export function Table({ head, children }: { head?: string[]; children: ReactNode
         <thead>
           <tr className="border-b border-line text-left">
             {head.map((h) => (
-              <th key={h} className="px-4 py-2.5 text-[11px] font-semibold uppercase tracking-[0.1em] text-muted">
+              <th key={h} className="px-3 py-2.5 text-[11px] font-semibold uppercase tracking-[0.1em] text-muted @3xl:px-4">
                 {h}
               </th>
             ))}
@@ -383,7 +414,7 @@ export function Row({ children, onClick }: { children: ReactNode; onClick?: () =
 }
 
 export function Cell({ children, className = "" }: { children: ReactNode; className?: string }) {
-  return <td className={`px-4 py-2.5 ${className}`}>{children}</td>;
+  return <td className={`px-3 py-2.5 @3xl:px-4 ${className}`}>{children}</td>;
 }
 
 /**
@@ -409,9 +440,11 @@ export function DataList<T>({
   empty: string;
 }) {
   if (rows.length === 0) return <div className="px-4 py-10 text-center text-sm text-faint">{empty}</div>;
+  // the switch is on the list's own width, so a table also gives way to cards
+  // inside a narrow desktop column or a modal, not only on a phone
   return (
-    <>
-      <div className="hidden sm:block">
+    <div className="@container">
+      <div className="hidden @xl:block">
         <Table head={head}>
           {rows.map((r) => (
             <Row key={keyOf(r)} onClick={onRow ? () => onRow(r) : undefined}>
@@ -420,7 +453,7 @@ export function DataList<T>({
           ))}
         </Table>
       </div>
-      <ul className="divide-y divide-line/60 sm:hidden">
+      <ul className="divide-y divide-line/60 @xl:hidden">
         {rows.map((r) => (
           <li key={keyOf(r)}>
             {onRow ? (
@@ -433,7 +466,17 @@ export function DataList<T>({
           </li>
         ))}
       </ul>
-    </>
+    </div>
+  );
+}
+
+/** Timestamp cell: weekday + full date once the table is wide, a short stamp otherwise. */
+export function TimeCell({ ts }: { ts: number }) {
+  return (
+    <Cell className="whitespace-nowrap text-muted">
+      <span className="@4xl:hidden">{tsShort(ts)}</span>
+      <span className="hidden @4xl:inline">{tsDay(ts)}</span>
+    </Cell>
   );
 }
 
@@ -526,11 +569,13 @@ export function SearchInput(props: React.InputHTMLAttributes<HTMLInputElement>) 
 
 export function Select(props: React.SelectHTMLAttributes<HTMLSelectElement>) {
   const { className = "", ...rest } = props;
+  // phones: share the toolbar row, but never squeeze below a readable label —
+  // two fit side by side, a third wraps
   return (
-    <div className={`relative ${className.includes("w-full") ? "w-full" : "min-w-0 flex-1 sm:inline-block sm:flex-none"}`}>
+    <div className={`relative ${className.includes("w-full") ? "w-full" : "min-w-[9rem] flex-1 sm:inline-block sm:min-w-0 sm:flex-none"}`}>
       <select
         {...rest}
-        className={`h-9 appearance-none rounded-lg border border-line bg-raised pl-3 pr-8 text-sm text-body outline-none transition hover:border-line-strong focus:border-accent/60 ${className}`}
+        className={`h-9 w-full appearance-none truncate rounded-lg border border-line bg-raised pl-3 pr-8 text-sm text-body outline-none transition hover:border-line-strong focus:border-accent/60 ${className}`}
       />
       <svg
         viewBox="0 0 24 24"

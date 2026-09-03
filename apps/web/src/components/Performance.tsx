@@ -1,9 +1,9 @@
 import { useState, type ReactNode } from "react";
 import type { ClosedTradeRow, DayNet, PerformanceBundle, PerformanceReport } from "../api";
-import { duration, money, num, tsDay } from "../format";
+import { duration, money, num, tsShort } from "../format";
 import { EChart, qktChartAxis, qktChartGrid, qktChartTooltip, qktInsideZoom, type QktChartOption } from "./EChart";
 import { BucketBoxplot, ContributionBars, CostStack } from "./EdgeCharts";
-import { Cell, Empty, Panel, Pill, Row, Select, Stat, Table, type Tone } from "./ui";
+import { Cell, DataList, Empty, Panel, Pill, Row, Select, Stat, Table, TimeCell, type Tone } from "./ui";
 
 /*
  * The performance tab of a strategy: profitability, risk, and streak panels fed
@@ -40,6 +40,28 @@ export function Approx({ on }: { on: boolean }) {
   );
 }
 
+function outcomeLabel(realized: number): string {
+  return realized > 0 ? "WIN" : realized < 0 ? "LOSS" : "FLAT";
+}
+
+function realizedClass(realized: number | null | undefined): string {
+  if (realized == null) return "text-faint";
+  return realized > 0 ? "text-up" : realized < 0 ? "text-down" : "text-muted";
+}
+
+function signedMoney(realized: number): string {
+  return `${realized > 0 ? "+" : ""}${money(realized)}`;
+}
+
+function CostFact({ label, className = "", children }: { label: string; className?: string; children: ReactNode }) {
+  return (
+    <div className="min-w-0">
+      <dt className="text-[10px] font-bold uppercase tracking-[0.12em] text-faint">{label}</dt>
+      <dd className={`truncate font-mono text-sm ${className}`}>{children}</dd>
+    </div>
+  );
+}
+
 function outcomeTone(realized: number): Tone {
   return realized > 0 ? "up" : realized < 0 ? "down" : "neutral";
 }
@@ -58,24 +80,41 @@ function CloseList({ rows, hint }: { rows: ClosedTradeRow[]; hint?: string }) {
     <div>
       {hint && <div className="pb-1.5 text-[11px] font-semibold uppercase tracking-[0.12em] text-muted">{hint}</div>}
       <div className="max-h-72 overflow-auto rounded-lg border border-line">
-        <Table head={["Closed", "Symbol", "Outcome", "Qty", "Exit px", "P&L", "Held"]}>
-          {rows.map((c, i) => (
-            <Row key={`${c.ts}-${c.orderId ?? i}`}>
-              <Cell className="whitespace-nowrap text-muted">{tsDay(c.ts)}</Cell>
+        <DataList
+          head={["Closed", "Symbol", "Outcome", "Qty", "Exit px", "P&L", "Held"]}
+          rows={rows}
+          keyOf={(c) => `${c.ts}-${c.orderId ?? c.symbol}-${c.realized}`}
+          empty="No closed trades"
+          cells={(c) => (
+            <>
+              <TimeCell ts={c.ts} />
               <Cell className="font-semibold text-bright">{c.symbol}</Cell>
               <Cell>
-                <Pill tone={outcomeTone(c.realized)}>{c.realized > 0 ? "WIN" : c.realized < 0 ? "LOSS" : "FLAT"}</Pill>
+                <Pill tone={outcomeTone(c.realized)}>{outcomeLabel(c.realized)}</Pill>
               </Cell>
               <Cell className="font-mono">{c.qty}</Cell>
-              <Cell className="font-mono text-muted">@ {c.price}</Cell>
-              <Cell className={`font-mono font-semibold ${c.realized > 0 ? "text-up" : c.realized < 0 ? "text-down" : "text-muted"}`}>
-                {c.realized > 0 ? "+" : ""}
-                {money(c.realized)}
-              </Cell>
+              <Cell className="whitespace-nowrap font-mono text-muted">@ {c.price}</Cell>
+              <Cell className={`font-mono font-semibold ${realizedClass(c.realized)}`}>{signedMoney(c.realized)}</Cell>
               <Cell className="font-mono text-muted">{c.entryTs != null ? duration(c.ts - c.entryTs) : "—"}</Cell>
-            </Row>
-          ))}
-        </Table>
+            </>
+          )}
+          card={(c) => (
+            <>
+              <div className="flex items-baseline gap-2">
+                <span className="min-w-0 truncate font-semibold text-bright">{c.symbol}</span>
+                <Pill tone={outcomeTone(c.realized)}>{outcomeLabel(c.realized)}</Pill>
+                <span className={`ml-auto shrink-0 font-mono text-sm font-semibold ${realizedClass(c.realized)}`}>{signedMoney(c.realized)}</span>
+              </div>
+              <div className="mt-1 flex items-center gap-2 font-mono text-xs text-faint">
+                <span className="whitespace-nowrap">
+                  {c.qty} @ {c.price}
+                  {c.entryTs != null && ` · held ${duration(c.ts - c.entryTs)}`}
+                </span>
+                <span className="ml-auto whitespace-nowrap">{tsShort(c.ts)}</span>
+              </div>
+            </>
+          )}
+        />
       </div>
     </div>
   );
@@ -426,18 +465,34 @@ export function PerformancePanels({ bundle }: { bundle: PerformanceBundle }) {
             <div className="px-4 pt-3 text-[11px] font-semibold uppercase tracking-[0.12em] text-muted">
               After N consecutive losses, the next trade…
             </div>
-            <Table head={["Losses in a row", "Times seen", "Next-trade win rate", "Next-trade avg P&L"]}>
-              {bundle.postLoss.map((p) => (
-                <Row key={p.n}>
+            <DataList
+              head={["Losses in a row", "Times seen", "Next-trade win rate", "Next-trade avg P&L"]}
+              rows={bundle.postLoss}
+              keyOf={(p) => String(p.n)}
+              empty="No losing streaks yet"
+              cells={(p) => (
+                <>
                   <Cell className="font-mono">{p.n}</Cell>
                   <Cell className="font-mono text-muted">{p.sample}</Cell>
                   <Cell>
                     <Pill tone={p.nextWinRate >= 50 ? "up" : "down"}>{p.nextWinRate.toFixed(0)}%</Pill>
                   </Cell>
                   <Cell className={`font-mono ${p.nextAvg >= 0 ? "text-up" : "text-down"}`}>{money(p.nextAvg)}</Cell>
-                </Row>
-              ))}
-            </Table>
+                </>
+              )}
+              card={(p) => (
+                <div className="flex items-center gap-2">
+                  <span className="text-sm text-body">
+                    after <span className="font-mono font-semibold text-bright">{p.n}</span> {p.n === 1 ? "loss" : "losses"}
+                  </span>
+                  <span className="text-xs text-faint">· seen {p.sample}×</span>
+                  <span className="ml-auto flex shrink-0 items-center gap-2">
+                    <Pill tone={p.nextWinRate >= 50 ? "up" : "down"}>{p.nextWinRate.toFixed(0)}% win</Pill>
+                    <span className={`font-mono text-sm ${p.nextAvg >= 0 ? "text-up" : "text-down"}`}>{money(p.nextAvg)}</span>
+                  </span>
+                </div>
+              )}
+            />
           </div>
         )}
       </Panel>
@@ -741,22 +796,50 @@ function TradeAnalysis({ bundle }: { bundle: PerformanceBundle }) {
           </div>
 
           <div className="grid gap-5 xl:grid-cols-2">
-            <div className="rounded-lg border border-line bg-ink/25">
-              <div className="px-4 pt-3 text-[11px] font-bold uppercase tracking-[0.12em] text-muted">Best trades</div>
-              <Table head={["Closed", "Symbol", "Side", "Qty", "P&L"]}>
-                {best.map((c, i) => <Row key={`${c.ts}-best-${i}`}><Cell className="whitespace-nowrap text-muted">{tsDay(c.ts)}</Cell><Cell className="font-semibold text-bright">{c.symbol}</Cell><Cell><Pill tone={sideKey(c.side) === "long" ? "up" : "info"}>{sideKey(c.side)}</Pill></Cell><Cell className="font-mono">{c.qty}</Cell><Cell className="font-mono text-up">+{money(c.realized)}</Cell></Row>)}
-              </Table>
-            </div>
-            <div className="rounded-lg border border-line bg-ink/25">
-              <div className="px-4 pt-3 text-[11px] font-bold uppercase tracking-[0.12em] text-muted">Worst trades</div>
-              <Table head={["Closed", "Symbol", "Side", "Qty", "P&L"]}>
-                {worst.map((c, i) => <Row key={`${c.ts}-worst-${i}`}><Cell className="whitespace-nowrap text-muted">{tsDay(c.ts)}</Cell><Cell className="font-semibold text-bright">{c.symbol}</Cell><Cell><Pill tone={sideKey(c.side) === "long" ? "up" : "info"}>{sideKey(c.side)}</Pill></Cell><Cell className="font-mono">{c.qty}</Cell><Cell className="font-mono text-down">{money(c.realized)}</Cell></Row>)}
-              </Table>
-            </div>
+            <RankedTrades title="Best trades" rows={best} />
+            <RankedTrades title="Worst trades" rows={worst} />
           </div>
         </div>
       )}
     </Panel>
+  );
+}
+
+function RankedTrades({ title, rows }: { title: string; rows: ClosedTradeRow[] }) {
+  return (
+    <div className="rounded-lg border border-line bg-ink/25">
+      <div className="px-4 pt-3 text-[11px] font-bold uppercase tracking-[0.12em] text-muted">{title}</div>
+      <DataList
+        head={["Closed", "Symbol", "Side", "Qty", "P&L"]}
+        rows={rows}
+        keyOf={(c) => `${c.ts}-${c.orderId ?? c.symbol}-${c.realized}`}
+        empty="No closed trades"
+        cells={(c) => (
+          <>
+            <TimeCell ts={c.ts} />
+            <Cell className="font-semibold text-bright">{c.symbol}</Cell>
+            <Cell>
+              <Pill tone={sideKey(c.side) === "long" ? "up" : "info"}>{sideKey(c.side)}</Pill>
+            </Cell>
+            <Cell className="font-mono">{c.qty}</Cell>
+            <Cell className={`font-mono ${realizedClass(c.realized)}`}>{signedMoney(c.realized)}</Cell>
+          </>
+        )}
+        card={(c) => (
+          <>
+            <div className="flex items-baseline gap-2">
+              <span className="min-w-0 truncate font-semibold text-bright">{c.symbol}</span>
+              <Pill tone={sideKey(c.side) === "long" ? "up" : "info"}>{sideKey(c.side)}</Pill>
+              <span className={`ml-auto shrink-0 font-mono text-sm font-semibold ${realizedClass(c.realized)}`}>{signedMoney(c.realized)}</span>
+            </div>
+            <div className="mt-1 flex items-center gap-2 font-mono text-xs text-faint">
+              <span>{c.qty} lots</span>
+              <span className="ml-auto whitespace-nowrap">{tsShort(c.ts)}</span>
+            </div>
+          </>
+        )}
+      />
+    </div>
   );
 }
 
@@ -816,16 +899,25 @@ export function EdgeDetailPanels({ bundle }: { bundle: PerformanceBundle }) {
             <div className="grid gap-3 p-3">
               <CostStack costs={costs} />
               <div className="rounded-lg border border-line bg-ink/25">
-                <Table head={["", "Gross", "Commission", "Swap", "Fee", "Net"]}>
-                  <Row>
-                    <Cell className="text-muted">total</Cell>
-                    <Cell className="font-mono text-up">{money(costs.total.grossProfit)}</Cell>
-                    <Cell className="font-mono text-down">{money(costs.total.commission)}</Cell>
-                    <Cell className={`font-mono ${costs.total.swap < 0 ? "text-down" : "text-muted"}`}>{money(costs.total.swap)}</Cell>
-                    <Cell className={`font-mono ${costs.total.fee < 0 ? "text-down" : "text-muted"}`}>{money(costs.total.fee)}</Cell>
-                    <Cell className={`font-mono font-semibold ${costs.total.net >= 0 ? "text-up" : "text-down"}`}>{money(costs.total.net)}</Cell>
-                  </Row>
-                </Table>
+                <div className="hidden sm:block">
+                  <Table head={["", "Gross", "Commission", "Swap", "Fee", "Net"]}>
+                    <Row>
+                      <Cell className="text-muted">total</Cell>
+                      <Cell className="font-mono text-up">{money(costs.total.grossProfit)}</Cell>
+                      <Cell className="font-mono text-down">{money(costs.total.commission)}</Cell>
+                      <Cell className={`font-mono ${costs.total.swap < 0 ? "text-down" : "text-muted"}`}>{money(costs.total.swap)}</Cell>
+                      <Cell className={`font-mono ${costs.total.fee < 0 ? "text-down" : "text-muted"}`}>{money(costs.total.fee)}</Cell>
+                      <Cell className={`font-mono font-semibold ${costs.total.net >= 0 ? "text-up" : "text-down"}`}>{money(costs.total.net)}</Cell>
+                    </Row>
+                  </Table>
+                </div>
+                <dl className="grid grid-cols-3 gap-x-3 gap-y-2.5 px-4 py-3 sm:hidden">
+                  <CostFact label="gross" className="text-up">{money(costs.total.grossProfit)}</CostFact>
+                  <CostFact label="commission" className="text-down">{money(costs.total.commission)}</CostFact>
+                  <CostFact label="swap" className={costs.total.swap < 0 ? "text-down" : "text-muted"}>{money(costs.total.swap)}</CostFact>
+                  <CostFact label="fee" className={costs.total.fee < 0 ? "text-down" : "text-muted"}>{money(costs.total.fee)}</CostFact>
+                  <CostFact label="net" className={`font-semibold ${costs.total.net >= 0 ? "text-up" : "text-down"}`}>{money(costs.total.net)}</CostFact>
+                </dl>
               </div>
             </div>
           ) : (
@@ -837,17 +929,35 @@ export function EdgeDetailPanels({ bundle }: { bundle: PerformanceBundle }) {
             <div className="grid gap-3 p-3">
               <ContributionBars ranking={contribution} />
               <div className="rounded-lg border border-line bg-ink/25">
-                <Table head={["Symbol", "Net", "n", "Win", "Expectancy"]}>
-                  {contribution.bySymbol.map((r) => (
-                    <Row key={r.key}>
+                <DataList
+                  head={["Symbol", "Net", "n", "Win", "Expectancy"]}
+                  rows={contribution.bySymbol}
+                  keyOf={(r) => r.key}
+                  empty="No closed trades to attribute yet."
+                  cells={(r) => (
+                    <>
                       <Cell className="font-semibold text-bright">{r.key}</Cell>
                       <Cell className={`font-mono ${r.net >= 0 ? "text-up" : "text-down"}`}>{money(r.net)}</Cell>
                       <Cell className="font-mono text-muted">{r.trades}</Cell>
                       <Cell className="font-mono text-muted">{r.winRate.toFixed(0)}%</Cell>
                       <Cell className={`font-mono ${r.expectancy >= 0 ? "text-up" : "text-down"}`}>{money(r.expectancy)}</Cell>
-                    </Row>
-                  ))}
-                </Table>
+                    </>
+                  )}
+                  card={(r) => (
+                    <>
+                      <div className="flex items-baseline gap-2">
+                        <span className="min-w-0 truncate font-semibold text-bright">{r.key}</span>
+                        <span className={`ml-auto shrink-0 font-mono text-sm font-semibold ${r.net >= 0 ? "text-up" : "text-down"}`}>{money(r.net)}</span>
+                      </div>
+                      <div className="mt-1 flex items-center gap-2 font-mono text-xs text-faint">
+                        <span>
+                          {r.trades} trades · {r.winRate.toFixed(0)}% win
+                        </span>
+                        <span className={`ml-auto whitespace-nowrap ${r.expectancy >= 0 ? "text-up" : "text-down"}`}>{money(r.expectancy)} / trade</span>
+                      </div>
+                    </>
+                  )}
+                />
               </div>
             </div>
           ) : (
