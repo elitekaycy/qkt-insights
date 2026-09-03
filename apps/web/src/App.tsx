@@ -1,5 +1,5 @@
-import { useState } from "react";
-import { useQuery, useQueryClient } from "@tanstack/react-query";
+import { useCallback, useState } from "react";
+import { useIsFetching, useQuery, useQueryClient } from "@tanstack/react-query";
 import { get, logout, Unauthorized, type InstanceRow } from "./api";
 import { LiveDot, Select } from "./components/ui";
 import Login from "./pages/Login";
@@ -14,6 +14,8 @@ import { Edge } from "./pages/Edge";
 import { InstallApp } from "./components/InstallApp";
 import { Drawer } from "./components/Drawer";
 import { useBrand } from "./useBrand";
+import { usePullToRefresh } from "./hooks/usePullToRefresh";
+import { useResumeRefresh } from "./hooks/useResumeRefresh";
 
 type Page = "overview" | "health" | "strategies" | "edge" | "trades" | "equity" | "logs" | "search";
 
@@ -85,7 +87,7 @@ function Mark() {
 }
 
 /** Full-screen state before the app has anything to render: connecting, or unreachable. */
-function Splash({ brand, status, onRetry }: { brand: string | null; status: "loading" | "offline"; onRetry?: () => void }) {
+function Splash({ brand, status, busy, onRetry }: { brand: string | null; status: "loading" | "offline"; busy?: boolean; onRetry?: () => void }) {
   return (
     <div className="pad-safe-top pad-safe-bottom flex h-screen flex-col items-center justify-center gap-5 bg-ink px-6 text-center" role="status" aria-live="polite">
       <div className="flex items-center gap-3">
@@ -108,9 +110,10 @@ function Splash({ brand, status, onRetry }: { brand: string | null; status: "loa
           <button
             type="button"
             onClick={onRetry}
-            className="rounded-lg bg-accent px-5 py-2.5 text-sm font-bold text-ink transition active:scale-[0.98] hover:bg-accent-dim"
+            disabled={busy}
+            className="rounded-lg bg-accent px-5 py-2.5 text-sm font-bold text-ink transition active:scale-[0.98] hover:bg-accent-dim disabled:opacity-60"
           >
-            Retry
+            {busy ? "Retrying…" : "Retry"}
           </button>
         </>
       )}
@@ -125,16 +128,30 @@ export default function App() {
   const [focusStrategy, setFocusStrategy] = useState<string | null>(null);
   const [collapsed, setCollapsed] = useState(false);
   const [drawer, setDrawer] = useState(false);
+  // "signed out" is a decision, not a server round-trip: the sign-in screen shows at
+  // once, and a logout that could not be sent is retried when the link returns
+  const [signedOut, setSignedOut] = useState(false);
   const brand = useBrand();
+  const fetching = useIsFetching();
+  const refreshAll = useCallback(() => queryClient.refetchQueries({ type: "active" }), [queryClient]);
+  const pull = usePullToRefresh(refreshAll);
+  useResumeRefresh(refreshAll);
 
   const instances = useQuery({
     queryKey: ["instances"],
     queryFn: () => get<InstanceRow[]>("/instances"),
-    refetchInterval: 15000,
+    refetchInterval: 30_000,
   });
 
-  if (instances.error instanceof Unauthorized) {
-    return <Login onLoggedIn={() => queryClient.invalidateQueries()} />;
+  if (signedOut || instances.error instanceof Unauthorized) {
+    return (
+      <Login
+        onLoggedIn={() => {
+          setSignedOut(false);
+          void queryClient.invalidateQueries();
+        }}
+      />
+    );
   }
   // First load (and the reload right after signing in) has no data to show yet;
   // a bare dark screen on a phone reads as "the app is broken".
@@ -142,7 +159,7 @@ export default function App() {
     return <Splash brand={brand} status="loading" />;
   }
   if (instances.isError && instances.data == null) {
-    return <Splash brand={brand} status="offline" onRetry={() => instances.refetch()} />;
+    return <Splash brand={brand} status="offline" busy={instances.isFetching} onRetry={() => void instances.refetch()} />;
   }
 
   const list = instances.data ?? [];
@@ -235,11 +252,26 @@ export default function App() {
       </nav>
 
       <div className={`border-t border-line p-3 ${iconsOnly ? "px-2" : "px-4"}`}>
+        <button
+          onClick={() => void refreshAll()}
+          disabled={fetching > 0}
+          title="Refresh"
+          className={`flex w-full items-center gap-3 rounded-lg px-3.5 py-2.5 text-[15px] font-medium text-muted transition hover:bg-raised hover:text-body disabled:opacity-60 ${
+            iconsOnly ? "justify-center px-0" : ""
+          }`}
+        >
+          <span className={fetching > 0 ? "animate-spin" : ""}>
+            <NavIcon d="M21 12a9 9 0 1 1-2.64-6.36M21 3v6h-6" big />
+          </span>
+          {!iconsOnly && (fetching > 0 ? "Refreshing…" : "Refresh")}
+        </button>
         <InstallApp variant="sidebar" iconsOnly={iconsOnly} />
         <button
           onClick={async () => {
-            await logout();
-            queryClient.invalidateQueries();
+            setSignedOut(true);
+            setDrawer(false);
+            queryClient.clear();
+            if (!(await logout())) window.addEventListener("online", () => void logout(), { once: true });
           }}
           title="Sign out"
           className={`flex w-full items-center gap-3 rounded-lg px-3.5 py-2.5 text-[15px] font-medium text-muted transition hover:bg-raised hover:text-body ${
@@ -325,7 +357,19 @@ export default function App() {
         </button>
       </aside>
 
-      <main className="pad-safe-bottom min-h-0 flex-1 overflow-auto overscroll-contain">{main}</main>
+      <main ref={pull.ref} className="pad-safe-bottom min-h-0 flex-1 overflow-auto overscroll-contain">
+        {/* pull-to-refresh well: grows with the drag, holds while refetching */}
+        <div
+          aria-live="polite"
+          className="flex items-end justify-center overflow-hidden text-xs text-muted transition-[height] duration-150 lg:hidden"
+          style={{ height: pull.offset }}
+        >
+          {(pull.offset > 0 || pull.refreshing) && (
+            <span className="pb-3">{pull.refreshing ? "Refreshing…" : pull.offset >= 64 ? "Release to refresh" : "Pull to refresh"}</span>
+          )}
+        </div>
+        {main}
+      </main>
     </div>
   );
 }

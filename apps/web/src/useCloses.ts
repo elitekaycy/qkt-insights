@@ -42,7 +42,7 @@ export function useCloseMap(instanceId: string | null): Map<string, ClosedTradeR
       queryKey: ["perf-closes", instanceId, id],
       queryFn: () =>
         get<Partial<PerformanceBundle>>(`/performance?instance=${encodeURIComponent(instanceId!)}&strategy=${encodeURIComponent(id)}&include=closes`),
-      refetchInterval: 15000,
+      refetchInterval: 30_000,
     })),
   });
   const map = new Map<string, ClosedTradeRow>();

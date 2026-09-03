@@ -31,7 +31,7 @@ export default function Logs({ instanceId }: { instanceId: string | null }) {
       return get<LogRow[]>(`/logs?${p}`);
     },
     enabled: !!instanceId,
-    refetchInterval: 5000,
+    refetchInterval: 30_000,
   });
 
   const live = useLiveStream(instanceId, 100, LOG_TYPES);

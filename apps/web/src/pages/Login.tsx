@@ -1,5 +1,5 @@
 import { useState } from "react";
-import { login } from "../api";
+import { login, type LoginResult } from "../api";
 import { Button, Input } from "../components/ui";
 import { InstallApp } from "../components/InstallApp";
 import { useBrand } from "../useBrand";
@@ -7,17 +7,20 @@ import { useBrand } from "../useBrand";
 export default function Login({ onLoggedIn }: { onLoggedIn: () => void }) {
   const [username, setUsername] = useState("");
   const [password, setPassword] = useState("");
-  const [error, setError] = useState(false);
+  const [error, setError] = useState<Exclude<LoginResult, "ok"> | null>(null);
   const [busy, setBusy] = useState(false);
   const brand = useBrand();
 
   const submit = async (e: React.FormEvent) => {
     e.preventDefault();
     setBusy(true);
-    const ok = await login(username, password);
-    setBusy(false);
-    if (ok) onLoggedIn();
-    else setError(true);
+    try {
+      const result = await login(username, password);
+      if (result === "ok") onLoggedIn();
+      else setError(result);
+    } finally {
+      setBusy(false);
+    }
   };
 
   return (
@@ -48,7 +51,7 @@ export default function Login({ onLoggedIn }: { onLoggedIn: () => void }) {
           value={username}
           onChange={(e) => {
             setUsername(e.target.value);
-            setError(false);
+            setError(null);
           }}
           className="mt-5 w-full"
           placeholder="username"
@@ -58,12 +61,13 @@ export default function Login({ onLoggedIn }: { onLoggedIn: () => void }) {
           value={password}
           onChange={(e) => {
             setPassword(e.target.value);
-            setError(false);
+            setError(null);
           }}
           className="mt-2.5 w-full"
           placeholder="password"
         />
-        {error && <p className="mt-2.5 text-sm text-down">Wrong username or password</p>}
+        {error === "denied" && <p className="mt-2.5 text-sm text-down">Wrong username or password</p>}
+        {error === "unreachable" && <p className="mt-2.5 text-sm text-warn">Can't reach the collector — check the connection and try again.</p>}
         <Button type="submit" variant="primary" disabled={busy || username.length === 0 || password.length === 0} className="mt-5 w-full py-2">
           {busy ? "Signing in…" : "Sign in"}
         </Button>

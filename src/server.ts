@@ -107,11 +107,22 @@ export async function buildServer(mode: Mode) {
       if (brand && existsSync(manifestPath)) {
         const manifest = JSON.parse(readFileSync(manifestPath, "utf8")) as Record<string, unknown>;
         const branded = JSON.stringify({ ...manifest, name: `${brand} · qkt-insights`, short_name: brand.slice(0, 12) });
-        app.get("/manifest.webmanifest", async (_req, reply) => reply.type("application/manifest+json").send(branded));
+        app.get("/manifest.webmanifest", async (_req, reply) =>
+          reply.type("application/manifest+json").header("cache-control", "no-cache").send(branded),
+        );
       }
       // wildcard: the explicit routes above win over the static handler, and assets
-      // written after boot are still served
-      await app.register(fastifyStatic, { root: webDist });
+      // written after boot are still served. Hashed bundles never change under
+      // their name, so browsers may keep them for a year; the shell, worker and
+      // manifest must always be revalidated or an update could never land.
+      await app.register(fastifyStatic, {
+        root: webDist,
+        // the plugin's own Cache-Control (max-age=0) would overwrite the one set below
+        cacheControl: false,
+        setHeaders: (res, path) => {
+          res.setHeader("cache-control", path.includes("/assets/") ? "public, max-age=31536000, immutable" : "no-cache");
+        },
+      });
       app.setNotFoundHandler((req, reply) => {
         if (req.raw.method === "GET" && !req.url.startsWith("/api")) return reply.sendFile("index.html");
         return reply.code(404).send({ error: "not found" });
