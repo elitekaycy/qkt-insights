@@ -3,10 +3,10 @@ import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { get, type DealRow, type StrategyRow, type TradeRow } from "../api";
 import { TradeDetail } from "../components/detail";
 import {
-  Card, Cell, DataList, Loadable, LoadMore, PageHeader, Panel, Pill, RangeSelect, rangeStart, SearchInput, Select, SideTag,
+  Card, Cell, DataList, Loadable, LoadMore, PageHeader, Panel, Pill, RangeSelect, rangeStart, SearchInput, Select, SideTag, TimeCell,
   type RangeKey,
 } from "../components/ui";
-import { tsDay, tsShort } from "../format";
+import { tsShort } from "../format";
 import { realizedLabel, useCloseMap } from "../useCloses";
 import { useLiveStream } from "../useLiveStream";
 
@@ -151,7 +151,7 @@ export default function Trades({ instanceId }: { instanceId: string | null }) {
                 const n = dealNet(d);
                 return (
                   <>
-                    <Cell className="whitespace-nowrap text-muted">{tsDay(d.ts)}</Cell>
+                    <TimeCell ts={d.ts} />
                     <Cell>{d.strategyId ?? <Pill>unattributed</Pill>}</Cell>
                     <Cell className="font-semibold text-bright">{d.symbol ?? "—"}</Cell>
                     <Cell>
@@ -204,7 +204,7 @@ export default function Trades({ instanceId }: { instanceId: string | null }) {
                 const r = realizedLabel(closeMap.get(t.payload.orderId));
                 return (
                   <>
-                    <Cell className="whitespace-nowrap text-muted">{tsDay(t.ts)}</Cell>
+                    <TimeCell ts={t.ts} />
                     <Cell>{t.strategyId ?? "—"}</Cell>
                     <Cell className="font-semibold text-bright">{t.payload.symbol}</Cell>
                     <Cell>
