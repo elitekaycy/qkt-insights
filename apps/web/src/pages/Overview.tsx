@@ -262,11 +262,8 @@ export default function Overview({
               card={({ p }) => (
                 <>
                   <div className="flex items-baseline gap-2">
-                    <span className="shrink-0 font-semibold text-bright">{p.symbol}</span>
+                    <span className="min-w-0 truncate font-semibold text-bright">{p.symbol}</span>
                     <SideTag side={p.side} />
-                    <span className="min-w-0 truncate font-mono text-xs text-muted">
-                      {p.qty} @ {p.entryPrice}
-                    </span>
                     <span className={`ml-auto shrink-0 font-mono text-sm font-semibold ${profitTone(p.profit)}`}>
                       <FlashValue value={p.profit}>
                         {p.profit == null ? "—" : `${p.profit > 0 ? "+" : ""}${p.profit.toFixed(2)}`}
@@ -274,11 +271,11 @@ export default function Overview({
                     </span>
                   </div>
                   <div className="mt-1 flex items-center gap-2 text-xs text-faint">
-                    <span className="truncate">
+                    <span className="min-w-0 truncate">
                       {p.strategyId ? nameByStrategy.get(p.strategyId) ?? p.strategyId : "unattributed"}
                     </span>
-                    <span className="ml-auto whitespace-nowrap font-mono">
-                      {p.currentPrice ?? "—"} · {p.openedAt ? duration(Date.now() - p.openedAt) : "—"}
+                    <span className="ml-auto shrink-0 whitespace-nowrap font-mono">
+                      {p.qty} @ {p.entryPrice} · {p.openedAt ? duration(Date.now() - p.openedAt) : "—"}
                     </span>
                   </div>
                 </>
