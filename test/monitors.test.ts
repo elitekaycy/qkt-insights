@@ -20,6 +20,7 @@ let base = "";
 beforeAll(async () => {
   world.get("/health", async (_req, reply) => reply.code(health.code).send(health.body));
   world.get("/text", async (_req, reply) => reply.type("text/plain").send("ok"));
+  world.get("/guarded", async (req, reply) => (req.headers.authorization === "Bearer k" ? { ok: true } : reply.code(401).send({})));
   world.post("/bot/sendMessage", async (req) => { telegram.push(req.body); return { ok: true }; });
   world.post("/hook", async (req) => { hooks.push(req.body); return {}; });
   world.post("/hook-broken", async (_req, reply) => reply.code(500).send({}));
@@ -39,8 +40,8 @@ describe("parseHttpMonitors", () => {
   it("accepts an empty value and a well-formed list", () => {
     expect(parseHttpMonitors(undefined)).toEqual([]);
     expect(parseHttpMonitors("  ")).toEqual([]);
-    expect(parseHttpMonitors('[{"name":"gw","url":"http://gw:5001/health","expect":{"mt5_status":"connected"}},{"name":"plain","url":"https://x/"}]'))
-      .toEqual([{ name: "gw", url: "http://gw:5001/health", expect: { mt5_status: "connected" } }, { name: "plain", url: "https://x/" }]);
+    expect(parseHttpMonitors('[{"name":"gw","url":"http://gw:5001/health","expect":{"mt5_status":"connected"},"headers":{"Authorization":"Bearer k"}},{"name":"plain","url":"https://x/"}]'))
+      .toEqual([{ name: "gw", url: "http://gw:5001/health", expect: { mt5_status: "connected" }, headers: { Authorization: "Bearer k" } }, { name: "plain", url: "https://x/" }]);
   });
 
   it("rejects malformed config with a message naming the field", () => {
@@ -50,6 +51,8 @@ describe("parseHttpMonitors", () => {
     expect(() => parseHttpMonitors('[{"name":"a","url":"ftp://x"}]')).toThrow(/\[0\]\.url/u);
     expect(() => parseHttpMonitors('[{"name":"a","url":"http://x","expect":[1]}]')).toThrow(/\[0\]\.expect must be an object/u);
     expect(() => parseHttpMonitors('[{"name":"a","url":"http://x","expect":{"k":{}}}]')).toThrow(/expect\.k/u);
+    expect(() => parseHttpMonitors('[{"name":"a","url":"http://x","headers":"k"}]')).toThrow(/\[0\]\.headers must be an object/u);
+    expect(() => parseHttpMonitors('[{"name":"a","url":"http://x","headers":{"k":1}}]')).toThrow(/headers\.k/u);
     expect(() => parseHttpMonitors('[{"name":"a","url":"http://x"},{"name":"a","url":"http://y"}]')).toThrow(/two monitors named a/u);
   });
 });
@@ -71,6 +74,11 @@ describe("probe", () => {
     expect(r.up).toBe(true);
     expect(r.latencyMs).toBeGreaterThanOrEqual(0);
     expect(await probe({ name: "t", url: `${base}/text` })).toMatchObject({ up: true });
+  });
+
+  it("sends configured headers, which is what gets it past the gateway's auth", async () => {
+    expect(await probe({ name: "g", url: `${base}/guarded` })).toMatchObject({ up: false, detail: "HTTP 401" });
+    expect(await probe({ name: "g", url: `${base}/guarded`, headers: { Authorization: "Bearer k" } })).toMatchObject({ up: true });
   });
 
   it("names the failing field, status, body shape or connection error", async () => {
