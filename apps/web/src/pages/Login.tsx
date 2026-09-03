@@ -1,6 +1,7 @@
 import { useState } from "react";
 import { login } from "../api";
 import { Button, Input } from "../components/ui";
+import { InstallApp } from "../components/InstallApp";
 
 export default function Login({ onLoggedIn }: { onLoggedIn: () => void }) {
   const [username, setUsername] = useState("");
@@ -56,6 +57,7 @@ export default function Login({ onLoggedIn }: { onLoggedIn: () => void }) {
         <Button type="submit" variant="primary" disabled={busy || username.length === 0 || password.length === 0} className="mt-5 w-full py-2">
           {busy ? "Signing in…" : "Sign in"}
         </Button>
+        <InstallApp variant="login" />
       </form>
     </div>
   );

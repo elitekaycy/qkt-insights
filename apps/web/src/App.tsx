@@ -11,6 +11,8 @@ import Logs from "./pages/Logs";
 import Search from "./pages/Search";
 import Equity from "./pages/Equity";
 import { Edge } from "./pages/Edge";
+import { InstallApp } from "./components/InstallApp";
+import { Drawer } from "./components/Drawer";
 
 type Page = "overview" | "health" | "strategies" | "edge" | "trades" | "equity" | "logs" | "search";
 
@@ -119,9 +121,10 @@ export default function App() {
         key={n.key}
         onClick={() => goto(n.key)}
         title={n.label}
-        className={`group flex w-full items-center gap-3 rounded-lg px-3.5 py-2.5 text-left text-[15px] font-medium transition ${
+        aria-current={active ? "page" : undefined}
+        className={`group flex w-full items-center gap-3 rounded-lg px-3.5 py-2.5 text-left text-[15px] font-medium transition active:scale-[0.98] ${
           iconsOnly ? "justify-center px-0" : ""
-        } ${active ? "bg-accent text-ink" : "text-muted hover:bg-raised hover:text-body"}`}
+        } ${active ? "bg-accent text-ink" : "text-muted hover:bg-raised hover:text-body active:bg-raised"}`}
       >
         <NavIcon d={ICONS[n.key]} big />
         {!iconsOnly && n.label}
@@ -188,6 +191,7 @@ export default function App() {
       </nav>
 
       <div className={`border-t border-line p-3 ${iconsOnly ? "px-2" : "px-4"}`}>
+        <InstallApp variant="sidebar" iconsOnly={iconsOnly} />
         <button
           onClick={async () => {
             await logout();
@@ -231,33 +235,32 @@ export default function App() {
   return (
     <div className="flex h-screen flex-col bg-ink text-body lg:flex-row">
       {/* mobile top bar */}
-      <div className="flex items-center gap-3 border-b border-line bg-panel px-4 py-3 lg:hidden">
+      <div className="pad-safe-top sticky top-0 z-30 flex shrink-0 items-center gap-3 border-b border-line bg-panel px-4 py-2.5 lg:hidden">
         <button
           onClick={() => setDrawer(true)}
           aria-label="open menu"
-          className="rounded-lg border border-line bg-raised p-2 text-body"
+          aria-expanded={drawer}
+          className="-ml-1 rounded-lg p-2.5 text-body transition active:bg-raised"
         >
-          <NavIcon d="M4 6h16M4 12h16M4 18h16" />
+          <NavIcon d="M4 6h16M4 12h16M4 18h16" big />
         </button>
         <Mark />
-        <div className="text-[15px] font-extrabold tracking-tight text-bright">
+        <div className="truncate text-[15px] font-extrabold tracking-tight text-bright">
           qkt<span className="text-accent">·</span>insights
         </div>
-        <span className="ml-auto">
+        <span className="ml-auto flex items-center gap-2 pr-1">
+          <span className="max-w-[7rem] truncate text-xs text-muted">{selected ?? "no instance"}</span>
           <LiveDot on={live} />
         </span>
       </div>
 
-      {/* mobile drawer */}
-      {drawer && (
-        <div className="fixed inset-0 z-50 bg-ink/70 backdrop-blur-md lg:hidden" onMouseDown={(e) => e.target === e.currentTarget && setDrawer(false)}>
-          <aside className="flex h-full w-72 flex-col border-r border-line bg-panel">{sidebar(false)}</aside>
-        </div>
-      )}
+      <Drawer open={drawer} onClose={() => setDrawer(false)} label="main navigation">
+        {sidebar(false)}
+      </Drawer>
 
       {/* desktop sidebar */}
       <aside
-        className={`relative hidden shrink-0 flex-col border-r border-line bg-panel transition-all lg:flex ${
+        className={`pad-safe-left relative hidden shrink-0 flex-col border-r border-line bg-panel transition-all lg:flex ${
           collapsed ? "w-[4.5rem]" : "w-[17rem]"
         }`}
       >
@@ -274,7 +277,7 @@ export default function App() {
         </button>
       </aside>
 
-      <main className="min-h-0 flex-1 overflow-auto">{main}</main>
+      <main className="pad-safe-bottom min-h-0 flex-1 overflow-auto overscroll-contain">{main}</main>
     </div>
   );
 }

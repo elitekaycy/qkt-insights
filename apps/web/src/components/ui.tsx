@@ -127,18 +127,21 @@ export function Panel({
     <>
       <Card stagger={stagger} className={className}>
         <div className="flex flex-col gap-3 border-b border-line px-5 py-3 sm:flex-row sm:items-center">
-          <div className="flex shrink-0 items-baseline gap-2.5">
+          <div className="flex shrink-0 flex-col items-start gap-0.5 sm:flex-row sm:items-baseline sm:gap-2.5">
             <h3 className="text-sm font-bold uppercase tracking-[0.08em] text-body">{title}</h3>
             {hint && <span className="text-xs text-faint">{hint}</span>}
           </div>
           <div className="flex min-w-0 flex-wrap items-center gap-2 sm:ml-auto sm:justify-end">
             {toolbar}
             {right}
-            <IconButton
-              label="expand"
-              onClick={() => setExpanded(true)}
-              d="M15 3h6v6M9 21H3v-6M21 3l-7 7M3 21l7-7"
-            />
+            {/* expanding to a near-full-screen modal buys nothing on a phone */}
+            <span className="hidden sm:inline-flex">
+              <IconButton
+                label="expand"
+                onClick={() => setExpanded(true)}
+                d="M15 3h6v6M9 21H3v-6M21 3l-7 7M3 21l7-7"
+              />
+            </span>
           </div>
         </div>
         {scroll ? <div className={`overflow-auto ${scroll}`}>{children}</div> : children}
@@ -383,6 +386,57 @@ export function Cell({ children, className = "" }: { children: ReactNode; classN
   return <td className={`px-4 py-2.5 ${className}`}>{children}</td>;
 }
 
+/**
+ * One dataset, two shapes: a column table from `sm` up, and a stacked card list
+ * on phones where a nine-column table would push everything that matters off
+ * the right edge behind a nested horizontal scroll.
+ */
+export function DataList<T>({
+  head,
+  rows,
+  keyOf,
+  cells,
+  card,
+  onRow,
+  empty,
+}: {
+  head: string[];
+  rows: T[];
+  keyOf: (row: T) => string;
+  cells: (row: T) => ReactNode;
+  card: (row: T) => ReactNode;
+  onRow?: (row: T) => void;
+  empty: string;
+}) {
+  if (rows.length === 0) return <div className="px-4 py-10 text-center text-sm text-faint">{empty}</div>;
+  return (
+    <>
+      <div className="hidden sm:block">
+        <Table head={head}>
+          {rows.map((r) => (
+            <Row key={keyOf(r)} onClick={onRow ? () => onRow(r) : undefined}>
+              {cells(r)}
+            </Row>
+          ))}
+        </Table>
+      </div>
+      <ul className="divide-y divide-line/60 sm:hidden">
+        {rows.map((r) => (
+          <li key={keyOf(r)}>
+            {onRow ? (
+              <button type="button" onClick={() => onRow(r)} className="block w-full px-4 py-3 text-left transition active:bg-raised">
+                {card(r)}
+              </button>
+            ) : (
+              <div className="px-4 py-3">{card(r)}</div>
+            )}
+          </li>
+        ))}
+      </ul>
+    </>
+  );
+}
+
 export function Empty({ children, colSpan }: { children: ReactNode; colSpan?: number }) {
   const inner = <div className="px-4 py-10 text-center text-sm text-faint">{children}</div>;
   if (colSpan == null) return inner;
@@ -473,7 +527,7 @@ export function SearchInput(props: React.InputHTMLAttributes<HTMLInputElement>) 
 export function Select(props: React.SelectHTMLAttributes<HTMLSelectElement>) {
   const { className = "", ...rest } = props;
   return (
-    <div className={`relative ${className.includes("w-full") ? "w-full" : "inline-block"}`}>
+    <div className={`relative ${className.includes("w-full") ? "w-full" : "min-w-0 flex-1 sm:inline-block sm:flex-none"}`}>
       <select
         {...rest}
         className={`h-9 appearance-none rounded-lg border border-line bg-raised pl-3 pr-8 text-sm text-body outline-none transition hover:border-line-strong focus:border-accent/60 ${className}`}
