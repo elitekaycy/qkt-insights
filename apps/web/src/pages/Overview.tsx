@@ -61,12 +61,12 @@ export default function Overview({
     queryKey: ["strategies", instanceId],
     queryFn: () => get<StrategyRow[]>(`/strategies?instance=${encodeURIComponent(instanceId!)}`),
     enabled: !!instanceId,
-    refetchInterval: 10000,
+    refetchInterval: 30_000,
   });
   const health = useQuery({
     queryKey: ["health"],
     queryFn: () => get<HealthRow[]>("/health/instances"),
-    refetchInterval: 5000,
+    refetchInterval: 15_000,
   });
 
   // Only the live deployed roster feeds the overview aggregates; ids left over from a
@@ -79,7 +79,7 @@ export default function Overview({
       queryKey: ["equity", instanceId, id],
       queryFn: () =>
         get<EquityPoint[]>(`/equity?instance=${encodeURIComponent(instanceId!)}&strategy=${encodeURIComponent(id)}`),
-      refetchInterval: 10000,
+      refetchInterval: 30_000,
     })),
   });
   const live = useLiveStream(instanceId, 40, FEED_TYPES);

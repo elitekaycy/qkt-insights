@@ -32,7 +32,7 @@ export default function Equity({ instanceId }: { instanceId: string | null }) {
       queryKey: ["equity", instanceId, id],
       queryFn: () =>
         get<EquityPoint[]>(`/equity?instance=${encodeURIComponent(instanceId!)}&strategy=${encodeURIComponent(id)}`),
-      refetchInterval: 10000,
+      refetchInterval: 30_000,
     })),
   });
 
@@ -47,7 +47,7 @@ export default function Equity({ instanceId }: { instanceId: string | null }) {
     queryFn: () =>
       get<PerformanceBundle>(`/performance?instance=${encodeURIComponent(instanceId!)}&strategy=${encodeURIComponent(focusId)}`),
     enabled: !!instanceId && !!focusId,
-    refetchInterval: 15000,
+    refetchInterval: 30_000,
   });
 
   if (!instanceId) return <Card className="p-8 text-center text-faint">No instance selected.</Card>;

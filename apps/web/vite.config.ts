@@ -20,6 +20,20 @@ export default defineConfig({
       workbox: {
         // Live trading data — never let the service worker serve a stale API response.
         navigateFallbackDenylist: [/^\/(auth|brand|instances|strategies|orders|trades|search|equity|health|live)(\/|$)/],
+        // Fonts are the one third-party fetch on every cold start; keep them so the
+        // shell (and the offline splash) renders in the real typeface without a trip.
+        runtimeCaching: [
+          {
+            urlPattern: /^https:\/\/fonts\.googleapis\.com\//,
+            handler: "StaleWhileRevalidate",
+            options: { cacheName: "google-fonts-css", expiration: { maxEntries: 4, maxAgeSeconds: 60 * 60 * 24 * 30 } },
+          },
+          {
+            urlPattern: /^https:\/\/fonts\.gstatic\.com\//,
+            handler: "CacheFirst",
+            options: { cacheName: "google-fonts-files", expiration: { maxEntries: 20, maxAgeSeconds: 60 * 60 * 24 * 365 }, cacheableResponse: { statuses: [0, 200] } },
+          },
+        ],
       },
     }),
   ],

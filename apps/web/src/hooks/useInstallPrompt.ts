@@ -5,16 +5,23 @@ interface BeforeInstallPromptEvent extends Event {
   userChoice: Promise<{ outcome: "accepted" | "dismissed" }>;
 }
 
+export type InstallPlatform = "ios" | "android" | "desktop" | "other";
+
 function isStandalone() {
   return window.matchMedia("(display-mode: standalone)").matches || (window.navigator as unknown as { standalone?: boolean }).standalone === true;
 }
 
-function isIos() {
-  return /iphone|ipad|ipod/i.test(window.navigator.userAgent);
+function detectPlatform(): InstallPlatform {
+  const ua = window.navigator.userAgent;
+  if (/iphone|ipad|ipod/i.test(ua)) return "ios";
+  if (/android/i.test(ua)) return "android";
+  if (window.matchMedia("(pointer: fine)").matches) return "desktop";
+  return "other";
 }
 
-/** Surfaces the browser's install prompt where supported (Chrome/Edge/Android), and flags iOS
- *  Safari separately since it has no beforeinstallprompt event and needs manual instructions. */
+/** Install state for the PWA. Chrome and Edge hand over a native prompt; every
+ *  other browser installs through its own menu, so the platform is reported too
+ *  and the control can explain the route rather than disappear. */
 export function useInstallPrompt() {
   const [deferred, setDeferred] = useState<BeforeInstallPromptEvent | null>(null);
   const [installed, setInstalled] = useState(isStandalone());
@@ -44,10 +51,5 @@ export function useInstallPrompt() {
     setDeferred(null);
   };
 
-  return {
-    installed,
-    canPrompt: deferred != null,
-    promptInstall,
-    isIos: isIos() && !installed,
-  };
+  return { installed, canPrompt: deferred != null, promptInstall, platform: detectPlatform() };
 }

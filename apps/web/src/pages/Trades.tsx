@@ -10,7 +10,8 @@ import { tsShort } from "../format";
 import { realizedLabel, useCloseMap } from "../useCloses";
 import { useLiveStream } from "../useLiveStream";
 
-const DEAL_TYPES = ["broker.deal"];
+// a pushed deal or fill means the history just grew — refetch instead of waiting out the poll
+const HISTORY_TYPES = ["broker.deal", "trade"];
 
 export default function Trades({ instanceId }: { instanceId: string | null }) {
   const [strategy, setStrategy] = useState("");
@@ -34,7 +35,7 @@ export default function Trades({ instanceId }: { instanceId: string | null }) {
       return get<TradeRow[]>(`/trades?${p}`);
     },
     enabled: !!instanceId,
-    refetchInterval: 5000,
+    refetchInterval: 30_000,
   });
   // Broker deal history; when the instance has any, it wins over engine fills.
   // Strategy filtering happens client-side so an empty filter result doesn't
@@ -43,16 +44,16 @@ export default function Trades({ instanceId }: { instanceId: string | null }) {
     queryKey: ["deals-page", instanceId],
     queryFn: () => get<DealRow[]>(`/deals?instance=${encodeURIComponent(instanceId!)}&limit=1000`),
     enabled: !!instanceId,
-    refetchInterval: 5000,
+    refetchInterval: 30_000,
   });
 
-  // A pushed broker.deal means the history just grew — refetch instead of waiting out the poll.
   const qc = useQueryClient();
-  const dealLive = useLiveStream(instanceId, 5, DEAL_TYPES);
-  const newestDeal = dealLive[0];
+  const historyLive = useLiveStream(instanceId, 5, HISTORY_TYPES);
+  const newest = historyLive[0];
   useEffect(() => {
-    if (newestDeal) qc.invalidateQueries({ queryKey: ["deals-page", instanceId] });
-  }, [newestDeal, qc, instanceId]);
+    if (!newest) return;
+    void qc.invalidateQueries({ queryKey: [newest.type === "trade" ? "trades-page" : "deals-page", instanceId] });
+  }, [newest, qc, instanceId]);
 
   if (!instanceId) return <Card className="p-8 text-center text-faint">No instance selected.</Card>;
 

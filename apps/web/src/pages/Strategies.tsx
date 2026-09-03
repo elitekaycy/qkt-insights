@@ -72,7 +72,7 @@ export default function Strategies({
     queryKey: ["strategies", instanceId],
     queryFn: () => get<StrategyRow[]>(`/strategies?instance=${encodeURIComponent(instanceId!)}`),
     enabled: !!instanceId,
-    refetchInterval: 10000,
+    refetchInterval: 30_000,
   });
   const live = useOpenByStrategy(instanceId);
 
@@ -504,22 +504,22 @@ function StrategyDetail({ instanceId, strategyId, onBack }: { instanceId: string
   const stats = useQuery({
     queryKey: ["stats", instanceId, strategyId],
     queryFn: () => get<StrategyStats>(`/stats?${qs}`),
-    refetchInterval: 10000,
+    refetchInterval: 30_000,
   });
   const equity = useQuery({
     queryKey: ["equity", instanceId, strategyId],
     queryFn: () => get<EquityPoint[]>(`/equity?${qs}`),
-    refetchInterval: 10000,
+    refetchInterval: 30_000,
   });
   const trades = useQuery({
     queryKey: ["trades", instanceId, strategyId],
     queryFn: () => get<TradeRow[]>(`/trades?${qs}&limit=500`),
-    refetchInterval: 10000,
+    refetchInterval: 30_000,
   });
   const logs = useQuery({
     queryKey: ["logs", instanceId, strategyId],
     queryFn: () => get<LogRow[]>(`/logs?${qs}&limit=500`),
-    refetchInterval: 10000,
+    refetchInterval: 30_000,
   });
   const [tradeCap, setTradeCap] = useState(20);
   const [logCap, setLogCap] = useState(20);
@@ -536,12 +536,12 @@ function StrategyDetail({ instanceId, strategyId, onBack }: { instanceId: string
       const from = rangeStart(range);
       return get<PerformanceBundle>(`/performance?${qs}${from > 0 ? `&from=${from}` : ""}`);
     },
-    refetchInterval: 15000,
+    refetchInterval: 30_000,
   });
   const strategies = useQuery({
     queryKey: ["strategies", instanceId],
     queryFn: () => get<StrategyRow[]>(`/strategies?instance=${encodeURIComponent(instanceId)}`),
-    refetchInterval: 10000,
+    refetchInterval: 30_000,
   });
 
   const live = useOpenByStrategy(instanceId);
