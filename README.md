@@ -34,6 +34,7 @@ InsightsSink   POST /ingest             single writer, one file
 ## Features
 
 - **Health** — every reporting instance, last-event age, sequence position, sink counters, journal backlog, live/idle status.
+- **Uptime** — a heartbeat monitor per daemon and HTTP probes for anything else on the box (the MT5 gateway, with `mt5_status: connected` asserted); 24h strip, uptime %, incident timeline, and a Telegram/webhook alert on every down and recovery. A dead-man ping tells an outside service the collector itself is alive.
 - **Strategies** — per-strategy drill-down: equity chart, Sharpe, win rate, max drawdown, return, trades, recent logs.
 - **Trades** — every fill, filterable by strategy and symbol.
 - **Logs** — engine logs shipped from qkt with level filters, full-text search, and a live tail.
@@ -133,6 +134,33 @@ insights:
 ```
 
 Each family is opt-in. Sink health snapshots report sent/failed/dropped/queued telemetry automatically; qkt versions with the local insights journal also report whether replay is enabled and how many rows are pending. `state` polls broker account/position truth, `deal` backfills durable broker deal history where the broker supports it, `lifecycle` streams strategy start/stop events, and `log` attaches a logback appender that streams INFO+ engine logs. The old `snapshot` family is accepted by older configs but no longer wires an emitter in current qkt. Omit `enabled` or set it `false` and qkt wires nothing: no thread, no queue, zero overhead.
+
+## Uptime and alerts
+
+Every 30s the collector checks one **heartbeat** monitor per reporting instance (down after
+90s of silence — three missed pulses) and every **http** monitor declared in
+`INSIGHTS_MONITORS`. A monitor goes down after three straight failures and comes back on the
+first success; each transition is stored, shown on Health, and pushed to every configured
+channel. All of it is optional and off by default — with nothing set you still get the
+heartbeats and the Health page, just no alerts.
+
+```dotenv
+# HTTP probes: 2xx required; `expect` asserts top-level JSON fields, which is how a gateway
+# that answers but has lost its MT5 login still counts as down.
+INSIGHTS_MONITORS=[{"name":"mt5-gateway","url":"http://mt5-gateway:5001/health","expect":{"mt5_status":"connected"}}]
+
+# Alerts. Same bot and chat qkt and qkt-guardrails use; the webhook receives the transition as JSON.
+TELEGRAM_BOT_TOKEN=
+TELEGRAM_CHAT_ID=
+ALERT_WEBHOOK_URL=
+
+# Dead-man: GET on every tick. Point it at healthchecks.io or an Uptime Kuma push monitor and the
+# outside world pages when this box, not just a daemon on it, goes dark.
+DEADMAN_URL=
+```
+
+`INSIGHTS_NAME` prefixes every alert, so several boxes can share one chat. Monitoring runs in
+`collect` and `run` modes, next to the collector that receives the heartbeats.
 
 ## Architecture
 

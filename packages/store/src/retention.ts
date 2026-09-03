@@ -13,6 +13,8 @@ export interface RetentionResult {
   events: number;
   /** position_valuations marks removed for positions no longer open. */
   valuations: number;
+  /** monitor_minutes rollups and superseded monitor_events removed. */
+  monitors: number;
 }
 
 /** Delete operational history older than `retentionDays`, preserving everything the dashboards
@@ -25,6 +27,8 @@ export interface RetentionResult {
  *    decomposition, so they are never pruned.
  *  - `position_valuations`: per-tick marks whose (instance, broker, ticket) is not in
  *    `positions_current` — i.e. the position has closed. Open positions keep their full mark history.
+ *  - `monitor_minutes`, and `monitor_events` except each monitor's latest transition, which is
+ *    what a restart restores the current status from.
  *
  * Deletes run in one transaction. `now` is injectable so tests can pin the cutoff.
  * e.g. a health event at now-40d is removed; a trade event at now-40d and a mark for an
@@ -47,7 +51,13 @@ export function pruneRetention(db: Database, now: number, retentionDays = RETENT
       )
       .run(cutoff).changes;
 
-    return { logs, events, valuations };
+    const monitors =
+      db.prepare("DELETE FROM monitor_minutes WHERE minute_ts < ?").run(cutoff).changes +
+      db.prepare(
+        `DELETE FROM monitor_events WHERE ts < ? AND ts < (SELECT MAX(ts) FROM monitor_events e WHERE e.monitor = monitor_events.monitor)`,
+      ).run(cutoff).changes;
+
+    return { logs, events, valuations, monitors };
   })();
 }
 

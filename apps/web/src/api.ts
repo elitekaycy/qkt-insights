@@ -59,6 +59,38 @@ export interface HealthRow {
   insightsJournalPending: number | null;
   insightsHealthTs: number | null;
 }
+export type MonitorStatus = "up" | "down" | "pending";
+export interface StripBucket {
+  ts: number;
+  /** null = no checks recorded in the bucket (the collector was not running). */
+  status: "up" | "down" | null;
+  checks: number;
+  downs: number;
+}
+export interface MonitorSummary {
+  name: string;
+  kind: "heartbeat" | "http";
+  target: string;
+  status: MonitorStatus;
+  since: number | null;
+  lastCheck: number | null;
+  latencyMs: number | null;
+  detail: string | null;
+  failures: number;
+  strip: StripBucket[];
+  uptime24h: number | null;
+  uptime30d: number | null;
+}
+export interface MonitorEventRow {
+  monitor: string;
+  ts: number;
+  status: "up" | "down";
+  detail: string | null;
+}
+export interface MonitorsView {
+  monitors: MonitorSummary[];
+  events: MonitorEventRow[];
+}
 export interface StrategyRow {
   strategyId: string;
   firstSeen: number;

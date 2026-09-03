@@ -374,11 +374,11 @@ export const STATE_TONE: Record<string, Tone> = {
   REJECTED: "down",
 };
 
-export function LiveDot({ on }: { on: boolean }) {
+export function LiveDot({ on, down = false }: { on: boolean; down?: boolean }) {
   return (
     <span
-      className={`inline-block h-2 w-2 rounded-full ${on ? "live-dot bg-up" : "bg-faint"}`}
-      title={on ? "live" : "idle"}
+      className={`inline-block h-2 w-2 shrink-0 rounded-full ${on ? "live-dot bg-up" : down ? "bg-down" : "bg-faint"}`}
+      title={on ? "live" : down ? "down" : "idle"}
     />
   );
 }
