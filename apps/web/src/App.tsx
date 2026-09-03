@@ -84,6 +84,40 @@ function Mark() {
   );
 }
 
+/** Full-screen state before the app has anything to render: connecting, or unreachable. */
+function Splash({ brand, status, onRetry }: { brand: string | null; status: "loading" | "offline"; onRetry?: () => void }) {
+  return (
+    <div className="pad-safe-top pad-safe-bottom flex h-screen flex-col items-center justify-center gap-5 bg-ink px-6 text-center" role="status" aria-live="polite">
+      <div className="flex items-center gap-3">
+        <Mark />
+        <div className="text-lg font-extrabold tracking-tight text-bright">
+          qkt<span className="text-accent">·</span>insights
+        </div>
+      </div>
+      {brand && <div className="-mt-3 text-sm font-semibold text-accent">{brand}</div>}
+      {status === "loading" ? (
+        <div className="flex items-center gap-2.5 text-sm text-muted">
+          <span className="live-dot inline-block h-2 w-2 rounded-full bg-accent" />
+          {brand ? `Loading ${brand}…` : "Connecting to the collector…"}
+        </div>
+      ) : (
+        <>
+          <div className="max-w-xs text-sm leading-relaxed text-muted">
+            Can't reach the collector. Check the connection and try again.
+          </div>
+          <button
+            type="button"
+            onClick={onRetry}
+            className="rounded-lg bg-accent px-5 py-2.5 text-sm font-bold text-ink transition active:scale-[0.98] hover:bg-accent-dim"
+          >
+            Retry
+          </button>
+        </>
+      )}
+    </div>
+  );
+}
+
 export default function App() {
   const queryClient = useQueryClient();
   const [page, setPage] = useState<Page>("overview");
@@ -102,8 +136,13 @@ export default function App() {
   if (instances.error instanceof Unauthorized) {
     return <Login onLoggedIn={() => queryClient.invalidateQueries()} />;
   }
+  // First load (and the reload right after signing in) has no data to show yet;
+  // a bare dark screen on a phone reads as "the app is broken".
   if (instances.isPending) {
-    return <div className="h-screen bg-ink" />;
+    return <Splash brand={brand} status="loading" />;
+  }
+  if (instances.isError && instances.data == null) {
+    return <Splash brand={brand} status="offline" onRetry={() => instances.refetch()} />;
   }
 
   const list = instances.data ?? [];
