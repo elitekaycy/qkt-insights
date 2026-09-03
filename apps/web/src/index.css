@@ -35,11 +35,50 @@
 html {
   background: var(--color-ink);
   color-scheme: dark;
+  /* iOS inflates text in landscape unless told not to */
+  -webkit-text-size-adjust: 100%;
 }
 
 body {
   font-family: var(--font-sans);
   -webkit-font-smoothing: antialiased;
+  /* no grey flash on tap, no double-tap zoom delay, no rubber-band chaining
+     into the browser's pull-to-refresh while scrolling a panel */
+  -webkit-tap-highlight-color: transparent;
+  touch-action: manipulation;
+  overscroll-behavior-y: none;
+}
+
+/* Chrome (nav, buttons, labels) shouldn't select on a long-press the way text
+   does on touch; data still selects so numbers can be copied. */
+button,
+label,
+th,
+[role="button"] {
+  -webkit-user-select: none;
+  user-select: none;
+}
+
+@media (pointer: coarse) {
+  /* iOS zooms the viewport when a focused field is under 16px */
+  input,
+  select,
+  textarea {
+    font-size: 16px;
+  }
+
+  /* Apple HIG / Material both want ~44px of tappable area */
+  button,
+  select,
+  [role="button"],
+  input:not([type="checkbox"]):not([type="radio"]) {
+    min-height: 44px;
+  }
+
+  /* icon-only controls need width too */
+  button:not(:has(> :not(svg))) {
+    min-width: 44px;
+  }
 }
 
 /* numbers line up everywhere by default */
@@ -63,6 +102,27 @@ body {
 }
 *::-webkit-scrollbar-track {
   background: transparent;
+}
+
+/* touch platforms draw their own transient overlay scrollbars; ours would take
+   real layout width inside every scrolling panel */
+@media (pointer: coarse) {
+  *::-webkit-scrollbar {
+    width: 0;
+    height: 0;
+  }
+}
+
+/* Notch and home-indicator insets. No-ops in a browser tab; they matter once the
+   PWA runs standalone with viewport-fit=cover. */
+.pad-safe-top {
+  padding-top: env(safe-area-inset-top);
+}
+.pad-safe-bottom {
+  padding-bottom: env(safe-area-inset-bottom);
+}
+.pad-safe-left {
+  padding-left: env(safe-area-inset-left);
 }
 
 /* one-shot page entrance: panels rise and fade in, staggered via --stagger */
@@ -93,6 +153,40 @@ body {
 .value-flash {
   border-radius: 4px;
   animation: value-flash 0.8s ease-out;
+}
+
+/* mobile drawer: panel slides in from the edge, scrim fades up behind it */
+@keyframes drawer-in {
+  from {
+    transform: translateX(-100%);
+  }
+  to {
+    transform: translateX(0);
+  }
+}
+@keyframes scrim-in {
+  from {
+    opacity: 0;
+  }
+  to {
+    opacity: 1;
+  }
+}
+.drawer-panel {
+  animation: drawer-in 0.26s cubic-bezier(0.32, 0.72, 0, 1) both;
+}
+.drawer-scrim {
+  animation: scrim-in 0.26s ease-out both;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .rise,
+  .drawer-panel,
+  .drawer-scrim,
+  .live-dot,
+  .value-flash {
+    animation: none;
+  }
 }
 
 @keyframes pulse-dot {

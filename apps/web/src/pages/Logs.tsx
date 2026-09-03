@@ -5,7 +5,7 @@ import {
   Card, Empty, LEVEL_TONE, Loadable, LoadMore, PageHeader, Panel, Pill, RangeSelect, rangeStart, SearchInput, Select,
   type RangeKey,
 } from "../components/ui";
-import { ts } from "../format";
+import { ts, tsShort } from "../format";
 import { useLiveStream } from "../useLiveStream";
 
 const LEVELS = ["ERROR", "WARN", "INFO", "DEBUG"];
@@ -89,7 +89,7 @@ export default function Logs({ instanceId }: { instanceId: string | null }) {
                 setCap(30);
               }}
               placeholder="search log text…"
-              className="w-72"
+              className="w-full sm:w-72"
             />
             <Select
               value={level}
@@ -150,10 +150,11 @@ function PulseDot() {
 function LogLine({ log }: { log: LogRow }) {
   return (
     <div className="flex flex-wrap items-start gap-2 border-b border-line/50 px-2 py-1.5 font-mono text-xs last:border-b-0 sm:flex-nowrap">
-      <span className="whitespace-nowrap text-faint">{ts(log.ts)}</span>
+      <span className="whitespace-nowrap text-faint sm:hidden">{tsShort(log.ts)}</span>
+      <span className="hidden whitespace-nowrap text-faint sm:inline">{ts(log.ts)}</span>
       <Pill tone={LEVEL_TONE[log.level] ?? "neutral"}>{log.level}</Pill>
-      {log.strategyId && <span className="text-muted">[{log.strategyId}]</span>}
-      <span className="break-all text-body">{log.message}</span>
+      {log.strategyId && <span className="truncate text-muted">[{log.strategyId}]</span>}
+      <span className="w-full break-words text-body sm:w-auto">{log.message}</span>
       <span className="ml-auto hidden whitespace-nowrap text-faint lg:inline">{log.logger.split(".").pop()}</span>
     </div>
   );

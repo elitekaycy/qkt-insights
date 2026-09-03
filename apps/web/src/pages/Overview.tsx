@@ -3,7 +3,7 @@ import { get, type AccountDrawdownRow, type DayNet, type EquityPoint, type Healt
 import { AccountSummary } from "../components/AccountSummary";
 import type { ComparisonSeries } from "../components/EquityChart";
 import { OverviewDashboard } from "../components/OverviewDashboard";
-import { Card, Cell, Empty, FlashValue, LiveDot, Loadable, PageHeader, Panel, Pill, Row, SideTag, Stat, Table } from "../components/ui";
+import { Card, Cell, DataList, Empty, FlashValue, LiveDot, Loadable, PageHeader, Panel, Pill, Row, SideTag, Stat, Table } from "../components/ui";
 import { age, duration, money, num } from "../format";
 import { strategyDisplayName } from "../portfolio";
 import { useLiveState } from "../useLiveState";
@@ -224,47 +224,66 @@ export default function Overview({
               retry={() => liveState.refetch()}
               what="open positions"
             >
-            <Table head={["Ticket", "Symbol", "Side", "Qty", "Entry", "Current", "Held", "Profit", "Swap", "Strategy"]}>
-              {brokerPositions.flatMap((g) =>
-                g.list.map((p) => (
-                  <Row key={`${g.broker}-${p.ticket}`}>
-                    <Cell className="font-mono text-xs text-faint">{p.ticket}</Cell>
-                    <Cell className="font-semibold text-bright">{p.symbol}</Cell>
-                    <Cell>
-                      <SideTag side={p.side} />
-                    </Cell>
-                    <Cell className="font-mono">{p.qty}</Cell>
-                    <Cell className="font-mono text-muted">@ {p.entryPrice}</Cell>
-                    <Cell className="font-mono">{p.currentPrice ?? "—"}</Cell>
-                    <Cell className="text-muted">
-                      <span title={p.openedAt ? new Date(p.openedAt).toISOString() : undefined}>
-                        {p.openedAt ? duration(Date.now() - p.openedAt) : "—"}
-                      </span>
-                    </Cell>
-                    <Cell
-                      className={`font-mono font-semibold ${p.profit == null ? "text-faint" : p.profit > 0 ? "text-up" : p.profit < 0 ? "text-down" : "text-muted"}`}
-                    >
+            <DataList
+              head={["Ticket", "Symbol", "Side", "Qty", "Entry", "Current", "Held", "Profit", "Swap", "Strategy"]}
+              rows={brokerPositions.flatMap((g) => g.list.map((p) => ({ broker: g.broker, p })))}
+              keyOf={({ broker, p }) => `${broker}-${p.ticket}`}
+              empty={brokerPositions.length === 0 ? "No broker state yet." : "Flat — no open broker positions."}
+              cells={({ p }) => (
+                <>
+                  <Cell className="font-mono text-xs text-faint">{p.ticket}</Cell>
+                  <Cell className="font-semibold text-bright">{p.symbol}</Cell>
+                  <Cell>
+                    <SideTag side={p.side} />
+                  </Cell>
+                  <Cell className="font-mono">{p.qty}</Cell>
+                  <Cell className="font-mono text-muted">@ {p.entryPrice}</Cell>
+                  <Cell className="font-mono">{p.currentPrice ?? "—"}</Cell>
+                  <Cell className="text-muted">
+                    <span title={p.openedAt ? new Date(p.openedAt).toISOString() : undefined}>
+                      {p.openedAt ? duration(Date.now() - p.openedAt) : "—"}
+                    </span>
+                  </Cell>
+                  <Cell className={`font-mono font-semibold ${profitTone(p.profit)}`}>
+                    <FlashValue value={p.profit}>
+                      {p.profit == null ? "—" : `${p.profit > 0 ? "+" : ""}${p.profit.toFixed(2)}`}
+                    </FlashValue>
+                  </Cell>
+                  <Cell className="font-mono text-muted">{p.swap ?? "—"}</Cell>
+                  <Cell>
+                    {p.strategyId ? (
+                      <span title={p.strategyId}>{nameByStrategy.get(p.strategyId) ?? p.strategyId}</span>
+                    ) : (
+                      <Pill>unattributed</Pill>
+                    )}
+                  </Cell>
+                </>
+              )}
+              card={({ p }) => (
+                <>
+                  <div className="flex items-baseline gap-2">
+                    <span className="shrink-0 font-semibold text-bright">{p.symbol}</span>
+                    <SideTag side={p.side} />
+                    <span className="min-w-0 truncate font-mono text-xs text-muted">
+                      {p.qty} @ {p.entryPrice}
+                    </span>
+                    <span className={`ml-auto shrink-0 font-mono text-sm font-semibold ${profitTone(p.profit)}`}>
                       <FlashValue value={p.profit}>
                         {p.profit == null ? "—" : `${p.profit > 0 ? "+" : ""}${p.profit.toFixed(2)}`}
                       </FlashValue>
-                    </Cell>
-                    <Cell className="font-mono text-muted">{p.swap ?? "—"}</Cell>
-                    <Cell>
-                      {p.strategyId ? (
-                        <span title={p.strategyId}>{nameByStrategy.get(p.strategyId) ?? p.strategyId}</span>
-                      ) : (
-                        <Pill>unattributed</Pill>
-                      )}
-                    </Cell>
-                  </Row>
-                )),
+                    </span>
+                  </div>
+                  <div className="mt-1 flex items-center gap-2 text-xs text-faint">
+                    <span className="truncate">
+                      {p.strategyId ? nameByStrategy.get(p.strategyId) ?? p.strategyId : "unattributed"}
+                    </span>
+                    <span className="ml-auto whitespace-nowrap font-mono">
+                      {p.currentPrice ?? "—"} · {p.openedAt ? duration(Date.now() - p.openedAt) : "—"}
+                    </span>
+                  </div>
+                </>
               )}
-              {brokerPositions.every((g) => g.list.length === 0) && (
-                <Empty colSpan={10}>
-                  {brokerPositions.length === 0 ? "No broker state yet." : "Flat — no open broker positions."}
-                </Empty>
-              )}
-            </Table>
+            />
             </Loadable>
           </Panel>
         </div>
@@ -334,4 +353,10 @@ export default function Overview({
       </div>
     </div>
   );
+}
+
+function profitTone(v: number | null | undefined): string {
+  if (v == null) return "text-faint";
+  if (v === 0) return "text-muted";
+  return v > 0 ? "text-up" : "text-down";
 }

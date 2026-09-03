@@ -1,0 +1,15 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 512 512" role="img" aria-label="qkt-insights">
+  <rect width="512" height="512" fill="#0a0c0e"/>
+  <g transform="translate(106,106) scale(1.5)">
+    <g fill="none" stroke-width="14">
+      <g stroke="#a78bfa" stroke-linejoin="miter">
+        <path d="M56 50H34v100h22"/>
+        <path d="M143 50h22v100h-22"/>
+      </g>
+      <g stroke="#e5e7eb" stroke-linecap="round" stroke-linejoin="round">
+        <path d="M100 80v70"/>
+      </g>
+    </g>
+    <circle cx="100" cy="62" r="7" fill="#c8f74a"/>
+  </g>
+</svg>
