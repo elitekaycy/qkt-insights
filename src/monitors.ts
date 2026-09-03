@@ -14,6 +14,8 @@ export interface HttpMonitor {
   url: string;
   /** Top-level JSON fields the body must carry; any mismatch is a failed check. */
   expect?: Record<string, string | number | boolean>;
+  /** Sent with the probe, e.g. the gateway's bearer key: its /health is behind auth. */
+  headers?: Record<string, string>;
 }
 
 export interface Channels {
@@ -54,17 +56,27 @@ export function parseHttpMonitors(json: string | undefined): HttpMonitor[] {
   const seen = new Set<string>();
   return parsed.map((m, i) => {
     if (typeof m !== "object" || m == null) throw new Error(`INSIGHTS_MONITORS[${i}] must be an object`);
-    const { name, url, expect } = m as Record<string, unknown>;
+    const { name, url, expect, headers } = m as Record<string, unknown>;
     if (typeof name !== "string" || !name.trim()) throw new Error(`INSIGHTS_MONITORS[${i}].name is required`);
     if (typeof url !== "string" || !/^https?:\/\//u.test(url)) throw new Error(`INSIGHTS_MONITORS[${i}].url must be an http(s) URL`);
     if (seen.has(name)) throw new Error(`INSIGHTS_MONITORS has two monitors named ${name}`);
     seen.add(name);
-    if (expect == null) return { name, url };
-    if (typeof expect !== "object" || Array.isArray(expect)) throw new Error(`INSIGHTS_MONITORS[${i}].expect must be an object`);
-    for (const [k, v] of Object.entries(expect as Record<string, unknown>)) {
-      if (!["string", "number", "boolean"].includes(typeof v)) throw new Error(`INSIGHTS_MONITORS[${i}].expect.${k} must be a string, number or boolean`);
+    const monitor: HttpMonitor = { name, url };
+    if (expect != null) {
+      if (typeof expect !== "object" || Array.isArray(expect)) throw new Error(`INSIGHTS_MONITORS[${i}].expect must be an object`);
+      for (const [k, v] of Object.entries(expect as Record<string, unknown>)) {
+        if (!["string", "number", "boolean"].includes(typeof v)) throw new Error(`INSIGHTS_MONITORS[${i}].expect.${k} must be a string, number or boolean`);
+      }
+      monitor.expect = expect as HttpMonitor["expect"];
     }
-    return { name, url, expect: expect as HttpMonitor["expect"] };
+    if (headers != null) {
+      if (typeof headers !== "object" || Array.isArray(headers)) throw new Error(`INSIGHTS_MONITORS[${i}].headers must be an object`);
+      for (const [k, v] of Object.entries(headers as Record<string, unknown>)) {
+        if (typeof v !== "string") throw new Error(`INSIGHTS_MONITORS[${i}].headers.${k} must be a string`);
+      }
+      monitor.headers = headers as HttpMonitor["headers"];
+    }
+    return monitor;
   });
 }
 
@@ -81,7 +93,7 @@ export function channelsFromEnv(env: NodeJS.ProcessEnv): Channels {
 export async function probe(m: HttpMonitor): Promise<MonitorCheck> {
   const started = performance.now();
   try {
-    const res = await fetch(m.url, { signal: AbortSignal.timeout(PROBE_TIMEOUT_MS) });
+    const res = await fetch(m.url, { headers: m.headers, signal: AbortSignal.timeout(PROBE_TIMEOUT_MS) });
     const latencyMs = Math.round(performance.now() - started);
     if (!res.ok) return { up: false, latencyMs, detail: `HTTP ${res.status}` };
     if (!m.expect) return { up: true, latencyMs };

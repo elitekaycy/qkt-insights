@@ -146,8 +146,9 @@ heartbeats and the Health page, just no alerts.
 
 ```dotenv
 # HTTP probes: 2xx required; `expect` asserts top-level JSON fields, which is how a gateway
-# that answers but has lost its MT5 login still counts as down.
-INSIGHTS_MONITORS=[{"name":"mt5-gateway","url":"http://mt5-gateway:5001/health","expect":{"mt5_status":"connected"}}]
+# that answers but has lost its MT5 login still counts as down. `headers` go out with the
+# probe: mt5-gateway keeps /health behind its API key.
+INSIGHTS_MONITORS=[{"name":"mt5-gateway","url":"http://mt5-gateway:5001/health","expect":{"mt5_status":"connected"},"headers":{"Authorization":"Bearer <MT5_API_KEY>"}}]
 
 # Alerts. Same bot and chat qkt and qkt-guardrails use; the webhook receives the transition as JSON.
 TELEGRAM_BOT_TOKEN=
