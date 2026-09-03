@@ -3,10 +3,10 @@ import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { get, type DealRow, type StrategyRow, type TradeRow } from "../api";
 import { TradeDetail } from "../components/detail";
 import {
-  Card, Cell, Empty, Loadable, LoadMore, PageHeader, Panel, Pill, RangeSelect, rangeStart, Row, SearchInput, Select, SideTag, Table,
+  Card, Cell, DataList, Loadable, LoadMore, PageHeader, Panel, Pill, RangeSelect, rangeStart, SearchInput, Select, SideTag,
   type RangeKey,
 } from "../components/ui";
-import { tsDay } from "../format";
+import { tsDay, tsShort } from "../format";
 import { realizedLabel, useCloseMap } from "../useCloses";
 import { useLiveStream } from "../useLiveStream";
 
@@ -105,7 +105,7 @@ export default function Trades({ instanceId }: { instanceId: string | null }) {
                 setCap(30);
               }}
               placeholder={usingDeals ? "search symbol, deal ticket, strategy…" : "search symbol, order id, strategy…"}
-              className="w-72"
+              className="w-full sm:w-72"
             />
             <Select
               value={strategy}
@@ -142,11 +142,15 @@ export default function Trades({ instanceId }: { instanceId: string | null }) {
         >
         {usingDeals ? (
           <>
-            <Table head={["Time", "Strategy", "Symbol", "Side", "Entry", "Qty", "Price", "Net", "Deal"]}>
-              {shownDeals.map((d) => {
+            <DataList
+              head={["Time", "Strategy", "Symbol", "Side", "Entry", "Qty", "Price", "Net", "Deal"]}
+              rows={shownDeals}
+              keyOf={(d) => d.id}
+              empty="No deals match"
+              cells={(d) => {
                 const n = dealNet(d);
                 return (
-                  <Row key={d.id}>
+                  <>
                     <Cell className="whitespace-nowrap text-muted">{tsDay(d.ts)}</Cell>
                     <Cell>{d.strategyId ?? <Pill>unattributed</Pill>}</Cell>
                     <Cell className="font-semibold text-bright">{d.symbol ?? "—"}</Cell>
@@ -161,35 +165,79 @@ export default function Trades({ instanceId }: { instanceId: string | null }) {
                       {n.toFixed(2)}
                     </Cell>
                     <Cell className="font-mono text-xs text-faint">{d.dealTicket}</Cell>
-                  </Row>
+                  </>
                 );
-              })}
-              {shownDeals.length === 0 && <Empty colSpan={9}>No deals match</Empty>}
-            </Table>
+              }}
+              card={(d) => {
+                const n = dealNet(d);
+                return (
+                  <>
+                    <div className="flex items-baseline gap-2">
+                      <span className="shrink-0 font-semibold text-bright">{d.symbol ?? "—"}</span>
+                      <SideTag side={d.side} />
+                      <span className="min-w-0 truncate font-mono text-xs text-muted">
+                        {d.qty ?? "—"} @ {d.price ?? "—"}
+                      </span>
+                      <span className={`ml-auto shrink-0 font-mono text-sm font-semibold ${n > 0 ? "text-up" : n < 0 ? "text-down" : "text-muted"}`}>
+                        {n > 0 ? "+" : ""}
+                        {n.toFixed(2)}
+                      </span>
+                    </div>
+                    <div className="mt-1 flex items-center gap-2 text-xs text-faint">
+                      <span className="truncate">{d.strategyId ?? "unattributed"}</span>
+                      <span className="ml-auto whitespace-nowrap font-mono">{tsShort(d.ts)}</span>
+                    </div>
+                  </>
+                );
+              }}
+            />
             <LoadMore shown={shownDeals.length} total={filteredDeals.length} onMore={() => setCap((c) => c + 30)} />
           </>
         ) : (
           <>
-            <Table head={["Time", "Strategy", "Symbol", "Side", "Qty", "Price", "P&L", "Order"]}>
-              {shown.map((t) => (
-                <Row key={t.id} onClick={() => setOpen(t)}>
-                  <Cell className="whitespace-nowrap text-muted">{tsDay(t.ts)}</Cell>
-                  <Cell>{t.strategyId ?? "—"}</Cell>
-                  <Cell className="font-semibold text-bright">{t.payload.symbol}</Cell>
-                  <Cell>
-                    <SideTag side={t.payload.side} />
-                  </Cell>
-                  <Cell className="font-mono">{t.payload.qty}</Cell>
-                  <Cell className="font-mono">{t.payload.price}</Cell>
-                  {(() => {
-                    const r = realizedLabel(closeMap.get(t.payload.orderId));
-                    return <Cell className={`font-mono ${r.className}`}>{r.text}</Cell>;
-                  })()}
-                  <Cell className="font-mono text-xs text-faint">{t.payload.orderId}</Cell>
-                </Row>
-              ))}
-              {shown.length === 0 && <Empty colSpan={8}>No trades match</Empty>}
-            </Table>
+            <DataList
+              head={["Time", "Strategy", "Symbol", "Side", "Qty", "Price", "P&L", "Order"]}
+              rows={shown}
+              keyOf={(t) => t.id}
+              onRow={(t) => setOpen(t)}
+              empty="No trades match"
+              cells={(t) => {
+                const r = realizedLabel(closeMap.get(t.payload.orderId));
+                return (
+                  <>
+                    <Cell className="whitespace-nowrap text-muted">{tsDay(t.ts)}</Cell>
+                    <Cell>{t.strategyId ?? "—"}</Cell>
+                    <Cell className="font-semibold text-bright">{t.payload.symbol}</Cell>
+                    <Cell>
+                      <SideTag side={t.payload.side} />
+                    </Cell>
+                    <Cell className="font-mono">{t.payload.qty}</Cell>
+                    <Cell className="font-mono">{t.payload.price}</Cell>
+                    <Cell className={`font-mono ${r.className}`}>{r.text}</Cell>
+                    <Cell className="font-mono text-xs text-faint">{t.payload.orderId}</Cell>
+                  </>
+                );
+              }}
+              card={(t) => {
+                const r = realizedLabel(closeMap.get(t.payload.orderId));
+                return (
+                  <>
+                    <div className="flex items-baseline gap-2">
+                      <span className="shrink-0 font-semibold text-bright">{t.payload.symbol}</span>
+                      <SideTag side={t.payload.side} />
+                      <span className="min-w-0 truncate font-mono text-xs text-muted">
+                        {t.payload.qty} @ {t.payload.price}
+                      </span>
+                      <span className={`ml-auto shrink-0 font-mono text-sm font-semibold ${r.className}`}>{r.text}</span>
+                    </div>
+                    <div className="mt-1 flex items-center gap-2 text-xs text-faint">
+                      <span className="truncate">{t.strategyId ?? "unattributed"}</span>
+                      <span className="ml-auto whitespace-nowrap font-mono">{tsShort(t.ts)}</span>
+                    </div>
+                  </>
+                );
+              }}
+            />
             <LoadMore shown={shown.length} total={filtered.length} onMore={() => setCap((c) => c + 30)} />
           </>
         )}

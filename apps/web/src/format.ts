@@ -8,6 +8,14 @@ export function tsDay(ms: number): string {
   return `${day} ${ts(ms)}`;
 }
 
+/** Narrow timestamp for phone-width rows, e.g. "02 Sep 13:26". */
+export function tsShort(ms: number): string {
+  const d = new Date(ms);
+  const date = d.toLocaleDateString("en-GB", { day: "2-digit", month: "short" });
+  const time = d.toLocaleTimeString("en-GB", { hour: "2-digit", minute: "2-digit" });
+  return `${date} ${time}`;
+}
+
 export function money(v: number | null | undefined): string {
   if (v == null) return "—";
   return v.toLocaleString("en-US", { minimumFractionDigits: 2, maximumFractionDigits: 2 });

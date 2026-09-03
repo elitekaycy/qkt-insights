@@ -767,7 +767,7 @@ function StrategyDetail({ instanceId, strategyId, onBack }: { instanceId: string
                   setTradeCap(20);
                 }}
                 placeholder="search symbol, order id…"
-                className="w-56"
+                className="w-full sm:w-56"
               />
               <Select
                 value={tradeSide}
