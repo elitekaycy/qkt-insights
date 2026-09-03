@@ -150,10 +150,12 @@ export async function tick(deps: MonitorRunnerDeps, now = Date.now()): Promise<M
   const names = new Set<string>();
   const push = (t: MonitorTransition | null) => { if (t) transitions.push(t); };
 
-  // An instance silent past the retention window was decommissioned, not lost: its
-  // outage has long been announced, so it leaves the monitor list rather than staying red.
+  // Silence is measured on the collector's clock (heard_at), never the instance's: a VPS
+  // with a skewed clock must not read as dead. An instance silent past the retention
+  // window was decommissioned, not lost: its outage has long been announced, so it leaves
+  // the monitor list rather than staying red.
   for (const inst of listInstances(deps.db)) {
-    const silentMs = now - inst.lastSeen;
+    const silentMs = now - (inst.heardAt ?? inst.lastSeen);
     if (silentMs > RETENTION_DAYS * 86_400_000) continue;
     names.add(inst.id);
     push(deps.monitors.record(inst.id, "heartbeat", HEARTBEAT_TARGET,
