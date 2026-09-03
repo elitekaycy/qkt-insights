@@ -31,8 +31,8 @@ const ORDER_STATE: Record<string, string> = {
 };
 
 const UP_INSTANCE_SQL =
-  `INSERT INTO instances (id, first_seen, last_seen, last_seq) VALUES (@id,@ts,@ts,@seq)
-   ON CONFLICT(id) DO UPDATE SET last_seen=max(last_seen,@ts), last_seq=max(last_seq,@seq)`;
+  `INSERT INTO instances (id, first_seen, last_seen, last_seq, heard_at) VALUES (@id,@ts,@ts,@seq,@heardAt)
+   ON CONFLICT(id) DO UPDATE SET last_seen=max(last_seen,@ts), last_seq=max(last_seq,@seq), heard_at=@heardAt`;
 
 const OBS_SQL =
   `INSERT INTO ingest_observations
@@ -66,8 +66,8 @@ function decimalText(v: unknown): string | null {
  * are the freshest proof the instance is alive (the broker poller hits every 10s),
  * so Health reads the live poller, not the last trade hours ago.
  */
-export function touchInstance(db: Db, instanceId: string, ts: number, seq: number): void {
-  db.prepare(UP_INSTANCE_SQL).run({ id: instanceId, ts, seq });
+export function touchInstance(db: Db, instanceId: string, ts: number, seq: number, heardAt = Date.now()): void {
+  db.prepare(UP_INSTANCE_SQL).run({ id: instanceId, ts, seq, heardAt });
 }
 
 /**
@@ -196,7 +196,7 @@ export function persistStateEvent(db: Db, instanceId: string, e: Envelope): void
   tx();
 }
 
-export function ingestEvents(db: Db, instanceId: string, events: Envelope[]): number {
+export function ingestEvents(db: Db, instanceId: string, events: Envelope[], heardAt = Date.now()): number {
   const insEvent = db.prepare(
     "INSERT OR IGNORE INTO events (id, instance_id, type, strategy_id, seq, ts, payload) VALUES (?,?,?,?,?,?,?)",
   );
@@ -259,7 +259,7 @@ export function ingestEvents(db: Db, instanceId: string, events: Envelope[]): nu
         }
         accepted++;
         insLogFts.run(`${p.logger} ${p.message}`, instanceId, info.lastInsertRowid as number);
-        upInstance.run({ id: instanceId, ts: e.ts, seq: e.seq });
+        upInstance.run({ id: instanceId, ts: e.ts, seq: e.seq , heardAt });
         // Logs never create strategy rows: their attribution is looser than trading
         // events (qkt once shipped the deploy name in the MDC), and a mislabeled log
         // line must not grow a ghost strategy with no equity in the dashboard.
@@ -293,7 +293,7 @@ export function ingestEvents(db: Db, instanceId: string, events: Envelope[]): nu
           continue;
         }
         accepted++;
-        upInstance.run({ id: instanceId, ts: e.ts, seq: e.seq });
+        upInstance.run({ id: instanceId, ts: e.ts, seq: e.seq , heardAt });
         if (strategyId) {
           upStrategy.run({ i: instanceId, s: strategyId, ts: e.ts });
           // Earlier legs of the same position may have arrived unattributable
@@ -310,7 +310,7 @@ export function ingestEvents(db: Db, instanceId: string, events: Envelope[]): nu
       if (e.type === "snapshot.equity") {
         const p = e.payload;
         accepted++;
-        upInstance.run({ id: instanceId, ts: e.ts, seq: e.seq });
+        upInstance.run({ id: instanceId, ts: e.ts, seq: e.seq , heardAt });
         upStrategy.run({ i: instanceId, s: p.strategyId, ts: e.ts });
         insEquity.run(instanceId, p.strategyId, e.ts, p.realized, p.unrealized, p.equity,
           decimalText(p.realized), decimalText(p.unrealized), decimalText(p.equity));
@@ -318,13 +318,13 @@ export function ingestEvents(db: Db, instanceId: string, events: Envelope[]): nu
         continue;
       }
       if (e.type === "snapshot.position") {
-        upInstance.run({ id: instanceId, ts: e.ts, seq: e.seq });
+        upInstance.run({ id: instanceId, ts: e.ts, seq: e.seq , heardAt });
         continue;
       }
       if (e.type === "insights.health") {
         accepted++;
         upHealth.run({ i: instanceId, ts: e.ts, seq: e.seq, payload: JSON.stringify(e.payload) });
-        upInstance.run({ id: instanceId, ts: e.ts, seq: e.seq });
+        upInstance.run({ id: instanceId, ts: e.ts, seq: e.seq , heardAt });
         continue;
       }
       const info = insEvent.run(e.id, instanceId, e.type, e.strategyId ?? null, e.seq, e.ts, JSON.stringify(e.payload));
@@ -338,7 +338,7 @@ export function ingestEvents(db: Db, instanceId: string, events: Envelope[]): nu
         insClose.run(e.id, instanceId, e.strategyId ?? null, p.symbol, p.side, p.qty, p.price, p.realized, p.entryTs ?? null, p.ts, p.orderId);
       }
       insFts.run(ftsText(e), instanceId, info.lastInsertRowid as number);
-      upInstance.run({ id: instanceId, ts: e.ts, seq: e.seq });
+      upInstance.run({ id: instanceId, ts: e.ts, seq: e.seq , heardAt });
       if (e.type === "strategy.started") {
         const strategyId = (e.payload as any).strategyId ?? e.strategyId;
         if (strategyId) {

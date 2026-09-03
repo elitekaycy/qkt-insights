@@ -45,6 +45,7 @@ export interface InstanceRow {
   firstSeen: number;
   lastSeen: number;
   lastSeq: number;
+  heardAt: number | null;
 }
 export interface HealthRow {
   instanceId: string;

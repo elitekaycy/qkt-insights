@@ -105,14 +105,17 @@ describe("tick", () => {
       brand: "bot2",
       channels: { telegram: { url: `${base}/bot/sendMessage`, chatId: "42" }, webhook: `${base}/hook`, deadman: `${base}/ping` },
     });
-    touchInstance(d.db, "qkt-live", NOW - 10_000, 1);
-    touchInstance(d.db, "qkt-bench", NOW - HEARTBEAT_STALE_MS - 1, 1);
-    touchInstance(d.db, "qkt-retired", NOW - 31 * DAY, 1);
+    touchInstance(d.db, "qkt-live", NOW - 10_000, 1, NOW - 10_000);
+    touchInstance(d.db, "qkt-bench", NOW - HEARTBEAT_STALE_MS - 1, 1, NOW - HEARTBEAT_STALE_MS - 1);
+    touchInstance(d.db, "qkt-retired", NOW - 31 * DAY, 1, NOW - 31 * DAY);
+    // a box whose clock runs 10 minutes slow: envelope timestamps look ancient, but the
+    // collector heard from it a second ago
+    touchInstance(d.db, "qkt-slow-clock", NOW - 600_000, 1, NOW - 1_000);
     telegram.length = 0; hooks.length = 0; pings = 0;
 
     const first = await tick(d, NOW);
-    expect(first.map((t) => [t.name, t.status])).toEqual([["qkt-live", "up"]]);
-    expect(d.monitors.list().map((m) => [m.name, m.status])).toEqual([["qkt-bench", "pending"], ["qkt-live", "up"]]);
+    expect(first.map((t) => [t.name, t.status])).toEqual([["qkt-live", "up"], ["qkt-slow-clock", "up"]]);
+    expect(d.monitors.list().map((m) => [m.name, m.status])).toEqual([["qkt-bench", "pending"], ["qkt-live", "up"], ["qkt-slow-clock", "up"]]);
 
     expect(await tick(d, NOW + 30_000)).toEqual([]);
     const third = await tick(d, NOW + 60_000);
@@ -121,11 +124,12 @@ describe("tick", () => {
     expect(pings).toBe(3);
     expect(telegram).toEqual([
       { chat_id: "42", text: "bot2 · qkt-live is UP" },
+      { chat_id: "42", text: "bot2 · qkt-slow-clock is UP" },
       { chat_id: "42", text: "bot2 · qkt-bench is DOWN: silent for 150s" },
     ]);
-    expect(hooks[1]).toMatchObject({ name: "qkt-bench", status: "down", brand: "bot2", text: "bot2 · qkt-bench is DOWN: silent for 150s" });
+    expect(hooks[2]).toMatchObject({ name: "qkt-bench", status: "down", brand: "bot2", text: "bot2 · qkt-bench is DOWN: silent for 150s" });
 
-    touchInstance(d.db, "qkt-bench", NOW + 70_000, 2);
+    touchInstance(d.db, "qkt-bench", NOW + 70_000, 2, NOW + 70_000);
     expect(await tick(d, NOW + 90_000)).toMatchObject([{ name: "qkt-bench", status: "up" }]);
     expect(telegram.at(-1)).toEqual({ chat_id: "42", text: "bot2 · qkt-bench is UP" });
   });
