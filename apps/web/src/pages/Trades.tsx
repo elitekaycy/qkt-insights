@@ -173,19 +173,18 @@ export default function Trades({ instanceId }: { instanceId: string | null }) {
                 return (
                   <>
                     <div className="flex items-baseline gap-2">
-                      <span className="shrink-0 font-semibold text-bright">{d.symbol ?? "—"}</span>
+                      <span className="min-w-0 truncate font-semibold text-bright">{d.symbol ?? "—"}</span>
                       <SideTag side={d.side} />
-                      <span className="min-w-0 truncate font-mono text-xs text-muted">
-                        {d.qty ?? "—"} @ {d.price ?? "—"}
-                      </span>
                       <span className={`ml-auto shrink-0 font-mono text-sm font-semibold ${n > 0 ? "text-up" : n < 0 ? "text-down" : "text-muted"}`}>
                         {n > 0 ? "+" : ""}
                         {n.toFixed(2)}
                       </span>
                     </div>
                     <div className="mt-1 flex items-center gap-2 text-xs text-faint">
-                      <span className="truncate">{d.strategyId ?? "unattributed"}</span>
-                      <span className="ml-auto whitespace-nowrap font-mono">{tsShort(d.ts)}</span>
+                      <span className="min-w-0 truncate">{d.strategyId ?? "unattributed"}</span>
+                      <span className="ml-auto shrink-0 whitespace-nowrap font-mono">
+                        {d.qty ?? "—"} @ {d.price ?? "—"} · {tsShort(d.ts)}
+                      </span>
                     </div>
                   </>
                 );
@@ -223,16 +222,15 @@ export default function Trades({ instanceId }: { instanceId: string | null }) {
                 return (
                   <>
                     <div className="flex items-baseline gap-2">
-                      <span className="shrink-0 font-semibold text-bright">{t.payload.symbol}</span>
+                      <span className="min-w-0 truncate font-semibold text-bright">{t.payload.symbol}</span>
                       <SideTag side={t.payload.side} />
-                      <span className="min-w-0 truncate font-mono text-xs text-muted">
-                        {t.payload.qty} @ {t.payload.price}
-                      </span>
                       <span className={`ml-auto shrink-0 font-mono text-sm font-semibold ${r.className}`}>{r.text}</span>
                     </div>
                     <div className="mt-1 flex items-center gap-2 text-xs text-faint">
-                      <span className="truncate">{t.strategyId ?? "unattributed"}</span>
-                      <span className="ml-auto whitespace-nowrap font-mono">{tsShort(t.ts)}</span>
+                      <span className="min-w-0 truncate">{t.strategyId ?? "unattributed"}</span>
+                      <span className="ml-auto shrink-0 whitespace-nowrap font-mono">
+                        {t.payload.qty} @ {t.payload.price} · {tsShort(t.ts)}
+                      </span>
                     </div>
                   </>
                 );
