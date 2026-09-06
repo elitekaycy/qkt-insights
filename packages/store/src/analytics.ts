@@ -138,9 +138,13 @@ export function hasClosingDeals(db: Db, f: { instanceId: string; strategyId: str
  * IN deal: entry price/time come from the IN leg, exit and realized money from
  * the closing leg. A position closed in parts yields one row per closing leg,
  * all sharing the same IN. side is the POSITION's direction (the IN side), not
- * the close leg's. realized counts only the closing leg's profit + commission +
- * swap + fee: on this account opening legs carry zero commission, and charging
- * the IN leg to one of several partial closes would double-count it anyway.
+ * the close leg's. realized is the closing leg's profit + commission + swap +
+ * fee, PLUS the IN leg's commission/swap/fee charged to the position's FIRST
+ * closing leg only. Venues differ: Exness books commission on the close, The5ers
+ * on both legs (2026-08-31..09-04 the entry legs carried -212 of -239 total), and
+ * counting only the close leg reported EURUSD RSI fade at +72 when the venue said
+ * -113. Charging the IN cost once, on the first close, keeps a partially-closed
+ * position from paying it per partial.
  */
 export function dealClosedTrades(db: Db, f: AnalyticsFilter): DealClosedTrade[] {
   const cl = ["o.instance_id=@instanceId", "o.strategy_id=@strategyId", `o.entry IN ${OUT_LEGS}`, canonicalDeal("o")];
@@ -153,7 +157,13 @@ export function dealClosedTrades(db: Db, f: AnalyticsFilter): DealClosedTrade[] 
   const rows = db.prepare(
     `SELECT o.position_ticket orderId, o.symbol, o.side outSide, i.side inSide, o.qty,
             i.price entryPrice, o.price exitPrice, i.ts entryTs, o.ts ts,
-            o.profit + COALESCE(o.commission,0) + COALESCE(o.swap,0) + COALESCE(o.fee,0) realized,
+            o.profit + COALESCE(o.commission,0) + COALESCE(o.swap,0) + COALESCE(o.fee,0)
+              + CASE WHEN o.rowid = (
+                  SELECT f.rowid FROM deals f
+                  WHERE f.instance_id=o.instance_id AND f.position_ticket=o.position_ticket
+                    AND f.entry IN ${OUT_LEGS} AND ${canonicalDeal("f")}
+                  ORDER BY f.ts ASC, f.rowid ASC LIMIT 1)
+                THEN COALESCE(i.commission,0) + COALESCE(i.swap,0) + COALESCE(i.fee,0) ELSE 0 END realized,
             (SELECT eo.order_id FROM orders eo
               WHERE eo.instance_id=o.instance_id AND eo.broker_order_id=i.order_ticket
               ORDER BY eo.created_ts ASC LIMIT 1) entryOrderId,
@@ -672,13 +682,16 @@ export interface CostRow {
 export interface CostDecomposition { byMonth: CostRow[]; total: CostRow }
 
 /**
- * Gross-vs-cost decomposition per UTC month of the closing leg. Deals source
- * only — trade_closes rows carry realized with no cost split — so this is null
- * for paper instances; the payload's absence tells the UI why.
+ * Gross-vs-cost decomposition per UTC month of the leg that booked it. Deals
+ * source only — trade_closes rows carry realized with no cost split — so this is
+ * null for paper instances; the payload's absence tells the UI why. Every leg
+ * counts: a venue that books commission on the opening leg (The5ers) would
+ * otherwise show half its costs, and gross profit is unaffected because IN legs
+ * carry profit 0. `trades` counts closing legs only.
  */
 export function costDecomposition(db: Db, f: AnalyticsFilter): CostDecomposition | null {
   if (!hasClosingDeals(db, f)) return null;
-  const cl = ["instance_id=@instanceId", "strategy_id=@strategyId", `entry IN ${OUT_LEGS}`, canonicalDeal("deals")];
+  const cl = ["instance_id=@instanceId", "strategy_id=@strategyId", canonicalDeal("deals")];
   if (f.from != null) cl.push("ts>=@from");
   if (f.to != null) cl.push("ts<=@to");
   const rows = db.prepare(
@@ -688,7 +701,7 @@ export function costDecomposition(db: Db, f: AnalyticsFilter): CostDecomposition
             SUM(COALESCE(swap,0)) swap,
             SUM(COALESCE(fee,0)) fee,
             SUM(profit + COALESCE(commission,0) + COALESCE(swap,0) + COALESCE(fee,0)) net,
-            COUNT(*) trades
+            SUM(CASE WHEN entry IN ${OUT_LEGS} THEN 1 ELSE 0 END) trades
      FROM deals WHERE ${cl.join(" AND ")}
      GROUP BY key ORDER BY key ASC`,
   ).all(f) as CostRow[];
