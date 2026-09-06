@@ -1,6 +1,6 @@
 import { describe, it, expect } from "vitest";
 import {
-  openDb, ingestEvents, dealClosedTrades, strategyEquityCurve, performanceReport, dailyNets,
+  openDb, ingestEvents, dealClosedTrades, costDecomposition, strategyEquityCurve, performanceReport, dailyNets,
   drawdownPeriods, tradeBreakdowns, closedTrades, equityCurve, strategyStats, type Db,
 } from "../src/index.js";
 import type { Envelope } from "@qkt-insights/contract";
@@ -290,5 +290,44 @@ describe("engine order linking", () => {
       if (body.toUpperCase().startsWith("UPDATE")) db.exec(body + ";");
     }
     expect(db.prepare("SELECT broker_order_id b FROM orders WHERE order_id='eng-9'").get()).toMatchObject({ b: "999" });
+  });
+});
+
+describe("dealClosedTrades: entry-leg costs", () => {
+  /**
+   * A venue that books commission on BOTH legs (The5ers). pos 200: IN -0.5 commission, one OUT
+   * +10 with -0.5 commission -> realized 9.0, not 9.5. pos 201: IN -0.5, two partial closes
+   * (+4 -0.25, +3 -0.25) -> the IN cost lands once, on the first close: 3.25 then 2.75.
+   */
+  function bothLegs(): Db {
+    const db = openDb(":memory:");
+    seedStrategy(db, "hedge_straddle", 10000);
+    ingestEvents(db, "qkt-prod", [
+      dealEnv({ ticket: "20", positionTicket: "200", entry: "IN", side: "BUY", ts: T0, price: 4300, commission: -0.5 }),
+      dealEnv({ ticket: "21", positionTicket: "200", entry: "OUT", side: "SELL", ts: T0 + HOUR, price: 4310, profit: 10, commission: -0.5 }),
+      dealEnv({ ticket: "22", positionTicket: "201", entry: "IN", side: "BUY", ts: T0 + 2 * HOUR, price: 4300, qty: 0.02, commission: -0.5 }),
+      dealEnv({ ticket: "23", positionTicket: "201", entry: "OUT", side: "SELL", ts: T0 + 3 * HOUR, price: 4310, profit: 4, commission: -0.25 }),
+      dealEnv({ ticket: "24", positionTicket: "201", entry: "OUT", side: "SELL", ts: T0 + 4 * HOUR, price: 4312, profit: 3, commission: -0.25 }),
+    ]);
+    return db;
+  }
+  it("charges the IN leg's commission to the closing leg", () => {
+    const rows = dealClosedTrades(bothLegs(), F);
+    expect(rows.find((r) => r.orderId === "200")!.realized).toBeCloseTo(9.0);
+  });
+  it("charges the IN leg once across partial closes, on the first close", () => {
+    const partials = dealClosedTrades(bothLegs(), F).filter((r) => r.orderId === "201");
+    expect(partials.map((r) => r.realized)).toEqual([expect.closeTo(3.25, 5), expect.closeTo(2.75, 5)]);
+    expect(partials.reduce((a, r) => a + r.realized, 0)).toBeCloseTo(6.0);   // 7 gross - 1.0 total costs
+  });
+  it("leaves close-only venues unchanged", () => {
+    expect(dealClosedTrades(seeded(), F)[0]!.realized).toBeCloseTo(9.81);
+  });
+  it("costDecomposition counts the entry legs' costs, and only closing legs as trades", () => {
+    const c = costDecomposition(bothLegs(), F)!;
+    expect(c.total.commission).toBeCloseTo(-2.0);   // -0.5-0.5 and -0.5-0.25-0.25
+    expect(c.total.grossProfit).toBeCloseTo(17);
+    expect(c.total.net).toBeCloseTo(15);
+    expect(c.total.trades).toBe(3);
   });
 });
