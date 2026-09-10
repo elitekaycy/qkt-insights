@@ -1,7 +1,7 @@
 import type { ClosedTradeRow, ContributionRanking, CostDecomposition, DayNet, PerformanceReport } from "../api";
 import { money, num, pct } from "../format";
 import { CalendarView } from "./Calendar";
-import { Card, Cell, Empty, Panel, Row, Stat, Table } from "./ui";
+import { Cell, Empty, Panel, Row, Stat, Table } from "./ui";
 
 /** A closed position's direction, folding broker BUY/SELL and long/short labels to one axis. */
 function normalizedSide(side: string): "LONG" | "SHORT" {

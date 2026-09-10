@@ -113,7 +113,6 @@ export function DowHourHeatmap({ cells, height = 320 }: { cells: DowHourCell[]; 
  * net (bar) — the whisker always describes the per-trade mean.
  */
 export function HonestBucketBars({ rows, height = 260 }: { rows: BreakdownRow[]; height?: number }) {
-  const means = rows.map((r) => (r.trades > 0 ? r.net / r.trades : 0));
   const option: QktChartOption = {
     backgroundColor: "transparent",
     grid: qktChartGrid,
