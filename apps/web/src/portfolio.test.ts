@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 import type { StrategyRow } from "./api";
-import { logicalPortfolioId, portfolioGroupId, strategyDisplayName, summarizePortfolio } from "./portfolio";
+import { logicalPortfolioId, portfolioGroupId, strategyCapital, strategyDisplayName, summarizePortfolio } from "./portfolio";
 
 function child(
   strategyId: string,
@@ -13,6 +13,7 @@ function child(
     firstSeen: 1,
     lastSeen: strategyId === "book:a" ? 10 : 20,
     startingBalance: capital,
+    definedCapital: null,
     metadata: { portfolioId: "book", allocatedCapital: capital },
     realizedNet,
     dealCount,
@@ -76,6 +77,29 @@ describe("summarizePortfolio", () => {
     expect(summary.realizedPnl).toBe(120);
     expect(summary.openPnl).toBeNull();
     expect(summary.netPnl).toBeNull();
+  });
+});
+
+describe("strategyCapital", () => {
+  it("keeps the portfolio allocation ahead of a defined capital", () => {
+    const row = child("book:a", 100_000, null, 0);
+    row.definedCapital = 7_000;
+    expect(strategyCapital(row)).toEqual({ amount: 100_000, source: "portfolio allocation" });
+  });
+
+  it("uses the defined capital for a standalone strategy instead of the venue starting balance", () => {
+    const row = child("gold", 2_200_000, null, 0);
+    row.metadata = {};
+    row.definedCapital = 7_000;
+    expect(strategyCapital(row)).toEqual({ amount: 7_000, source: "defined" });
+  });
+
+  it("falls back to the starting balance, then to unknown", () => {
+    const row = child("gold", 2_200_000, null, 0);
+    row.metadata = null;
+    expect(strategyCapital(row)).toEqual({ amount: 2_200_000, source: "starting balance" });
+    row.startingBalance = null;
+    expect(strategyCapital(row)).toEqual({ amount: null, source: null });
   });
 });
 

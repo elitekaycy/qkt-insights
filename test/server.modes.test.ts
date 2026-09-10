@@ -27,3 +27,16 @@ describe("healthz", () => {
     expect(res.json()).toEqual({ ok: true, mode: "collect" });
   });
 });
+
+describe("STRATEGY_CAPITAL", () => {
+  it("refuses to start on a malformed capital map", async () => {
+    process.env.INSIGHTS_DB = ":memory:";
+    process.env.INGEST_TOKEN = "test-token";
+    process.env.STRATEGY_CAPITAL = '{"gold":-1}';
+    try {
+      await expect(buildServer("collect")).rejects.toThrow("STRATEGY_CAPITAL.gold must be a positive number");
+    } finally {
+      delete process.env.STRATEGY_CAPITAL;
+    }
+  });
+});

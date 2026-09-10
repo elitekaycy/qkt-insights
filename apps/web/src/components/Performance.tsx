@@ -1,6 +1,6 @@
 import { useState, type ReactNode } from "react";
 import type { ClosedTradeRow, DayNet, PerformanceBundle, PerformanceReport } from "../api";
-import { duration, money, num, tsShort } from "../format";
+import { duration, money, num, price, tsShort } from "../format";
 import { EChart, qktChartAxis, qktChartGrid, qktChartTooltip, qktInsideZoom, type QktChartOption } from "./EChart";
 import { BucketBoxplot, ContributionBars, CostStack } from "./EdgeCharts";
 import { Cell, DataList, Empty, Panel, Pill, Row, Select, Stat, Table, TimeCell, type Tone } from "./ui";
@@ -93,7 +93,7 @@ function CloseList({ rows, hint }: { rows: ClosedTradeRow[]; hint?: string }) {
                 <Pill tone={outcomeTone(c.realized)}>{outcomeLabel(c.realized)}</Pill>
               </Cell>
               <Cell className="font-mono">{c.qty}</Cell>
-              <Cell className="whitespace-nowrap font-mono text-muted">@ {c.price}</Cell>
+              <Cell className="whitespace-nowrap font-mono text-muted">@ {price(c.price)}</Cell>
               <Cell className={`font-mono font-semibold ${realizedClass(c.realized)}`}>{signedMoney(c.realized)}</Cell>
               <Cell className="font-mono text-muted">{c.entryTs != null ? duration(c.ts - c.entryTs) : "—"}</Cell>
             </>
@@ -107,7 +107,7 @@ function CloseList({ rows, hint }: { rows: ClosedTradeRow[]; hint?: string }) {
               </div>
               <div className="mt-1 flex items-center gap-2 font-mono text-xs text-faint">
                 <span className="whitespace-nowrap">
-                  {c.qty} @ {c.price}
+                  {c.qty} @ {price(c.price)}
                   {c.entryTs != null && ` · held ${duration(c.ts - c.entryTs)}`}
                 </span>
                 <span className="ml-auto whitespace-nowrap">{tsShort(c.ts)}</span>
@@ -522,10 +522,6 @@ const METRICS: { key: TradeMetric; label: string }[] = [
   { key: "avg", label: "Avg P&L" },
 ];
 
-function timeFmt(ms: number): string {
-  return new Date(ms).toLocaleString("en-GB", { month: "short", day: "2-digit", hour: "2-digit", minute: "2-digit" });
-}
-
 function sideKey(side: string): "long" | "short" {
   return side === "BUY" ? "long" : "short";
 }
@@ -605,12 +601,6 @@ function metricValue(r: GroupRow, metric: TradeMetric): number {
 
 function metricLabel(metric: TradeMetric): string {
   return METRICS.find((m) => m.key === metric)?.label ?? metric;
-}
-
-function metricText(value: number, metric: TradeMetric): string {
-  if (metric === "trades") return String(value);
-  if (metric === "winRate") return `${value.toFixed(1)}%`;
-  return money(value);
 }
 
 function TradeAnalysis({ bundle }: { bundle: PerformanceBundle }) {

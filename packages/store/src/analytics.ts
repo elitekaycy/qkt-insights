@@ -66,13 +66,33 @@ export interface PerformanceReport {
 
 interface SnapRow { ts: number; realized: number; equity: number }
 
+/**
+ * The money a strategy is measured against: the operator's declared capital
+ * (STRATEGY_CAPITAL) when set, else the starting balance the daemon reported.
+ */
+export function strategyBase(db: Db, f: { instanceId: string; strategyId: string }): number | null {
+  const row = db.prepare(
+    `SELECT COALESCE(
+       (SELECT capital FROM strategy_capital WHERE strategy_id=@strategyId),
+       (SELECT starting_balance FROM strategies WHERE instance_id=@instanceId AND strategy_id=@strategyId)) base`,
+  ).get({ instanceId: f.instanceId, strategyId: f.strategyId }) as { base: number | null };
+  return row.base;
+}
+
+/**
+ * A snapshot's equity rebuilt from its own ledger (bind @base = strategyBase ?? 0).
+ * The stored equity column is not trusted: under liveEquityBasis VENUE the daemon
+ * writes the whole account's equity into every strategy's snapshot.
+ */
+export const SNAPSHOT_EQUITY = "(@base + realized + unrealized)";
+
 function snapshots(db: Db, f: AnalyticsFilter): SnapRow[] {
   const cl = ["instance_id=@instanceId", "strategy_id=@strategyId"];
   if (f.from != null) cl.push("ts>=@from");
   if (f.to != null) cl.push("ts<=@to");
   return db.prepare(
-    `SELECT ts, realized, equity FROM equity_snapshots WHERE ${cl.join(" AND ")} ORDER BY ts ASC`,
-  ).all(f) as SnapRow[];
+    `SELECT ts, realized, ${SNAPSHOT_EQUITY} equity FROM equity_snapshots WHERE ${cl.join(" AND ")} ORDER BY ts ASC`,
+  ).all({ ...f, base: strategyBase(db, f) ?? 0 }) as SnapRow[];
 }
 
 /** Nonzero realized-P&L changes between consecutive snapshots — the approximate trade list. */
@@ -212,8 +232,7 @@ export function strategyEquityCurve(
 ): StrategyEquityPoint[] {
   const rows = closes(db, { instanceId: f.instanceId, strategyId: f.strategyId });
   if (rows.length === 0) return [];
-  const sb = (db.prepare("SELECT starting_balance sb FROM strategies WHERE instance_id=? AND strategy_id=?")
-    .get(f.instanceId, f.strategyId) as { sb: number | null } | undefined)?.sb ?? 0;
+  const sb = strategyBase(db, f) ?? 0;
   const pts: StrategyEquityPoint[] = [{ ts: rows[0]!.entryTs ?? rows[0]!.ts, equity: sb, realized: 0, unrealized: 0 }];
   let cum = 0;
   for (const r of rows) {
