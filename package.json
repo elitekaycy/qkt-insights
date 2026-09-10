@@ -18,7 +18,7 @@
     "build:web": "pnpm --filter @qkt-insights/web build",
     "build:all": "pnpm build && pnpm build:web",
     "test": "vitest run",
-    "lint": "eslint . --ext .ts",
+    "lint": "eslint .",
     "start": "node --env-file-if-exists=.env dist/src/server.js"
   },
   "devDependencies": {

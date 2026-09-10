@@ -53,12 +53,17 @@ root (`pnpm test`) or per package (`pnpm --filter <pkg> test`).
 
 ## 4. Deploy / env contract
 
-- CI (`.github/workflows/ci.yml`): test → docker-smoke (boots the prod
+- CI (`.github/workflows/ci.yml`): test (lint → build → vitest) → docker-smoke (boots the prod
   image, asserts `/healthz` returns `"ok":true`, exercises `/ingest` with a
   Bearer token expecting `"accepted":0`) → publish to GHCR
   (`ghcr.io/<repo>`, tags `sha-*`, `latest` on main, `v*`).
 - App port **8420**. Required runtime env: `INSIGHTS_DB`, `INGEST_TOKEN`,
   `ADMIN_USERNAME`, `ADMIN_PASSWORD`, `SESSION_SECRET` (≥32 chars).
+  Optional: `STRATEGY_CAPITAL` (JSON `strategyId -> capital`, the base for
+  standalone strategies; see `docs/operations/strategy-capital.md`),
+  `INSIGHTS_NAME`, `INSIGHTS_MONITORS` and the alert channels.
+- Release flow: feature branch → PR into `dev` → release PR `dev → main`;
+  the push to `main` publishes `:latest`, which bot2's forward-stack pulls.
 - A change to `/healthz` or `/ingest` response shapes breaks docker-smoke —
   update the workflow in the same PR.
 - Root `insights.db` is a real local database — never commit it, never

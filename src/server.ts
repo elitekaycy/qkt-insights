@@ -3,10 +3,11 @@ import argon2 from "argon2";
 import cookie from "@fastify/cookie";
 import websocket from "@fastify/websocket";
 import fastifyStatic from "@fastify/static";
-import { openDb, checkpoint, LiveBus, LiveStateStore, Monitors, pruneRetention, pruneStaleStrategies } from "@qkt-insights/store";
+import { openDb, checkpoint, LiveBus, LiveStateStore, Monitors, pruneRetention, pruneStaleStrategies, replaceStrategyCapital } from "@qkt-insights/store";
 import { registerCollector } from "@qkt-insights/collector";
 import { registerAuth, registerRest, registerLive, hasSession } from "@qkt-insights/api";
 import { channelsFromEnv, parseHttpMonitors, startMonitors } from "./monitors.js";
+import { parseStrategyCapital } from "./capital.js";
 import { existsSync, readFileSync } from "node:fs";
 import { join, dirname } from "node:path";
 import { fileURLToPath } from "node:url";
@@ -26,7 +27,9 @@ function env(name: string, fallback?: string): string {
 }
 
 export async function buildServer(mode: Mode) {
+  const capitals = parseStrategyCapital(process.env.STRATEGY_CAPITAL);
   const db = openDb(env("INSIGHTS_DB", "/data/insights.db"));
+  replaceStrategyCapital(db, capitals);
   const bus = new LiveBus();
   const liveState = new LiveStateStore();
   const monitors = new Monitors(db);

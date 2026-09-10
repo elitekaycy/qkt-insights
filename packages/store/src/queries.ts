@@ -1,5 +1,5 @@
 import type { Db } from "./db.js";
-import { closedTrades, hasClosingDeals, strategyEquityCurve, tradePnls, type StrategyEquityPoint } from "./analytics.js";
+import { closedTrades, hasClosingDeals, SNAPSHOT_EQUITY, strategyBase, strategyEquityCurve, tradePnls, type StrategyEquityPoint } from "./analytics.js";
 
 // A strategy stays "active" while its roster bump is within this window of the
 // instance's newest bump. Comfortably exceeds the state-poll cadence (~30s) times the
@@ -7,7 +7,7 @@ import { closedTrades, hasClosingDeals, strategyEquityCurve, tradePnls, type Str
 export const ROSTER_WINDOW_MS = 300_000;
 
 export interface InstanceRow { id: string; name: string | null; firstSeen: number; lastSeen: number; lastSeq: number; /** Collector clock; null only for rows older than the column. */ heardAt: number | null }
-export interface StrategyRow { strategyId: string; firstSeen: number; lastSeen: number; startingBalance: number | null; metadata: Record<string, unknown> | null; realizedNet: number | null; dealCount: number; active: boolean }
+export interface StrategyRow { strategyId: string; firstSeen: number; lastSeen: number; startingBalance: number | null; /** Operator-declared capital (STRATEGY_CAPITAL); wins over startingBalance as the strategy's base. */ definedCapital: number | null; metadata: Record<string, unknown> | null; realizedNet: number | null; dealCount: number; active: boolean }
 export interface OrderRow { orderId: string; strategyId: string | null; symbol: string | null; side: string | null; type: string | null; state: string; qty: number | null; cumQty: number; avgPrice: number | null; createdTs: number; updatedTs: number }
 export interface TradeRow { id: string; strategyId: string | null; ts: number; payload: unknown }
 export interface SearchHit { id: string; instanceId: string; type: string; ts: number; payload: unknown }
@@ -39,6 +39,7 @@ export function listStrategies(db: Db, instanceId: string): StrategyRow[] {
   // live roster has superseded, and reshard leftovers age out once un-bumped.
   const rows = db.prepare(
     `SELECT s.strategy_id strategyId, s.first_seen firstSeen, s.last_seen lastSeen, s.starting_balance startingBalance, s.metadata,
+       (SELECT c.capital FROM strategy_capital c WHERE c.strategy_id=s.strategy_id) definedCapital,
        CASE
          WHEN NOT EXISTS (SELECT 1 FROM instance_roster ir WHERE ir.instance_id=s.instance_id) THEN 1
          WHEN EXISTS (
@@ -126,24 +127,25 @@ export function equityCurve(
   if (f.to != null) cl.push("ts<=@to");
   const where = cl.join(" AND ");
   const points = Math.max(2, f.points ?? 1000);
+  const base = strategyBase(db, f) ?? 0;
 
   const span: any = db.prepare(
     `SELECT COUNT(*) n, MIN(ts) lo, MAX(ts) hi FROM equity_snapshots WHERE ${where}`,
   ).get(f);
   if (!span || span.n <= points) {
     return db.prepare(
-      `SELECT ts, equity, realized, unrealized FROM equity_snapshots WHERE ${where} ORDER BY ts ASC`,
-    ).all(f) as EquityPoint[];
+      `SELECT ts, ${SNAPSHOT_EQUITY} equity, realized, unrealized FROM equity_snapshots WHERE ${where} ORDER BY ts ASC`,
+    ).all({ ...f, base }) as EquityPoint[];
   }
 
   const bucket = Math.max(1, Math.ceil((span.hi - span.lo + 1) / points));
   return db.prepare(
-    `SELECT ts, equity, realized, unrealized FROM equity_snapshots
+    `SELECT ts, ${SNAPSHOT_EQUITY} equity, realized, unrealized FROM equity_snapshots
      WHERE ${where} AND ts IN (
        SELECT MAX(ts) FROM equity_snapshots WHERE ${where} GROUP BY CAST((ts - @lo) / @bucket AS INTEGER)
      )
      ORDER BY ts ASC`,
-  ).all({ ...f, lo: span.lo, bucket }) as EquityPoint[];
+  ).all({ ...f, base, lo: span.lo, bucket }) as EquityPoint[];
 }
 
 export function instanceHealth(db: Db): HealthRow[] {
@@ -403,9 +405,7 @@ export function strategyStats(db: Db, f: { instanceId: string; strategyId: strin
        AND COALESCE(e.strategy_id, (SELECT o.strategy_id FROM orders o
              WHERE o.instance_id=e.instance_id AND o.order_id=json_extract(e.payload,'$.orderId')))=@strategyId`,
   ).get(f);
-  const strat: any = db.prepare(
-    "SELECT starting_balance sb FROM strategies WHERE instance_id=@instanceId AND strategy_id=@strategyId",
-  ).get(f);
+  const base = strategyBase(db, f);
 
   // Closed trades: broker deals when polled, else the engine's trade.closed rows — so a live book
   // that trades without polled deals still shows realized P&L, equity and drawdown, not blanks.
@@ -414,8 +414,8 @@ export function strategyStats(db: Db, f: { instanceId: string; strategyId: strin
   const snaps = fromDeals
     ? strategyEquityCurve(db, f)
     : db.prepare(
-        "SELECT ts, equity, realized FROM equity_snapshots WHERE instance_id=@instanceId AND strategy_id=@strategyId ORDER BY ts ASC",
-      ).all(f) as { ts: number; equity: number; realized: number }[];
+        `SELECT ts, ${SNAPSHOT_EQUITY} equity, realized FROM equity_snapshots WHERE instance_id=@instanceId AND strategy_id=@strategyId ORDER BY ts ASC`,
+      ).all({ ...f, base: base ?? 0 }) as { ts: number; equity: number; realized: number }[];
 
   const pnls = fromDeals
     ? dealRows.map((c) => c.realized).filter((r) => r !== 0)
@@ -447,7 +447,7 @@ export function strategyStats(db: Db, f: { instanceId: string; strategyId: strin
 
   const last = snaps[snaps.length - 1];
   const snapsFresh = last != null && now - last.ts < 10 * 60_000;
-  const sb = fromDeals ? strat?.sb ?? null : snapsFresh ? strat?.sb ?? null : null;
+  const sb = fromDeals || snapsFresh ? base : null;
   const equity = fromDeals ? (sb ?? 0) + dealRealized : snapsFresh ? last!.equity : null;
   return {
     tradeCount: fromDeals ? dealRows.length : t?.c ?? 0,

@@ -6,7 +6,7 @@ import {
   Card, Cell, DataList, Loadable, LoadMore, PageHeader, Panel, Pill, RangeSelect, rangeStart, SearchInput, Select, SideTag, TimeCell,
   type RangeKey,
 } from "../components/ui";
-import { tsShort } from "../format";
+import { price, tsShort } from "../format";
 import { realizedLabel, useCloseMap } from "../useCloses";
 import { useLiveStream } from "../useLiveStream";
 
@@ -160,7 +160,7 @@ export default function Trades({ instanceId }: { instanceId: string | null }) {
                     </Cell>
                     <Cell className="font-mono text-muted">{d.entry ?? "—"}</Cell>
                     <Cell className="font-mono">{d.qty ?? "—"}</Cell>
-                    <Cell className="font-mono">{d.price ?? "—"}</Cell>
+                    <Cell className="font-mono">{price(d.price)}</Cell>
                     <Cell className={`font-mono font-semibold ${n > 0 ? "text-up" : n < 0 ? "text-down" : "text-muted"}`}>
                       {n > 0 ? "+" : ""}
                       {n.toFixed(2)}
@@ -184,7 +184,7 @@ export default function Trades({ instanceId }: { instanceId: string | null }) {
                     <div className="mt-1 flex items-center gap-2 text-xs text-faint">
                       <span className="min-w-0 truncate">{d.strategyId ?? "unattributed"}</span>
                       <span className="ml-auto shrink-0 whitespace-nowrap font-mono">
-                        {d.qty ?? "—"} @ {d.price ?? "—"} · {tsShort(d.ts)}
+                        {d.qty ?? "—"} @ {price(d.price)} · {tsShort(d.ts)}
                       </span>
                     </div>
                   </>
@@ -212,7 +212,7 @@ export default function Trades({ instanceId }: { instanceId: string | null }) {
                       <SideTag side={t.payload.side} />
                     </Cell>
                     <Cell className="font-mono">{t.payload.qty}</Cell>
-                    <Cell className="font-mono">{t.payload.price}</Cell>
+                    <Cell className="font-mono">{price(t.payload.price)}</Cell>
                     <Cell className={`font-mono ${r.className}`}>{r.text}</Cell>
                     <Cell className="font-mono text-xs text-faint">{t.payload.orderId}</Cell>
                   </>
@@ -230,7 +230,7 @@ export default function Trades({ instanceId }: { instanceId: string | null }) {
                     <div className="mt-1 flex items-center gap-2 text-xs text-faint">
                       <span className="min-w-0 truncate">{t.strategyId ?? "unattributed"}</span>
                       <span className="ml-auto shrink-0 whitespace-nowrap font-mono">
-                        {t.payload.qty} @ {t.payload.price} · {tsShort(t.ts)}
+                        {t.payload.qty} @ {price(t.payload.price)} · {tsShort(t.ts)}
                       </span>
                     </div>
                   </>

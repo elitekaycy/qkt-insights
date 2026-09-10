@@ -2,7 +2,7 @@ import { useState } from "react";
 import { useQueries, useQuery } from "@tanstack/react-query";
 import { get, type AccountEquityPoint, type DrawdownPeriod, type EquityPoint, type PerformanceBundle, type StrategyRow } from "../api";
 import { ComparisonChart, EquityChart, UnderwaterChart, type ComparisonSeries } from "../components/EquityChart";
-import { DataList, Card, Cell, Empty, Field, Loadable, Modal, PageHeader, Panel, Pill, Row, Select, Table } from "../components/ui";
+import { DataList, Card, Cell, Empty, Field, Loadable, Modal, PageHeader, Panel, Pill, Select } from "../components/ui";
 import { duration, human, money, tsDay } from "../format";
 
 const PALETTE = ["#c8f74a", "#5cb8ff", "#a78bfa", "#3fe08c", "#fbbf24", "#ff6b6b", "#f472b6", "#22d3ee"];
@@ -141,7 +141,7 @@ export default function Equity({ instanceId }: { instanceId: string | null }) {
         </Loadable>
       </Panel>
 
-      <div className="mt-5 grid grid-cols-1 gap-5 2xl:grid-cols-2">
+      <div className="mt-5 grid grid-cols-1 items-start gap-5 2xl:grid-cols-2">
         <Panel stagger={2} title="Underwater" hint="5 deepest drawdowns shaded on the curve, depth below" toolbar={ddSelect}>
           <Loadable
             loading={strategies.isPending || (focusIdx >= 0 && (curves[focusIdx]?.isPending ?? false))}

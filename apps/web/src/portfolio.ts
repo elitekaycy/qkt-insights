@@ -14,9 +14,22 @@ export interface PortfolioSummary {
   lastSeen: number;
 }
 
-function allocatedCapital(row: StrategyRow): number | null {
-  const value = row.metadata?.allocatedCapital;
-  return typeof value === "number" ? value : row.startingBalance;
+export interface StrategyCapital {
+  amount: number | null;
+  source: "portfolio allocation" | "defined" | "starting balance" | null;
+}
+
+/**
+ * The capital a strategy works out of: its portfolio allocation, else the
+ * operator-defined capital (STRATEGY_CAPITAL), else the daemon's starting
+ * balance — which for a standalone deploy is venue-scale, not the strategy's.
+ */
+export function strategyCapital(row: StrategyRow): StrategyCapital {
+  const allocated = row.metadata?.allocatedCapital;
+  if (typeof allocated === "number") return { amount: allocated, source: "portfolio allocation" };
+  if (row.definedCapital != null) return { amount: row.definedCapital, source: "defined" };
+  if (row.startingBalance != null) return { amount: row.startingBalance, source: "starting balance" };
+  return { amount: null, source: null };
 }
 
 function metaString(row: StrategyRow, key: string): string | null {
@@ -58,7 +71,7 @@ export function summarizePortfolio(
   openByStrategy: ReadonlyMap<string, number>,
   hasLiveState: boolean,
 ): PortfolioSummary {
-  const allocations = children.map(allocatedCapital);
+  const allocations = children.map((child) => strategyCapital(child).amount);
   const capital = allocations.every((value) => value != null)
     ? allocations.reduce<number>((sum, value) => sum + (value ?? 0), 0)
     : null;

@@ -1,5 +1,5 @@
 import { describe, it, expect } from "vitest";
-import { openDb, checkpoint } from "../src/db.js";
+import { openDb } from "../src/db.js";
 import { runMigrations } from "../src/migrations.js";
 import { ingestEvents, persistStateEvent, instanceHealth } from "../src/index.js";
 import type { Envelope } from "@qkt-insights/contract";

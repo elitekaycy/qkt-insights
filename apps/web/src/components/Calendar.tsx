@@ -1,6 +1,6 @@
 import { useMemo, useState } from "react";
 import type { DayNet, TradeRow, TradeView } from "../api";
-import { human, money, ts } from "../format";
+import { human, money, price, ts } from "../format";
 import { Cell, Empty, Field, IconButton, Modal, Panel, Pill, Row, SideTag, Table } from "./ui";
 
 /*
@@ -197,7 +197,7 @@ export function CalendarView({
                     <SideTag side={t.side} />
                   </Cell>
                   <Cell className="font-mono">{t.qty}</Cell>
-                  <Cell className="font-mono text-muted">@ {t.price}</Cell>
+                  <Cell className="font-mono text-muted">@ {price(t.price)}</Cell>
                 </Row>
               );
             })}

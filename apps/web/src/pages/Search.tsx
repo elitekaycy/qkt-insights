@@ -49,7 +49,7 @@ export default function Search({ instanceId }: { instanceId: string | null }) {
       </form>
 
       {q && (
-        <div className="mt-6 grid grid-cols-1 gap-5 xl:grid-cols-2">
+        <div className="mt-6 grid grid-cols-1 items-start gap-5 xl:grid-cols-2">
           <Panel stagger={0} title="Events" hint={`${eventHits.length} hits`} scroll="max-h-[30rem]">
             <Loadable loading={events.isPending} error={events.isError} retry={() => events.refetch()} what="event hits">
             <div className="p-2">

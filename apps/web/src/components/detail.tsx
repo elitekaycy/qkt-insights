@@ -1,6 +1,6 @@
 import { useQuery } from "@tanstack/react-query";
 import { get, type ClosedTradeRow, type EquityPoint, type OrderRow, type TradeRow } from "../api";
-import { duration, human, money, ts } from "../format";
+import { duration, human, money, price, ts } from "../format";
 import { Delta, Field, Modal, Pill, SideTag, STATE_TONE } from "./ui";
 
 /** Realized dollar result of the close matching this order, with the win/loss verdict. */
@@ -95,7 +95,7 @@ export function TradeDetail({
           <SideTag side={p.side} />
         </Field>
         <Field label="Quantity">{p.qty}</Field>
-        <Field label="Price">{p.price}</Field>
+        <Field label="Price">{price(p.price)}</Field>
         <Field label="Notional (qty × price)">{money(p.qty * p.price)}</Field>
         <Field label="Strategy">{trade.strategyId ?? "—"}</Field>
         <EquityFields instanceId={instanceId} strategyId={trade.strategyId} at={trade.ts} />
@@ -138,7 +138,7 @@ export function OrderDetail({
           {order.qty ?? "—"}
           <span className="ml-2 text-xs text-faint">{order.cumQty} filled</span>
         </Field>
-        <Field label="Avg fill price">{order.avgPrice ?? "—"}</Field>
+        <Field label="Avg fill price">{price(order.avgPrice)}</Field>
         <Field label="Notional (qty × avg px)">{notional != null ? money(notional) : "—"}</Field>
         <Field label="Strategy">{order.strategyId ?? "—"}</Field>
         <EquityFields instanceId={instanceId} strategyId={order.strategyId} at={order.updatedTs} />
