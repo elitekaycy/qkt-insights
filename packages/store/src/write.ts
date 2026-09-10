@@ -89,6 +89,15 @@ export function upsertRoster(db: Db, instanceId: string, strategyIds: string[], 
   })();
 }
 
+/** Replace the operator-declared capitals wholesale: a strategy dropped from the map falls back to its starting balance. */
+export function replaceStrategyCapital(db: Db, capitals: Record<string, number>): void {
+  const ins = db.prepare("INSERT INTO strategy_capital (strategy_id, capital) VALUES (?, ?)");
+  db.transaction(() => {
+    db.prepare("DELETE FROM strategy_capital").run();
+    for (const [strategyId, capital] of Object.entries(capitals)) ins.run(strategyId, capital);
+  })();
+}
+
 export function persistStateEvent(db: Db, instanceId: string, e: Envelope): void {
   if (e.type !== "state.positions") return;
   const p = e.payload;

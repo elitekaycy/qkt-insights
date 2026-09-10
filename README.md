@@ -110,6 +110,23 @@ It becomes the home-screen label and app name for that install, the browser-tab 
 and a tag on the login card and sidebar — so three installed dashboards are not three
 identical `qkt-insights` icons. Keep it short; home screens truncate past ~12 characters.
 
+## Strategy capital
+
+A portfolio child reports its allocation on `strategy.started`. A standalone deploy reports
+only the daemon's risk `startingBalance`, which is venue-scale — the whole account — so its
+return and drawdown would be measured against the account. Declare the capital each
+standalone strategy works out of, keyed by strategy id:
+
+```dotenv
+STRATEGY_CAPITAL={"gold_gaparmor_calm_v31":7000}
+```
+
+The declared capital becomes that strategy's base for return %, max drawdown, drawdown
+periods and its equity curve, and shows as its Capital on the Strategies pages. It is kept
+apart from the daemon's metadata, so a strategy restart does not wipe it; a portfolio
+allocation still wins where both exist. A change takes a container restart, and a malformed
+map refuses to start.
+
 ## Run modes
 
 One image, one entrypoint, three shapes — pick with the container command:
