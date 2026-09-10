@@ -3,9 +3,9 @@ import { get, type AccountDrawdownRow, type DayNet, type EquityPoint, type Healt
 import { AccountSummary } from "../components/AccountSummary";
 import type { ComparisonSeries } from "../components/EquityChart";
 import { OverviewDashboard } from "../components/OverviewDashboard";
-import { Card, Cell, DataList, Empty, FlashValue, LiveDot, Loadable, PageHeader, Panel, Pill, Row, SideTag, Stat, Table } from "../components/ui";
-import { age, duration, money, num } from "../format";
-import { strategyDisplayName } from "../portfolio";
+import { Card, Cell, DataList, Empty, FlashValue, LiveDot, Loadable, PageHeader, Panel, Pill, SideTag, Stat } from "../components/ui";
+import { age, duration, money, num, price } from "../format";
+import { strategyCapital, strategyDisplayName } from "../portfolio";
 import { useLiveState } from "../useLiveState";
 import { useLiveStream } from "../useLiveStream";
 
@@ -116,7 +116,7 @@ export default function Overview({
   const accountEquity = accounts.length > 0 ? accounts.reduce((a, x) => a + x.equity, 0) : null;
   const accountBalance = accounts.length > 0 ? accounts.reduce((a, x) => a + x.balance, 0) : null;
   const accountOpenPnl = accounts.length > 0 ? accounts.reduce((a, x) => a + (x.openProfit ?? 0), 0) : null;
-  const totalAllocated = rows.reduce((a, s) => a + (s.startingBalance ?? 0), 0);
+  const totalAllocated = rows.reduce((a, s) => a + (strategyCapital(s).amount ?? 0), 0);
   const combinedDaily = aggregateDaily(perf.flatMap((q) => q.data?.dailyNets ?? []));
   const combinedCloses = perf.flatMap((q) => q.data?.closes ?? []);
   const reports = perf.flatMap((q) => q.data?.report ? [q.data.report] : []);
@@ -237,8 +237,8 @@ export default function Overview({
                     <SideTag side={p.side} />
                   </Cell>
                   <Cell className="font-mono">{p.qty}</Cell>
-                  <Cell className="whitespace-nowrap font-mono text-muted">@ {p.entryPrice}</Cell>
-                  <Cell className="font-mono">{p.currentPrice ?? "—"}</Cell>
+                  <Cell className="whitespace-nowrap font-mono text-muted">@ {price(p.entryPrice)}</Cell>
+                  <Cell className="font-mono">{price(p.currentPrice)}</Cell>
                   <Cell className="text-muted">
                     <span title={p.openedAt ? new Date(p.openedAt).toISOString() : undefined}>
                       {p.openedAt ? duration(Date.now() - p.openedAt) : "—"}
@@ -275,7 +275,7 @@ export default function Overview({
                       {p.strategyId ? nameByStrategy.get(p.strategyId) ?? p.strategyId : "unattributed"}
                     </span>
                     <span className="ml-auto shrink-0 whitespace-nowrap font-mono">
-                      {p.qty} @ {p.entryPrice} · {p.openedAt ? duration(Date.now() - p.openedAt) : "—"}
+                      {p.qty} @ {price(p.entryPrice)} · {p.openedAt ? duration(Date.now() - p.openedAt) : "—"}
                     </span>
                   </div>
                 </>

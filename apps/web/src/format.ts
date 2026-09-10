@@ -21,6 +21,16 @@ export function money(v: number | null | undefined): string {
   return v.toLocaleString("en-US", { minimumFractionDigits: 2, maximumFractionDigits: 2 });
 }
 
+/**
+ * Instrument price without binary float noise the venue feed carries, e.g.
+ * 4414.869000000001 → "4414.869". Twelve significant digits keep every real
+ * digit an FX or metals quote has while dropping the representation error.
+ */
+export function price(v: number | null | undefined): string {
+  if (v == null) return "—";
+  return String(Number(v.toPrecision(12)));
+}
+
 /** Compact axis value; tooltips and tables continue to use full `money`. */
 export function compact(v: number): string {
   const abs = Math.abs(v);

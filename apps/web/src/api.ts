@@ -97,6 +97,8 @@ export interface StrategyRow {
   firstSeen: number;
   lastSeen: number;
   startingBalance: number | null;
+  /** Operator-declared capital (STRATEGY_CAPITAL); wins over startingBalance as the strategy's base. */
+  definedCapital: number | null;
   metadata: Record<string, unknown> | null;
   realizedNet: number | null;
   dealCount: number;

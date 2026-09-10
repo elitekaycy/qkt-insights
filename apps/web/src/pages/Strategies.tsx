@@ -7,14 +7,17 @@ import { EquityChart } from "../components/EquityChart";
 import { EdgeDetailPanels, PerformancePanels, TradeAnalysisPanels } from "../components/Performance";
 import { Sparkline } from "../components/Sparkline";
 import {
-  Card, Cell, DataList, Empty, Loadable, LoadMore, PageHeader, Panel, Pill, RangeSelect, rangeStart, ReturnPct, Row, SearchInput, Select, SideTag, Stat, Table, TimeCell,
+  Card, Cell, DataList, Empty, Field, IconButton, Loadable, LoadMore, Modal, PageHeader, Panel, Pill, RangeSelect, rangeStart, ReturnPct, Row, SearchInput, Select, SideTag, Stat, Table, TimeCell,
   type RangeKey,
 } from "../components/ui";
 import { LogLine } from "../components/LogLine";
-import { age, money, num, pct, tsShort } from "../format";
+import { age, money, num, pct, price, tsShort } from "../format";
 import { buildCloseMap } from "../useCloses";
 import { useLiveState } from "../useLiveState";
-import { physicalPortfolioId, portfolioGroupId, strategyDisplayName as displayName, summarizePortfolio } from "../portfolio";
+import { physicalPortfolioId, portfolioGroupId, strategyCapital, strategyDisplayName as displayName, summarizePortfolio } from "../portfolio";
+
+/** The strategy page keeps only the latest log lines; the Logs page holds the history. */
+const RECENT_LOGS = 7;
 
 /** Open P&L per strategy from the live broker positions of one instance, with a staleness flag. */
 function useOpenByStrategy(instanceId: string | null) {
@@ -40,11 +43,6 @@ function metaNumber(meta: Record<string, unknown> | null | undefined, key: strin
 function metaStringList(meta: Record<string, unknown> | null | undefined, key: string): string[] {
   const v = meta?.[key];
   return Array.isArray(v) ? v.filter((x): x is string => typeof x === "string") : [];
-}
-
-function sourceName(path: string | null): string | null {
-  if (!path) return null;
-  return path.split(/[\\/]/).filter(Boolean).pop() ?? path;
 }
 
 function portfolioId(row: StrategyRow): string | null {
@@ -320,7 +318,7 @@ function StrategyCard({
               ? "—"
               : `${net >= 0 ? "+" : "−"}${money(Math.abs(net))}`}
           </span>
-          <ReturnPct net={net} base={s.startingBalance} dim={liveStale} />
+          <ReturnPct net={net} base={strategyCapital(s).amount} dim={liveStale} />
         </div>
       </Card>
     </button>
@@ -360,11 +358,11 @@ function PortfolioDetail({
         sub={`${summary.childCount} child strategies · ${summary.dealCount} attributed deals`}
         right={<Pill tone="accent">portfolio</Pill>}
       />
-      <div className="mt-6 grid grid-cols-2 gap-3 md:grid-cols-3 xl:grid-cols-6">
+      <div className="mt-6 grid grid-cols-2 gap-3 md:grid-cols-3 xl:grid-cols-5">
         <Stat
           label="Allocated capital"
           value={money(summary.allocatedCapital)}
-          sub={`${summary.tradedCount}/${summary.childCount} sleeves traded`}
+          sub={`sum of child allocations · ${summary.tradedCount}/${summary.childCount} sleeves traded`}
         />
         <Stat
           label="Net P&L"
@@ -397,11 +395,6 @@ function PortfolioDetail({
           sub={live.stale ? "broker state stale" : "attributed positions"}
         />
         <Stat
-          label="Allocated capital"
-          value={money(summary.allocatedCapital)}
-          sub="sum of child allocations"
-        />
-        <Stat
           label="Broker account equity"
           value={money(account?.equity)}
           sub={
@@ -432,9 +425,7 @@ function PortfolioDetail({
               ]}
             >
               {children.map((child) => {
-                const allocation =
-                  metaNumber(child.metadata, "allocatedCapital") ??
-                  child.startingBalance;
+                const allocation = strategyCapital(child).amount;
                 const weight = metaNumber(child.metadata, "portfolioWeight");
                 const open =
                   live.open.get(child.strategyId) ?? (live.hasState ? 0 : null);
@@ -518,11 +509,11 @@ function StrategyDetail({ instanceId, strategyId, onBack }: { instanceId: string
   });
   const logs = useQuery({
     queryKey: ["logs", instanceId, strategyId],
-    queryFn: () => get<LogRow[]>(`/logs?${qs}&limit=500`),
+    queryFn: () => get<LogRow[]>(`/logs?${qs}&limit=${RECENT_LOGS}`),
     refetchInterval: 30_000,
   });
   const [tradeCap, setTradeCap] = useState(20);
-  const [logCap, setLogCap] = useState(20);
+  const [runtimeOpen, setRuntimeOpen] = useState(false);
   const [tradeQ, setTradeQ] = useState("");
   const [tradeSide, setTradeSide] = useState("");
   const [tradeSort, setTradeSort] = useState<"newest" | "oldest" | "qty" | "price" | "pnl">("newest");
@@ -551,11 +542,10 @@ function StrategyDetail({ instanceId, strategyId, onBack }: { instanceId: string
   const sourceHash = metaString(metadata, "sourceSha256");
   const parentPortfolio = metaString(metadata, "portfolioId");
   const parentAlias = metaString(metadata, "portfolioAlias");
-  const allocatedCapital = metaNumber(metadata, "allocatedCapital");
-  const portfolioWeight = metaNumber(metadata, "portfolioWeight");
   const streams = Array.isArray(metadata?.streams) ? metadata.streams as Array<Record<string, unknown>> : [];
 
   const s = stats.data;
+  const capital = row ? strategyCapital(row) : { amount: s?.startingBalance ?? null, source: null };
   const openPnl = live.open.get(strategyId) ?? (live.hasState ? 0 : null);
   const heroNet = s?.realizedPnl == null && openPnl == null ? null : (s?.realizedPnl ?? 0) + (openPnl ?? 0);
   // Closed trades rebuilt from broker deals (realized P&L built in) are the row
@@ -585,7 +575,12 @@ function StrategyDetail({ instanceId, strategyId, onBack }: { instanceId: string
       </button>
       <div className="mt-2 flex flex-wrap items-end justify-between gap-4">
         <div className="rise">
-          <h2 className="text-2xl font-extrabold tracking-tight text-bright" title={strategyId}>{row ? displayName(row) : strategyId}</h2>
+          <div className="flex items-center gap-2">
+            <h2 className="min-w-0 truncate text-2xl font-extrabold tracking-tight text-bright" title={strategyId}>{row ? displayName(row) : strategyId}</h2>
+            {metadata && (
+              <IconButton label="runtime details" onClick={() => setRuntimeOpen(true)} d="M15 3h6v6M9 21H3v-6M21 3l-7 7M3 21l7-7" />
+            )}
+          </div>
           <div className="mt-2 flex flex-wrap items-center gap-1.5">
             {parentPortfolio ? (
               <>
@@ -601,11 +596,11 @@ function StrategyDetail({ instanceId, strategyId, onBack }: { instanceId: string
             <span className={`font-mono text-4xl font-bold ${heroNet == null || live.stale ? "text-faint" : heroNet >= 0 ? "text-up" : "text-down"}`}>
               {heroNet == null ? "—" : `${heroNet >= 0 ? "+" : "−"}${money(Math.abs(heroNet))}`}
             </span>
-            <ReturnPct net={heroNet} base={s?.startingBalance} dim={live.stale} />
+            <ReturnPct net={heroNet} base={capital.amount} dim={live.stale} />
           </div>
           <div className="mt-1 text-[11px] font-semibold uppercase tracking-[0.08em] text-faint">net P&L · this strategy</div>
           <div className={`mt-1 text-xs ${live.stale ? "text-faint" : "text-muted"}`}>
-            realized {money(s?.realizedPnl)} · open {money(openPnl)} · notional {money(s?.startingBalance)}
+            realized {money(s?.realizedPnl)} · open {money(openPnl)}
           </div>
         </div>
         <div className="rise -mb-1 w-64">
@@ -648,7 +643,7 @@ function StrategyDetail({ instanceId, strategyId, onBack }: { instanceId: string
             {performance.data && (
               <CalendarView
                 days={performance.data.dailyNets}
-                startingBalance={s?.startingBalance ?? null}
+                startingBalance={capital.amount}
                 trades={tradeRows}
                 onTrade={setOpenTrade}
               />
@@ -662,90 +657,32 @@ function StrategyDetail({ instanceId, strategyId, onBack }: { instanceId: string
       <div className="mt-5">
         <Loadable loading={stats.isPending} error={stats.isError} retry={() => stats.refetch()} what="strategy stats" lines={2}>
       <div className="grid grid-cols-2 gap-3 md:grid-cols-3 xl:grid-cols-6">
+        <Stat label="Capital" value={money(capital.amount)} sub={capital.source ?? undefined} stagger={0} />
         <Stat
           label="Realized PnL"
           value={money(s?.realizedPnl)}
           tone={s?.realizedPnl == null ? "neutral" : s.realizedPnl >= 0 ? "up" : "down"}
-          stagger={0}
+          stagger={1}
         />
-        <Stat label="Sharpe" value={num(s?.sharpe)} stagger={1} />
-        <Stat label="Win rate" value={pct(s?.winRate)} stagger={2} />
-        <Stat label="Max drawdown" value={pct(s?.maxDrawdownPct)} tone={s?.maxDrawdownPct ? "down" : "neutral"} stagger={3} />
+        <Stat label="Sharpe" value={num(s?.sharpe)} stagger={2} />
+        <Stat label="Win rate" value={pct(s?.winRate)} stagger={3} />
+        <Stat label="Max drawdown" value={pct(s?.maxDrawdownPct)} tone={s?.maxDrawdownPct ? "down" : "neutral"} stagger={4} />
         <Stat
           label="Trades"
           value={String(s?.tradeCount ?? "—")}
-          sub={s ? `${s.buyCount} buys · ${s.sellCount} sells` : undefined}
-          stagger={4}
+          sub={s ? `${s.buyCount} buys · ${s.sellCount} sells · vol ${num(s.volume)}` : undefined}
+          stagger={5}
         />
-        <Stat label="Volume" value={num(s?.volume)} stagger={5} />
       </div>
         </Loadable>
       </div>
 
-      {metadata && (
-        <Panel className="mt-6" stagger={1} title="Runtime" hint="from latest strategy.started event">
-          <Table head={["Field", "Value"]}>
-            <Row>
-              <Cell className="text-muted">Mode</Cell>
-              <Cell className="font-mono">{metaString(metadata, "runtimeMode") ?? "—"}</Cell>
-            </Row>
-            <Row>
-              <Cell className="text-muted">Role</Cell>
-              <Cell className="font-mono">{parentPortfolio ? "portfolio child" : "standalone"}</Cell>
-            </Row>
-            {parentPortfolio && (
-              <Row>
-                <Cell className="text-muted">Portfolio</Cell>
-                <Cell className="font-mono">
-                  {parentPortfolio}{parentAlias ? ` / ${parentAlias}` : ""}
-                </Cell>
-              </Row>
-            )}
-            {parentPortfolio && (
-              <Row>
-                <Cell className="text-muted">Allocation</Cell>
-                <Cell className="font-mono">
-                  {allocatedCapital == null ? "—" : money(allocatedCapital)}{portfolioWeight == null ? "" : ` · ${(portfolioWeight * 100).toFixed(2)}%`}
-                </Cell>
-              </Row>
-            )}
-            <Row>
-              <Cell className="text-muted">DSL version</Cell>
-              <Cell className="font-mono">{metaNumber(metadata, "dslVersion") ?? "—"}</Cell>
-            </Row>
-            <Row>
-              <Cell className="text-muted">Source</Cell>
-              <Cell className="font-mono">
-                <span title={sourcePath ?? undefined}>{sourceName(sourcePath) ?? "—"}</span>
-              </Cell>
-            </Row>
-            <Row>
-              <Cell className="text-muted">Source hash</Cell>
-              <Cell className="font-mono">
-                <span title={sourceHash ?? undefined}>{sourceHash ? sourceHash.slice(0, 12) : "—"}</span>
-              </Cell>
-            </Row>
-            <Row>
-              <Cell className="text-muted">Brokers</Cell>
-              <Cell className="font-mono">{metaStringList(metadata, "brokers").join(", ") || "paper"}</Cell>
-            </Row>
-            <Row>
-              <Cell className="text-muted">Symbols</Cell>
-              <Cell className="font-mono">{metaStringList(metadata, "symbols").join(", ") || "—"}</Cell>
-            </Row>
-            <Row>
-              <Cell className="text-muted">Streams</Cell>
-              <Cell className="font-mono">
-                {streams.length === 0
-                  ? "—"
-                  : streams.map((s) => `${String(s.alias ?? "?")}:${String(s.qktSymbol ?? s.symbol ?? "?")}@${String(s.timeframe ?? "?")}`).join(", ")}
-              </Cell>
-            </Row>
-          </Table>
-        </Panel>
-      )}
-
-      <Panel className="mt-6" stagger={2} title="Equity" hint="broker deals when available, ledger snapshots otherwise">
+      <Panel
+        className="mt-6"
+        stagger={2}
+        title="Equity"
+        hint="this strategy's capital plus its own P&L — not the shared account equity"
+      >
         <Loadable loading={equity.isPending} error={equity.isError} retry={() => equity.refetch()} what="the equity curve" lines={4}>
           <div className="p-4">
             <EquityChart points={equity.data ?? []} />
@@ -753,7 +690,8 @@ function StrategyDetail({ instanceId, strategyId, onBack }: { instanceId: string
         </Loadable>
       </Panel>
 
-      <div className="mt-6 grid grid-cols-1 gap-6 2xl:grid-cols-2">
+      {/* items-start: each list sizes to its own rows instead of stretching to its neighbour */}
+      <div className="mt-6 grid grid-cols-1 items-start gap-6 2xl:grid-cols-2">
         <Panel
           stagger={3}
           title="Trades"
@@ -807,7 +745,7 @@ function StrategyDetail({ instanceId, strategyId, onBack }: { instanceId: string
                     <SideTag side={t.side} />
                   </Cell>
                   <Cell className="font-mono">{t.qty}</Cell>
-                  <Cell className="whitespace-nowrap font-mono text-muted">@ {t.price}</Cell>
+                  <Cell className="whitespace-nowrap font-mono text-muted">@ {price(t.price)}</Cell>
                   <Cell className={`font-mono font-semibold ${realizedTone(r)}`}>{r == null ? "—" : `${r > 0 ? "+" : ""}${r.toFixed(2)}`}</Cell>
                 </>
               );
@@ -825,7 +763,7 @@ function StrategyDetail({ instanceId, strategyId, onBack }: { instanceId: string
                   </div>
                   <div className="mt-1 flex items-center gap-2 font-mono text-xs text-faint">
                     <span className="whitespace-nowrap">
-                      {t.qty} @ {t.price}
+                      {t.qty} @ {price(t.price)}
                     </span>
                     <span className="ml-auto whitespace-nowrap">{tsShort(t.ts)}</span>
                   </div>
@@ -837,15 +775,14 @@ function StrategyDetail({ instanceId, strategyId, onBack }: { instanceId: string
           </Loadable>
         </Panel>
 
-        <Panel stagger={4} title="Recent logs">
+        <Panel stagger={4} title="Recent logs" hint={`latest ${RECENT_LOGS} · full history on Logs`}>
           <Loadable loading={logs.isPending} error={logs.isError} retry={() => logs.refetch()} what="logs">
           <div className="p-2">
-            {logRows.slice(0, logCap).map((l) => (
+            {logRows.map((l) => (
               <LogLine key={l.id} log={l} showStrategy={false} />
             ))}
             {logRows.length === 0 && <Empty>No logs yet</Empty>}
           </div>
-          <LoadMore shown={Math.min(logCap, logRows.length)} total={logRows.length} onMore={() => setLogCap((c) => c + 20)} />
           </Loadable>
         </Panel>
       </div>
@@ -853,6 +790,23 @@ function StrategyDetail({ instanceId, strategyId, onBack }: { instanceId: string
       )}
 
       <TradeDetail trade={openTrade} instanceId={instanceId} onClose={() => setOpenTrade(null)} close={openTrade ? closeByOrder.get(openTrade.payload.orderId) : null} />
+
+      {metadata && (
+        <Modal open={runtimeOpen} onClose={() => setRuntimeOpen(false)} title="Runtime" hint="from latest strategy.started event" width="min(94vw, 760px)">
+          <div className="grid grid-cols-1 gap-3 p-4 sm:grid-cols-2 sm:p-5">
+            <Field label="Mode">{metaString(metadata, "runtimeMode") ?? "—"}</Field>
+            <Field label="DSL version">{metaNumber(metadata, "dslVersion") ?? "—"}</Field>
+            <Field label="Source" wide>{sourcePath ?? "—"}</Field>
+            <Field label="Source hash" wide>{sourceHash ?? "—"}</Field>
+            <Field label="Symbols" wide>{metaStringList(metadata, "symbols").join(", ") || "—"}</Field>
+            <Field label="Streams" wide>
+              {streams.length === 0
+                ? "—"
+                : streams.map((st) => `${String(st.alias ?? "?")}:${String(st.qktSymbol ?? st.symbol ?? "?")}@${String(st.timeframe ?? "?")}`).join(", ")}
+            </Field>
+          </div>
+        </Modal>
+      )}
     </div>
   );
 }
