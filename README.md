@@ -35,7 +35,7 @@ InsightsSink   POST /ingest             single writer, one file
 
 - **Health** — every reporting instance, last-event age, sequence position, sink counters, journal backlog, live/idle status.
 - **Uptime** — a heartbeat monitor per daemon and HTTP probes for anything else on the box (the MT5 gateway, with `mt5_status: connected` asserted); 24h strip, uptime %, incident timeline, and a Telegram/webhook alert on every down and recovery. A dead-man ping tells an outside service the collector itself is alive.
-- **Strategies** — per-strategy drill-down: equity chart, Sharpe, win rate, max drawdown, return, trades, recent logs.
+- **Strategies** — per-strategy drill-down against the strategy's own capital: its equity curve (never the shared account), Sharpe, win rate, max drawdown, return, trades, the latest logs, and the deploy's runtime details one click from the name.
 - **Trades** — every fill, filterable by strategy and symbol.
 - **Logs** — engine logs shipped from qkt with level filters, full-text search, and a live tail.
 - **Search** — FTS5 full-text search across all events and logs: symbols, order ids, halt reasons, log text.
@@ -118,14 +118,15 @@ return and drawdown would be measured against the account. Declare the capital e
 standalone strategy works out of, keyed by strategy id:
 
 ```dotenv
-STRATEGY_CAPITAL={"gold_gaparmor_calm_v31":7000}
+STRATEGY_CAPITAL={"gold_gaparmor_calm_v31":5000}
 ```
 
 The declared capital becomes that strategy's base for return %, max drawdown, drawdown
 periods and its equity curve, and shows as its Capital on the Strategies pages. It is kept
 apart from the daemon's metadata, so a strategy restart does not wipe it; a portfolio
 allocation still wins where both exist. A change takes a container restart, and a malformed
-map refuses to start.
+map refuses to start. How the base is resolved, how the equity curve is built, and the value
+each box runs are in [`docs/operations/strategy-capital.md`](docs/operations/strategy-capital.md).
 
 ## Run modes
 
