@@ -494,6 +494,8 @@ export interface ShareState {
   effective: boolean;
   /** Present only while the subject is public. */
   token: string | null;
+  /** Views of this subject's links within the viewership retention window. */
+  views: number;
 }
 
 export interface SharesView {
@@ -527,4 +529,56 @@ export function rotateShareLink(instance: string, kind: ShareKind, subject: stri
 
 export function shareUrl(token: string): string {
   return `${location.origin}/p/${token}`;
+}
+
+export interface ViewBreakdown { key: string | null; views: number }
+export interface ViewDay { day: string; views: number; visitors: number }
+
+export interface ViewSummary {
+  views: number;
+  visitors: number;
+  links: Array<{ kind: ShareKind; subject: string; views: number; visitors: number }>;
+  pages: ViewBreakdown[];
+  strategies: ViewBreakdown[];
+  browsers: ViewBreakdown[];
+  os: ViewBreakdown[];
+  devices: ViewBreakdown[];
+  countries: ViewBreakdown[];
+  referrers: ViewBreakdown[];
+  languages: ViewBreakdown[];
+  daily: ViewDay[];
+}
+
+export interface ViewRow {
+  ts: number;
+  kind: ShareKind;
+  subject: string;
+  page: string;
+  strategyId: string | null;
+  visitor: string;
+  browser: string | null;
+  os: string | null;
+  device: string | null;
+  country: string | null;
+  referrer: string | null;
+  language: string | null;
+}
+
+/**
+ * Reports a page view from a shared link. Fire and forget: a lost beacon only undercounts. The
+ * referrer is reduced to the referring site's host before it leaves the browser.
+ */
+export function reportPublicView(page: string, strategy?: string | null): void {
+  if (!apiBase.startsWith("/public/")) return;
+  let referrer: string | undefined;
+  try {
+    const host = document.referrer ? new URL(document.referrer).host : "";
+    if (host && host !== location.host) referrer = host;
+  } catch {
+    referrer = undefined;
+  }
+  const body = JSON.stringify({ page, ...(strategy ? { strategy } : {}), ...(referrer ? { referrer } : {}) });
+  const url = `${apiBase}/view`;
+  const sent = typeof navigator.sendBeacon === "function" && navigator.sendBeacon(url, new Blob([body], { type: "application/json" }));
+  if (!sent) void fetch(url, { method: "POST", headers: { "content-type": "application/json" }, body, keepalive: true }).catch(() => undefined);
 }

@@ -2,7 +2,7 @@ import { createHash } from "node:crypto";
 import type { FastifyInstance, FastifyReply, FastifyRequest } from "fastify";
 import {
   accountDrawdown, accountEquity, closedTrades, fullyClosedPositions, listDeals, listStrategyRoster, listTrades, openPositionsAt, portfolioGroupOf,
-  resolveVisibility, strategyEquityCurve, strategyStats, type Db, type LiveStateStore, type ShareKind, type ShareRow, type Shares, type StrategyRow,
+  resolveVisibility, strategyEquityCurve, strategyStats, type Db, type LiveStateStore, type ShareKind, type ShareRow, type Shares, type StrategyRow, type Views,
 } from "@qkt-insights/store";
 import { isSameOrigin, requireSession } from "./auth.js";
 import type { TtlCache } from "./cache.js";
@@ -34,9 +34,11 @@ export interface SharesDeps {
   shares: Shares;
   /** Shared with the public routes; cleared on every change so a revoked link dies at once. */
   cache: TtlCache;
+  /** When present, each subject's state carries its view count. */
+  views?: Views;
 }
 
-interface ShareState { visibility: "public" | "private" | null; effective: boolean; token: string | null }
+interface ShareState { visibility: "public" | "private" | null; effective: boolean; token: string | null; views: number }
 
 function isEffective(vis: ReturnType<typeof resolveVisibility>, row: Pick<ShareRow, "kind" | "subject">): boolean {
   if (row.kind === "overview") return vis.overview;
@@ -67,16 +69,18 @@ export function sweepHiddenShares(db: Db, shares: Shares): number {
   return shares.instancesWithExposedLinks().reduce((n, id) => n + revokeHiddenShares(db, shares, id), 0);
 }
 
-function sharesView(db: Db, shares: Shares, instanceId: string) {
+function sharesView(db: Db, shares: Shares, instanceId: string, views?: Views) {
   revokeHiddenShares(db, shares, instanceId);
   const roster = listStrategyRoster(db, instanceId);
   const rows = shares.list(instanceId);
   const vis = resolveVisibility(rows, roster);
+  const counts = views?.countsBySubject(instanceId) ?? new Map<string, number>();
   const state = (kind: ShareKind, subject: string, effective: boolean): ShareState => ({
     visibility: rows.find((r) => r.kind === kind && r.subject === subject)?.visibility ?? null,
     effective,
     // A link exists only for what is public now; a private subject hands out no token.
     token: effective ? shares.expose(instanceId, kind, subject) : null,
+    views: counts.get(`${kind}:${subject}`) ?? 0,
   });
   return {
     overview: state("overview", "", vis.overview),
@@ -114,7 +118,7 @@ export function registerShares(app: FastifyInstance, deps: SharesDeps): void {
 
   app.get<{ Querystring: { instance?: string } }>("/shares", guard, async (req, reply) => {
     if (!req.query.instance) return reply.code(400).send({ error: "instance required" });
-    return sharesView(deps.db, deps.shares, req.query.instance);
+    return sharesView(deps.db, deps.shares, req.query.instance, deps.views);
   });
 
   const mutate = (apply: (body: ShareBody) => void) => async (req: FastifyRequest<{ Body: ShareBody }>, reply: FastifyReply) => {
@@ -125,7 +129,7 @@ export function registerShares(app: FastifyInstance, deps: SharesDeps): void {
     // replaced before the view is built.
     revokeHiddenShares(deps.db, deps.shares, req.body.instance);
     invalidateShareScopes(deps.cache);
-    return sharesView(deps.db, deps.shares, req.body.instance);
+    return sharesView(deps.db, deps.shares, req.body.instance, deps.views);
   };
 
   app.put<{ Body: ShareBody }>("/shares", { ...guard, schema: { body: { ...ShareSubject, required: [...ShareSubject.required, "visibility"] } } }, mutate((b) => {
@@ -152,6 +156,8 @@ export interface PublicDeps {
   computeBudgetPerMinute?: number;
   /** Milliseconds of computation per minute for one link. */
   computeMsPerMinute?: number;
+  /** When present, shared pages can report views through POST /public/:token/view. */
+  views?: Views;
 }
 
 interface Scope {
@@ -225,6 +231,41 @@ const INCLUDABLE = new Set(["report", "dailyNets", "drawdownPeriods", "postLoss"
 
 const NOT_FOUND = Symbol("not found");
 
+/** The pages each kind of link renders; a view beacon naming any other page is refused. */
+const PAGES_BY_KIND: Record<ShareKind, string[]> = {
+  overview: ["overview", "equity", "strategies", "edge", "trades", "strategy", "portfolio"],
+  portfolio: ["portfolio", "strategy"],
+  strategy: ["strategy"],
+};
+
+const ViewBody = {
+  type: "object",
+  required: ["page"],
+  additionalProperties: false,
+  properties: {
+    page: { type: "string", maxLength: 32 },
+    strategy: { type: "string", maxLength: 256 },
+    referrer: { type: "string", maxLength: 253 },
+  },
+} as const;
+
+/** Cloudflare's two-letter country when the dashboard sits behind it; its unknown and Tor codes are dropped. */
+function countryOf(header: unknown): string | null {
+  return typeof header === "string" && /^[A-Z]{2}$/.test(header) && header !== "XX" && header !== "T1" ? header : null;
+}
+
+/** The referring site's host as the page reported it; anything that is not a plain host is dropped. */
+function referrerHost(value: string | undefined, ownHost: string | undefined): string | null {
+  const host = value?.trim().toLowerCase();
+  if (!host || !/^[a-z0-9]([a-z0-9-]*[a-z0-9])?(\.[a-z0-9]([a-z0-9-]*[a-z0-9])?)*(:\d{1,5})?$/.test(host)) return null;
+  return host === ownHost?.toLowerCase() ? null : host;
+}
+
+function languageOf(header: unknown): string | null {
+  const first = typeof header === "string" ? header.split(",")[0]?.split(";")[0]?.trim() : undefined;
+  return first && /^[a-zA-Z]{2,3}(-[a-zA-Z0-9]{2,8})?$/.test(first) ? first : null;
+}
+
 interface Route<P> {
   /** Reduces the query to the few values that change the answer; they alone form the cache key. */
   params: (q: Query, scope: Scope, cutoff: number) => P | typeof NOT_FOUND;
@@ -295,6 +336,37 @@ export function registerPublic(app: FastifyInstance, deps: PublicDeps): void {
       return reply.send(r.present ? r.present(value, req.query) : value);
     });
   };
+
+  const views = deps.views;
+  if (views) {
+    app.post<{ Params: { token: string }; Body: { page: string; strategy?: string; referrer?: string } }>(
+      "/public/:token/view",
+      { bodyLimit: 1024, schema: { body: ViewBody } },
+      async (req, reply) => {
+        reply.header("x-robots-tag", "noindex, nofollow");
+        if (!budget.hit(req.ip)) return reply.code(429).header("retry-after", 60).send({ error: "too many requests" });
+        const share = deps.shares.byToken(req.params.token);
+        if (!share) return reply.code(404).send({ error: "not found" });
+        const cutoff = now() - deps.delayMs;
+        const scope = await deps.cache.get(`${SCOPE_KEY}${share.token}`, () => resolveScope(deps.db, deps.shares, share, cutoff));
+        if (!scope) return reply.code(404).send({ error: "not found" });
+        if (!PAGES_BY_KIND[share.kind].includes(req.body.page)) return reply.code(400).send({ error: "page not shown by this link" });
+        views.record({
+          instanceId: share.instanceId,
+          kind: share.kind,
+          subject: share.subject,
+          page: req.body.page,
+          strategyId: req.body.strategy != null && scope.allowed.has(req.body.strategy) ? req.body.strategy : null,
+          ip: req.ip,
+          userAgent: String(req.headers["user-agent"] ?? "").slice(0, 512),
+          country: countryOf(req.headers["cf-ipcountry"]),
+          referrer: referrerHost(req.body.referrer, req.headers.host),
+          language: languageOf(req.headers["accept-language"]),
+        }, now());
+        return reply.code(204).send();
+      },
+    );
+  }
 
   const strategyOf = (q: Query, scope: Scope): string | typeof NOT_FOUND => {
     const id = text(q.strategy);

@@ -1,4 +1,5 @@
 import type { Database } from "better-sqlite3";
+import { VIEW_RETENTION_DAYS } from "./views.js";
 
 /** Days of operational history kept before the weekly prune. Trade events (the analytics source of
  * truth) and marks for still-open positions are exempt regardless of age. */
@@ -15,6 +16,8 @@ export interface RetentionResult {
   valuations: number;
   /** monitor_minutes rollups and superseded monitor_events removed. */
   monitors: number;
+  /** shared-link page views older than VIEW_RETENTION_DAYS removed. */
+  views: number;
 }
 
 /** Delete operational history older than `retentionDays`, preserving everything the dashboards
@@ -57,7 +60,10 @@ export function pruneRetention(db: Database, now: number, retentionDays = RETENT
         `DELETE FROM monitor_events WHERE ts < ? AND ts < (SELECT MAX(ts) FROM monitor_events e WHERE e.monitor = monitor_events.monitor)`,
       ).run(cutoff).changes;
 
-    return { logs, events, valuations, monitors };
+    // Views keep their own, longer window: audience trends are read over months.
+    const views = db.prepare("DELETE FROM share_views WHERE ts < ?").run(now - VIEW_RETENTION_DAYS * DAY_MS).changes;
+
+    return { logs, events, valuations, monitors, views };
   })();
 }
 

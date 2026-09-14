@@ -1,6 +1,6 @@
 /** Sidebar chrome shared by the signed-in dashboard and the shared-link view. */
 
-export type Page = "overview" | "health" | "strategies" | "edge" | "trades" | "equity" | "logs" | "search";
+export type Page = "overview" | "health" | "strategies" | "edge" | "trades" | "equity" | "logs" | "search" | "viewership";
 
 export const ICONS: Record<Page, string> = {
   overview: "M3 13h5v8H3zM10 7h5v14h-5zM17 3h5v18h-5z",
@@ -11,6 +11,7 @@ export const ICONS: Record<Page, string> = {
   equity: "M3 3v18h18M8 15l4-6 4 3 4-7",
   logs: "M5 4h14M5 9h14M5 14h9M5 19h6",
   search: "M11 19a8 8 0 1 0 0-16 8 8 0 0 0 0 16zM21 21l-4.35-4.35",
+  viewership: "M1 12s4-7 11-7 11 7 11 7-4 7-11 7S1 12 1 12zM12 15a3 3 0 1 0 0-6 3 3 0 0 0 0 6z",
 };
 
 export function NavIcon({ d, big }: { d: string; big?: boolean }) {

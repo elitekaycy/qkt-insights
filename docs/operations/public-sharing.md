@@ -48,6 +48,23 @@ a shared link.
   is replaced, so making it public again gives a new link rather than reviving the old one.
 - **Keep sharing, cut off current holders:** regenerate. Send the new link to whoever should keep access.
 
+## Who is viewing
+
+Open **Audience → Viewership**. It shows views and unique visitors per day, and which links,
+pages and strategies people opened. It also breaks views down by browser, system, device,
+country, referring site and language, with a searchable list of recent views. Each share
+control shows its own link's view count.
+
+- **Privacy:** no cookies and no IP addresses are stored. A visitor is a daily-rotating hash,
+  so unique visitors are counted per UTC day.
+- **What counts:** repeat opens of the same page within 30 minutes count once. Crawlers and
+  clients that do not run JavaScript are not counted.
+- **Country** needs Cloudflare in front of the hostname (its `CF-IPCountry` header).
+  Without it, country shows as unknown.
+- **Retention:** views are kept 90 days.
+
+Design: `docs/specs/2026-09-15-viewership-design.md`.
+
 ## Settings
 
 | Variable | Default | Meaning |

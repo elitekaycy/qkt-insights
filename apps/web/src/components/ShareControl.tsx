@@ -64,6 +64,11 @@ export function ShareControl({ instanceId, kind, subject = "" }: { instanceId: s
 
   return (
     <div className="flex items-center gap-1.5">
+      {state.views > 0 && (
+        <span className="px-1 font-mono text-xs text-muted" title="views of this link in the last 90 days, details on Viewership">
+          {state.views} {state.views === 1 ? "view" : "views"}
+        </span>
+      )}
       <button
         type="button"
         disabled={busy}

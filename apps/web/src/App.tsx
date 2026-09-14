@@ -11,6 +11,7 @@ import Logs from "./pages/Logs";
 import Search from "./pages/Search";
 import Equity from "./pages/Equity";
 import { Edge } from "./pages/Edge";
+import Viewership from "./pages/Viewership";
 import { InstallApp } from "./components/InstallApp";
 import { Drawer } from "./components/Drawer";
 import { useBrand } from "./useBrand";
@@ -36,6 +37,7 @@ const PER_INSTANCE: { section: string; items: { key: Page; label: string }[] }[]
       { key: "trades", label: "Trades" },
     ],
   },
+  { section: "Audience", items: [{ key: "viewership", label: "Viewership" }] },
   {
     section: "Monitor",
     items: [
@@ -284,6 +286,7 @@ export default function App() {
       {page === "equity" && <Equity instanceId={selected} />}
       {page === "logs" && <Logs instanceId={selected} />}
       {page === "search" && <Search instanceId={selected} />}
+      {page === "viewership" && <Viewership instanceId={selected} />}
     </div>
   );
 

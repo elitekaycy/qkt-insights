@@ -9,12 +9,13 @@ import {
 import { price, tsShort } from "../format";
 import { realizedLabel, useCloseMap } from "../useCloses";
 import { useLiveStream } from "../useLiveStream";
-import { useView } from "../view";
+import { usePublicPageView, useView } from "../view";
 
 // a pushed deal or fill means the history just grew — refetch instead of waiting out the poll
 const HISTORY_TYPES = ["broker.deal", "trade"];
 
 export default function Trades({ instanceId }: { instanceId: string | null }) {
+  usePublicPageView("trades");
   const view = useView();
   const [strategy, setStrategy] = useState("");
   const [q, setQ] = useState("");
