@@ -131,18 +131,39 @@ async function post(url: string, body: unknown): Promise<void> {
   if (!res.ok) throw new Error(`HTTP ${res.status}`);
 }
 
-/** Best effort, in order, every channel tried even if one fails. A dead chat must never stop the loop. */
-export async function notify(t: MonitorTransition, deps: MonitorRunnerDeps): Promise<void> {
-  const text = formatTransition(t, deps.brand);
+/** Best effort, in order, every channel tried even if one fails. A dead chat must never stop the caller. */
+export async function sendAlert(
+  text: string,
+  fields: Record<string, unknown>,
+  deps: Pick<MonitorRunnerDeps, "channels" | "brand" | "log">,
+): Promise<void> {
   const { telegram, webhook } = deps.channels;
   if (telegram) {
     await post(telegram.url, { chat_id: telegram.chatId, text })
-      .catch((e: Error) => deps.log.warn({ err: e.message, monitor: t.name }, "telegram alert failed"));
+      .catch((e: Error) => deps.log.warn({ err: e.message, ...fields }, "telegram alert failed"));
   }
   if (webhook) {
-    await post(webhook, { ...t, brand: deps.brand, text })
-      .catch((e: Error) => deps.log.warn({ err: e.message, monitor: t.name }, "webhook alert failed"));
+    await post(webhook, { ...fields, brand: deps.brand, text })
+      .catch((e: Error) => deps.log.warn({ err: e.message, ...fields }, "webhook alert failed"));
   }
+}
+
+export async function notify(t: MonitorTransition, deps: MonitorRunnerDeps): Promise<void> {
+  await sendAlert(formatTransition(t, deps.brand), { ...t }, deps);
+}
+
+/**
+ * The sign-in events worth a message. Single failures are left to the log so a guessing run
+ * cannot flood the chat; the lockout it trips is announced once.
+ */
+export function authAlertText(e: { kind: string; ip: string; userAgent?: string; lock?: "ip" | "global" }, brand: string | null): string | null {
+  const who = brand ? `${brand} · dashboard` : "dashboard";
+  const device = e.userAgent ? ` (${e.userAgent.slice(0, 80)})` : "";
+  if (e.kind === "login") return `${who}: new sign-in from ${e.ip}${device}`;
+  if (e.kind === "logout-all") return `${who}: every session was signed out from ${e.ip}`;
+  if (e.kind === "lockout" && e.lock === "global") return `${who}: sign-in locked for everyone after too many failed attempts (last from ${e.ip})`;
+  if (e.kind === "lockout") return `${who}: sign-in locked for ${e.ip} after repeated failed attempts`;
+  return null;
 }
 
 export async function tick(deps: MonitorRunnerDeps, now = Date.now()): Promise<MonitorTransition[]> {

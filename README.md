@@ -69,19 +69,24 @@ point it at this collector — see [Connecting a qkt instance](#connecting-a-qkt
 ```bash
 # 1. Run it
 docker run -d --name qkt-insights \
-  -p 8420:8420 \
+  -p 127.0.0.1:8420:8420 \
   -v insights-data:/data \
   -e INSIGHTS_DB=/data/insights.db \
-  -e INGEST_TOKEN=change-me \
+  -e INGEST_TOKEN='<random, at least 24 characters>' \
   -e ADMIN_USERNAME=admin \
-  -e ADMIN_PASSWORD='<your password>' \
-  -e SESSION_SECRET='<long random string>' \
+  -e ADMIN_PASSWORD='<at least 12 characters>' \
   ghcr.io/elitekaycy/qkt-insights:latest run
 
 # 2. Open http://localhost:8420 and sign in
 ```
 
-Or with compose: copy `docker-compose.yml`, set the four env vars, `docker compose up -d`. The production image exposes `GET /healthz` and includes a Docker `HEALTHCHECK`; use an immutable `:v*` or `:sha-*` tag for pinned deployments and `:latest` only for tracking `main`.
+Or with compose: copy `docker-compose.yml`, set the three env vars, `docker compose up -d`.
+
+The collector refuses to start with an ingest token under 24 characters or an admin
+password under 12. The port binds to loopback on purpose: to reach the dashboard from
+anywhere, put an HTTPS reverse proxy in front and follow
+[Exposing the dashboard to the internet](docs/operations/internet-exposure.md), which
+covers the proxy, two-factor sign-in and sign-in alerts. The production image exposes `GET /healthz` and includes a Docker `HEALTHCHECK`; use an immutable `:v*` or `:sha-*` tag for pinned deployments and `:latest` only for tracking `main`.
 
 <p align="center">
   <img src="docs/assets/qkt-insights-demo-docker.gif" alt="Clone qkt-insights, build the image, and run it with Docker — all from the terminal" width="880">

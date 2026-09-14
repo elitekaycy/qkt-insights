@@ -281,8 +281,8 @@ export function ingestEvents(db: Db, instanceId: string, events: Envelope[], hea
       // no events row, no FTS row, idempotent by deterministic id.
       if (e.type === "broker.deal") {
         const p = e.payload;
-        const strategyId = p.strategyId ?? resolveDealStrategy(db, instanceId, p.positionTicket ?? null, p.comment ?? null);
-        if (!isDealLocalToInstance(db, instanceId, strategyId)) continue;
+        const strategyId = p.strategyId ?? resolveDealStrategy(db, instanceId, p.dealTicket, p.positionTicket ?? null, p.comment ?? null);
+        if (!isDealLocalToInstance(db, instanceId, strategyId, p.magic ?? null)) continue;
         const info = insDeal.run(e.id, instanceId, p.broker, p.dealTicket, p.positionTicket ?? null, p.orderTicket ?? null,
           p.symbol ?? null, p.side ?? null, p.entry ?? null, p.qty, p.price, p.profit, p.commission ?? null,
           p.swap ?? null, p.fee ?? null, p.magic ?? null, p.comment ?? null, strategyId, p.ts,
@@ -293,24 +293,14 @@ export function ingestEvents(db: Db, instanceId: string, events: Envelope[], hea
           // Re-ingested deal (the 30d backfill re-runs on every restart). If it
           // first stored unattributed but now resolves — its strategies row
           // appeared, or a sibling got attributed — fill the NULL instead of skipping.
-          if (strategyId) {
-            db.prepare("UPDATE deals SET strategy_id=? WHERE id=? AND strategy_id IS NULL").run(strategyId, e.id);
-            if (p.positionTicket)
-              db.prepare("UPDATE deals SET strategy_id=? WHERE instance_id=? AND position_ticket=? AND strategy_id IS NULL")
-                .run(strategyId, instanceId, p.positionTicket);
-          }
+          if (strategyId) adoptUnattributed(db, instanceId, strategyId, p.dealTicket, p.positionTicket ?? null);
           continue;
         }
         accepted++;
         upInstance.run({ id: instanceId, ts: e.ts, seq: e.seq , heardAt });
         if (strategyId) {
           upStrategy.run({ i: instanceId, s: strategyId, ts: e.ts });
-          // Earlier legs of the same position may have arrived unattributable
-          // (venue-closed before their IN): adopt them now.
-          if (p.positionTicket) {
-            db.prepare("UPDATE deals SET strategy_id=? WHERE instance_id=? AND position_ticket=? AND strategy_id IS NULL")
-              .run(strategyId, instanceId, p.positionTicket);
-          }
+          adoptUnattributed(db, instanceId, strategyId, p.dealTicket, p.positionTicket ?? null);
         }
         continue;
       }
@@ -370,10 +360,32 @@ export function ingestEvents(db: Db, instanceId: string, events: Envelope[], hea
   return tx(events);
 }
 
-function isDealLocalToInstance(db: Db, instanceId: string, strategyId: string | null): boolean {
+// qkt sends every deal on the account and names the strategy only when it knows it
+// (#1143): a close after a restart, a retired strategy's close, or a manual close
+// arrives with no strategy. Keep such a deal when it is this instance's own — its
+// magic already appears on a deal attributed here — so its owner can be adopted
+// from the opening deal later; drop deals from other tools sharing the account.
+// An explicitly named strategy this instance does not run is never adopted.
+function isDealLocalToInstance(db: Db, instanceId: string, strategyId: string | null, magic: number | null): boolean {
   const known = db.prepare("SELECT strategy_id strategyId FROM strategies WHERE instance_id=?").all(instanceId) as { strategyId: string }[];
   if (known.length === 0) return true;
-  return strategyId != null && known.some((row) => row.strategyId === strategyId);
+  if (strategyId != null) return known.some((row) => row.strategyId === strategyId);
+  if (magic == null) return false;
+  return db.prepare(
+    "SELECT 1 FROM deals WHERE instance_id=? AND magic=? AND strategy_id IS NOT NULL LIMIT 1",
+  ).get(instanceId, magic) != null;
+}
+
+// A deal is sent once per broker profile that shares the account, so the same deal
+// ticket can sit in several rows; analytics reads the oldest row. Every row of the
+// ticket and every earlier leg of the position takes the owner as soon as one copy
+// knows it, so the row analytics picks is never the unattributed one.
+function adoptUnattributed(db: Db, instanceId: string, strategyId: string, dealTicket: string, positionTicket: string | null): void {
+  db.prepare("UPDATE deals SET strategy_id=? WHERE instance_id=? AND deal_ticket=? AND strategy_id IS NULL")
+    .run(strategyId, instanceId, dealTicket);
+  if (positionTicket)
+    db.prepare("UPDATE deals SET strategy_id=? WHERE instance_id=? AND position_ticket=? AND strategy_id IS NULL")
+      .run(strategyId, instanceId, positionTicket);
 }
 
 // MT5 overwrites the close-leg comment when SL/TP fires (e.g. "[tp 4332.689]"),
@@ -382,7 +394,11 @@ function isDealLocalToInstance(db: Db, instanceId: string, strategyId: string | 
 // the original comment-derived attribution), else a "dsl-<strategy>" comment
 // prefix-matched against the instance's known strategies — both directions,
 // because MT5 truncates comments to 31 chars; only a unique match wins.
-function resolveDealStrategy(db: Db, instanceId: string, positionTicket: string | null, comment: string | null): string | null {
+function resolveDealStrategy(db: Db, instanceId: string, dealTicket: string, positionTicket: string | null, comment: string | null): string | null {
+  const copy = db.prepare(
+    "SELECT strategy_id s FROM deals WHERE instance_id=? AND deal_ticket=? AND strategy_id IS NOT NULL ORDER BY rowid LIMIT 1",
+  ).get(instanceId, dealTicket) as { s: string } | undefined;
+  if (copy) return copy.s;
   if (positionTicket) {
     const hit = db.prepare(
       "SELECT strategy_id s FROM deals WHERE instance_id=? AND position_ticket=? AND strategy_id IS NOT NULL ORDER BY rowid LIMIT 1",

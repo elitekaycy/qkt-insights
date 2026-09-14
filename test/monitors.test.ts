@@ -168,3 +168,14 @@ describe("startMonitors", () => {
     expect(pings).toBe(seen);
   });
 });
+
+describe("authAlertText", () => {
+  it("announces sign-ins, sign-out-everywhere and lockouts, never single failures", async () => {
+    const { authAlertText } = await import("../src/monitors.js");
+    expect(authAlertText({ kind: "login", ip: "203.0.113.9", userAgent: "Safari" }, "forward")).toBe("forward · dashboard: new sign-in from 203.0.113.9 (Safari)");
+    expect(authAlertText({ kind: "logout-all", ip: "203.0.113.9" }, null)).toBe("dashboard: every session was signed out from 203.0.113.9");
+    expect(authAlertText({ kind: "lockout", ip: "198.51.100.7", lock: "ip" }, "forward")).toBe("forward · dashboard: sign-in locked for 198.51.100.7 after repeated failed attempts");
+    expect(authAlertText({ kind: "lockout", ip: "198.51.100.7", lock: "global" }, null)).toContain("locked for everyone");
+    expect(authAlertText({ kind: "failure", ip: "198.51.100.7" }, "forward")).toBeNull();
+  });
+});
