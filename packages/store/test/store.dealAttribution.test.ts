@@ -8,12 +8,14 @@ const T0 = 1718000000000;
 function dealEnv(p: {
   ticket: string; positionTicket?: string | null; entry?: string; side?: string;
   comment?: string | null; strategyId?: string | null; ts?: number; profit?: number;
+  magic?: number | null; broker?: string;
 }): Envelope {
   return {
-    v: 1, instanceId: "qkt-prod", id: `deal-EXNESS-${p.ticket}`, seq: 1, ts: p.ts ?? T0,
+    v: 1, instanceId: "qkt-prod", id: `deal-${p.broker ?? "EXNESS"}-${p.ticket}`, seq: 1, ts: p.ts ?? T0,
     type: "broker.deal",
     payload: {
-      broker: "EXNESS", dealTicket: p.ticket,
+      broker: p.broker ?? "EXNESS", dealTicket: p.ticket,
+      ...(p.magic != null ? { magic: p.magic } : {}),
       ...(p.positionTicket != null ? { positionTicket: p.positionTicket } : {}),
       symbol: "EXNESS:XAUUSD", side: p.side ?? "BUY", entry: p.entry ?? "IN",
       qty: 0.01, price: 4300, profit: p.profit ?? 0, commission: -0.07, swap: 0,
@@ -107,6 +109,55 @@ describe("broker.deal strategy resolution at ingest", () => {
       dealEnv({ ticket: "14", positionTicket: "202", strategyId: null, comment: "" }),
     ]);
     expect(dealCount(db)).toBe(0);
+  });
+
+  it("keeps this instance's unattributed close by magic and adopts its owner from the opening deal (#1143)", () => {
+    const db = openDb(":memory:");
+    seedStrategy(db, "gold_ema_pullback");
+    ingestEvents(db, "qkt-prod", [
+      // The opening deal was attributed when it happened.
+      dealEnv({ ticket: "30", positionTicket: "300", entry: "IN", strategyId: "gold_ema_pullback", comment: "dsl-gold_ema_pullback--3", magic: 20001, ts: T0 }),
+    ]);
+    ingestEvents(db, "qkt-prod", [
+      // After a restart qkt no longer knows the owner, and the venue rewrote the comment.
+      dealEnv({ ticket: "31", positionTicket: "300", entry: "OUT", strategyId: null, comment: "[sl 4354.64]", magic: 20001, ts: T0 + 60_000, profit: -12.5 }),
+    ]);
+    expect(dealCount(db)).toBe(2);
+    expect(strategyOf(db, "31")).toBe("gold_ema_pullback");
+  });
+
+  it("keeps an unattributed deal with this instance's magic even before its position resolves", () => {
+    const db = openDb(":memory:");
+    seedStrategy(db, "gold_ema_pullback");
+    ingestEvents(db, "qkt-prod", [
+      dealEnv({ ticket: "40", positionTicket: "400", entry: "IN", strategyId: "gold_ema_pullback", magic: 20001, ts: T0 }),
+      // A manual close of a position whose opening deal predates the backfill window.
+      dealEnv({ ticket: "41", positionTicket: "401", entry: "OUT", strategyId: null, comment: null, magic: 20001, ts: T0 + 1 }),
+      // Another tool on the same account: different magic, dropped.
+      dealEnv({ ticket: "42", positionTicket: "402", entry: "OUT", strategyId: null, comment: null, magic: 777, ts: T0 + 2 }),
+    ]);
+    expect(dealCount(db)).toBe(2);
+    expect(strategyOf(db, "41")).toBeNull();
+    // Its opening deal arrives later (a wider backfill): the close adopts the owner.
+    ingestEvents(db, "qkt-prod", [
+      dealEnv({ ticket: "43", positionTicket: "401", entry: "IN", strategyId: "gold_ema_pullback", magic: 20001, ts: T0 - 1_000 }),
+    ]);
+    expect(strategyOf(db, "41")).toBe("gold_ema_pullback");
+  });
+
+  it("every copy of a deal sent by several broker profiles ends up with the owner", () => {
+    const db = openDb(":memory:");
+    seedStrategy(db, "fx3_GBPUSD_2");
+    ingestEvents(db, "qkt-prod", [
+      dealEnv({ ticket: "50", positionTicket: "500", entry: "IN", strategyId: "fx3_GBPUSD_2", magic: 20107, broker: "EXNESS_P549", ts: T0 }),
+    ]);
+    // The same closing deal reported by two sessions: one knows the owner, one does not.
+    ingestEvents(db, "qkt-prod", [
+      dealEnv({ ticket: "51", positionTicket: "500", entry: "OUT", strategyId: null, magic: 20107, broker: "EXNESS_P174", ts: T0 + 5 }),
+      dealEnv({ ticket: "51", positionTicket: "500", entry: "OUT", strategyId: "fx3_GBPUSD_2", magic: 20107, broker: "EXNESS_P549", ts: T0 + 5 }),
+    ]);
+    const owners = db.prepare("SELECT strategy_id s FROM deals WHERE deal_ticket='51' ORDER BY rowid").all() as { s: string | null }[];
+    expect(owners.map((r) => r.s)).toEqual(["fx3_GBPUSD_2", "fx3_GBPUSD_2"]);
   });
 
   it("drops explicit foreign strategy deals in an already-scoped instance", () => {
