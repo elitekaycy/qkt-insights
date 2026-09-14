@@ -1,4 +1,5 @@
 import { useState } from "react";
+import { usePublicPageView } from "../view";
 import { useQueries, useQuery } from "@tanstack/react-query";
 import { get, type AccountEquityPoint, type DrawdownPeriod, type EquityPoint, type PerformanceBundle, type StrategyRow } from "../api";
 import { ComparisonChart, EquityChart, UnderwaterChart, type ComparisonSeries } from "../components/EquityChart";
@@ -12,6 +13,7 @@ function accountBrokerGroup(broker: string): string {
 }
 
 export default function Equity({ instanceId }: { instanceId: string | null }) {
+  usePublicPageView("equity");
   const strategies = useQuery({
     queryKey: ["strategies", instanceId],
     queryFn: () => get<StrategyRow[]>(`/strategies?instance=${encodeURIComponent(instanceId!)}`),

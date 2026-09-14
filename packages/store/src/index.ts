@@ -8,3 +8,4 @@ export * from "./retention.js";
 export * from "./monitors.js";
 export * from "./sessions.js";
 export * from "./shares.js";
+export * from "./views.js";

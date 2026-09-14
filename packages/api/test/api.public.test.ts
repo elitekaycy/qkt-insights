@@ -130,7 +130,7 @@ describe("share management", () => {
 
   it("is private everywhere by default, with no tokens handed out", async () => {
     const view = (await admin("GET", "/shares?instance=i1")).json() as SharesView;
-    expect(view.overview).toEqual({ visibility: null, effective: false, token: null });
+    expect(view.overview).toEqual({ visibility: null, effective: false, token: null, views: 0 });
     expect(view.strategies.every((s) => !s.effective && s.token == null)).toBe(true);
   });
 

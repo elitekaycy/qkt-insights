@@ -9,7 +9,7 @@ import { strategyCapital, strategyDisplayName } from "../portfolio";
 import { useLiveState } from "../useLiveState";
 import { useLiveStream } from "../useLiveStream";
 import { ShareControl } from "../components/ShareControl";
-import { useView } from "../view";
+import { usePublicPageView, useView } from "../view";
 
 const PALETTE = ["#c8f74a", "#5cb8ff", "#a78bfa", "#3fe08c", "#fbbf24", "#ff6b6b", "#f472b6", "#22d3ee"];
 
@@ -60,6 +60,7 @@ export default function Overview({
   onOpenStrategy: (strategyId: string) => void;
 }) {
   const view = useView();
+  usePublicPageView("overview");
   const strategies = useQuery({
     queryKey: ["strategies", instanceId],
     queryFn: () => get<StrategyRow[]>(`/strategies?instance=${encodeURIComponent(instanceId!)}`),

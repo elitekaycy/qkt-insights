@@ -16,7 +16,7 @@ import { buildCloseMap } from "../useCloses";
 import { useLiveState } from "../useLiveState";
 import { physicalPortfolioId, portfolioGroupId, strategyCapital, strategyDisplayName as displayName, summarizePortfolio } from "../portfolio";
 import { ShareControl } from "../components/ShareControl";
-import { useView } from "../view";
+import { usePublicPageView, useView } from "../view";
 
 /** The strategy page keeps only the latest log lines; the Logs page holds the history. */
 const RECENT_LOGS = 7;
@@ -71,6 +71,7 @@ export default function Strategies({
   const view = useView();
   const [selected, setSelected] = useState<string | null>(focus);
   const [selectedPortfolio, setSelectedPortfolio] = useState<string | null>(null);
+  usePublicPageView(selected || selectedPortfolio ? null : "strategies");
   const [showRetired, setShowRetired] = useState(false);
 
   const strategies = useQuery({
@@ -347,6 +348,7 @@ function PortfolioDetail({
   onSelectChild: (strategyId: string) => void;
 }) {
   const view = useView();
+  usePublicPageView("portfolio");
   const live = useOpenByStrategy(instanceId);
   const state = useLiveState();
   const summary = summarizePortfolio(id, children, live.open, live.hasState);
@@ -528,6 +530,7 @@ export function SharedPortfolio({ instanceId, portfolioId: id }: { instanceId: s
 
 export function StrategyDetail({ instanceId, strategyId, onBack }: { instanceId: string; strategyId: string; onBack?: () => void }) {
   const view = useView();
+  usePublicPageView("strategy", strategyId);
   const qs = `instance=${encodeURIComponent(instanceId)}&strategy=${encodeURIComponent(strategyId)}`;
   const stats = useQuery({
     queryKey: ["stats", instanceId, strategyId],
