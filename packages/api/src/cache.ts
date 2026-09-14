@@ -18,6 +18,31 @@ export class TtlCache {
     private readonly clock: () => number = Date.now,
   ) {}
 
+  /** The live value for a key, without loading it. */
+  peek<T>(key: string): T | undefined {
+    const hit = this.entries.get(key);
+    return hit && hit.expiresAt > this.clock() ? (hit.value as T) : undefined;
+  }
+
+  /** The value for a key even after it expired, until it is evicted or cleared. */
+  peekStale<T>(key: string): T | undefined {
+    return this.entries.get(key)?.value as T | undefined;
+  }
+
+  /** Drops the entries whose key starts with the prefix. */
+  deletePrefix(prefix: string): void {
+    for (const key of this.entries.keys()) if (key.startsWith(prefix)) this.entries.delete(key);
+  }
+
+  get size(): number {
+    return this.entries.size;
+  }
+
+  /** Drops every entry, so a change that alters many responses (a share turned private) takes effect at once. */
+  clear(): void {
+    this.entries.clear();
+  }
+
   async get<T>(key: string, loader: () => T | Promise<T>): Promise<T> {
     const now = this.clock();
     const hit = this.entries.get(key);

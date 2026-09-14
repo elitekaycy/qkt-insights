@@ -61,7 +61,12 @@ root (`pnpm test`) or per package (`pnpm --filter <pkg> test`).
   (≥24 chars), `ADMIN_USERNAME`, `ADMIN_PASSWORD` (≥12 chars); boot refuses
   shorter. `SESSION_SECRET` is not read (sessions are hashed rows in SQLite).
   Optional security env: `ADMIN_TOTP_SECRET`, `TRUST_PROXY`
-  (see `docs/operations/internet-exposure.md`).
+  (see `docs/operations/internet-exposure.md`). `PUBLIC_DELAY_MINUTES` (default
+  15) sets how far shared links lag (`docs/operations/public-sharing.md`).
+- Shared links: every `/public/:token/*` response is rebuilt from the
+  allow-lists in `packages/api/src/publicView.ts`. A new field on a store row
+  stays private until it is added there; `api.public.test.ts` scans every
+  public response for known secrets.
   Optional: `STRATEGY_CAPITAL` (JSON `strategyId -> capital`, the base for
   standalone strategies; see `docs/operations/strategy-capital.md`),
   `INSIGHTS_NAME`, `INSIGHTS_MONITORS` and the alert channels.

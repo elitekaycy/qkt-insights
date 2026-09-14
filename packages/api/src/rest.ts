@@ -1,7 +1,8 @@
 import type { FastifyInstance } from "fastify";
-import { listInstances, listStrategies, listOrders, listTrades, searchEvents, equityCurve, instanceHealth, listLogs, strategyStats, performanceReport, dailyNets, drawdownPeriods, postLossStats, tradeBreakdowns, closedTrades, listDeals, accountEquity, accountDrawdown, listIngestObservations, dowHourMatrix, rollingStats, costDecomposition, contributionRanking, normalizedPerformance, excursionStats, executionQuality, monitorSummaries, listMonitorEvents, type Db, type LiveStateStore, type Monitors } from "@qkt-insights/store";
+import { listInstances, listStrategies, listOrders, listTrades, searchEvents, equityCurve, instanceHealth, listLogs, strategyStats, listDeals, accountEquity, accountDrawdown, listIngestObservations, monitorSummaries, listMonitorEvents, type Db, type LiveStateStore, type Monitors } from "@qkt-insights/store";
 import { requireSession } from "./auth.js";
 import { TtlCache } from "./cache.js";
+import { performanceBundle } from "./performance.js";
 
 export interface RestDeps { db: Db; liveState: LiveStateStore; monitors: Monitors }
 
@@ -66,23 +67,7 @@ export function registerRest(app: FastifyInstance, deps: RestDeps): void {
     if (!need(reply, q.instance, "instance") || !need(reply, q.strategy, "strategy")) return;
     const f = { instanceId: q.instance, strategyId: q.strategy,
       from: q.from ? Number(q.from) : undefined, to: q.to ? Number(q.to) : undefined };
-    const include = q.include ? new Set(q.include.split(",")) : null;
-    const want = (k: string) => include == null || include.has(k);
-    return cache.get(req.url, () => ({
-      report: want("report") ? performanceReport(deps.db, f) : undefined,
-      dailyNets: want("dailyNets") ? dailyNets(deps.db, f) : undefined,
-      drawdownPeriods: want("drawdownPeriods") ? drawdownPeriods(deps.db, f) : undefined,
-      postLoss: want("postLoss") ? postLossStats(deps.db, f) : undefined,
-      breakdowns: want("breakdowns") ? tradeBreakdowns(deps.db, f) : undefined,
-      closes: want("closes") ? closedTrades(deps.db, f) : undefined,
-      dowHour: want("dowHour") ? dowHourMatrix(deps.db, f) : undefined,
-      rolling: want("rolling") ? rollingStats(deps.db, f, q.window ? Number(q.window) : undefined) : undefined,
-      costs: want("costs") ? costDecomposition(deps.db, f) : undefined,
-      contribution: want("contribution") ? contributionRanking(deps.db, f) : undefined,
-      normalized: want("normalized") ? normalizedPerformance(deps.db, f) : undefined,
-      excursions: want("excursions") ? excursionStats(deps.db, f) : undefined,
-      execution: want("execution") ? executionQuality(deps.db, f) : undefined,
-    }));
+    return cache.get(req.url, () => performanceBundle(deps.db, f, q.include, q.window));
   });
 
   app.get<{ Querystring: Record<string, string> }>("/equity", guard, async (req, reply) => {
