@@ -1,5 +1,5 @@
-import { useState } from "react";
-import { login, type LoginResult } from "../api";
+import { useEffect, useState } from "react";
+import { login, loginNeedsCode, type LoginResult } from "../api";
 import { Button, Input } from "../components/ui";
 import { InstallApp } from "../components/InstallApp";
 import { useBrand } from "../useBrand";
@@ -7,15 +7,21 @@ import { useBrand } from "../useBrand";
 export default function Login({ onLoggedIn }: { onLoggedIn: () => void }) {
   const [username, setUsername] = useState("");
   const [password, setPassword] = useState("");
+  const [code, setCode] = useState("");
+  const [needsCode, setNeedsCode] = useState(false);
   const [error, setError] = useState<Exclude<LoginResult, "ok"> | null>(null);
   const [busy, setBusy] = useState(false);
   const brand = useBrand();
+
+  useEffect(() => {
+    void loginNeedsCode().then(setNeedsCode);
+  }, []);
 
   const submit = async (e: React.FormEvent) => {
     e.preventDefault();
     setBusy(true);
     try {
-      const result = await login(username, password);
+      const result = await login(username, password, needsCode ? code : undefined);
       if (result === "ok") onLoggedIn();
       else setError(result);
     } finally {
@@ -66,9 +72,26 @@ export default function Login({ onLoggedIn }: { onLoggedIn: () => void }) {
           className="mt-2.5 w-full"
           placeholder="password"
         />
-        {error === "denied" && <p className="mt-2.5 text-sm text-down">Wrong username or password</p>}
+        {needsCode && (
+          <Input
+            type="text"
+            inputMode="numeric"
+            autoComplete="one-time-code"
+            pattern="[0-9]{6}"
+            maxLength={6}
+            value={code}
+            onChange={(e) => {
+              setCode(e.target.value.replace(/\D/g, ""));
+              setError(null);
+            }}
+            className="mt-2.5 w-full"
+            placeholder="authenticator code"
+          />
+        )}
+        {error === "denied" && <p className="mt-2.5 text-sm text-down">{needsCode ? "Wrong username, password or code" : "Wrong username or password"}</p>}
+        {error === "locked" && <p className="mt-2.5 text-sm text-warn">Too many failed attempts. Sign-in is paused for a few minutes.</p>}
         {error === "unreachable" && <p className="mt-2.5 text-sm text-warn">Can't reach the collector — check the connection and try again.</p>}
-        <Button type="submit" variant="primary" disabled={busy || username.length === 0 || password.length === 0} className="mt-5 w-full py-2">
+        <Button type="submit" variant="primary" disabled={busy || username.length === 0 || password.length === 0 || (needsCode && code.length !== 6)} className="mt-5 w-full py-2">
           {busy ? "Signing in…" : "Sign in"}
         </Button>
         <InstallApp variant="login" />

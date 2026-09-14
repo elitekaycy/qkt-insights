@@ -11,21 +11,32 @@ export async function get<T>(url: string): Promise<T> {
   return (await res.json()) as T;
 }
 
-export type LoginResult = "ok" | "denied" | "unreachable";
+export type LoginResult = "ok" | "denied" | "locked" | "unreachable";
 
-export async function login(username: string, password: string): Promise<LoginResult> {
+export async function login(username: string, password: string, code?: string): Promise<LoginResult> {
   let res: Response;
   try {
     res = await fetch("/auth/login", {
       method: "POST",
       headers: { "content-type": "application/json" },
-      body: JSON.stringify({ username, password }),
+      body: JSON.stringify(code ? { username, password, code } : { username, password }),
       credentials: "same-origin",
     });
   } catch {
     return "unreachable";
   }
-  return res.ok ? "ok" : "denied";
+  if (res.ok) return "ok";
+  return res.status === 429 ? "locked" : "denied";
+}
+
+/** Whether sign-in also needs an authenticator code. Assumes none when the collector cannot say. */
+export async function loginNeedsCode(): Promise<boolean> {
+  try {
+    const res = await fetch("/auth/methods", { credentials: "same-origin" });
+    return res.ok && ((await res.json()) as { totp?: boolean }).totp === true;
+  } catch {
+    return false;
+  }
 }
 
 /** Ends the server session. Resolves false when the request could not be sent — the
@@ -33,6 +44,16 @@ export async function login(username: string, password: string): Promise<LoginRe
 export async function logout(): Promise<boolean> {
   try {
     const res = await fetch("/auth/logout", { method: "POST", credentials: "same-origin" });
+    return res.ok;
+  } catch {
+    return false;
+  }
+}
+
+/** Ends every session on every device, this one included. */
+export async function logoutEverywhere(): Promise<boolean> {
+  try {
+    const res = await fetch("/auth/logout-all", { method: "POST", credentials: "same-origin" });
     return res.ok;
   } catch {
     return false;

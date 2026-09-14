@@ -2,7 +2,7 @@ import { describe, it, expect, beforeEach, afterEach } from "vitest";
 import Fastify, { type FastifyInstance } from "fastify";
 import cookie from "@fastify/cookie";
 import argon2 from "argon2";
-import { openDb, ingestEvents, LiveStateStore, type Db } from "@qkt-insights/store";
+import { openDb, ingestEvents, LiveStateStore, Sessions, type Db } from "@qkt-insights/store";
 import { registerAuth } from "../src/auth.js";
 import { registerRest } from "../src/rest.js";
 import type { Envelope } from "@qkt-insights/contract";
@@ -22,7 +22,7 @@ beforeEach(async () => {
   app = Fastify();
   await app.register(cookie);
   const hash = await argon2.hash("pw");
-  registerAuth(app, { username: "admin", passwordHash: hash, sessionSecret: "session-secret-key-at-least-32-chars!!" });
+  registerAuth(app, { username: "admin", passwordHash: hash, sessions: new Sessions(db) });
   registerRest(app, { db, liveState });
   await app.ready();
   const login = await app.inject({ method: "POST", url: "/auth/login", payload: { username: "admin", password: "pw" } });
