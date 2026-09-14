@@ -156,9 +156,13 @@ describe("PUBLIC_DELAY_MINUTES", () => {
     process.env.ADMIN_PASSWORD = "admin-pass-long-enough";
     const app = await buildServer("serve");
     const shares = await app.inject({ method: "GET", url: "/shares?instance=i1" });
+    const viewership = await app.inject({ method: "GET", url: "/views/summary?instance=i1" });
+    const beacon = await app.inject({ method: "POST", url: `/public/${"A".repeat(32)}/view`, payload: { page: "overview" } });
     const unknown = await app.inject({ method: "GET", url: `/public/${"A".repeat(32)}/meta` });
     await app.close();
     expect(shares.statusCode).toBe(401);
+    expect(viewership.statusCode).toBe(401);
+    expect(beacon.statusCode).toBe(404);
     expect(unknown.statusCode).toBe(404);
     expect(unknown.headers["x-robots-tag"]).toBe("noindex, nofollow");
   });

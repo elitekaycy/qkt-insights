@@ -3,11 +3,11 @@ import argon2 from "argon2";
 import cookie from "@fastify/cookie";
 import websocket from "@fastify/websocket";
 import fastifyStatic from "@fastify/static";
-import { openDb, checkpoint, LiveBus, LiveStateStore, Monitors, Sessions, Shares, pruneRetention, pruneStaleStrategies, replaceStrategyCapital } from "@qkt-insights/store";
+import { openDb, checkpoint, LiveBus, LiveStateStore, Monitors, Sessions, Shares, Views, pruneRetention, pruneStaleStrategies, replaceStrategyCapital } from "@qkt-insights/store";
 import { registerCollector } from "@qkt-insights/collector";
 import {
   REQUESTS_PER_MINUTE, TotpVerifier, TtlCache, generateTotpSecret, hasSession, registerAuth, registerLive, registerPublic, registerRest, registerSecurity,
-  invalidateShareScopes, registerShares, sweepHiddenShares, totpUri,
+  invalidateShareScopes, registerShares, registerViews, sweepHiddenShares, totpUri,
 } from "@qkt-insights/api";
 import { authAlertText, channelsFromEnv, parseHttpMonitors, sendAlert, startMonitors } from "./monitors.js";
 import { parseStrategyCapital } from "./capital.js";
@@ -118,7 +118,7 @@ export async function buildServer(mode: Mode) {
     try {
       const now = Date.now();
       const r = pruneRetention(db, now);
-      if (r.logs || r.events || r.valuations)
+      if (r.logs || r.events || r.valuations || r.views)
         app.log.info({ ...r }, "retention prune");
       // Retire strategies that stopped reporting past the window (e.g. a swapped-out book) along
       // with all their data, so old registrations don't linger in the dashboard forever.
@@ -161,9 +161,11 @@ export async function buildServer(mode: Mode) {
     registerRest(app, { db, liveState, monitors });
     registerLive(app, { bus, authenticate: hasSession });
     const shares = new Shares(db);
+    const views = new Views(db);
     const publicCache = new TtlCache(60_000, 1000);
-    registerShares(app, { db, shares, cache: publicCache });
-    registerPublic(app, { db, liveState, shares, cache: publicCache, delayMs: publicDelayMinutes(process.env.PUBLIC_DELAY_MINUTES) * 60_000 });
+    registerShares(app, { db, shares, cache: publicCache, views });
+    registerPublic(app, { db, liveState, shares, cache: publicCache, delayMs: publicDelayMinutes(process.env.PUBLIC_DELAY_MINUTES) * 60_000, views });
+    registerViews(app, { views });
     // Links whose subject stopped being public without an admin change (deploy metadata moved a
     // strategy, a strategy was pruned) are replaced within a minute.
     const shareSweep = setInterval(() => {

@@ -1,4 +1,5 @@
 import { useMemo, useState } from "react";
+import { usePublicPageView } from "../view";
 import { useQueries, useQuery } from "@tanstack/react-query";
 import { get, type PerformanceBundle, type PerformanceReport, type StrategyRow } from "../api";
 import { DowHourHeatmap, HonestBucketBars, MIN_N, RollingChart, StrategyRadar } from "../components/EdgeCharts";
@@ -17,6 +18,7 @@ import {
 const WINDOWS = [30, 60, 90] as const;
 
 export function Edge({ instanceId }: { instanceId: string | null }) {
+  usePublicPageView("edge");
   const strategies = useQuery({
     queryKey: ["strategies", instanceId],
     queryFn: () => get<StrategyRow[]>(`/strategies?instance=${encodeURIComponent(instanceId!)}`),
