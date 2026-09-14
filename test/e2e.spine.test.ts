@@ -5,14 +5,13 @@ import { join } from "node:path";
 import type { FastifyInstance } from "fastify";
 
 let app: FastifyInstance; let base: string;
-const token = "ingest-secret";
+const token = "ingest-secret-at-least-24-chars";
 
 beforeAll(async () => {
   process.env.INSIGHTS_DB = join(mkdtempSync(join(tmpdir(), "qkti-")), "e2e.db");
   process.env.INGEST_TOKEN = token;
   process.env.ADMIN_USERNAME = "admin-user";
-  process.env.ADMIN_PASSWORD = "admin-pw";
-  process.env.SESSION_SECRET = "session-secret-key-at-least-32-chars!!";
+  process.env.ADMIN_PASSWORD = "admin-pw-long-enough";
   const { buildServer } = await import("../src/server.js");
   app = await buildServer("serve");
   await app.listen({ port: 0, host: "127.0.0.1" });
@@ -36,7 +35,7 @@ describe("spine e2e", () => {
 
     const login = await fetch(`${base}/auth/login`, {
       method: "POST", headers: { "content-type": "application/json" },
-      body: JSON.stringify({ username: "admin-user", password: "admin-pw" }),
+      body: JSON.stringify({ username: "admin-user", password: "admin-pw-long-enough" }),
     });
     expect(login.status).toBe(200);
     const session = String(login.headers.get("set-cookie")).split(";")[0]!;
@@ -59,7 +58,7 @@ describe("spine e2e", () => {
   it("rejects login with a wrong username even when the password is right", async () => {
     const res = await fetch(`${base}/auth/login`, {
       method: "POST", headers: { "content-type": "application/json" },
-      body: JSON.stringify({ username: "intruder", password: "admin-pw" }),
+      body: JSON.stringify({ username: "intruder", password: "admin-pw-long-enough" }),
     });
     expect(res.status).toBe(401);
   });

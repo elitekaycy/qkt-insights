@@ -3,10 +3,12 @@ import argon2 from "argon2";
 import cookie from "@fastify/cookie";
 import websocket from "@fastify/websocket";
 import fastifyStatic from "@fastify/static";
-import { openDb, checkpoint, LiveBus, LiveStateStore, Monitors, pruneRetention, pruneStaleStrategies, replaceStrategyCapital } from "@qkt-insights/store";
+import { openDb, checkpoint, LiveBus, LiveStateStore, Monitors, Sessions, pruneRetention, pruneStaleStrategies, replaceStrategyCapital } from "@qkt-insights/store";
 import { registerCollector } from "@qkt-insights/collector";
-import { registerAuth, registerRest, registerLive, hasSession } from "@qkt-insights/api";
-import { channelsFromEnv, parseHttpMonitors, startMonitors } from "./monitors.js";
+import {
+  REQUESTS_PER_MINUTE, TotpVerifier, generateTotpSecret, hasSession, registerAuth, registerLive, registerRest, registerSecurity, totpUri,
+} from "@qkt-insights/api";
+import { authAlertText, channelsFromEnv, parseHttpMonitors, sendAlert, startMonitors } from "./monitors.js";
 import { parseStrategyCapital } from "./capital.js";
 import { existsSync, readFileSync } from "node:fs";
 import { join, dirname } from "node:path";
@@ -26,6 +28,42 @@ function env(name: string, fallback?: string): string {
   return v;
 }
 
+function secret(name: string, minLength: number): string {
+  const v = env(name);
+  if (v.length < minLength) throw new Error(`${name} must be at least ${minLength} characters`);
+  return v;
+}
+
+/**
+ * Which peers may set X-Forwarded-For/-Proto. The default trusts loopback and Docker's bridge
+ * range 172.16.0.0/12: a host proxy such as Caddy reaches a published port through the bridge
+ * gateway, and a proxy container such as Traefik sits on the bridge itself. Tailscale, LAN and
+ * public peers are not trusted, so they cannot spoof their address past the rate limits. Every
+ * container on a bridge network is trusted.
+ */
+export const DEFAULT_TRUST_PROXY = "loopback,172.16.0.0/12";
+
+function trustProxy(value: string | undefined): string | boolean {
+  const v = value?.trim();
+  if (!v) return DEFAULT_TRUST_PROXY;
+  if (v === "false") return false;
+  return v;
+}
+
+export function totpSetupText(account: string): string {
+  const s = generateTotpSecret();
+  return [
+    "Add this to the collector's environment, then restart it:",
+    "",
+    `  ADMIN_TOTP_SECRET=${s}`,
+    "",
+    "Scan or paste this into an authenticator app (1Password, Google Authenticator, Aegis):",
+    "",
+    `  ${totpUri(s, account)}`,
+    "",
+  ].join("\n");
+}
+
 export async function buildServer(mode: Mode) {
   const capitals = parseStrategyCapital(process.env.STRATEGY_CAPITAL);
   const db = openDb(env("INSIGHTS_DB", "/data/insights.db"));
@@ -33,20 +71,22 @@ export async function buildServer(mode: Mode) {
   const bus = new LiveBus();
   const liveState = new LiveStateStore();
   const monitors = new Monitors(db);
-  const app = Fastify({ logger: process.env.NODE_ENV !== "test" });
+  const app = Fastify({ logger: process.env.NODE_ENV !== "test", trustProxy: trustProxy(process.env.TRUST_PROXY) });
   // One image serves many dashboards (one per qkt box). INSIGHTS_NAME is the
   // label that tells the installed apps apart on a phone's home screen and the
   // prefix on every alert from this box.
   const brand = process.env.INSIGHTS_NAME?.trim() || null;
 
+  registerSecurity(app, { requestsPerMinute: REQUESTS_PER_MINUTE });
   app.get("/healthz", async () => ({ ok: true, mode }));
 
-  registerCollector(app, { db, bus, liveState, ingestToken: env("INGEST_TOKEN") });
+  registerCollector(app, { db, bus, liveState, ingestToken: secret("INGEST_TOKEN", 24) });
+  const channels = channelsFromEnv(process.env);
   // Uptime runs beside the collector: it is the process that receives the heartbeats.
   const stopMonitors = startMonitors({
     db, monitors, brand, log: app.log,
     http: parseHttpMonitors(process.env.INSIGHTS_MONITORS),
-    channels: channelsFromEnv(process.env),
+    channels,
   });
   app.addHook("onClose", async () => stopMonitors());
   // WAL upkeep: fold the WAL back into the main file every 10 minutes so it cannot grow
@@ -88,10 +128,25 @@ export async function buildServer(mode: Mode) {
   if (mode === "serve" || mode === "run") {
     await app.register(cookie);
     await app.register(websocket);
+    const totpSecret = process.env.ADMIN_TOTP_SECRET?.trim();
+    let totp: TotpVerifier | undefined;
+    try {
+      totp = totpSecret ? new TotpVerifier(totpSecret) : undefined;
+    } catch {
+      throw new Error("ADMIN_TOTP_SECRET must be a base32 secret (generate one with the totp-setup command)");
+    }
     registerAuth(app, {
       username: env("ADMIN_USERNAME"),
-      passwordHash: await argon2.hash(env("ADMIN_PASSWORD")),
-      sessionSecret: env("SESSION_SECRET", env("INGEST_TOKEN")),
+      passwordHash: await argon2.hash(secret("ADMIN_PASSWORD", 12)),
+      sessions: new Sessions(db),
+      totp,
+      onEvent: (e) => {
+        const entry = { auth: e.kind, ip: e.ip, userAgent: e.userAgent, lock: e.lock };
+        if (e.kind === "login" || e.kind === "logout-all") app.log.info(entry, "auth");
+        else app.log.warn(entry, "auth");
+        const text = authAlertText(e, brand);
+        if (text) void sendAlert(text, { kind: `auth.${e.kind}`, ip: e.ip }, { channels, brand, log: app.log });
+      },
     });
     registerRest(app, { db, liveState, monitors });
     registerLive(app, { bus, authenticate: hasSession });
@@ -137,6 +192,10 @@ export async function buildServer(mode: Mode) {
 }
 
 async function main() {
+  if (process.argv[2] === "totp-setup") {
+    process.stdout.write(totpSetupText(process.argv[3] ?? process.env.INSIGHTS_NAME?.trim() ?? "admin"));
+    return;
+  }
   const mode = parseMode(process.argv.slice(2));
   const app = await buildServer(mode);
   const port = Number(process.env.PORT ?? 8420);

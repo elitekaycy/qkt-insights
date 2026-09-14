@@ -57,8 +57,11 @@ root (`pnpm test`) or per package (`pnpm --filter <pkg> test`).
   image, asserts `/healthz` returns `"ok":true`, exercises `/ingest` with a
   Bearer token expecting `"accepted":0`) → publish to GHCR
   (`ghcr.io/<repo>`, tags `sha-*`, `latest` on main, `v*`).
-- App port **8420**. Required runtime env: `INSIGHTS_DB`, `INGEST_TOKEN`,
-  `ADMIN_USERNAME`, `ADMIN_PASSWORD`, `SESSION_SECRET` (≥32 chars).
+- App port **8420**. Required runtime env: `INSIGHTS_DB`, `INGEST_TOKEN`
+  (≥24 chars), `ADMIN_USERNAME`, `ADMIN_PASSWORD` (≥12 chars); boot refuses
+  shorter. `SESSION_SECRET` is not read (sessions are hashed rows in SQLite).
+  Optional security env: `ADMIN_TOTP_SECRET`, `TRUST_PROXY`
+  (see `docs/operations/internet-exposure.md`).
   Optional: `STRATEGY_CAPITAL` (JSON `strategyId -> capital`, the base for
   standalone strategies; see `docs/operations/strategy-capital.md`),
   `INSIGHTS_NAME`, `INSIGHTS_MONITORS` and the alert channels.

@@ -2,14 +2,16 @@ services:
   insights:
     build: .
     command: run
-    ports: ["8420:8420"]
+    # Loopback only: put a TLS reverse proxy in front (docs/operations/internet-exposure.md).
+    ports: ["127.0.0.1:8420:8420"]
     volumes: ["insights-data:/data"]
     environment:
       INSIGHTS_DB: /data/insights.db
       INGEST_TOKEN: ${INGEST_TOKEN}
       ADMIN_USERNAME: ${ADMIN_USERNAME}
       ADMIN_PASSWORD: ${ADMIN_PASSWORD}
-      SESSION_SECRET: ${SESSION_SECRET}
+      ADMIN_TOTP_SECRET: ${ADMIN_TOTP_SECRET:-}
+      TRUST_PROXY: ${TRUST_PROXY:-}
       INSIGHTS_NAME: ${INSIGHTS_NAME:-}
       INSIGHTS_MONITORS: ${INSIGHTS_MONITORS:-}
       STRATEGY_CAPITAL: ${STRATEGY_CAPITAL:-}

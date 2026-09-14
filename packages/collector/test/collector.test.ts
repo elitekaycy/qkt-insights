@@ -144,3 +144,20 @@ describe("POST /ingest", () => {
     expect(db.prepare("SELECT last_seen, last_seq FROM instances WHERE id='qkt-prod'").get()).toMatchObject({ last_seen: 1718000050000, last_seq: 42 });
   });
 });
+
+describe("ingest token failures", () => {
+  it("refuses an IP with 429 after repeated bad tokens, while the right token from another IP still works", async () => {
+    const bad = () => app.inject({ method: "POST", url: "/ingest", remoteAddress: "6.6.6.6", headers: { authorization: "Bearer wrong" }, payload: { instanceId: "qkt-prod", events: [] } });
+    const codes: number[] = [];
+    for (let i = 0; i < 25; i++) codes.push((await bad()).statusCode);
+    expect(codes.slice(0, 20).every((c) => c === 401)).toBe(true);
+    expect(codes.at(-1)).toBe(429);
+    const good = await app.inject({ method: "POST", url: "/ingest", remoteAddress: "10.0.0.2", headers: { authorization: "Bearer secret" }, payload: { instanceId: "qkt-prod", events: [] } });
+    expect(good.statusCode).toBe(200);
+  });
+
+  it("rejects a token that only shares a prefix with the real one", async () => {
+    const res = await app.inject({ method: "POST", url: "/ingest", headers: { authorization: "Bearer secre" }, payload: { instanceId: "qkt-prod", events: [] } });
+    expect(res.statusCode).toBe(401);
+  });
+});

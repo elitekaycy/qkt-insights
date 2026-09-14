@@ -1,13 +1,39 @@
 import type { FastifyInstance } from "fastify";
+import { createHash, timingSafeEqual } from "node:crypto";
 import { BatchSchema } from "@qkt-insights/contract";
 import { ingestAck, ingestEvents, persistStateEvent, touchInstance, upsertRoster, type Db, type LiveBus, type LiveStateStore } from "@qkt-insights/store";
 
 export interface CollectorDeps { db: Db; bus: LiveBus; liveState: LiveStateStore; ingestToken: string }
 
+/** Bad-token attempts allowed per IP per minute before ingest refuses that IP outright. */
+export const INGEST_AUTH_FAILURES_PER_MINUTE = 20;
+
+function digest(value: string): Buffer {
+  return createHash("sha256").update(value).digest();
+}
+
 export function registerCollector(app: FastifyInstance, deps: CollectorDeps): void {
+  // Digests have equal length, so the comparison is constant-time whatever the header holds.
+  const expected = digest(`Bearer ${deps.ingestToken}`);
+  const failures = new Map<string, { start: number; count: number }>();
+  const sweep = setInterval(() => {
+    const now = Date.now();
+    for (const [ip, w] of failures) if (now - w.start >= 60_000) failures.delete(ip);
+  }, 60_000);
+  sweep.unref();
+  app.addHook("onClose", async () => clearInterval(sweep));
+
   app.post("/ingest", async (req, reply) => {
-    const auth = req.headers.authorization;
-    if (auth !== `Bearer ${deps.ingestToken}`) return reply.code(401).send({ error: "unauthorized" });
+    const now = Date.now();
+    const window = failures.get(req.ip);
+    if (window && now - window.start < 60_000 && window.count >= INGEST_AUTH_FAILURES_PER_MINUTE) {
+      return reply.code(429).header("retry-after", 60).send({ error: "too many failed attempts" });
+    }
+    if (!timingSafeEqual(digest(req.headers.authorization ?? ""), expected)) {
+      if (!window || now - window.start >= 60_000) failures.set(req.ip, { start: now, count: 1 });
+      else window.count++;
+      return reply.code(401).send({ error: "unauthorized" });
+    }
 
     const parsed = BatchSchema.safeParse(req.body);
     if (!parsed.success) return reply.code(400).send({ error: "invalid batch", detail: parsed.error.message });

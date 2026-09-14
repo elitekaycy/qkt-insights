@@ -45,3 +45,53 @@ describe("WS /live", () => {
     ws.close();
   });
 });
+
+describe("WS /live hardening", () => {
+  async function server(deps: Partial<Parameters<typeof registerLive>[1]>) {
+    const a = Fastify();
+    await a.register(websocket);
+    registerLive(a, { bus: new LiveBus(), ...deps });
+    await a.listen({ port: 0, host: "127.0.0.1" });
+    const addr = a.server.address();
+    const port = typeof addr === "object" && addr ? addr.port : 0;
+    return { a, url: `ws://127.0.0.1:${port}/live` };
+  }
+
+  function closeCode(ws: WebSocket): Promise<number> {
+    return new Promise((resolve) => ws.on("close", (code) => resolve(code)));
+  }
+
+  it("closes a socket whose Origin is another site", async () => {
+    const { a, url: u } = await server({});
+    const ws = new WebSocket(u, { headers: { origin: "https://evil.example" } });
+    expect(await closeCode(ws)).toBe(1008);
+    await a.close();
+  });
+
+  it("closes an unauthenticated socket", async () => {
+    const { a, url: u } = await server({ authenticate: () => false });
+    expect(await closeCode(new WebSocket(u))).toBe(1008);
+    await a.close();
+  });
+
+  it("caps open sockets per IP", async () => {
+    const { a, url: u } = await server({ maxSocketsPerIp: 2 });
+    const first = new WebSocket(u);
+    const second = new WebSocket(u);
+    await Promise.all([once(first, "open"), once(second, "open")]);
+    expect(await closeCode(new WebSocket(u))).toBe(1013);
+    first.close();
+    second.close();
+    await a.close();
+  });
+
+  it("closes a socket once its session stops validating", async () => {
+    let valid = true;
+    const { a, url: u } = await server({ authenticate: () => valid, revalidateMs: 50 });
+    const ws = new WebSocket(u);
+    await once(ws, "open");
+    valid = false;
+    expect(await closeCode(ws)).toBe(1008);
+    await a.close();
+  });
+});

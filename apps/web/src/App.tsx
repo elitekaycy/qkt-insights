@@ -1,6 +1,6 @@
 import { useCallback, useState } from "react";
 import { useIsFetching, useQuery, useQueryClient } from "@tanstack/react-query";
-import { get, logout, Unauthorized, type InstanceRow } from "./api";
+import { get, logout, logoutEverywhere, Unauthorized, type InstanceRow } from "./api";
 import { LiveDot, Select } from "./components/ui";
 import Login from "./pages/Login";
 import Overview from "./pages/Overview";
@@ -280,6 +280,25 @@ export default function App() {
         >
           <NavIcon d="M9 21H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h4M16 17l5-5-5-5M21 12H9" big />
           {!iconsOnly && "Sign out"}
+        </button>
+        <button
+          onClick={async () => {
+            if (!window.confirm("Sign out every device, including this one?")) return;
+            if (!(await logoutEverywhere())) {
+              window.alert("Could not reach the collector. Nothing was signed out.");
+              return;
+            }
+            setSignedOut(true);
+            setDrawer(false);
+            queryClient.clear();
+          }}
+          title="Sign out everywhere"
+          className={`flex w-full items-center gap-3 rounded-lg px-3.5 py-2.5 text-[15px] font-medium text-muted transition hover:bg-raised hover:text-body ${
+            iconsOnly ? "justify-center px-0" : ""
+          }`}
+        >
+          <NavIcon d="M12 2v10M18.36 6.64a9 9 0 1 1-12.73 0" big />
+          {!iconsOnly && "Sign out everywhere"}
         </button>
       </div>
     </>
