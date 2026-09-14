@@ -18,6 +18,14 @@ describe("WindowCounter", () => {
     expect(c.retryAfterMs("a", 2000)).toBe(MIN - 1000);
   });
 
+  it("adds amounts such as milliseconds against the limit", () => {
+    const c = new WindowCounter(100, MIN);
+    expect(c.add("a", 60, 0)).toBe(true);
+    expect(c.add("a", 50, 1)).toBe(false);
+    expect(c.count("a", 2)).toBe(110);
+    expect(c.add("a", 10, MIN)).toBe(true);
+  });
+
   it("forgets windows that have ended", () => {
     const c = new WindowCounter(1, MIN);
     for (let i = 0; i < 100; i++) c.hit(`k${i}`, 0);

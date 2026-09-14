@@ -1,4 +1,5 @@
 import { useEffect, useRef, useState } from "react";
+import { useView } from "./view";
 
 export interface LiveEnvelope {
   v: 1;
@@ -18,6 +19,9 @@ export interface LiveEnvelope {
  * (e.g. ["log"] for the logs page), so unrelated envelopes never hit the wire.
  */
 export function useLiveStream(instanceId: string | null, cap = 500, types?: string[]): LiveEnvelope[] {
+  const view = useView();
+  // Shared links poll delayed data; a live push would undo the delay.
+  const target = view.public ? null : instanceId;
   const [events, setEvents] = useState<LiveEnvelope[]>([]);
   const wsRef = useRef<WebSocket | null>(null);
   // Joined once so an inline array literal does not re-open the socket every render.
@@ -25,13 +29,13 @@ export function useLiveStream(instanceId: string | null, cap = 500, types?: stri
 
   useEffect(() => {
     setEvents([]);
-    if (!instanceId) return;
+    if (!target) return;
     let closed = false;
     let retry: ReturnType<typeof setTimeout>;
 
     const connect = () => {
       const proto = location.protocol === "https:" ? "wss" : "ws";
-      const url = `${proto}://${location.host}/live?instance=${encodeURIComponent(instanceId)}${typesKey ? `&types=${encodeURIComponent(typesKey)}` : ""}`;
+      const url = `${proto}://${location.host}/live?instance=${encodeURIComponent(target)}${typesKey ? `&types=${encodeURIComponent(typesKey)}` : ""}`;
       const ws = new WebSocket(url);
       wsRef.current = ws;
       ws.onmessage = (ev) => {
@@ -49,7 +53,7 @@ export function useLiveStream(instanceId: string | null, cap = 500, types?: stri
       clearTimeout(retry);
       wsRef.current?.close();
     };
-  }, [instanceId, cap, typesKey]);
+  }, [target, cap, typesKey]);
 
   return events;
 }

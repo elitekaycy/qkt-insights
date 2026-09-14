@@ -9,11 +9,13 @@ import {
 import { price, tsShort } from "../format";
 import { realizedLabel, useCloseMap } from "../useCloses";
 import { useLiveStream } from "../useLiveStream";
+import { useView } from "../view";
 
 // a pushed deal or fill means the history just grew — refetch instead of waiting out the poll
 const HISTORY_TYPES = ["broker.deal", "trade"];
 
 export default function Trades({ instanceId }: { instanceId: string | null }) {
+  const view = useView();
   const [strategy, setStrategy] = useState("");
   const [q, setQ] = useState("");
   const [range, setRange] = useState<RangeKey>("all");
@@ -199,7 +201,7 @@ export default function Trades({ instanceId }: { instanceId: string | null }) {
               head={["Time", "Strategy", "Symbol", "Side", "Qty", "Price", "P&L", "Order"]}
               rows={shown}
               keyOf={(t) => t.id}
-              onRow={(t) => setOpen(t)}
+              onRow={view.public ? undefined : (t) => setOpen(t)}
               empty="No trades match"
               cells={(t) => {
                 const r = realizedLabel(closeMap.get(t.payload.orderId));
@@ -243,7 +245,9 @@ export default function Trades({ instanceId }: { instanceId: string | null }) {
         </Loadable>
       </Panel>
 
-      <TradeDetail trade={open} instanceId={instanceId} onClose={() => setOpen(null)} close={open ? closeMap.get(open.payload.orderId) : null} />
+      {!view.public && (
+        <TradeDetail trade={open} instanceId={instanceId} onClose={() => setOpen(null)} close={open ? closeMap.get(open.payload.orderId) : null} />
+      )}
     </div>
   );
 }

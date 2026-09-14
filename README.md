@@ -92,6 +92,13 @@ covers the proxy, two-factor sign-in and sign-in alerts. The production image ex
   <img src="docs/assets/qkt-insights-demo-docker.gif" alt="Clone qkt-insights, build the image, and run it with Docker — all from the terminal" width="880">
 </p>
 
+## Share a read-only view
+
+Make the overview, a portfolio, or a single strategy public with the eye toggle, then
+copy its link. Viewers see the same pages read-only and 15 minutes behind, with private
+strategies, logs, health and account identity left out. See
+[Sharing dashboards publicly](docs/operations/public-sharing.md).
+
 ## Install it on your phone
 
 The dashboard is a PWA. Open it in a mobile browser and use **Install app** — on the

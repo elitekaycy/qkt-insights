@@ -6,12 +6,17 @@ export class WindowCounter {
 
   /** Counts a hit; false once the key has used its budget for the current window. */
   hit(key: string, now = Date.now()): boolean {
+    return this.add(key, 1, now);
+  }
+
+  /** Adds an amount (e.g. milliseconds spent) to the key's window; false once past the limit. */
+  add(key: string, amount: number, now = Date.now()): boolean {
     const w = this.windows.get(key);
     if (!w || now - w.start >= this.windowMs) {
-      this.windows.set(key, { start: now, count: 1 });
-      return true;
+      this.windows.set(key, { start: now, count: amount });
+      return amount <= this.limit;
     }
-    w.count++;
+    w.count += amount;
     return w.count <= this.limit;
   }
 

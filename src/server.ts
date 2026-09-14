@@ -3,10 +3,11 @@ import argon2 from "argon2";
 import cookie from "@fastify/cookie";
 import websocket from "@fastify/websocket";
 import fastifyStatic from "@fastify/static";
-import { openDb, checkpoint, LiveBus, LiveStateStore, Monitors, Sessions, pruneRetention, pruneStaleStrategies, replaceStrategyCapital } from "@qkt-insights/store";
+import { openDb, checkpoint, LiveBus, LiveStateStore, Monitors, Sessions, Shares, pruneRetention, pruneStaleStrategies, replaceStrategyCapital } from "@qkt-insights/store";
 import { registerCollector } from "@qkt-insights/collector";
 import {
-  REQUESTS_PER_MINUTE, TotpVerifier, generateTotpSecret, hasSession, registerAuth, registerLive, registerRest, registerSecurity, totpUri,
+  REQUESTS_PER_MINUTE, TotpVerifier, TtlCache, generateTotpSecret, hasSession, registerAuth, registerLive, registerPublic, registerRest, registerSecurity,
+  invalidateShareScopes, registerShares, sweepHiddenShares, totpUri,
 } from "@qkt-insights/api";
 import { authAlertText, channelsFromEnv, parseHttpMonitors, sendAlert, startMonitors } from "./monitors.js";
 import { parseStrategyCapital } from "./capital.js";
@@ -48,6 +49,15 @@ function trustProxy(value: string | undefined): string | boolean {
   if (!v) return DEFAULT_TRUST_PROXY;
   if (v === "false") return false;
   return v;
+}
+
+/** Minutes public views run behind live data; whole minutes from 0 to one day. */
+export function publicDelayMinutes(value: string | undefined): number {
+  const v = value?.trim();
+  if (!v) return 15;
+  const n = Number(v);
+  if (!Number.isInteger(n) || n < 0 || n > 1440) throw new Error("PUBLIC_DELAY_MINUTES must be a whole number of minutes from 0 to 1440");
+  return n;
 }
 
 export function totpSetupText(account: string): string {
@@ -150,6 +160,25 @@ export async function buildServer(mode: Mode) {
     });
     registerRest(app, { db, liveState, monitors });
     registerLive(app, { bus, authenticate: hasSession });
+    const shares = new Shares(db);
+    const publicCache = new TtlCache(60_000, 1000);
+    registerShares(app, { db, shares, cache: publicCache });
+    registerPublic(app, { db, liveState, shares, cache: publicCache, delayMs: publicDelayMinutes(process.env.PUBLIC_DELAY_MINUTES) * 60_000 });
+    // Links whose subject stopped being public without an admin change (deploy metadata moved a
+    // strategy, a strategy was pruned) are replaced within a minute.
+    const shareSweep = setInterval(() => {
+      try {
+        const revoked = sweepHiddenShares(db, shares);
+        if (revoked > 0) {
+          invalidateShareScopes(publicCache);
+          app.log.info({ revoked }, "share links revoked");
+        }
+      } catch (err) {
+        app.log.error({ err }, "share link sweep failed");
+      }
+    }, 60_000);
+    shareSweep.unref();
+    app.addHook("onClose", async () => clearInterval(shareSweep));
     // Persist the in-memory account state once a minute so the equity curve
     // survives restarts; unref so the timer never holds the process open.
     const rollup = setInterval(() => liveState.flushRollup(db, Date.now()), 60_000);

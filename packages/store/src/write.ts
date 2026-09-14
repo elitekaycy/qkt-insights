@@ -2,7 +2,8 @@ import type { Db } from "./db.js";
 import type { Envelope } from "@qkt-insights/contract";
 
 /** A flat position still records one valuation this often so its holding period is visible. */
-const VALUATION_HEARTBEAT_MS = 5 * 60_000;
+/** A flat position is still re-marked this often, so a stored mark proves it was held. */
+export const VALUATION_HEARTBEAT_MS = 5 * 60_000;
 
 /** Last valuation row written per `instance|broker|ticket`; restart simply writes once more. */
 const lastValuationWrite = new Map<string, number>();
