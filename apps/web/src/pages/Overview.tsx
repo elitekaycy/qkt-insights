@@ -8,6 +8,8 @@ import { age, duration, money, num, price } from "../format";
 import { strategyCapital, strategyDisplayName } from "../portfolio";
 import { useLiveState } from "../useLiveState";
 import { useLiveStream } from "../useLiveStream";
+import { ShareControl } from "../components/ShareControl";
+import { useView } from "../view";
 
 const PALETTE = ["#c8f74a", "#5cb8ff", "#a78bfa", "#3fe08c", "#fbbf24", "#ff6b6b", "#f472b6", "#22d3ee"];
 
@@ -57,6 +59,7 @@ export default function Overview({
   instanceId: string | null;
   onOpenStrategy: (strategyId: string) => void;
 }) {
+  const view = useView();
   const strategies = useQuery({
     queryKey: ["strategies", instanceId],
     queryFn: () => get<StrategyRow[]>(`/strategies?instance=${encodeURIComponent(instanceId!)}`),
@@ -66,6 +69,7 @@ export default function Overview({
   const health = useQuery({
     queryKey: ["health"],
     queryFn: () => get<HealthRow[]>("/health/instances"),
+    enabled: !view.public,
     refetchInterval: 15_000,
   });
 
@@ -142,7 +146,11 @@ export default function Overview({
 
   return (
     <div>
-      <PageHeader title="Overview" sub={`Everything ${instanceId} is doing, right now.`} />
+      <PageHeader
+        title="Overview"
+        sub={view.public ? `${instanceId} · public view, figures ${view.meta.delayMinutes} minutes behind` : `Everything ${instanceId} is doing, right now.`}
+        right={<ShareControl instanceId={instanceId} kind="overview" />}
+      />
 
       <div className="mt-6">
         <div className="rise flex items-baseline justify-between" style={{ "--stagger": 0 } as React.CSSProperties}>
@@ -181,12 +189,14 @@ export default function Overview({
                 tone={a.openProfit == null ? "neutral" : a.openProfit > 0 ? "up" : a.openProfit < 0 ? "down" : "neutral"}
                 stagger={1}
               />
-              <Stat
-                label="Margin level"
-                value={a.marginLevel == null ? "—" : `${num(a.marginLevel)}%`}
-                sub={a.margin != null ? `margin ${money(a.margin)}` : undefined}
-                stagger={1}
-              />
+              {!view.public && (
+                <Stat
+                  label="Margin level"
+                  value={a.marginLevel == null ? "—" : `${num(a.marginLevel)}%`}
+                  sub={a.margin != null ? `margin ${money(a.margin)}` : undefined}
+                  stagger={1}
+                />
+              )}
               {(() => {
                 const all = drawdown.data ?? [];
                 // TOTAL spans broker relabels and multi-account portfolios; a
@@ -217,6 +227,9 @@ export default function Overview({
         ))}
         </Loadable>
         <div className="mt-4">
+          {view.public ? (
+            <PublicOpenPositions summary={liveState.data?.openPositions ?? null} loading={liveState.isPending} />
+          ) : (
           <Panel stagger={1} title="Open positions" hint="live broker tickets, broker-valued" scroll="max-h-[22rem]">
             <Loadable
               loading={liveState.isPending}
@@ -283,6 +296,7 @@ export default function Overview({
             />
             </Loadable>
           </Panel>
+          )}
         </div>
       </div>
 
@@ -327,6 +341,7 @@ export default function Overview({
       </Loadable>
 
 
+      {!view.public && (
       <div className="mt-8">
         <Panel stagger={6} title="Instances" hint="every qkt box the collector has heard from">
           <Loadable loading={health.isPending} error={health.isError} retry={() => health.refetch()} what="instance health" lines={1}>
@@ -352,7 +367,26 @@ export default function Overview({
           </Loadable>
         </Panel>
       </div>
+      )}
     </div>
+  );
+}
+
+/** Shared links show how many positions are open and their P&L, never what or where they are. */
+function PublicOpenPositions({ summary, loading }: { summary: { count: number; unrealized: number | null } | null; loading: boolean }) {
+  const count = summary?.count ?? 0;
+  const unrealized = summary?.unrealized ?? null;
+  return (
+    <Card className="flex flex-wrap items-baseline gap-x-6 gap-y-1 px-5 py-4" stagger={1}>
+      <span className="text-[11px] font-semibold uppercase tracking-[0.12em] text-muted">Open positions</span>
+      <span className="font-mono text-xl font-semibold text-bright">{loading ? "…" : count}</span>
+      <span className={`font-mono text-xl font-semibold ${profitTone(unrealized)}`}>
+        {unrealized == null ? "—" : `${unrealized > 0 ? "+" : ""}${money(unrealized)}`}
+      </span>
+      <span className="text-xs text-faint">
+        {count === 1 ? "unrealized total appears once two or more are open · " : "unrealized · "}details stay private until each position closes
+      </span>
+    </Card>
   );
 }
 

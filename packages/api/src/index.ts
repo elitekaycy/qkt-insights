@@ -4,3 +4,7 @@ export * from "./live.js";
 export * from "./limits.js";
 export * from "./totp.js";
 export * from "./security.js";
+export * from "./performance.js";
+export * from "./public.js";
+export * from "./publicView.js";
+export * from "./cache.js";

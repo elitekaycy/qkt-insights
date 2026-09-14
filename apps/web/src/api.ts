@@ -4,9 +4,26 @@ export class Unauthorized extends Error {
   }
 }
 
+export class NotFound extends Error {
+  constructor(url: string) {
+    super(`${url} -> 404`);
+  }
+}
+
+/**
+ * Prefix for every data read. Empty for the signed-in dashboard; "/public/<token>" on a shared
+ * link, where the same pages read the token-scoped, delayed endpoints instead.
+ */
+let apiBase = "";
+
+export function setApiBase(base: string): void {
+  apiBase = base;
+}
+
 export async function get<T>(url: string): Promise<T> {
-  const res = await fetch(url, { credentials: "same-origin" });
+  const res = await fetch(`${apiBase}${url}`, { credentials: "same-origin" });
   if (res.status === 401) throw new Unauthorized();
+  if (res.status === 404) throw new NotFound(url);
   if (!res.ok) throw new Error(`${url} -> ${res.status}`);
   return (await res.json()) as T;
 }
@@ -338,6 +355,8 @@ export interface LivePositionGroup {
 export interface LiveStateSnapshot {
   accounts: LiveAccount[];
   positions: LivePositionGroup[];
+  /** Shared overview links only: how many positions were open at the cutoff and their total unrealized P&L. */
+  openPositions?: { count: number; unrealized: number | null };
   orders: Array<{ instanceId: string; broker: string; at: number; stale: boolean; list: LivePendingOrderRow[] }>;
 }
 export interface DealRow {
@@ -464,4 +483,48 @@ export interface ExecutionQuality {
   p95FillMs: number | null;
   averageAdverseSlippage: number | null;
   slippageSample: number;
+}
+
+export type ShareKind = "overview" | "portfolio" | "strategy";
+export type ShareVisibility = "public" | "private";
+
+export interface ShareState {
+  /** The setting made on this subject itself; null = inherited. */
+  visibility: ShareVisibility | null;
+  effective: boolean;
+  /** Present only while the subject is public. */
+  token: string | null;
+}
+
+export interface SharesView {
+  overview: ShareState;
+  portfolios: Array<ShareState & { id: string }>;
+  strategies: Array<ShareState & { id: string }>;
+}
+
+export interface PublicMeta {
+  kind: ShareKind;
+  instanceId: string;
+  subject: string;
+  delayMinutes: number;
+  asOf: number;
+}
+
+async function sendShare(method: "PUT" | "POST", url: string, body: unknown): Promise<SharesView> {
+  const res = await fetch(url, { method, headers: { "content-type": "application/json" }, body: JSON.stringify(body), credentials: "same-origin" });
+  if (res.status === 401) throw new Unauthorized();
+  if (!res.ok) throw new Error(`${url} -> ${res.status}`);
+  return (await res.json()) as SharesView;
+}
+
+export function setShareVisibility(instance: string, kind: ShareKind, subject: string, visibility: ShareVisibility | null): Promise<SharesView> {
+  return sendShare("PUT", "/shares", { instance, kind, subject, visibility });
+}
+
+export function rotateShareLink(instance: string, kind: ShareKind, subject: string): Promise<SharesView> {
+  return sendShare("POST", "/shares/rotate", { instance, kind, subject });
+}
+
+export function shareUrl(token: string): string {
+  return `${location.origin}/p/${token}`;
 }

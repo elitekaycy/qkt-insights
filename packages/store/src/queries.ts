@@ -1,4 +1,5 @@
 import type { Db } from "./db.js";
+import { VALUATION_HEARTBEAT_MS } from "./write.js";
 import { closedTrades, hasClosingDeals, SNAPSHOT_EQUITY, strategyBase, strategyEquityCurve, tradePnls, type StrategyEquityPoint } from "./analytics.js";
 
 // A strategy stays "active" while its roster bump is within this window of the
@@ -29,7 +30,19 @@ export function listInstances(db: Db): InstanceRow[] {
   return db.prepare("SELECT id, name, first_seen firstSeen, last_seen lastSeen, last_seq lastSeq, heard_at heardAt FROM instances ORDER BY id").all() as InstanceRow[];
 }
 
+/** The roster without realized figures: cheap enough for visibility checks that run per request. */
+export function listStrategyRoster(db: Db, instanceId: string): StrategyRow[] {
+  return strategyRosterRows(db, instanceId).map((r) => ({ ...r, realizedNet: null, dealCount: 0 }));
+}
+
 export function listStrategies(db: Db, instanceId: string): StrategyRow[] {
+  return strategyRosterRows(db, instanceId).map((r) => {
+    const closes = closedTrades(db, { instanceId, strategyId: r.strategyId });
+    return { ...r, realizedNet: closes.length > 0 ? closes.reduce((a, c) => a + c.realized, 0) : null, dealCount: closes.length };
+  });
+}
+
+function strategyRosterRows(db: Db, instanceId: string): Array<Omit<StrategyRow, "realizedNet" | "dealCount">> {
   // realizedNet and dealCount come from closedTrades — broker deals when polled, else the engine's
   // trade.closed rows — the same fallback report/contribution use, so a card and its detail page can
   // never disagree (a live book that trades without polled deals still shows its P&L, not a blank card).
@@ -50,17 +63,11 @@ export function listStrategies(db: Db, instanceId: string): StrategyRow[] {
        END active
      FROM strategies s WHERE s.instance_id=? ORDER BY s.strategy_id`,
   ).all(ROSTER_WINDOW_MS, instanceId) as Array<Omit<StrategyRow, "realizedNet" | "dealCount" | "metadata" | "active"> & { metadata: string | null; active: number }>;
-  return rows.map((r) => {
-    const closes = closedTrades(db, { instanceId, strategyId: r.strategyId });
-    const metadata = typeof r.metadata === "string" ? JSON.parse(r.metadata) as Record<string, unknown> : null;
-    return {
-      ...r,
-      metadata,
-      active: r.active === 1,
-      realizedNet: closes.length > 0 ? closes.reduce((a, c) => a + c.realized, 0) : null,
-      dealCount: closes.length,
-    };
-  });
+  return rows.map((r) => ({
+    ...r,
+    metadata: typeof r.metadata === "string" ? JSON.parse(r.metadata) as Record<string, unknown> : null,
+    active: r.active === 1,
+  }));
 }
 
 export function listOrders(db: Db, f: { instanceId: string; strategyId?: string; symbol?: string; state?: string; limit: number }): OrderRow[] {
@@ -78,8 +85,9 @@ export function listOrders(db: Db, f: { instanceId: string; strategyId?: string;
 const TRADE_STRATEGY =
   "COALESCE(e.strategy_id, (SELECT o.strategy_id FROM orders o WHERE o.instance_id=e.instance_id AND o.order_id=json_extract(e.payload,'$.orderId')))";
 
-export function listTrades(db: Db, f: { instanceId: string; strategyId?: string; symbol?: string; limit: number }): TradeRow[] {
+export function listTrades(db: Db, f: { instanceId: string; strategyId?: string; symbol?: string; limit: number; to?: number }): TradeRow[] {
   const cl: string[] = ["e.instance_id=@instanceId", "e.type='trade'"];
+  if (f.to != null) cl.push("e.ts<=@to");
   if (f.strategyId) cl.push(`${TRADE_STRATEGY}=@strategyId`);
   if (f.symbol) cl.push("json_extract(e.payload,'$.symbol')=@symbol");
   const rows = db.prepare(
@@ -290,11 +298,11 @@ export interface AccountDrawdownRow {
  * percent of the peak at the time — the figures a prop-firm limit is written
  * against.
  */
-export function accountDrawdown(db: Db, f: { instanceId: string }): AccountDrawdownRow[] {
+export function accountDrawdown(db: Db, f: { instanceId: string; to?: number }): AccountDrawdownRow[] {
   const rows = db.prepare(
     `SELECT broker, minute_ts ts, equity FROM account_equity
-     WHERE instance_id=? AND equity IS NOT NULL ORDER BY broker, minute_ts ASC`,
-  ).all(f.instanceId) as Array<{ broker: string; ts: number; equity: number }>;
+     WHERE instance_id=? AND equity IS NOT NULL AND minute_ts<=? ORDER BY broker, minute_ts ASC`,
+  ).all(f.instanceId, f.to ?? Number.MAX_SAFE_INTEGER) as Array<{ broker: string; ts: number; equity: number }>;
   const out: AccountDrawdownRow[] = [];
   let cur: AccountDrawdownRow | null = null;
   let peak = 0; let peakTs = 0;
@@ -395,16 +403,16 @@ export interface StrategyStats {
  *   ledger snapshots only while fresh (newest younger than 10 minutes vs [now]);
  *   qkt no longer emits snapshot.equity, so an old figure would be a frozen lie.
  */
-export function strategyStats(db: Db, f: { instanceId: string; strategyId: string }, now = Date.now()): StrategyStats {
+export function strategyStats(db: Db, f: { instanceId: string; strategyId: string; to?: number; closedPositionsOnly?: boolean }, now = Date.now()): StrategyStats {
   const t: any = db.prepare(
     `SELECT COUNT(*) c,
             SUM(CASE WHEN json_extract(payload,'$.side')='BUY' THEN 1 ELSE 0 END) buys,
             SUM(CASE WHEN json_extract(payload,'$.side')='SELL' THEN 1 ELSE 0 END) sells,
             COALESCE(SUM(json_extract(payload,'$.qty')),0) vol
-     FROM events e WHERE e.instance_id=@instanceId AND e.type='trade'
+     FROM events e WHERE e.instance_id=@instanceId AND e.type='trade' AND e.ts<=@to
        AND COALESCE(e.strategy_id, (SELECT o.strategy_id FROM orders o
              WHERE o.instance_id=e.instance_id AND o.order_id=json_extract(e.payload,'$.orderId')))=@strategyId`,
-  ).get(f);
+  ).get({ ...f, to: f.to ?? Number.MAX_SAFE_INTEGER });
   const base = strategyBase(db, f);
 
   // Closed trades: broker deals when polled, else the engine's trade.closed rows — so a live book
@@ -414,8 +422,8 @@ export function strategyStats(db: Db, f: { instanceId: string; strategyId: strin
   const snaps = fromDeals
     ? strategyEquityCurve(db, f)
     : db.prepare(
-        `SELECT ts, ${SNAPSHOT_EQUITY} equity, realized FROM equity_snapshots WHERE instance_id=@instanceId AND strategy_id=@strategyId ORDER BY ts ASC`,
-      ).all({ ...f, base: base ?? 0 }) as { ts: number; equity: number; realized: number }[];
+        `SELECT ts, ${SNAPSHOT_EQUITY} equity, realized FROM equity_snapshots WHERE instance_id=@instanceId AND strategy_id=@strategyId AND ts<=@to ORDER BY ts ASC`,
+      ).all({ ...f, to: f.to ?? Number.MAX_SAFE_INTEGER, base: base ?? 0 }) as { ts: number; equity: number; realized: number }[];
 
   const pnls = fromDeals
     ? dealRows.map((c) => c.realized).filter((r) => r !== 0)
@@ -462,4 +470,31 @@ export function strategyStats(db: Db, f: { instanceId: string; strategyId: strin
     maxDrawdownPct: snaps.length > 0 ? maxDd : null,
     sharpe,
   };
+}
+
+export interface PositionMark { broker: string; ticket: string; strategyId: string | null; profit: number | null; ts: number }
+
+/**
+ * A position counts as open at a moment only if it was marked shortly before it. Unchanged
+ * positions are re-marked on a heartbeat, so the window spans two heartbeats plus slack.
+ */
+export const POSITION_MARK_FRESH_MS = 2 * VALUATION_HEARTBEAT_MS + 60_000;
+
+/**
+ * The positions open at a past moment, each valued by its last mark at or before it: a
+ * delayed view of open P&L that never uses a later price. A position whose closing deal
+ * landed before the moment is excluded even if its last mark is still inside the window.
+ */
+export function openPositionsAt(db: Db, f: { instanceId: string; at: number; freshMs?: number }): PositionMark[] {
+  return db.prepare(
+    `SELECT v.broker, v.ticket, v.strategy_id strategyId, v.profit, v.ts
+     FROM position_valuations v
+     JOIN (SELECT broker, ticket, MAX(ts) ts FROM position_valuations
+           WHERE instance_id=@instanceId AND ts<=@at AND ts>=@from GROUP BY broker, ticket) m
+       ON m.broker=v.broker AND m.ticket=v.ticket AND m.ts=v.ts
+     WHERE v.instance_id=@instanceId
+       AND NOT EXISTS (SELECT 1 FROM deals d WHERE d.instance_id=v.instance_id AND d.position_ticket=v.ticket
+                         AND d.entry IN ('OUT','OUT_BY','INOUT') AND d.ts<=@at)
+     ORDER BY v.broker, v.ticket`,
+  ).all({ instanceId: f.instanceId, at: f.at, from: f.at - (f.freshMs ?? POSITION_MARK_FRESH_MS) }) as PositionMark[];
 }

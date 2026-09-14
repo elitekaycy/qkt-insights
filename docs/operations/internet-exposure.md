@@ -97,6 +97,7 @@ get back in.
 | `ADMIN_USERNAME` / `ADMIN_PASSWORD` | required, password 12+ chars | Dashboard sign-in |
 | `ADMIN_TOTP_SECRET` | unset | Base32 secret; when set, sign-in needs an authenticator code |
 | `TRUST_PROXY` | `loopback,172.16.0.0/12` | Peers allowed to set forwarding headers; `false` trusts none |
+| `PUBLIC_DELAY_MINUTES` | `15` | How far shared links run behind live data (`docs/operations/public-sharing.md`) |
 
 `SESSION_SECRET` is no longer read. Sessions are random tokens stored hashed in the
 database, valid for 14 days and ended after 3 idle days. Upgrading signs every device
@@ -110,6 +111,7 @@ out once.
 | 50 failed sign-ins overall in 15 minutes | Sign-in paused for 15 minutes for every IP that holds no live session, one alert |
 | More than 2 password checks at once | Extra attempts get 429 before any hashing |
 | More than 600 requests a minute from one IP | 429 with `Retry-After` |
+| More than 240 shared-link requests a minute from one IP | 429 with `Retry-After` |
 | 20 bad ingest tokens a minute from one IP | That IP gets 429 on ingest |
 | More than 20 live sockets from one IP | New sockets closed with code 1013 |
 | Cross-site sign-in or socket attempt | 403, or socket closed with code 1008 |

@@ -15,7 +15,18 @@ import type { Db } from "./db.js";
 
 const DAY = 86_400_000;
 
-export interface AnalyticsFilter { instanceId: string; strategyId: string; from?: number; to?: number }
+export interface AnalyticsFilter {
+  instanceId: string;
+  strategyId: string;
+  from?: number;
+  to?: number;
+  /**
+   * Keep only positions fully closed by `to` (requires `to`): a partial close, or a close leg of a
+   * position still open, is left out of every close-derived figure. Public views use it so no
+   * aggregate can reveal a position that was open at their cutoff.
+   */
+  closedPositionsOnly?: boolean;
+}
 
 export interface DrawdownPeriod {
   peakTs: number;
@@ -87,6 +98,8 @@ export function strategyBase(db: Db, f: { instanceId: string; strategyId: string
 export const SNAPSHOT_EQUITY = "(@base + realized + unrealized)";
 
 function snapshots(db: Db, f: AnalyticsFilter): SnapRow[] {
+  // Snapshot equity carries unrealized P&L of open positions, which closedPositionsOnly excludes.
+  if (f.closedPositionsOnly) return [];
   const cl = ["instance_id=@instanceId", "strategy_id=@strategyId"];
   if (f.from != null) cl.push("ts>=@from");
   if (f.to != null) cl.push("ts<=@to");
@@ -146,11 +159,45 @@ function canonicalDeal(alias: string): string {
     WHERE dd.instance_id=${alias}.instance_id AND dd.deal_ticket=${alias}.deal_ticket)`;
 }
 
-export function hasClosingDeals(db: Db, f: { instanceId: string; strategyId: string }): boolean {
-  return db.prepare(
-    `SELECT 1 FROM deals d WHERE d.instance_id=? AND d.strategy_id=? AND d.entry IN ${OUT_LEGS}
-       AND ${canonicalDeal("d")} LIMIT 1`,
-  ).get(f.instanceId, f.strategyId) != null;
+/**
+ * `alias.position_ticket` belongs to a position whose IN volume was fully matched by OUT legs at
+ * or before @to. Reversal (INOUT) positions never qualify: their legs cannot be split into a
+ * closed part and an open part.
+ */
+function fullyClosedPosition(alias: string): string {
+  // Correlated on the position so it reads only that position's legs through
+  // idx_deals_position_ts, instead of grouping every deal of the instance per query.
+  return `(SELECT CASE WHEN SUM(CASE WHEN fc.entry='INOUT' THEN 1 ELSE 0 END) = 0
+                        AND SUM(CASE WHEN fc.entry='IN' THEN fc.qty ELSE 0 END) > 0
+                        AND SUM(CASE WHEN fc.entry IN ('OUT','OUT_BY') THEN fc.qty ELSE 0 END)
+                            >= SUM(CASE WHEN fc.entry='IN' THEN fc.qty ELSE 0 END) - 1e-9
+                   THEN 1 ELSE 0 END
+      FROM deals fc
+      WHERE fc.instance_id=${alias}.instance_id AND fc.position_ticket=${alias}.position_ticket
+        AND fc.ts<=@to AND ${canonicalDeal("fc")}) = 1`;
+}
+
+function requireCutoff(f: { to?: number; closedPositionsOnly?: boolean }): void {
+  if (f.closedPositionsOnly && f.to == null) throw new Error("closedPositionsOnly needs a `to` cutoff");
+}
+
+/** Position tickets fully closed by `to` on the instance (see fullyClosedPosition). */
+export function fullyClosedPositions(db: Db, f: { instanceId: string; to: number }): Set<string> {
+  const rows = db.prepare(
+    `SELECT DISTINCT d.position_ticket p FROM deals d
+     WHERE d.instance_id=@instanceId AND d.entry IN ${OUT_LEGS} AND d.ts<=@to AND d.position_ticket IS NOT NULL
+       AND ${fullyClosedPosition("d")}`,
+  ).all({ instanceId: f.instanceId, to: f.to }) as Array<{ p: string }>;
+  return new Set(rows.map((r) => r.p));
+}
+
+export function hasClosingDeals(db: Db, f: { instanceId: string; strategyId: string; to?: number; closedPositionsOnly?: boolean }): boolean {
+  requireCutoff(f);
+  const cl = ["d.instance_id=@instanceId", "d.strategy_id=@strategyId", `d.entry IN ${OUT_LEGS}`, canonicalDeal("d")];
+  if (f.to != null) cl.push("d.ts<=@to");
+  if (f.closedPositionsOnly) cl.push(fullyClosedPosition("d"));
+  return db.prepare(`SELECT 1 FROM deals d WHERE ${cl.join(" AND ")} LIMIT 1`)
+    .get({ instanceId: f.instanceId, strategyId: f.strategyId, to: f.to }) != null;
 }
 
 /**
@@ -167,9 +214,11 @@ export function hasClosingDeals(db: Db, f: { instanceId: string; strategyId: str
  * position from paying it per partial.
  */
 export function dealClosedTrades(db: Db, f: AnalyticsFilter): DealClosedTrade[] {
+  requireCutoff(f);
   const cl = ["o.instance_id=@instanceId", "o.strategy_id=@strategyId", `o.entry IN ${OUT_LEGS}`, canonicalDeal("o")];
   if (f.from != null) cl.push("o.ts>=@from");
   if (f.to != null) cl.push("o.ts<=@to");
+  if (f.closedPositionsOnly) cl.push(fullyClosedPosition("o"));
   // The order-id lookups are scalar subselects, NOT joins: several order rows can
   // share a broker_order_id (one per broker profile after a multi-profile deploy),
   // and a join would fan each closing deal out into one row per copy — every
@@ -198,7 +247,7 @@ export function dealClosedTrades(db: Db, f: AnalyticsFilter): DealClosedTrade[] 
      )
      WHERE ${cl.join(" AND ")}
      ORDER BY o.ts ASC`,
-  ).all(f) as any[];
+  ).all({ instanceId: f.instanceId, strategyId: f.strategyId, from: f.from, to: f.to }) as any[];
   return rows.map((r) => ({
     orderId: r.orderId,
     symbol: r.symbol,
@@ -228,9 +277,11 @@ export interface StrategyEquityPoint { ts: number; equity: number; realized: num
  */
 export function strategyEquityCurve(
   db: Db,
-  f: { instanceId: string; strategyId: string; from?: number; to?: number },
+  f: { instanceId: string; strategyId: string; from?: number; to?: number; closedPositionsOnly?: boolean },
 ): StrategyEquityPoint[] {
-  const rows = closes(db, { instanceId: f.instanceId, strategyId: f.strategyId });
+  // Rows stop at `to` (a later close must not anchor or extend the curve); `from` filters after
+  // the cumulative sum so a window still shows true levels.
+  const rows = closes(db, { instanceId: f.instanceId, strategyId: f.strategyId, to: f.to, closedPositionsOnly: f.closedPositionsOnly });
   if (rows.length === 0) return [];
   const sb = strategyBase(db, f) ?? 0;
   const pts: StrategyEquityPoint[] = [{ ts: rows[0]!.entryTs ?? rows[0]!.ts, equity: sb, realized: 0, unrealized: 0 }];
@@ -244,6 +295,8 @@ export function strategyEquityCurve(
 }
 
 function ledgerCloses(db: Db, f: AnalyticsFilter): ClosedTradeRow[] {
+  // trade.closed rows carry no position identity, so a partial close cannot be told from a full one.
+  if (f.closedPositionsOnly) return [];
   const cl = ["instance_id=@instanceId", "strategy_id=@strategyId"];
   if (f.from != null) cl.push("ts>=@from");
   if (f.to != null) cl.push("ts<=@to");
@@ -252,14 +305,25 @@ function ledgerCloses(db: Db, f: AnalyticsFilter): ClosedTradeRow[] {
   ).all(f) as ClosedTradeRow[];
 }
 
+/**
+ * Whether the strategy's figures come from broker deals. Under closedPositionsOnly any deal by
+ * `to` counts: a strategy whose only positions are still open must not fall back to engine
+ * closes or equity snapshots, which would expose a partial close or unrealized equity.
+ */
+function dealBacked(db: Db, f: AnalyticsFilter): boolean {
+  if (!f.closedPositionsOnly) return hasClosingDeals(db, f);
+  requireCutoff(f);
+  return db.prepare("SELECT 1 FROM deals WHERE instance_id=? AND strategy_id=? AND ts<=? LIMIT 1").get(f.instanceId, f.strategyId, f.to) != null;
+}
+
 /** Per-trade rows oldest-first: broker deals when they exist, else trade.closed rows. */
 function closes(db: Db, f: AnalyticsFilter): ClosedTradeRow[] {
-  return hasClosingDeals(db, f) ? dealClosedTrades(db, f) : ledgerCloses(db, f);
+  return dealBacked(db, f) ? dealClosedTrades(db, f) : ledgerCloses(db, f);
 }
 
 /** The money-over-time series: the deals-rebuilt curve when it exists, else equity snapshots. */
 function series(db: Db, f: AnalyticsFilter): SnapRow[] {
-  return hasClosingDeals(db, f) ? strategyEquityCurve(db, f) : snapshots(db, f);
+  return dealBacked(db, f) ? strategyEquityCurve(db, f) : snapshots(db, f);
 }
 
 /** Every closed trade in the range, newest first — the rows behind the performance numbers. */
@@ -276,7 +340,7 @@ export function closedTrades(db: Db, f: AnalyticsFilter): ClosedTradeRow[] {
  * after the first close is fully covered and reports exact.
  */
 export function tradePnls(db: Db, f: AnalyticsFilter): { pnls: number[]; exact: boolean } {
-  if (hasClosingDeals(db, f)) {
+  if (dealBacked(db, f)) {
     return { pnls: dealClosedTrades(db, f).map((c) => c.realized).filter((r) => r !== 0), exact: true };
   }
   const exact = ledgerCloses(db, f);
@@ -713,6 +777,7 @@ export function costDecomposition(db: Db, f: AnalyticsFilter): CostDecomposition
   const cl = ["instance_id=@instanceId", "strategy_id=@strategyId", canonicalDeal("deals")];
   if (f.from != null) cl.push("ts>=@from");
   if (f.to != null) cl.push("ts<=@to");
+  if (f.closedPositionsOnly) cl.push(fullyClosedPosition("deals"));
   const rows = db.prepare(
     `SELECT strftime('%Y-%m', ts/1000, 'unixepoch') key,
             SUM(profit) grossProfit,
@@ -723,7 +788,7 @@ export function costDecomposition(db: Db, f: AnalyticsFilter): CostDecomposition
             SUM(CASE WHEN entry IN ${OUT_LEGS} THEN 1 ELSE 0 END) trades
      FROM deals WHERE ${cl.join(" AND ")}
      GROUP BY key ORDER BY key ASC`,
-  ).all(f) as CostRow[];
+  ).all({ instanceId: f.instanceId, strategyId: f.strategyId, from: f.from, to: f.to }) as CostRow[];
   const total = rows.reduce(
     (t, r) => ({
       key: "total",
@@ -916,11 +981,12 @@ export function executionQuality(db: Db, f: AnalyticsFilter): ExecutionQuality {
   if (f.from != null) cl.push("ts>=@from");
   if (f.to != null) cl.push("ts<=@to");
   const submits = db.prepare(`SELECT ts, payload FROM events WHERE ${cl.join(" AND ")} ORDER BY ts`).all(f) as Array<{ ts: number; payload: string }>;
+  // Lifecycle events stop at `to` too: a fill after the window must not count for a submit inside it.
   const events = db.prepare(
     `SELECT type, ts, payload FROM events
-     WHERE instance_id=? AND type IN ('order.accepted','order.filled','order.partially_filled','order.rejected')
+     WHERE instance_id=? AND type IN ('order.accepted','order.filled','order.partially_filled','order.rejected') AND ts<=?
      ORDER BY ts ASC`,
-  ).all(f.instanceId) as Array<{ type: string; ts: number; payload: string }>;
+  ).all(f.instanceId, f.to ?? Number.MAX_SAFE_INTEGER) as Array<{ type: string; ts: number; payload: string }>;
   const byOrder = new Map<string, Array<{ type: string; ts: number; payload: Record<string, unknown> }>>();
   for (const event of events) {
     const payload = JSON.parse(event.payload) as Record<string, unknown>;

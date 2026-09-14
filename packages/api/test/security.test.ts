@@ -51,6 +51,18 @@ describe("security headers", () => {
   });
 });
 
+describe("shared link indexing", () => {
+  it("asks search engines not to index shared pages", async () => {
+    app = Fastify();
+    registerSecurity(app, { requestsPerMinute: 1000 });
+    app.get("/p/:token", async () => "page");
+    app.get("/data", async () => ({}));
+    await app.ready();
+    expect((await app.inject({ method: "GET", url: "/p/abc" })).headers["x-robots-tag"]).toBe("noindex, nofollow");
+    expect((await app.inject({ method: "GET", url: "/data" })).headers["x-robots-tag"]).toBeUndefined();
+  });
+});
+
 describe("error bodies", () => {
   it("hides internal error detail on 5xx", async () => {
     await build();

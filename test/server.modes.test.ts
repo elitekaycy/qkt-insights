@@ -135,3 +135,31 @@ describe("totp-setup", () => {
     expect(text).toContain(`otpauth://totp/qkt-insights:forward?secret=${secret}`);
   });
 });
+
+describe("PUBLIC_DELAY_MINUTES", () => {
+  it("defaults to 15 and accepts whole minutes up to a day", async () => {
+    const { publicDelayMinutes } = await import("../src/server.js");
+    expect(publicDelayMinutes(undefined)).toBe(15);
+    expect(publicDelayMinutes("0")).toBe(0);
+    expect(publicDelayMinutes("1440")).toBe(1440);
+  });
+
+  it("refuses anything else", async () => {
+    const { publicDelayMinutes } = await import("../src/server.js");
+    for (const bad of ["-1", "1441", "2.5", "soon"]) expect(() => publicDelayMinutes(bad)).toThrow("PUBLIC_DELAY_MINUTES");
+  });
+
+  it("the running server serves share management behind the session and public links in front of it", async () => {
+    process.env.INSIGHTS_DB = ":memory:";
+    process.env.INGEST_TOKEN = "test-ingest-token-at-least-24-chars";
+    process.env.ADMIN_USERNAME = "admin";
+    process.env.ADMIN_PASSWORD = "admin-pass-long-enough";
+    const app = await buildServer("serve");
+    const shares = await app.inject({ method: "GET", url: "/shares?instance=i1" });
+    const unknown = await app.inject({ method: "GET", url: `/public/${"A".repeat(32)}/meta` });
+    await app.close();
+    expect(shares.statusCode).toBe(401);
+    expect(unknown.statusCode).toBe(404);
+    expect(unknown.headers["x-robots-tag"]).toBe("noindex, nofollow");
+  });
+});

@@ -15,14 +15,20 @@ import { age, money, num, pct, price, tsShort } from "../format";
 import { buildCloseMap } from "../useCloses";
 import { useLiveState } from "../useLiveState";
 import { physicalPortfolioId, portfolioGroupId, strategyCapital, strategyDisplayName as displayName, summarizePortfolio } from "../portfolio";
+import { ShareControl } from "../components/ShareControl";
+import { useView } from "../view";
 
 /** The strategy page keeps only the latest log lines; the Logs page holds the history. */
 const RECENT_LOGS = 7;
 
-/** Open P&L per strategy from the live broker positions of one instance, with a staleness flag. */
+/**
+ * Open P&L per strategy from the live broker positions of one instance, with a staleness flag.
+ * Shared links carry no per-strategy open P&L, so they report none and show realized figures only.
+ */
 function useOpenByStrategy(instanceId: string | null) {
+  const view = useView();
   const liveState = useLiveState();
-  const groups = (liveState.data?.positions ?? []).filter((g) => g.instanceId === instanceId);
+  const groups = view.public ? [] : (liveState.data?.positions ?? []).filter((g) => g.instanceId === instanceId);
   const open = new Map<string, number>();
   for (const g of groups)
     for (const p of g.list)
@@ -62,6 +68,7 @@ export default function Strategies({
   focus?: string | null;
   onClearFocus?: () => void;
 }) {
+  const view = useView();
   const [selected, setSelected] = useState<string | null>(focus);
   const [selectedPortfolio, setSelectedPortfolio] = useState<string | null>(null);
   const [showRetired, setShowRetired] = useState(false);
@@ -128,7 +135,7 @@ export default function Strategies({
         title="Strategies"
         sub={`${rows.length} deployed · ${standalone.length} standalone · ${portfolioGroups.size} portfolio${portfolioGroups.size === 1 ? "" : "s"}${retiredCount > 0 ? ` · ${retiredCount} retired` : ""}`}
         right={
-          retiredCount > 0 ? (
+          retiredCount > 0 && !view.public ? (
             <button
               onClick={() => setShowRetired((v) => !v)}
               className="h-8 rounded-lg border border-line bg-raised px-3 text-xs font-semibold text-muted transition hover:border-line-strong hover:text-body"
@@ -335,9 +342,11 @@ function PortfolioDetail({
   instanceId: string;
   portfolioId: string;
   children: StrategyRow[];
-  onBack: () => void;
+  /** Absent on a shared portfolio link, which has nowhere to go back to. */
+  onBack?: () => void;
   onSelectChild: (strategyId: string) => void;
 }) {
+  const view = useView();
   const live = useOpenByStrategy(instanceId);
   const state = useLiveState();
   const summary = summarizePortfolio(id, children, live.open, live.hasState);
@@ -347,16 +356,23 @@ function PortfolioDetail({
   const account = accounts.length === 1 ? accounts[0] : null;
   return (
     <div>
-      <button
-        onClick={onBack}
-        className="rise text-sm text-muted transition hover:text-body"
-      >
-        ← strategies
-      </button>
+      {onBack && (
+        <button
+          onClick={onBack}
+          className="rise text-sm text-muted transition hover:text-body"
+        >
+          ← strategies
+        </button>
+      )}
       <PageHeader
         title={id}
         sub={`${summary.childCount} child strategies · ${summary.dealCount} attributed deals`}
-        right={<Pill tone="accent">portfolio</Pill>}
+        right={
+          <div className="flex flex-wrap items-center gap-2">
+            <ShareControl instanceId={instanceId} kind="portfolio" subject={id} />
+            <Pill tone="accent">portfolio</Pill>
+          </div>
+        }
       />
       <div className="mt-6 grid grid-cols-2 gap-3 md:grid-cols-3 xl:grid-cols-5">
         <Stat
@@ -394,6 +410,7 @@ function PortfolioDetail({
           }
           sub={live.stale ? "broker state stale" : "attributed positions"}
         />
+        {!view.public && (
         <Stat
           label="Broker account equity"
           value={money(account?.equity)}
@@ -405,8 +422,9 @@ function PortfolioDetail({
                 : "account state unavailable"
           }
         />
+        )}
       </div>
-      <div className="mt-6 grid gap-6 xl:grid-cols-[2fr_1fr]">
+      <div className={`mt-6 grid gap-6 ${view.public ? "" : "xl:grid-cols-[2fr_1fr]"}`}>
         <Panel
           title="Child contribution"
           hint="click a strategy for full analytics"
@@ -467,6 +485,7 @@ function PortfolioDetail({
             </Table>
           </div>
         </Panel>
+        {!view.public && (
         <Panel title="Broker accounts" hint="shared venue truth">
           <Table head={["Broker", "Currency", "Balance", "Equity"]}>
             {accounts.length === 0 && (
@@ -485,12 +504,30 @@ function PortfolioDetail({
             ))}
           </Table>
         </Panel>
+        )}
       </div>
     </div>
   );
 }
 
-function StrategyDetail({ instanceId, strategyId, onBack }: { instanceId: string; strategyId: string; onBack: () => void }) {
+/** A shared portfolio link: the portfolio page, with its public children one click away. */
+export function SharedPortfolio({ instanceId, portfolioId: id }: { instanceId: string; portfolioId: string }) {
+  const [selected, setSelected] = useState<string | null>(null);
+  const strategies = useQuery({
+    queryKey: ["strategies", instanceId],
+    queryFn: () => get<StrategyRow[]>(`/strategies?instance=${encodeURIComponent(instanceId)}`),
+    refetchInterval: 30_000,
+  });
+  if (selected) return <StrategyDetail instanceId={instanceId} strategyId={selected} onBack={() => setSelected(null)} />;
+  return (
+    <Loadable loading={strategies.isPending} error={strategies.isError} retry={() => strategies.refetch()} what="the portfolio">
+      <PortfolioDetail instanceId={instanceId} portfolioId={id} children={strategies.data ?? []} onSelectChild={setSelected} />
+    </Loadable>
+  );
+}
+
+export function StrategyDetail({ instanceId, strategyId, onBack }: { instanceId: string; strategyId: string; onBack?: () => void }) {
+  const view = useView();
   const qs = `instance=${encodeURIComponent(instanceId)}&strategy=${encodeURIComponent(strategyId)}`;
   const stats = useQuery({
     queryKey: ["stats", instanceId, strategyId],
@@ -510,6 +547,7 @@ function StrategyDetail({ instanceId, strategyId, onBack }: { instanceId: string
   const logs = useQuery({
     queryKey: ["logs", instanceId, strategyId],
     queryFn: () => get<LogRow[]>(`/logs?${qs}&limit=${RECENT_LOGS}`),
+    enabled: !view.public,
     refetchInterval: 30_000,
   });
   const [tradeCap, setTradeCap] = useState(20);
@@ -570,14 +608,16 @@ function StrategyDetail({ instanceId, strategyId, onBack }: { instanceId: string
   const logRows = logs.data ?? [];
   return (
     <div>
-      <button onClick={onBack} className="rise text-sm text-muted transition hover:text-body">
-        ← strategies
-      </button>
+      {onBack && (
+        <button onClick={onBack} className="rise text-sm text-muted transition hover:text-body">
+          ← strategies
+        </button>
+      )}
       <div className="mt-2 flex flex-wrap items-end justify-between gap-4">
         <div className="rise">
           <div className="flex items-center gap-2">
             <h2 className="min-w-0 truncate text-2xl font-extrabold tracking-tight text-bright" title={strategyId}>{row ? displayName(row) : strategyId}</h2>
-            {metadata && (
+            {metadata && !view.public && (
               <IconButton label="runtime details" onClick={() => setRuntimeOpen(true)} d="M15 3h6v6M9 21H3v-6M21 3l-7 7M3 21l7-7" />
             )}
           </div>
@@ -620,6 +660,7 @@ function StrategyDetail({ instanceId, strategyId, onBack }: { instanceId: string
             {t}
           </button>
         ))}
+        <ShareControl instanceId={instanceId} kind="strategy" subject={strategyId} />
         {tab !== "overview" && (
           <div className="w-full sm:ml-auto sm:w-auto">
             <RangeSelect value={range} onChange={setRange} />
@@ -645,7 +686,7 @@ function StrategyDetail({ instanceId, strategyId, onBack }: { instanceId: string
                 days={performance.data.dailyNets}
                 startingBalance={capital.amount}
                 trades={tradeRows}
-                onTrade={setOpenTrade}
+                onTrade={view.public ? undefined : setOpenTrade}
               />
             )}
           </Loadable>
@@ -733,7 +774,7 @@ function StrategyDetail({ instanceId, strategyId, onBack }: { instanceId: string
             head={["Time", "Symbol", "Side", "Qty", "Price", "P&L"]}
             rows={tradeRows.slice(0, tradeCap)}
             keyOf={(t) => t.key}
-            onRow={usingDealTrades ? undefined : (t) => t.raw && setOpenTrade(t.raw)}
+            onRow={usingDealTrades || view.public ? undefined : (t) => t.raw && setOpenTrade(t.raw)}
             empty="No trades yet"
             cells={(t) => {
               const r = t.realized;
@@ -775,6 +816,7 @@ function StrategyDetail({ instanceId, strategyId, onBack }: { instanceId: string
           </Loadable>
         </Panel>
 
+        {!view.public && (
         <Panel stagger={4} title="Recent logs" hint={`latest ${RECENT_LOGS} · full history on Logs`}>
           <Loadable loading={logs.isPending} error={logs.isError} retry={() => logs.refetch()} what="logs">
           <div className="p-2">
@@ -785,13 +827,16 @@ function StrategyDetail({ instanceId, strategyId, onBack }: { instanceId: string
           </div>
           </Loadable>
         </Panel>
+        )}
       </div>
         </>
       )}
 
-      <TradeDetail trade={openTrade} instanceId={instanceId} onClose={() => setOpenTrade(null)} close={openTrade ? closeByOrder.get(openTrade.payload.orderId) : null} />
+      {!view.public && (
+        <TradeDetail trade={openTrade} instanceId={instanceId} onClose={() => setOpenTrade(null)} close={openTrade ? closeByOrder.get(openTrade.payload.orderId) : null} />
+      )}
 
-      {metadata && (
+      {metadata && !view.public && (
         <Modal open={runtimeOpen} onClose={() => setRuntimeOpen(false)} title="Runtime" hint="from latest strategy.started event" width="min(94vw, 760px)">
           <div className="grid grid-cols-1 gap-3 p-4 sm:grid-cols-2 sm:p-5">
             <Field label="Mode">{metaString(metadata, "runtimeMode") ?? "—"}</Field>

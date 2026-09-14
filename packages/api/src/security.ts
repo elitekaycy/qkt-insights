@@ -59,6 +59,8 @@ export function registerSecurity(app: FastifyInstance, opts: SecurityOptions): v
     reply.header("cross-origin-resource-policy", "same-origin");
     reply.header("permissions-policy", "camera=(), microphone=(), geolocation=(), payment=(), usb=()");
     if (req.protocol === "https") reply.header("strict-transport-security", `max-age=${HSTS_MAX_AGE_S}`);
+    // Shared links are for the people they are sent to, not for search engines.
+    if (req.url.startsWith("/p/") || req.url.startsWith("/public/")) reply.header("x-robots-tag", "noindex, nofollow");
     const type = String(reply.getHeader("content-type") ?? "");
     if (type.startsWith("application/json") && !reply.hasHeader("cache-control")) reply.header("cache-control", "no-store");
     return payload;
