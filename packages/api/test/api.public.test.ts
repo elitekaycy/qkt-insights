@@ -262,7 +262,8 @@ describe("public links", () => {
     expect(state.positions).toEqual([]);
     expect(state.orders).toEqual([]);
     // ticket-old at its cutoff mark (12, not the live 50); ticket-new was only marked after the cutoff; the secret strategy is excluded.
-    expect(state.openPositions).toEqual({ count: 1, unrealized: null });
+    expect(state.openPositions).toEqual({ count: 1, unrealized: 12 });
+    expect((state as unknown as { openByStrategy: Record<string, number> }).openByStrategy).toEqual({ gold: 12 });
   });
 
   it("a strategy link exposes only that strategy and no account-level data", async () => {
@@ -333,5 +334,19 @@ describe("revocation without an admin change", () => {
     expect(sweepHiddenShares(db, shares)).toBe(1);
     db.prepare("UPDATE strategies SET metadata=json_remove(metadata,'$.portfolioId') WHERE strategy_id='gold'").run();
     expect((await pub(goldToken, "/meta")).statusCode).toBe(404);
+  });
+});
+
+
+describe("account labels on a public overview", () => {
+  it("shows one account when the account was polled under several broker labels over time", async () => {
+    db.prepare("INSERT INTO account_equity (instance_id, broker, minute_ts, balance, equity, open_profit) VALUES ('i1', 'EXNESS', ?, 9000, 9000, 0)").run(BEFORE - 3 * 60 * MIN);
+    const token = (await share("overview", "", "public")).overview.token!;
+    const state = (await pub(token, "/live/state")).json() as { accounts: Array<{ broker: string }> };
+    expect(state.accounts.map((a) => a.broker)).toEqual(["Account"]);
+    const curve = (await pub(token, "/account/equity")).json() as Array<{ broker: string }>;
+    expect([...new Set(curve.map((p) => p.broker))]).toEqual(["Account"]);
+    const dd = (await pub(token, "/account/drawdown")).json() as Array<{ broker: string }>;
+    expect(dd.every((r) => r.broker === "Account" || r.broker === "TOTAL")).toBe(true);
   });
 });

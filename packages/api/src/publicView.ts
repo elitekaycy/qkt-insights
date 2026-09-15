@@ -116,11 +116,16 @@ export function publicDeal(d: DealRow & { fee?: number | null }) {
   };
 }
 
-/** Account labels become "Account", "Account 2", ... in order of first appearance; TOTAL keeps its name. */
-export function accountLabeller(): (broker: string) => string {
+/**
+ * Account labels become "Account", "Account 2", ... in order of first appearance; TOTAL keeps its
+ * name. With a single real account every label is "Account": one account is often stored under
+ * several broker labels over time (a profile rename), and those are not separate accounts.
+ */
+export function accountLabeller(singleAccount = false): (broker: string) => string {
   const labels = new Map<string, string>();
   return (broker) => {
     if (broker === "TOTAL") return broker;
+    if (singleAccount) return "Account";
     let label = labels.get(broker);
     if (!label) {
       label = labels.size === 0 ? "Account" : `Account ${labels.size + 1}`;
