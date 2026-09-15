@@ -357,6 +357,8 @@ export interface LiveStateSnapshot {
   positions: LivePositionGroup[];
   /** Shared overview links only: how many positions were open at the cutoff and their total unrealized P&L. */
   openPositions?: { count: number; unrealized: number | null };
+  /** Shared links only: open P&L per strategy, as marked at the cutoff. */
+  openByStrategy?: Record<string, number>;
   orders: Array<{ instanceId: string; broker: string; at: number; stale: boolean; list: LivePendingOrderRow[] }>;
 }
 export interface DealRow {

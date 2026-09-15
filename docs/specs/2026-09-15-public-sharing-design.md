@@ -56,11 +56,14 @@ never used under the filter: the rows carry no position identity, and snapshots 
 unrealized P&L. Public figures therefore come from broker deals only, and a
 strategy without polled deals shows no trades publicly.
 
-Open positions appear only on overview links, as a count and their total unrealized
-P&L taken from the last stored mark at the cutoff. Nothing is reported per position or
-per strategy, because any single position's or strategy's open P&L moves with price
-across polls and would reveal direction and size. For the same reason the total is
-withheld while fewer than two public positions are open. Strategy and portfolio pages show realized figures only. Side, symbol,
+Open P&L is taken from the last stored mark at the cutoff, never from live prices. It is
+reported per strategy, so strategy cards and pages show net, realized and open P&L as the
+signed-in dashboard does. An overview link also shows the count of open positions and
+their total. Nothing is ever reported per position.
+
+This is a deliberate trade-off made by the operator. A single strategy's delayed open P&L
+moves with the delayed price, so a determined viewer who knows the strategy's symbol can
+still infer an open position's direction and rough size, 15 minutes late. Side, symbol,
 size, entry, stops and tickets are never public, so a multi-day hold cannot be copied
 while it is open.
 

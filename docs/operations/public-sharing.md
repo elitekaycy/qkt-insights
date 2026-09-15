@@ -32,9 +32,11 @@ that strategy on.
 | Portfolio | The portfolio page and its public children | Account balance and equity, other strategies |
 | Strategy | That strategy's page and tabs | Everything else |
 
-Every figure runs `PUBLIC_DELAY_MINUTES` behind (default 15). Open positions appear only
-on overview links, as a count and their total unrealized P&L at that same delayed moment,
-never split by strategy. The total is hidden while only one position is open. A position counts only once its whole volume has closed; until
+Every figure runs `PUBLIC_DELAY_MINUTES` behind (default 15). Strategy cards and pages show
+realized and open P&L as of that delayed moment, and the overview adds how many positions
+are open. Individual positions (symbol, side, size, entry, stops) are never shown. Anyone
+who knows a strategy's symbol can still roughly infer an open position's direction from how
+its delayed open P&L moves. A position counts only once its whole volume has closed; until
 then its trades, deals and any partial close stay out of every figure. Strategy parameters, source files, broker names, account
 numbers, tickets, magic numbers and order comments are never included.
 
