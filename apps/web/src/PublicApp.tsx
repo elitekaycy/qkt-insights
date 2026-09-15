@@ -19,11 +19,11 @@ const NAV: { section: string; items: { key: SharedPage; label: string }[] }[] = 
   { section: "Performance", items: [{ key: "strategies", label: "Strategies" }, { key: "edge", label: "Edge" }, { key: "trades", label: "Trades" }] },
 ];
 
-function Wordmark({ brand }: { brand: string | null }) {
+function Wordmark({ brand, iconsOnly = false }: { brand: string | null; iconsOnly?: boolean }) {
   return (
-    <div className="flex min-w-0 items-center gap-3">
+    <div className={`flex min-w-0 items-center gap-3 ${iconsOnly ? "justify-center" : ""}`}>
       <Mark />
-      <div className="min-w-0">
+      <div className={`min-w-0 ${iconsOnly ? "hidden" : ""}`}>
         <div className="text-lg font-extrabold leading-tight tracking-tight text-bright">
           qkt<span className="text-accent">·</span>insights
         </div>
@@ -118,48 +118,54 @@ function SharedOverview({ meta, brand }: { meta: PublicMeta; brand: string | nul
   const [page, setPage] = useState<SharedPage>("overview");
   const [focus, setFocus] = useState<string | null>(null);
   const [drawer, setDrawer] = useState(false);
+  const [collapsed, setCollapsed] = useState(false);
   const goto = (p: SharedPage) => {
     setPage(p);
     setDrawer(false);
   };
 
-  const sidebar = (
+  const sidebar = (iconsOnly: boolean) => (
     <>
-      <div className="px-5 pb-5 pt-6">
-        <Wordmark brand={brand} />
+      <div className={`pb-5 pt-6 ${iconsOnly ? "px-0" : "px-5"}`}>
+        <Wordmark brand={brand} iconsOnly={iconsOnly} />
       </div>
-      <div className="px-4">
-        <div className="rounded-card border border-line bg-raised p-3.5">
-          <div className="text-[11px] font-bold uppercase tracking-[0.14em] text-muted">Shared view</div>
-          <div className="mt-1.5 truncate text-[15px] font-semibold text-bright">{meta.instanceId}</div>
+      {!iconsOnly && (
+        <div className="px-4">
+          <div className="rounded-card border border-line bg-raised p-3.5">
+            <div className="text-[11px] font-bold uppercase tracking-[0.14em] text-muted">Shared view</div>
+            <div className="mt-1.5 truncate text-[15px] font-semibold text-bright">{meta.instanceId}</div>
+          </div>
         </div>
-      </div>
-      <nav className="mt-1 flex-1 overflow-y-auto px-4 pb-4">
+      )}
+      <nav className={`mt-1 flex-1 overflow-y-auto pb-4 ${iconsOnly ? "px-2" : "px-4"}`}>
         {NAV.map((group) => (
           <div key={group.section} className="mt-4">
-            <div className="px-3.5 pb-2 text-[11px] font-bold uppercase tracking-[0.16em] text-faint">{group.section}</div>
+            {!iconsOnly && <div className="px-3.5 pb-2 text-[11px] font-bold uppercase tracking-[0.16em] text-faint">{group.section}</div>}
             {group.items.map((n) => {
               const active = page === n.key;
               return (
                 <button
                   key={n.key}
                   onClick={() => goto(n.key)}
+                  title={n.label}
                   aria-current={active ? "page" : undefined}
                   className={`flex w-full items-center gap-3 rounded-lg px-3.5 py-2.5 text-left text-[15px] font-medium transition active:scale-[0.98] ${
-                    active ? "bg-accent text-ink" : "text-muted hover:bg-raised hover:text-body"
-                  }`}
+                    iconsOnly ? "justify-center px-0" : ""
+                  } ${active ? "bg-accent text-ink" : "text-muted hover:bg-raised hover:text-body"}`}
                 >
                   <NavIcon d={ICONS[n.key]} big />
-                  {n.label}
+                  {!iconsOnly && n.label}
                 </button>
               );
             })}
           </div>
         ))}
       </nav>
-      <div className="border-t border-line p-4">
-        <DelayNote meta={meta} />
-      </div>
+      {!iconsOnly && (
+        <div className="border-t border-line p-4">
+          <DelayNote meta={meta} />
+        </div>
+      )}
     </>
   );
 
@@ -173,9 +179,21 @@ function SharedOverview({ meta, brand }: { meta: PublicMeta; brand: string | nul
         <div className="min-w-0 truncate text-[15px] font-extrabold tracking-tight text-bright">{brand ?? meta.instanceId}</div>
       </div>
       <Drawer open={drawer} onClose={() => setDrawer(false)} label="shared navigation">
-        {sidebar}
+        {sidebar(false)}
       </Drawer>
-      <aside className="pad-safe-left hidden w-[17rem] shrink-0 flex-col border-r border-line bg-panel lg:flex">{sidebar}</aside>
+      <aside className={`pad-safe-left relative hidden shrink-0 flex-col border-r border-line bg-panel transition-all lg:flex ${collapsed ? "w-[4.5rem]" : "w-[17rem]"}`}>
+        {sidebar(collapsed)}
+        <button
+          onClick={() => setCollapsed((c) => !c)}
+          aria-label={collapsed ? "expand sidebar" : "collapse sidebar"}
+          title={collapsed ? "expand sidebar" : "collapse sidebar"}
+          className="absolute -right-3 top-7 rounded-full border border-line bg-raised p-1 text-muted transition hover:border-line-strong hover:text-body"
+        >
+          <svg viewBox="0 0 24 24" className="h-3 w-3" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round">
+            <path d={collapsed ? "M9 18l6-6-6-6" : "M15 18l-6-6 6-6"} />
+          </svg>
+        </button>
+      </aside>
       <main className="pad-safe-bottom min-h-0 flex-1 overflow-auto overscroll-contain">
         <div className="mx-auto max-w-[1500px] px-4 py-5 sm:px-6 lg:px-8 lg:py-7">
           {page === "overview" && (

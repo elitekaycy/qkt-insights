@@ -385,7 +385,7 @@ function PublicOpenPositions({ summary, loading }: { summary: { count: number; u
         {unrealized == null ? "—" : `${unrealized > 0 ? "+" : ""}${money(unrealized)}`}
       </span>
       <span className="text-xs text-faint">
-        {count === 1 ? "unrealized total appears once two or more are open · " : "unrealized · "}details stay private until each position closes
+        unrealized · details stay private until each position closes
       </span>
     </Card>
   );

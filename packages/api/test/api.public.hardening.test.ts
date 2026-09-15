@@ -120,18 +120,21 @@ describe("positions open at the cutoff stay invisible", () => {
     expect(perf.closes).toEqual([]);
   });
 
-  it("open P&L is never attributed to a strategy, and a strategy link gets none at all", async () => {
+  it("open P&L is given per strategy as marked at the cutoff, never per position, and a strategy link gets no account data", async () => {
     const seed = (db: Db) => {
-      db.prepare("INSERT INTO position_valuations (instance_id, broker, ticket, ts, symbol, side, qty, entry_price, current_price, profit, swap, strategy_id) VALUES ('i1','B','p9',?, 'XAUUSD','BUY',1,4000,4010,10,0,'a')").run(CUT - MIN);
+      const mark = db.prepare("INSERT INTO position_valuations (instance_id, broker, ticket, ts, symbol, side, qty, entry_price, current_price, profit, swap, strategy_id) VALUES ('i1','B',?,?, 'XAUUSD','BUY',1,4000,4010,?,0,'a')");
+      mark.run("p9", CUT - MIN, 10);
+      mark.run("p9", NOW - MIN, 99);
+      mark.run("p10", CUT - 2 * MIN, -4);
     };
     const strategyLink = await setup(seed);
-    expect((await get(strategyLink.token, "/live/state")).json).toEqual({ accounts: [], positions: [], orders: [] });
+    expect((await get(strategyLink.token, "/live/state")).json).toEqual({ accounts: [], positions: [], orders: [], openByStrategy: { a: 6 } });
     await app.close();
     const overviewLink = await setup(seed, { kind: "overview" });
     const state = (await get(overviewLink.token, "/live/state")).json as Record<string, unknown>;
     expect(state.positions).toEqual([]);
-    // A lone position's total would be its own P&L.
-    expect(state.openPositions).toEqual({ count: 1, unrealized: null });
+    expect(state.openPositions).toEqual({ count: 2, unrealized: 6 });
+    expect(state.openByStrategy).toEqual({ a: 6 });
   });
 
   it("a strategy first seen inside the delay window is not listed yet", async () => {
@@ -251,6 +254,7 @@ describe("second review: no per-position open P&L", () => {
     const state = (await get(token, "/live/state")).json as Record<string, unknown>;
     expect(state.positions).toEqual([]);
     expect(state.openPositions).toEqual({ count: 2, unrealized: -25 });
+    expect(JSON.stringify(state)).not.toContain("p1");
   });
 });
 

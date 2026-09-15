@@ -23,12 +23,16 @@ const RECENT_LOGS = 7;
 
 /**
  * Open P&L per strategy from the live broker positions of one instance, with a staleness flag.
- * Shared links carry no per-strategy open P&L, so they report none and show realized figures only.
+ * Shared links receive it already summed per strategy, as marked at their delayed cutoff.
  */
 function useOpenByStrategy(instanceId: string | null) {
   const view = useView();
   const liveState = useLiveState();
-  const groups = view.public ? [] : (liveState.data?.positions ?? []).filter((g) => g.instanceId === instanceId);
+  if (view.public) {
+    const delayed = liveState.data?.openByStrategy;
+    return { open: new Map(Object.entries(delayed ?? {})), hasState: delayed != null, stale: false };
+  }
+  const groups = (liveState.data?.positions ?? []).filter((g) => g.instanceId === instanceId);
   const open = new Map<string, number>();
   for (const g of groups)
     for (const p of g.list)
