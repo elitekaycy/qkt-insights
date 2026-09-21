@@ -109,6 +109,14 @@ describe("enriched qkt payloads", () => {
     expect(EnvelopeSchema.parse({ ...base, type: "risk.halted",
       payload: { reason: "operator" } }).payload).toMatchObject({ reason: "operator" });
     expect(EnvelopeSchema.parse({ ...base, type: "risk.resumed", payload: {} }).type).toBe("risk.resumed");
+    expect(EnvelopeSchema.parse({ ...base, strategyId: "gold", type: "risk.halted",
+      payload: { strategyId: "gold", reason: "loss streak 3", scope: "PERSISTENT", persistent: true } }).payload)
+      .toMatchObject({ scope: "PERSISTENT", persistent: true });
+    expect(EnvelopeSchema.parse({ ...base, type: "risk.halted",
+      payload: { strategyId: null, reason: "operator", scope: "PERSISTENT", persistent: true, sessionStrategies: ["a", "b"] } }).payload)
+      .toMatchObject({ sessionStrategies: ["a", "b"] });
+    expect(EnvelopeSchema.parse({ ...base, type: "risk.resumed", payload: { strategyId: null, sessionStrategies: ["a"] } }).payload)
+      .toMatchObject({ sessionStrategies: ["a"] });
   });
 
   it("accepts strategy lifecycle payloads", () => {

@@ -197,6 +197,19 @@ describe("public links", () => {
     expectNoSecrets(res.body);
   });
 
+  it("keeps a strategy's live halt state off shared links", async () => {
+    ingestEvents(db, "i1", [{
+      v: 1, instanceId: "i1", id: "halt-gold", seq: 2, ts: BEFORE, strategyId: "gold", type: "risk.halted",
+      payload: { strategyId: "gold", reason: "max drawdown breached", scope: "PERSISTENT", persistent: true },
+    } as Envelope]);
+    expect(listStrategies(db, "i1", NOW).find((r) => r.strategyId === "gold")!.halted).toBe(true);
+    const token = (await share("overview", "", "public")).overview.token!;
+    const res = await pub(token, "/strategies");
+    const gold = (res.json() as Array<Record<string, unknown>>).find((r) => r.strategyId === "gold")!;
+    for (const k of ["halted", "haltReason", "haltScope", "haltPersistent", "haltedAt"]) expect(gold).not.toHaveProperty(k);
+    expect(res.body).not.toContain("max drawdown breached");
+  });
+
   it("every overview endpoint stops at the cutoff and leaks nothing", async () => {
     await share("strategy", "secret", "private");
     const token = (await share("overview", "", "public")).overview.token!;

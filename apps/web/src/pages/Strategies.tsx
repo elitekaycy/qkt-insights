@@ -11,12 +11,13 @@ import {
   type RangeKey,
 } from "../components/ui";
 import { LogLine } from "../components/LogLine";
-import { age, money, num, pct, price, tsShort } from "../format";
+import { age, money, num, pct, price, ts, tsShort } from "../format";
 import { buildCloseMap } from "../useCloses";
 import { useLiveState } from "../useLiveState";
 import { physicalPortfolioId, portfolioGroupId, strategyCapital, strategyDisplayName as displayName, summarizePortfolio } from "../portfolio";
 import { ShareControl } from "../components/ShareControl";
 import { usePublicPageView, useView } from "../view";
+import { haltClearing, haltSummary, resumeCommand } from "../halt";
 
 /** The strategy page keeps only the latest log lines; the Logs page holds the history. */
 const RECENT_LOGS = 7;
@@ -169,6 +170,7 @@ export default function Strategies({
             <div className="mt-3 grid grid-cols-1 gap-4 md:grid-cols-2 xl:grid-cols-3">
               {portfolioEntries.map(([id, children], i) => {
                 const physicalIds = new Set(children.map(physicalPortfolioId).filter((value): value is string => value != null));
+                const haltedCount = children.filter((child) => child.halted).length;
                 const summary = summarizePortfolio(
                   id,
                   children,
@@ -199,6 +201,11 @@ export default function Strategies({
                           {summary.tradedCount}/{summary.childCount} traded
                         </Pill>
                         {physicalIds.size > 1 && <Pill>{physicalIds.size} shards</Pill>}
+                        {haltedCount > 0 && (
+                          <span title="sleeves the engine has halted; open the portfolio for each reason">
+                            <Pill tone="warn">{haltedCount} halted</Pill>
+                          </span>
+                        )}
                       </div>
                       <div
                         className="mt-4 flex items-baseline gap-3"
@@ -317,7 +324,10 @@ function StrategyCard({
           <span className="min-w-0 truncate font-bold text-bright" title={s.strategyId}>
             {displayName(s)}
           </span>
-          <span className="shrink-0 text-xs text-faint">{age(s.lastSeen)}</span>
+          <span className="flex shrink-0 items-center gap-2">
+            <HaltBadge row={s} />
+            <span className="text-xs text-faint">{age(s.lastSeen)}</span>
+          </span>
         </div>
         <div
           className="mt-4 flex items-baseline gap-3"
@@ -334,6 +344,30 @@ function StrategyCard({
         </div>
       </Card>
     </button>
+  );
+}
+
+/** Engine risk halt on a strategy row: the reason, how it ends and the resume command are in the tooltip. */
+function HaltBadge({ row }: { row: StrategyRow }) {
+  const summary = haltSummary(row);
+  if (!summary) return null;
+  return (
+    <span title={summary} aria-label={summary}>
+      <Pill tone="warn">halted</Pill>
+    </span>
+  );
+}
+
+/** The halt spelled out on the strategy page, where a tooltip alone would not reach touch screens. */
+function HaltDetail({ row }: { row: StrategyRow }) {
+  const command = resumeCommand(row);
+  return (
+    <div className="mt-2 flex max-w-xl flex-wrap items-center gap-x-2 gap-y-1 text-xs">
+      <span className="font-semibold text-warn">Halted: {row.haltReason ?? "no reason given"}</span>
+      {row.haltedAt != null && <span className="text-muted">since {ts(row.haltedAt)} UTC · {age(row.haltedAt)}</span>}
+      <span className="text-muted">{haltClearing(row)}</span>
+      {command && <span className="rounded bg-raised px-1.5 py-0.5 font-mono text-body">{command}</span>}
+    </div>
   );
 }
 
@@ -461,8 +495,11 @@ function PortfolioDetail({
                     onClick={() => onSelectChild(child.strategyId)}
                   >
                     <Cell>
-                      <div className="font-semibold text-bright" title={child.strategyId}>
-                        {displayName(child)}
+                      <div className="flex items-center gap-2">
+                        <span className="font-semibold text-bright" title={child.strategyId}>
+                          {displayName(child)}
+                        </span>
+                        <HaltBadge row={child} />
                       </div>
                       {portfolioAlias(child) && (
                         <div className="text-xs text-faint">
@@ -638,7 +675,9 @@ export function StrategyDetail({ instanceId, strategyId, onBack }: { instanceId:
             ) : (
               <Pill>standalone</Pill>
             )}
+            {row && <HaltBadge row={row} />}
           </div>
+          {row?.halted && <HaltDetail row={row} />}
           <div className="mt-2 flex items-baseline gap-3" title="net P&L = realized + open (this strategy, on a shared account)">
             <span className={`font-mono text-4xl font-bold ${heroNet == null || live.stale ? "text-faint" : heroNet >= 0 ? "text-up" : "text-down"}`}>
               {heroNet == null ? "—" : `${heroNet >= 0 ? "+" : "−"}${money(Math.abs(heroNet))}`}
