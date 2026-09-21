@@ -14,15 +14,19 @@ function env(p: Partial<Envelope> & { type: Envelope["type"]; payload: any }): E
 const started = (strategyId: string) =>
   env({ type: "strategy.started", strategyId, payload: { strategyId, ts: T0, deployName: strategyId, dslVersion: 1, runtimeMode: "live" } });
 
-// The payloads qkt v0.52 sends (RiskInsights.fromRiskHalted / fromRiskResumed): strategyId is
-// on both the envelope and the payload, null for the session-wide halt.
-function halted(strategyId: string | null, reason: string, ts: number, seq: number, scope?: string): Envelope {
+// The payloads qkt sends (RiskInsights.fromRiskHalted / fromRiskResumed): strategyId is on both
+// the envelope and the payload, null for a session-level halt; from qkt#1244 on a null-strategy
+// halt or resume also names the emitting session's strategies in sessionStrategies.
+function halted(strategyId: string | null, reason: string, ts: number, seq: number, scope?: string, sessionStrategies?: string[]): Envelope {
   const payload: Record<string, unknown> = { strategyId, reason };
   if (scope !== undefined) { payload.scope = scope; payload.persistent = scope === "PERSISTENT"; }
+  if (sessionStrategies) payload.sessionStrategies = sessionStrategies;
   return env({ id: `halt-${strategyId ?? ""}-${ts}-${seq}`, type: "risk.halted", strategyId: strategyId ?? undefined, ts, seq, payload });
 }
-function resumed(strategyId: string | null, ts: number, seq: number): Envelope {
-  return env({ id: `resume-${strategyId ?? ""}-${ts}-${seq}`, type: "risk.resumed", strategyId: strategyId ?? undefined, ts, seq, payload: { strategyId } });
+function resumed(strategyId: string | null, ts: number, seq: number, sessionStrategies?: string[]): Envelope {
+  const payload: Record<string, unknown> = { strategyId };
+  if (sessionStrategies) payload.sessionStrategies = sessionStrategies;
+  return env({ id: `resume-${strategyId ?? ""}-${ts}-${seq}`, type: "risk.resumed", strategyId: strategyId ?? undefined, ts, seq, payload });
 }
 
 function book(...events: Envelope[]): Db {
@@ -124,12 +128,73 @@ describe("current strategy halts", () => {
   it("ignores the TRANSIENT resync halt the engine sends before replacing a session, with or without a scope", () => {
     const db = book(halted(null, "operator resync", T0 + 1000, 10, "TRANSIENT"), halted(null, "operator resync", T0 + 2000, 5));
     expect(haltOf(db, "gold")).toEqual(CLEAR);
-    expect(currentHalts(db, "qkt-prod", NOW)).toEqual({ instance: null, byStrategy: new Map() });
+    expect(currentHalts(db, "qkt-prod", NOW)).toEqual({ instance: null, session: new Map(), byStrategy: new Map() });
   });
 
   it("keeps a standing halt when a later TRANSIENT halt arrives", () => {
     const db = book(halted("gold", "max drawdown", T0 + 1000, 10, "PERSISTENT"), halted("gold", "operator resync", T0 + 2000, 11, "TRANSIENT"));
     expect(haltOf(db, "gold")).toMatchObject({ halted: true, haltReason: "max drawdown" });
+  });
+
+  it("applies a session halt that names its strategies only to those, until a resume naming them", () => {
+    const halt = halted(null, "operator", T0 + 1000, 10, "PERSISTENT", ["gold"]);
+    const db = book(halt);
+    expect(haltOf(db, "gold")).toEqual({ halted: true, haltReason: "operator", haltScope: "PERSISTENT", haltPersistent: true, haltedAt: T0 + 1000 });
+    expect(haltOf(db, "silver")).toEqual(CLEAR);
+
+    expect(haltOf(book(halt, resumed(null, T0 + 2000, 11, ["silver"])), "gold").halted).toBe(true);
+    const cleared = book(halt, resumed(null, T0 + 2000, 11, ["gold"]));
+    expect(haltOf(cleared, "gold")).toEqual(CLEAR);
+    expect(haltOf(cleared, "silver")).toEqual(CLEAR);
+  });
+
+  it("keeps two sessions' halts apart on one instance", () => {
+    const db = book(
+      halted(null, "account drawdown", T0 + 1000, 10, "DAILY", ["gold"]),
+      halted(null, "operator", T0 + 1500, 3, "PERSISTENT", ["silver"]),
+      resumed(null, T0 + 2000, 11, ["gold"]),
+    );
+    expect(haltOf(db, "gold")).toEqual(CLEAR);
+    expect(haltOf(db, "silver")).toMatchObject({ halted: true, haltReason: "operator", haltPersistent: true });
+  });
+
+  it("still applies an old-engine null halt without sessionStrategies to every strategy", () => {
+    const db = book(halted(null, "max drawdown", T0 + 1000, 10));
+    expect(haltOf(db, "gold")).toMatchObject({ halted: true, haltReason: "max drawdown", haltScope: null });
+    expect(haltOf(db, "silver")).toMatchObject({ halted: true, haltReason: "max drawdown", haltScope: null });
+  });
+
+  it("orders old instance-wide and new session events on one timeline", () => {
+    const oldHalt = halted(null, "max drawdown", T0 + 1000, 10);
+    // An upgraded session resumes its own strategy: the old halt stops covering gold only.
+    const partlyResumed = book(oldHalt, resumed(null, T0 + 2000, 11, ["gold"]));
+    expect(haltOf(partlyResumed, "gold")).toEqual(CLEAR);
+    expect(haltOf(partlyResumed, "silver")).toMatchObject({ halted: true, haltReason: "max drawdown" });
+
+    // A later instance-wide halt covers every strategy again, overriding the earlier session state.
+    const rehalted = book(halted(null, "operator", T0 + 500, 9, "PERSISTENT", ["gold"]), resumed(null, T0 + 800, 10, ["gold"]), halted(null, "engine fault", T0 + 1000, 11));
+    expect(haltOf(rehalted, "gold")).toMatchObject({ halted: true, haltReason: "engine fault" });
+    expect(haltOf(rehalted, "silver")).toMatchObject({ halted: true, haltReason: "engine fault" });
+
+    // An old-engine resume without the field clears every session halt, named or not.
+    const allResumed = book(halted(null, "operator", T0 + 1000, 10, "PERSISTENT", ["gold"]), resumed(null, T0 + 2000, 11));
+    expect(haltOf(allResumed, "gold")).toEqual(CLEAR);
+
+    // A new session halt after an old instance-wide one: gold sees the later, silver keeps the old.
+    const layered = book(oldHalt, halted(null, "daily loss", T0 + 2000, 11, "DAILY", ["gold"]));
+    expect(haltOf(layered, "gold")).toMatchObject({ haltReason: "daily loss", haltScope: "DAILY" });
+    expect(haltOf(layered, "silver")).toMatchObject({ haltReason: "max drawdown", haltScope: null });
+  });
+
+  it("keeps precedence between a strategy's own halt and its session halt", () => {
+    const db = book(
+      halted("gold", "max drawdown", T0 + 1000, 10, "PERSISTENT"),
+      halted(null, "daily loss", T0 + 2000, 11, "DAILY", ["gold", "silver"]),
+    );
+    expect(haltOf(db, "gold")).toMatchObject({ haltReason: "max drawdown", haltPersistent: true });
+    expect(haltOf(db, "silver")).toMatchObject({ haltReason: "daily loss", haltPersistent: false });
+    expect(haltOf(db, "gold", (Math.floor(T0 / DAY) + 1) * DAY)).toMatchObject({ haltReason: "max drawdown" });
+    expect(haltOf(db, "silver", (Math.floor(T0 / DAY) + 1) * DAY)).toEqual(CLEAR);
   });
 
   it("scopes halts to their instance", () => {

@@ -129,8 +129,12 @@ export const payloadByType = {
   }),
   "risk.rejected": object({ reason: z.string(), symbol: z.string().optional(), side: side.optional(), qty: z.number().optional() }),
   // scope (TRANSIENT | DAILY | PERSISTENT) and persistent arrive from qkt v0.52.0 on; older engines omit both.
-  "risk.halted": object({ strategyId: z.string().nullable().optional(), reason: z.string(), scope: z.string().optional(), persistent: z.boolean().optional() }),
-  "risk.resumed": object({ strategyId: z.string().nullable().optional() }),
+  // sessionStrategies (qkt#1244 on) names the emitting session's strategies when strategyId is null.
+  "risk.halted": object({
+    strategyId: z.string().nullable().optional(), reason: z.string(), scope: z.string().optional(), persistent: z.boolean().optional(),
+    sessionStrategies: z.array(z.string()).optional(),
+  }),
+  "risk.resumed": object({ strategyId: z.string().nullable().optional(), sessionStrategies: z.array(z.string()).optional() }),
   "risk.snapshot": object({ strategyId: z.string().nullable().optional(), ts: z.number().optional() }),
   "strategy.started": object({
     strategyId: z.string(),

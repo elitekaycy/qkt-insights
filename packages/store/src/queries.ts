@@ -218,18 +218,29 @@ export interface StrategyHalt {
 
 interface ActiveHalt { reason: string | null; scope: HaltScope | null; persistent: boolean | null; ts: number }
 
-/** The halts standing on one instance: the instance-wide one (null strategyId) and each strategy's own. */
-export interface InstanceHalts { instance: ActiveHalt | null; byStrategy: Map<string, ActiveHalt> }
+/**
+ * The halts standing on one instance. A strategy's session-level halt (null strategyId) is
+ * `session.get(id)` when the map has the id (an event that named its session's strategies),
+ * else `instance` (the last event that named none, which applies to every strategy).
+ */
+export interface InstanceHalts {
+  instance: ActiveHalt | null;
+  session: Map<string, ActiveHalt | null>;
+  byStrategy: Map<string, ActiveHalt>;
+}
 
 const NOT_HALTED: StrategyHalt = { halted: false, haltReason: null, haltScope: null, haltPersistent: null, haltedAt: null };
 
 /**
  * Replays an instance's risk.halted / risk.resumed events in (ts, seq) order, mirroring qkt's
- * RiskState. The instance-wide halt (null strategyId) and each strategy's halt are separate
- * latches: a resume clears only the latch with its own strategyId (null clears the instance-wide
- * one), and a later halt on a latch replaces the earlier one (the engine re-sends when a halt
- * escalates). seq only breaks ties: each engine session numbers its own bus, so it does not
- * order events across sessions of one instance.
+ * RiskState. A session-level halt (null strategyId) and each strategy's own halt are separate
+ * latches: a resume clears only the latch it names, and a later halt on a latch replaces the
+ * earlier one (the engine re-sends when a halt escalates). seq only breaks ties: each engine
+ * session numbers its own bus, so it does not order events across sessions of one instance.
+ *
+ * A null-strategy halt or resume covers the strategies in its `sessionStrategies` (the emitting
+ * session's, sent from qkt#1244 on). Without that field (older engines) the session is unknown,
+ * so it covers every strategy of the instance.
  *
  * Halts that the engine never follows with a resume are dropped as it drops them:
  * - TRANSIENT: the drain step before a session is replaced (resync); the replacement starts
@@ -243,32 +254,43 @@ export function currentHalts(db: Db, instanceId: string, now = Date.now()): Inst
     `SELECT strategy_id strategyId, kind, reason, ts, payload FROM risk_events
      WHERE instance_id=? AND kind IN ('risk.halted','risk.resumed') ORDER BY ts ASC, seq ASC`,
   ).all(instanceId) as Array<{ strategyId: string | null; kind: string; reason: string | null; ts: number; payload: string }>;
-  const latches = new Map<string | null, ActiveHalt | null>();
+  let instance: ActiveHalt | null = null;
+  const session = new Map<string, ActiveHalt | null>();
+  const own = new Map<string, ActiveHalt | null>();
   for (const r of rows) {
-    if (r.kind === "risk.resumed") { latches.set(r.strategyId, null); continue; }
-    const p = JSON.parse(r.payload) as { scope?: unknown; persistent?: unknown };
-    const scope = typeof p.scope === "string" && HALT_SCOPES.has(p.scope) ? p.scope as HaltScope : null;
-    if (scope === "TRANSIENT" || (p.scope === undefined && r.reason === "operator resync")) continue;
-    const persistent = typeof p.persistent === "boolean" ? p.persistent : null;
-    latches.set(r.strategyId, { reason: r.reason, scope, persistent, ts: r.ts });
+    const p = JSON.parse(r.payload) as { scope?: unknown; persistent?: unknown; sessionStrategies?: unknown };
+    let halt: ActiveHalt | null = null;
+    if (r.kind === "risk.halted") {
+      const scope = typeof p.scope === "string" && HALT_SCOPES.has(p.scope) ? p.scope as HaltScope : null;
+      if (scope === "TRANSIENT" || (p.scope === undefined && r.reason === "operator resync")) continue;
+      halt = { reason: r.reason, scope, persistent: typeof p.persistent === "boolean" ? p.persistent : null, ts: r.ts };
+    }
+    if (r.strategyId != null) own.set(r.strategyId, halt);
+    else if (Array.isArray(p.sessionStrategies)) {
+      for (const id of p.sessionStrategies) if (typeof id === "string") session.set(id, halt);
+    } else {
+      instance = halt;
+      session.clear();
+    }
   }
   const today = Math.floor(now / DAY_MS);
   const standing = (h: ActiveHalt | null | undefined): ActiveHalt | null =>
     h == null || (h.scope === "DAILY" && Math.floor(h.ts / DAY_MS) < today) ? null : h;
   const byStrategy = new Map<string, ActiveHalt>();
-  for (const [id, h] of latches) {
+  for (const [id, h] of own) {
     const s = standing(h);
-    if (id != null && s) byStrategy.set(id, s);
+    if (s) byStrategy.set(id, s);
   }
-  return { instance: standing(latches.get(null)), byStrategy };
+  return { instance: standing(instance), session: new Map([...session].map(([id, h]) => [id, standing(h)])), byStrategy };
 }
 
 /**
- * The halt shown for one strategy: its own halt or the instance-wide one. When both stand, the
- * persistent one wins (it needs an operator), else the later one.
+ * The halt shown for one strategy: its own halt or the session-level one that covers it. When
+ * both stand, the persistent one wins (it needs an operator), else the later one.
  */
 export function strategyHalt(halts: InstanceHalts, strategyId: string): StrategyHalt {
-  const candidates = [halts.instance, halts.byStrategy.get(strategyId) ?? null].filter((h): h is ActiveHalt => h != null);
+  const sessionHalt = halts.session.has(strategyId) ? halts.session.get(strategyId)! : halts.instance;
+  const candidates = [sessionHalt, halts.byStrategy.get(strategyId) ?? null].filter((h): h is ActiveHalt => h != null);
   if (candidates.length === 0) return NOT_HALTED;
   const h = candidates.reduce((a, b) =>
     (a.persistent === true) !== (b.persistent === true) ? (a.persistent === true ? a : b) : (b.ts > a.ts ? b : a));
