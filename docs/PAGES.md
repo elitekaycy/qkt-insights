@@ -29,6 +29,8 @@ A strategy the engine has halted (`risk.halted` with no later `risk.resumed`) ca
 strategy page spells it out, with `qkt resume <name>` for a persistent halt.
 A session-level halt covers the strategies its session runs (`sessionStrategies`, qkt#1244);
 from older engines, which do not name them, it covers every strategy of the instance.
+A session start sends each strategy's own halt state (`risk.snapshot`, qkt v0.52.4); that
+replaces whatever the earlier halt events implied for the strategy.
 
 ![Strategies](assets/screenshots/strategies.png)
 

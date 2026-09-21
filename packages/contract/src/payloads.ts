@@ -135,7 +135,12 @@ export const payloadByType = {
     sessionStrategies: z.array(z.string()).optional(),
   }),
   "risk.resumed": object({ strategyId: z.string().nullable().optional(), sessionStrategies: z.array(z.string()).optional() }),
-  "risk.snapshot": object({ strategyId: z.string().nullable().optional(), ts: z.number().optional() }),
+  // The halt fields arrive from qkt#1244 on: the strategy's effective halt when its session starts.
+  "risk.snapshot": object({
+    strategyId: z.string().nullable().optional(), ts: z.number().optional(),
+    halted: z.boolean().optional(), haltReason: z.string().nullable().optional(), haltScope: z.string().nullable().optional(),
+    haltPersistent: z.boolean().nullable().optional(), haltedAt: z.number().nullable().optional(),
+  }),
   "strategy.started": object({
     strategyId: z.string(),
     ts: z.number().optional(),
