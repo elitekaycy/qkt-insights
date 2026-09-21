@@ -258,6 +258,12 @@ describe("enriched qkt payloads", () => {
         entryPrice: 2300.5, currentPrice: 2310.2, profit: 9.7, strategyId: "hedge" } }).success).toBe(true);
     expect(EnvelopeSchema.safeParse({ ...base, strategyId: "hedge", type: "risk.snapshot",
       payload: { strategyId: "hedge", equity: 980, dailyLoss: 20 } }).success).toBe(true);
+    expect(EnvelopeSchema.parse({ ...base, strategyId: "hedge", type: "risk.snapshot",
+      payload: { strategyId: "hedge", ts: base.ts, halted: true, haltReason: "global drawdown 0.1004 exceeds max 0.1",
+        haltScope: "PERSISTENT", haltPersistent: true, haltedAt: base.ts - 1000 } }).payload)
+      .toMatchObject({ halted: true, haltScope: "PERSISTENT", haltPersistent: true });
+    expect(EnvelopeSchema.safeParse({ ...base, strategyId: "hedge", type: "risk.snapshot",
+      payload: { strategyId: "hedge", ts: base.ts, halted: false, haltReason: null, haltScope: null, haltPersistent: null, haltedAt: null } }).success).toBe(true);
     expect(EnvelopeSchema.safeParse({ ...base, type: "portfolio.configured",
       payload: { portfolioId: "book", strategies: ["hedge"], ts: base.ts } }).success).toBe(true);
     expect(EnvelopeSchema.safeParse({ ...base, type: "portfolio.allocation.updated",

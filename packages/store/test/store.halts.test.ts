@@ -128,7 +128,7 @@ describe("current strategy halts", () => {
   it("ignores the TRANSIENT resync halt the engine sends before replacing a session, with or without a scope", () => {
     const db = book(halted(null, "operator resync", T0 + 1000, 10, "TRANSIENT"), halted(null, "operator resync", T0 + 2000, 5));
     expect(haltOf(db, "gold")).toEqual(CLEAR);
-    expect(currentHalts(db, "qkt-prod", NOW)).toEqual({ instance: null, session: new Map(), byStrategy: new Map() });
+    expect(currentHalts(db, "qkt-prod", NOW)).toEqual({ instance: null, session: new Map(), snapshot: new Map(), byStrategy: new Map() });
   });
 
   it("keeps a standing halt when a later TRANSIENT halt arrives", () => {
@@ -202,5 +202,101 @@ describe("current strategy halts", () => {
     ingestEvents(db, "qkt-other", [{ ...started("gold"), instanceId: "qkt-other" }]);
     expect(listStrategies(db, "qkt-other", NOW).find((r) => r.strategyId === "gold")!.halted).toBe(false);
     expect(strategyHalt(currentHalts(db, "qkt-other", NOW), "gold")).toEqual(CLEAR);
+  });
+});
+
+// qkt#1244 (v0.52.4): every session sends one risk.snapshot per strategy when it starts, with
+// the strategy's effective halt (RiskStateSnapshot.riskSnapshotOf). seq is always 0.
+function snapshot(strategyId: string, ts: number, halt: { reason: string; scope: string; haltedAt: number | null } | null): Envelope {
+  return env({
+    id: `risk-snapshot-${strategyId}-${ts}`, type: "risk.snapshot", strategyId, ts, seq: 0,
+    payload: {
+      strategyId, ts, halted: halt != null, haltReason: halt?.reason ?? null, haltScope: halt?.scope ?? null,
+      haltPersistent: halt ? halt.scope === "PERSISTENT" : null, haltedAt: halt?.haltedAt ?? null,
+    },
+  });
+}
+
+describe("halt state from risk snapshots", () => {
+  // The quant-live shape: a pre-#1244 engine's global drawdown halt reached insights as a
+  // null-strategy halt with no sessionStrategies, but only one session was halted.
+  const QUANT_LIVE = ["eurusd_rsi_fade", "silver_ema_cross", "gold_breakout", "gbpusd_trend", "btc_momentum"];
+  const T1 = T0 + 600_000;
+  const drawdown = "global drawdown 0.1004 exceeds max 0.1";
+
+  function quantLive(...events: Envelope[]): Db {
+    const db = openDb(":memory:");
+    ingestEvents(db, "qkt-prod", [...QUANT_LIVE.map(started), halted(null, drawdown, T0, 40), ...events]);
+    return db;
+  }
+  const restartSnapshots = () => QUANT_LIVE.map((id) =>
+    id === "eurusd_rsi_fade" ? snapshot(id, T1, { reason: drawdown, scope: "PERSISTENT", haltedAt: T0 })
+    : id === "silver_ema_cross" ? snapshot(id, T1, { reason: "daily loss 2.1% exceeds max 2%", scope: "DAILY", haltedAt: T1 - 60_000 })
+    : snapshot(id, T1, null));
+
+  it("before any snapshot, the old instance-wide halt still marks every strategy", () => {
+    const db = quantLive();
+    for (const id of QUANT_LIVE) expect(haltOf(db, id).halted).toBe(true);
+  });
+
+  it("start snapshots mark only the strategies the engine reports halted", () => {
+    const db = quantLive(...restartSnapshots());
+    expect(haltOf(db, "eurusd_rsi_fade")).toEqual({ halted: true, haltReason: drawdown, haltScope: "PERSISTENT", haltPersistent: true, haltedAt: T0 });
+    expect(haltOf(db, "silver_ema_cross")).toEqual({
+      halted: true, haltReason: "daily loss 2.1% exceeds max 2%", haltScope: "DAILY", haltPersistent: false, haltedAt: T1 - 60_000,
+    });
+    for (const id of ["gold_breakout", "gbpusd_trend", "btc_momentum"]) expect(haltOf(db, id)).toEqual(CLEAR);
+  });
+
+  it("a later strategy-scoped resume clears a snapshot halt, and leaves the others", () => {
+    const db = quantLive(...restartSnapshots(), resumed("silver_ema_cross", T1 + 5000, 3));
+    expect(haltOf(db, "silver_ema_cross")).toEqual(CLEAR);
+    expect(haltOf(db, "eurusd_rsi_fade").halted).toBe(true);
+    expect(haltOf(db, "gold_breakout")).toEqual(CLEAR);
+  });
+
+  it("a session resume naming the strategy, or an instance-wide resume, clears a snapshot halt", () => {
+    expect(haltOf(quantLive(...restartSnapshots(), resumed(null, T1 + 5000, 3, ["eurusd_rsi_fade"])), "eurusd_rsi_fade")).toEqual(CLEAR);
+    expect(haltOf(quantLive(...restartSnapshots(), resumed(null, T1 + 5000, 3, ["gold_breakout"])), "eurusd_rsi_fade").halted).toBe(true);
+    const all = quantLive(...restartSnapshots(), resumed(null, T1 + 5000, 3));
+    for (const id of QUANT_LIVE) expect(haltOf(all, id)).toEqual(CLEAR);
+  });
+
+  it("a halted:false snapshot after an old instance-wide halt clears that strategy only", () => {
+    const db = quantLive(snapshot("gold_breakout", T1, null));
+    expect(haltOf(db, "gold_breakout")).toEqual(CLEAR);
+    for (const id of QUANT_LIVE.filter((i) => i !== "gold_breakout")) expect(haltOf(db, id)).toMatchObject({ halted: true, haltReason: drawdown });
+  });
+
+  it("a halted:false snapshot also clears the strategy's own and session halts", () => {
+    const db = book(
+      halted("gold", "loss streak 3", T0 + 1000, 10, "PERSISTENT"),
+      halted(null, "operator", T0 + 1100, 11, "PERSISTENT", ["gold", "silver"]),
+      snapshot("gold", T0 + 2000, null),
+    );
+    expect(haltOf(db, "gold")).toEqual(CLEAR);
+    expect(haltOf(db, "silver")).toMatchObject({ halted: true, haltReason: "operator" });
+  });
+
+  it("applies events after a snapshot on top of it", () => {
+    const db = quantLive(...restartSnapshots(), halted("gold_breakout", "loss streak 3", T1 + 1000, 5, "PERSISTENT"), halted(null, "engine fault", T1 + 2000, 6));
+    expect(haltOf(db, "gold_breakout")).toMatchObject({ haltReason: "loss streak 3", haltPersistent: true });
+    // A later instance-wide halt from an older engine covers everyone again; a persistent snapshot halt still wins for eurusd.
+    expect(haltOf(db, "btc_momentum")).toMatchObject({ halted: true, haltReason: "engine fault" });
+    expect(haltOf(db, "eurusd_rsi_fade")).toMatchObject({ haltReason: drawdown, haltPersistent: true });
+  });
+
+  it("times a snapshot halt by haltedAt, else by the snapshot, for DAILY expiry", () => {
+    const nextDay = (Math.floor(T0 / DAY) + 1) * DAY;
+    const tripped = book(snapshot("gold", nextDay + 1000, { reason: "daily loss", scope: "DAILY", haltedAt: nextDay - 1000 }));
+    expect(haltOf(tripped, "gold", nextDay + 2000)).toEqual(CLEAR);
+    const untimed = book(snapshot("gold", nextDay + 1000, { reason: "daily loss", scope: "DAILY", haltedAt: null }));
+    expect(haltOf(untimed, "gold", nextDay + 2000)).toMatchObject({ halted: true, haltedAt: nextDay + 1000 });
+  });
+
+  it("ignores a risk snapshot without a halted field (older engines' risk snapshots)", () => {
+    const db = book(halted(null, "max drawdown", T0 + 1000, 10),
+      env({ id: "snap-old", type: "risk.snapshot", strategyId: "gold", ts: T0 + 2000, payload: { strategyId: "gold", equity: 980, dailyLoss: 20 } }));
+    expect(haltOf(db, "gold")).toMatchObject({ halted: true, haltReason: "max drawdown" });
   });
 });
