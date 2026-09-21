@@ -24,6 +24,11 @@ underwater curve, and drawdown periods.
 ## Strategies
 
 Every standalone and portfolio strategy on the instance, with live P&L and return.
+A strategy the engine has halted (`risk.halted` with no later `risk.resumed`) carries a
+`halted` badge; hovering it gives the reason, when it tripped and how it clears, and the
+strategy page spells it out, with `qkt resume <name>` for a persistent halt.
+A session-level halt covers the strategies its session runs (`sessionStrategies`, qkt#1244);
+from older engines, which do not name them, it covers every strategy of the instance.
 
 ![Strategies](assets/screenshots/strategies.png)
 

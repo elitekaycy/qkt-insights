@@ -142,6 +142,14 @@ export interface StrategyRow {
   dealCount: number;
   /** In the instance's latest deployed roster. False = lingering from a prior bench topology. */
   active: boolean;
+  /** Current engine risk halt. The halt fields are absent on shared links, which never show live risk state. */
+  halted?: boolean;
+  haltReason?: string | null;
+  /** Null when the engine predates qkt v0.52.0 and did not say. */
+  haltScope?: "TRANSIENT" | "DAILY" | "PERSISTENT" | null;
+  /** True when only `qkt resume <name>` clears the halt; null when unknown. */
+  haltPersistent?: boolean | null;
+  haltedAt?: number | null;
 }
 export interface OrderRow {
   orderId: string;
