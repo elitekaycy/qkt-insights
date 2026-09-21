@@ -43,6 +43,18 @@ describe("REST", () => {
   it("lists strategies for an instance", async () => {
     expect((await get("/strategies?instance=qkt-prod")).json()).toMatchObject([{ strategyId: "latch" }]);
   });
+  it("lists a strategy's current halt, and clears it once the engine resumes it", async () => {
+    const ts = Date.now();
+    expect((await get("/strategies?instance=qkt-prod")).json()).toMatchObject([{ strategyId: "latch", halted: false, haltReason: null, haltScope: null, haltPersistent: null, haltedAt: null }]);
+    ingestEvents(db, "qkt-prod", [env({ id: "halt-1", seq: 2, ts, strategyId: "latch", type: "risk.halted",
+      payload: { strategyId: "latch", reason: "loss streak 3", scope: "PERSISTENT", persistent: true } })]);
+    // A fresh query string: /strategies is memoized per URL for a few seconds.
+    expect((await get("/strategies?instance=qkt-prod&_=1")).json()).toMatchObject([
+      { strategyId: "latch", halted: true, haltReason: "loss streak 3", haltScope: "PERSISTENT", haltPersistent: true, haltedAt: ts },
+    ]);
+    ingestEvents(db, "qkt-prod", [env({ id: "resume-1", seq: 3, ts: ts + 1, strategyId: "latch", type: "risk.resumed", payload: { strategyId: "latch" } })]);
+    expect((await get("/strategies?instance=qkt-prod&_=2")).json()).toMatchObject([{ strategyId: "latch", halted: false }]);
+  });
   it("lists orders", async () => {
     const rows = (await get("/orders?instance=qkt-prod&state=FILLED")).json();
     expect(rows).toHaveLength(1);

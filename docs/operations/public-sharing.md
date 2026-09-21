@@ -39,6 +39,8 @@ who knows a strategy's symbol can still roughly infer an open position's directi
 its delayed open P&L moves. A position counts only once its whole volume has closed; until
 then its trades, deals and any partial close stay out of every figure. Strategy parameters, source files, broker names, account
 numbers, tickets, magic numbers and order comments are never included.
+Engine risk halts (the halted badge, its reason and scope) are live operator state and are
+never included either.
 
 Public figures come from broker deals. A strategy whose trades reach insights only as
 engine events (a paper or backtest run without broker deal polling) shows no trades on

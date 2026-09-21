@@ -35,10 +35,15 @@ export function listStrategyRoster(db: Db, instanceId: string): StrategyRow[] {
   return strategyRosterRows(db, instanceId).map((r) => ({ ...r, realizedNet: null, dealCount: 0 }));
 }
 
-export function listStrategies(db: Db, instanceId: string): StrategyRow[] {
+/** The admin roster, with realized figures and each strategy's current halt. */
+export function listStrategies(db: Db, instanceId: string, now = Date.now()): Array<StrategyRow & StrategyHalt> {
+  const halts = currentHalts(db, instanceId, now);
   return strategyRosterRows(db, instanceId).map((r) => {
     const closes = closedTrades(db, { instanceId, strategyId: r.strategyId });
-    return { ...r, realizedNet: closes.length > 0 ? closes.reduce((a, c) => a + c.realized, 0) : null, dealCount: closes.length };
+    return {
+      ...r, realizedNet: closes.length > 0 ? closes.reduce((a, c) => a + c.realized, 0) : null, dealCount: closes.length,
+      ...strategyHalt(halts, r.strategyId),
+    };
   });
 }
 
@@ -192,6 +197,82 @@ export function listRiskEvents(db: Db, f: { instanceId: string; strategyId?: str
      FROM risk_events WHERE ${cl.join(" AND ")} ORDER BY ts DESC LIMIT @limit`,
   ).all(f) as Array<Omit<RiskEventRow, "payload"> & { payload: string }>;
   return rows.map((r) => ({ ...r, payload: JSON.parse(r.payload) }));
+}
+
+export type HaltScope = "TRANSIENT" | "DAILY" | "PERSISTENT";
+const HALT_SCOPES: ReadonlySet<string> = new Set<HaltScope>(["TRANSIENT", "DAILY", "PERSISTENT"]);
+const DAY_MS = 86_400_000;
+
+/**
+ * A strategy's current risk halt. Scope and persistent are null when the halt came from an
+ * engine older than qkt v0.52.0, which did not send them: unknown, never guessed.
+ */
+export interface StrategyHalt {
+  halted: boolean;
+  haltReason: string | null;
+  haltScope: HaltScope | null;
+  /** True only when `qkt resume <name>` is the one thing that clears the halt. */
+  haltPersistent: boolean | null;
+  haltedAt: number | null;
+}
+
+interface ActiveHalt { reason: string | null; scope: HaltScope | null; persistent: boolean | null; ts: number }
+
+/** The halts standing on one instance: the instance-wide one (null strategyId) and each strategy's own. */
+export interface InstanceHalts { instance: ActiveHalt | null; byStrategy: Map<string, ActiveHalt> }
+
+const NOT_HALTED: StrategyHalt = { halted: false, haltReason: null, haltScope: null, haltPersistent: null, haltedAt: null };
+
+/**
+ * Replays an instance's risk.halted / risk.resumed events in (ts, seq) order, mirroring qkt's
+ * RiskState. The instance-wide halt (null strategyId) and each strategy's halt are separate
+ * latches: a resume clears only the latch with its own strategyId (null clears the instance-wide
+ * one), and a later halt on a latch replaces the earlier one (the engine re-sends when a halt
+ * escalates). seq only breaks ties: each engine session numbers its own bus, so it does not
+ * order events across sessions of one instance.
+ *
+ * Halts that the engine never follows with a resume are dropped as it drops them:
+ * - TRANSIENT: the drain step before a session is replaced (resync); the replacement starts
+ *   unhalted and sends no resume. Engines before v0.52.0 sent the same step without a scope,
+ *   with the reason "operator resync", and it is dropped the same way.
+ * - DAILY: expires once the UTC day it tripped on has passed ([now]); a session restarted after
+ *   that day drops it without a resume.
+ */
+export function currentHalts(db: Db, instanceId: string, now = Date.now()): InstanceHalts {
+  const rows = db.prepare(
+    `SELECT strategy_id strategyId, kind, reason, ts, payload FROM risk_events
+     WHERE instance_id=? AND kind IN ('risk.halted','risk.resumed') ORDER BY ts ASC, seq ASC`,
+  ).all(instanceId) as Array<{ strategyId: string | null; kind: string; reason: string | null; ts: number; payload: string }>;
+  const latches = new Map<string | null, ActiveHalt | null>();
+  for (const r of rows) {
+    if (r.kind === "risk.resumed") { latches.set(r.strategyId, null); continue; }
+    const p = JSON.parse(r.payload) as { scope?: unknown; persistent?: unknown };
+    const scope = typeof p.scope === "string" && HALT_SCOPES.has(p.scope) ? p.scope as HaltScope : null;
+    if (scope === "TRANSIENT" || (p.scope === undefined && r.reason === "operator resync")) continue;
+    const persistent = typeof p.persistent === "boolean" ? p.persistent : null;
+    latches.set(r.strategyId, { reason: r.reason, scope, persistent, ts: r.ts });
+  }
+  const today = Math.floor(now / DAY_MS);
+  const standing = (h: ActiveHalt | null | undefined): ActiveHalt | null =>
+    h == null || (h.scope === "DAILY" && Math.floor(h.ts / DAY_MS) < today) ? null : h;
+  const byStrategy = new Map<string, ActiveHalt>();
+  for (const [id, h] of latches) {
+    const s = standing(h);
+    if (id != null && s) byStrategy.set(id, s);
+  }
+  return { instance: standing(latches.get(null)), byStrategy };
+}
+
+/**
+ * The halt shown for one strategy: its own halt or the instance-wide one. When both stand, the
+ * persistent one wins (it needs an operator), else the later one.
+ */
+export function strategyHalt(halts: InstanceHalts, strategyId: string): StrategyHalt {
+  const candidates = [halts.instance, halts.byStrategy.get(strategyId) ?? null].filter((h): h is ActiveHalt => h != null);
+  if (candidates.length === 0) return NOT_HALTED;
+  const h = candidates.reduce((a, b) =>
+    (a.persistent === true) !== (b.persistent === true) ? (a.persistent === true ? a : b) : (b.ts > a.ts ? b : a));
+  return { halted: true, haltReason: h.reason, haltScope: h.scope, haltPersistent: h.persistent, haltedAt: h.ts };
 }
 
 export function listPortfolioEquity(db: Db, f: { instanceId: string; portfolioId: string; limit: number }): PortfolioEquityRow[] {
