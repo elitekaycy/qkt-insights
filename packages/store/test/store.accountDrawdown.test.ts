@@ -61,4 +61,34 @@ describe("accountDrawdown", () => {
     expect(tot.maxDdPct).toBeCloseTo(20, 5);
     expect(tot.currentDdPct).toBeCloseTo(5, 5);
   });
+
+  it("TOTAL merges a relabel that interleaves with the original label", () => {
+    const db = openDb(":memory:");
+    const ins = db.prepare(
+      "INSERT INTO account_equity (instance_id, broker, minute_ts, balance, equity, open_profit) VALUES ('i1', ?, ?, ?, ?, 0)",
+    );
+    // ICMARKETS reports, hands over to ICM for a while, then takes back over:
+    // one account, date ranges overlapping, no minute reported twice.
+    const curve: Array<[string, number]> = [
+      ["ICMARKETS", 100], ["ICMARKETS", 120], ["ICM", 110], ["ICM", 96], ["ICMARKETS", 102], ["ICMARKETS", 108],
+    ];
+    curve.forEach(([b, e], i) => ins.run(b, T0 + i * M, e, e));
+    const tot = accountDrawdown(db, { instanceId: "i1" }).find((r) => r.broker === "TOTAL")!;
+    expect(tot.peakEquity).toBe(120);
+    expect(tot.currentEquity).toBe(108);
+    expect(tot.maxDdPct).toBeCloseTo(20, 5);
+    expect(tot.currentDdPct).toBeCloseTo(10, 5);
+  });
+
+  it("TOTAL merges per-profile copies of one login that take turns reporting", () => {
+    const db = openDb(":memory:");
+    const ins = db.prepare(
+      "INSERT INTO account_equity (instance_id, broker, minute_ts, balance, equity, open_profit) VALUES ('i1', ?, ?, ?, ?, 0)",
+    );
+    const labels = ["P174", "P1053", "P487"];
+    [5000, 4990, 5010, 5005, 4995, 5000].forEach((e, i) => ins.run(labels[i % 3], T0 + i * M, e, e));
+    const tot = accountDrawdown(db, { instanceId: "i1" }).find((r) => r.broker === "TOTAL")!;
+    expect(tot.peakEquity).toBe(5010);
+    expect(tot.currentEquity).toBe(5000);
+  });
 });

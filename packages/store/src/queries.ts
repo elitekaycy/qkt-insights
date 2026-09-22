@@ -481,12 +481,13 @@ export function accountDrawdown(db: Db, f: { instanceId: string; to?: number }):
   }
   if (cur) out.push(cur);
   // TOTAL: the whole account's drawdown across broker labels. A relabeled
-  // state poller (profile rework) splits one account's history into
-  // time-disjoint series under different labels — those are CHAINED into one
-  // continuous curve, never summed (summing would keep the dead label's last
-  // equity alive and double-count the account). Genuinely concurrent brokers
-  // (overlapping ranges = separate accounts) are forward-filled and summed
-  // into the portfolio curve.
+  // state poller (profile rework, per-profile copies of one login) splits one
+  // account's history across labels that take turns reporting: their minutes
+  // never coincide, though their date ranges can interleave (A, B, A). Those
+  // are MERGED into one curve, never summed (summing would keep a dead label's
+  // last equity alive and double-count the account). Genuinely concurrent
+  // brokers report in the same minutes, so they stay separate accounts and are
+  // forward-filled and summed into the portfolio curve.
   if (out.length > 1) {
     const byBroker = new Map<string, Array<{ ts: number; equity: number }>>();
     for (const r of rows) {
@@ -495,12 +496,21 @@ export function accountDrawdown(db: Db, f: { instanceId: string; to?: number }):
       a.push({ ts: r.ts, equity: r.equity });
     }
     const series = [...byBroker.values()].sort((a, b) => a[0]!.ts - b[0]!.ts);
-    const chains: Array<Array<{ ts: number; equity: number }>> = [];
+    const accounts: Array<{ minutes: Set<number>; points: Array<{ ts: number; equity: number }> }> = [];
     for (const sr of series) {
-      const chain = chains.find((c) => c[c.length - 1]!.ts < sr[0]!.ts);
-      if (chain) chain.push(...sr);
-      else chains.push([...sr]);
+      // A handover can land both labels in one minute; a separate account
+      // shares nearly all of its minutes, so tolerate 1% of the shorter series.
+      const account = accounts.find((acc) => {
+        let shared = 0;
+        for (const p of sr) if (acc.minutes.has(p.ts)) shared++;
+        return shared <= Math.floor(Math.min(sr.length, acc.points.length) * 0.01);
+      });
+      if (account) {
+        account.points.push(...sr);
+        for (const p of sr) account.minutes.add(p.ts);
+      } else accounts.push({ minutes: new Set(sr.map((p) => p.ts)), points: [...sr] });
     }
+    const chains = accounts.map((acc) => acc.points.sort((a, b) => a.ts - b.ts));
     const minutes = [...new Set(rows.map((r) => r.ts))].sort((a, b) => a - b);
     const idx = chains.map(() => 0);
     const lastVal: Array<number | null> = chains.map(() => null);
