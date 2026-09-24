@@ -63,6 +63,26 @@ describe("POST /ingest", () => {
     expect(db.prepare("SELECT type FROM events").get()).toMatchObject({ type: "marketdata.stale" });
   });
 
+  it("accepts marketdata.stale with kind and marketdata.recovered in one batch", async () => {
+    const res = await app.inject({
+      method: "POST", url: "/ingest",
+      headers: { authorization: "Bearer secret" },
+      payload: { instanceId: "qkt-prod", events: [
+        env({ id: "md-stale", seq: 1, type: "marketdata.stale", payload: {
+          source: "Composite", symbols: ["EXNESS:XAUUSD"], state: "stale", kind: "clock_skew",
+          reason: "broker tick clock skew -61441ms exceeds 60000ms", ts: 1718000000000,
+        } }),
+        env({ id: "md-recovered", seq: 2, type: "marketdata.recovered", payload: {
+          source: "Composite", symbols: ["EXNESS:XAUUSD"], state: "recovered",
+          reason: "fresh quote", ts: 1718000300000, unhealthyForMs: 300000,
+        } }),
+      ] },
+    });
+    expect(res.statusCode).toBe(200);
+    expect(res.json()).toMatchObject({ accepted: 2 });
+    expect(db.prepare("SELECT type FROM events ORDER BY seq").all()).toEqual([{ type: "marketdata.stale" }, { type: "marketdata.recovered" }]);
+  });
+
   it("does not report producer-local sequence gaps as delivery loss", async () => {
     const res = await app.inject({
       method: "POST", url: "/ingest",

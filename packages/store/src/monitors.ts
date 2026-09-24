@@ -1,6 +1,6 @@
 import type { Db } from "./db.js";
 
-export type MonitorKind = "heartbeat" | "http";
+export type MonitorKind = "heartbeat" | "http" | "marketdata";
 export type MonitorStatus = "up" | "down" | "pending";
 
 export interface MonitorCheck {

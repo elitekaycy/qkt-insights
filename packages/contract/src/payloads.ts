@@ -171,7 +171,10 @@ export const payloadByType = {
   "marketdata.connected": object({ source: z.string(), symbols: z.array(z.string()).optional(), state: z.string().optional(), reason: z.string().optional(), ts: z.number().optional() }),
   "marketdata.disconnected": object({ source: z.string(), symbols: z.array(z.string()).optional(), state: z.string().optional(), reason: z.string().optional(), ts: z.number().optional() }),
   "marketdata.reconnected": object({ source: z.string(), symbols: z.array(z.string()).optional(), state: z.string().optional(), reason: z.string().optional(), ts: z.number().optional() }),
-  "marketdata.stale": object({ source: z.string(), symbols: z.array(z.string()).optional(), state: z.string().optional(), reason: z.string().optional(), ts: z.number().optional() }),
+  // kind arrives with the qkt release that also sends marketdata.recovered; older engines omit it.
+  "marketdata.stale": object({ source: z.string(), symbols: z.array(z.string()).optional(), state: z.string().optional(), reason: z.string().optional(), ts: z.number().optional(), kind: z.string().optional() }),
+  // Sent once when a symbol that raised marketdata.stale is healthy again.
+  "marketdata.recovered": object({ source: z.string(), symbols: z.array(z.string()).optional(), state: z.string().optional(), reason: z.string().optional(), ts: z.number().optional(), unhealthyForMs: z.number().optional() }),
   "snapshot.equity": object({ strategyId: z.string(), realized: z.number(), unrealized: z.number(), equity: z.number(), startingBalance: z.number() }),
   "snapshot.position": object({ strategyId: z.string(), symbol: z.string(),
     legs: z.array(object({ side, qty: z.number(), entryPrice: z.number(), entryTs: z.number() })) }),

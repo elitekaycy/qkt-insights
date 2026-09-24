@@ -168,8 +168,9 @@ Each family is opt-in. Sink health snapshots report sent/failed/dropped/queued t
 ## Uptime and alerts
 
 Every 30s the collector checks one **heartbeat** monitor per reporting instance (down after
-90s of silence — three missed pulses) and every **http** monitor declared in
-`INSIGHTS_MONITORS`. A monitor goes down after three straight failures and comes back on the
+90s of silence — three missed pulses), every **http** monitor declared in
+`INSIGHTS_MONITORS`, and, when `INSIGHTS_MARKETDATA_MONITOR` is on, one **market data**
+monitor per instance (named `<instance> market data`). A monitor goes down after three straight failures and comes back on the
 first success; each transition is stored, shown on Health, and pushed to every configured
 channel. All of it is optional and off by default — with nothing set you still get the
 heartbeats and the Health page, just no alerts.
@@ -184,6 +185,11 @@ INSIGHTS_MONITORS=[{"name":"mt5-gateway","url":"http://mt5-gateway:5001/health",
 TELEGRAM_BOT_TOKEN=
 TELEGRAM_CHAT_ID=
 ALERT_WEBHOOK_URL=
+
+# Market data: down while any symbol has been stale longer than the threshold (default 180s).
+# Needs a qkt that sends marketdata.recovered; leave it off for older engines (see below).
+INSIGHTS_MARKETDATA_MONITOR=0
+INSIGHTS_MARKETDATA_ALERT_AFTER_S=180
 
 # Dead-man: GET on every tick. Point it at healthchecks.io or an Uptime Kuma push monitor and the
 # outside world pages when this box, not just a daemon on it, goes dark.
@@ -211,8 +217,23 @@ What to expect, and the edges that are deliberate:
   same way a bad guardian config does. A monitoring stack that silently ignores half its
   config is worse than one that fails loudly at boot.
 - **Weekends stay quiet.** Heartbeats keep flowing and the gateway stays logged in while the
-  market is closed, so neither monitor kind fires on a Saturday. Session-aware checks (no
-  ticks during a trading session) are the next layer and are not built yet.
+  market is closed, so neither monitor kind fires on a Saturday. The market-data monitor
+  relies on qkt only reporting in-session staleness (24/7 crypto included).
+- **Market data is judged from qkt's own reports.** An episode opens on `marketdata.stale` for
+  a symbol and closes on a later `marketdata.recovered` for it, or on a later
+  `marketdata.connected` from the same source naming it (qkt sends that once per session
+  start, and a fresh session re-reports anything still stale, so a restart mid-episode does
+  not page forever). `marketdata.reconnected` does not close an episode: qkt keeps its
+  quote-health state across a feed reconnect and would not report a still-stale symbol
+  again. The monitor is down while any episode has been open longer than
+  `INSIGHTS_MARKETDATA_ALERT_AFTER_S`, then the usual three failed checks confirm it, so the
+  first message lands about a minute after the threshold. It names each overdue symbol, how
+  long, and why: `market data stale: PROP_S01:EURUSD 12m (quote age), PROP_S01:XAUUSD 12m
+  (clock skew)`. Episodes are aged on the instance's clock, the time qkt reported them.
+- **The market-data monitor needs a qkt that sends `marketdata.recovered`** (the first release
+  after v0.53.0 that ships it). Older engines never report recovery, so a stale symbol would
+  only clear at the next session start; that is why the monitor is off unless
+  `INSIGHTS_MARKETDATA_MONITOR=1`. Collectors accept both the older and the current payloads.
 - **Probes send `headers` verbatim and follow redirects; 5s timeout; 2xx required.** Assert on
   `expect` fields rather than status alone whenever the endpoint can answer 200 while degraded.
 

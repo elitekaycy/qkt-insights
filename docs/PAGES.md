@@ -57,8 +57,9 @@ Engine logs shipped from the instance, with level filters and full-text search.
 
 ## Health
 
-Fleet at a glance, then uptime: one heartbeat monitor per daemon and every declared
-HTTP probe, each with a 24h strip (30-minute bars, red on any failed check, grey when
+Fleet at a glance, then uptime: one heartbeat monitor per daemon, one market-data
+monitor per daemon when `INSIGHTS_MARKETDATA_MONITOR` is on, and every declared HTTP
+probe, each with a 24h strip (30-minute bars, red on any failed check, grey when
 nothing was checking), uptime over 24h and 30d, latency or the failure reason, and
 how long it has held its current status. Incidents lists every up/down transition.
 Below that, runtime status for every reporting instance: last event age, sequence
