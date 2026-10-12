@@ -5,273 +5,125 @@
   </picture>
 </p>
 
-<h3 align="center">A self-hosted observability dashboard for the <a href="https://github.com/elitekaycy/qkt">qkt</a> trading engine.<br/>Every trade, order, log line, and equity curve — from every instance — in one place.</h3>
+<h3 align="center">See every trade qkt makes.<br/>A self-hosted dashboard and collector, in one container.</h3>
 
 <p align="center">
-  <a href="https://github.com/elitekaycy/qkt-insights/actions/workflows/ci.yml"><img src="https://github.com/elitekaycy/qkt-insights/actions/workflows/ci.yml/badge.svg" alt="ci"></a>
-  <a href="LICENSE"><img src="https://img.shields.io/badge/license-Apache%202.0-blue.svg" alt="license"></a>
-  <a href="https://github.com/elitekaycy/qkt-insights/pkgs/container/qkt-insights"><img src="https://img.shields.io/badge/ghcr.io-qkt--insights-2496ED?logo=docker&logoColor=white" alt="container"></a>
+  <a href="https://github.com/elitekaycy/qkt-insights/actions/workflows/ci.yml"><img src="https://github.com/elitekaycy/qkt-insights/actions/workflows/ci.yml/badge.svg" alt="CI"></a>
+  <a href="LICENSE"><img src="https://img.shields.io/badge/license-Apache%202.0-blue.svg" alt="Apache 2.0 license"></a>
+  <a href="https://github.com/elitekaycy/qkt-insights/pkgs/container/qkt-insights"><img src="https://img.shields.io/badge/ghcr.io-qkt--insights-2496ED?logo=docker&logoColor=white" alt="Container image"></a>
 </p>
 
 <p align="center">
-  <img src="docs/assets/qkt-insights-demo.gif" alt="Clone qkt-insights, install, build, and start the server — all from the terminal" width="880">
+  <a href="docs/assets/qkt-insights-full-dark.mp4">
+    <picture>
+      <source media="(prefers-color-scheme: dark)" srcset="docs/assets/qkt-insights-loop-dark.webp">
+      <img alt="Start the collector, send it a trade, sign in and read the trade back" src="docs/assets/qkt-insights-loop-light.webp" width="840">
+    </picture>
+  </a>
 </p>
 
----
+<p align="center"><sub>Every command in this clip was run for real.<br/><a href="docs/assets/qkt-insights-full-dark.mp4">Watch the full walkthrough</a></sub></p>
 
-> Live dashboard for [qkt](https://github.com/elitekaycy/qkt). Sibling project — same brand, same engineering style.
+<br/>
 
-**qkt-insights** ingests the event stream a running [qkt](https://github.com/elitekaycy/qkt) instance already produces — signals, order lifecycle, fills, risk halts, equity snapshots, engine logs — persists it in SQLite, and serves a clean React dashboard behind a single admin login. Point any number of qkt instances (different accounts, different boxes) at one collector and switch between them from the sidebar.
+## What it is
 
-The design promise: **observability never touches the trading hot path.** The qkt side enqueues onto a bounded in-memory queue and a background thread ships batches; if the collector is slow or down, events are dropped and the engine keeps trading. Telemetry is a best-effort tap, not a dependency.
+qkt-insights receives the events a running [qkt](https://github.com/elitekaycy/qkt) instance already produces
+(signals, orders, fills, risk halts, equity, logs), keeps them in SQLite, and serves a React dashboard behind one
+admin login. Point any number of qkt instances at one collector and switch between them in the sidebar.
 
+```text
+qkt instance(s) ──POST /ingest──▶ qkt-insights (SQLite) ──▶ dashboard in your browser
 ```
-qkt instance(s)               qkt-insights (one Node process)                browser
-EventBus tap ── batched ───▶  collector → store (SQLite + FTS5) → api(+WS) ──▶ React app
-InsightsSink   POST /ingest             single writer, one file
-```
 
-## Features
+It stays off the trading hot path: qkt ships events from a background thread, and if the collector is slow or
+down, events are dropped and the engine keeps trading.
 
-- **Health** — every reporting instance, last-event age, sequence position, sink counters, journal backlog, live/idle status.
-- **Uptime** — a heartbeat monitor per daemon and HTTP probes for anything else on the box (the MT5 gateway, with `mt5_status: connected` asserted); 24h strip, uptime %, incident timeline, and a Telegram/webhook alert on every down and recovery. A dead-man ping tells an outside service the collector itself is alive.
-- **Strategies** — per-strategy drill-down against the strategy's own capital: its equity curve (never the shared account), Sharpe, win rate, max drawdown, return, trades, the latest logs, and the deploy's runtime details one click from the name.
-- **Trades** — every fill, filterable by strategy and symbol.
-- **Logs** — engine logs shipped from qkt with level filters, full-text search, and a live tail.
-- **Search** — FTS5 full-text search across all events and logs: symbols, order ids, halt reasons, log text.
-- **Equity** — all strategies on one normalized comparison chart; drawdown periods shaded on the focused curve.
-- **Edge** — when a strategy makes money: day-of-week × hour P&L heatmap (UTC), weekday/hour bars with per-bucket n and ±SE, rolling Sharpe/win-rate stability, strategy-comparison radar. Buckets under 30 trades render greyed — thin slices are noise, and the UI says so.
-- **Single-admin auth** — username + password from env, hashed with argon2 at startup, signed httpOnly session cookie; ingest guarded by a bearer token.
+<br/>
 
-<p align="center">
-  <img src="docs/assets/screenshots/overview-hero.png" alt="qkt-insights Overview page" width="880">
-</p>
+## Quick start
 
-See [`docs/PAGES.md`](docs/PAGES.md) for a screenshot of every page.
-
-## Prerequisites
-
-qkt-insights is a collector and dashboard — on its own it has nothing to show. You need
-a running [**qkt**](https://github.com/elitekaycy/qkt) instance to feed it, and if that
-instance trades live on MetaTrader 5, qkt talks to the broker through
-[**mt5-gateway**](https://github.com/elitekaycy/mt5-gateway).
-
-<p align="center">
-  <a href="https://github.com/elitekaycy/qkt"><img src="https://img.shields.io/badge/qkt-trading%20engine-c8f74a?style=for-the-badge&logo=github&logoColor=black" alt="qkt on GitHub"></a>
-  <a href="https://github.com/elitekaycy/mt5-gateway"><img src="https://img.shields.io/badge/mt5--gateway-MT5%20broker%20bridge-5cb8ff?style=for-the-badge&logo=github&logoColor=black" alt="mt5-gateway on GitHub"></a>
-</p>
-
-Set up qkt (and mt5-gateway, if you're trading live) first, then come back here and
-point it at this collector — see [Connecting a qkt instance](#connecting-a-qkt-instance).
-
-## Quick start (Docker)
+**1. Start the collector**
 
 ```bash
-# 1. Run it
 docker run -d --name qkt-insights \
   -p 127.0.0.1:8420:8420 \
   -v insights-data:/data \
   -e INSIGHTS_DB=/data/insights.db \
-  -e INGEST_TOKEN='<random, at least 24 characters>' \
+  -e INGEST_TOKEN='change-this-to-a-long-random-token' \
   -e ADMIN_USERNAME=admin \
-  -e ADMIN_PASSWORD='<at least 12 characters>' \
+  -e ADMIN_PASSWORD='change-this-password' \
   ghcr.io/elitekaycy/qkt-insights:latest run
-
-# 2. Open http://localhost:8420 and sign in
 ```
 
-Or with compose: copy `docker-compose.yml`, set the three env vars, `docker compose up -d`.
+The token needs at least 24 characters and the password at least 12. Check it is up:
 
-The collector refuses to start with an ingest token under 24 characters or an admin
-password under 12. The port binds to loopback on purpose: to reach the dashboard from
-anywhere, put an HTTPS reverse proxy in front and follow
-[Exposing the dashboard to the internet](docs/operations/internet-exposure.md), which
-covers the proxy, two-factor sign-in and sign-in alerts. The production image exposes `GET /healthz` and includes a Docker `HEALTHCHECK`; use an immutable `:v*` or `:sha-*` tag for pinned deployments and `:latest` only for tracking `main`.
-
-<p align="center">
-  <img src="docs/assets/qkt-insights-demo-docker.gif" alt="Clone qkt-insights, build the image, and run it with Docker — all from the terminal" width="880">
-</p>
-
-## Share a read-only view
-
-Make the overview, a portfolio, or a single strategy public with the eye toggle, then
-copy its link. Viewers see the same pages read-only and 15 minutes behind, with private
-strategies, logs, health and account identity left out. See
-[Sharing dashboards publicly](docs/operations/public-sharing.md).
-
-## Install it on your phone
-
-The dashboard is a PWA. Open it in a mobile browser and use **Install app** — on the
-login screen, or at the bottom of the sidebar once you're in. Chrome and Edge show the
-native install prompt; iOS Safari has no such prompt, so the button explains the
-**Share → Add to Home Screen** route instead. Installed, it launches standalone with no
-browser chrome, its own icon, and the notch/home-indicator insets respected.
-
-> **It must be served over HTTPS.** Browsers only expose service workers and
-> installability on a secure origin (`https://`, or `localhost` for development). Over
-> plain `http://` to a LAN or Tailscale address the dashboard still works, but
-> `navigator.serviceWorker` is absent and no install option appears. If you reach your
-> instance over Tailscale, `tailscale serve https / http://localhost:8420` gives it a
-> real certificate on your tailnet — that URL is installable.
-
-Live trading figures are never cached: the service worker precaches the app shell only,
-so a screen you open is always talking to the collector, never replaying a stale number.
-
-**Running several dashboards?** Set `INSIGHTS_NAME` on each (`-e INSIGHTS_NAME=hypergrowth`).
-It becomes the home-screen label and app name for that install, the browser-tab title,
-and a tag on the login card and sidebar — so three installed dashboards are not three
-identical `qkt-insights` icons. Keep it short; home screens truncate past ~12 characters.
-
-## Strategy capital
-
-A portfolio child reports its allocation on `strategy.started`. A standalone deploy reports
-only the daemon's risk `startingBalance`, which is venue-scale — the whole account — so its
-return and drawdown would be measured against the account. Declare the capital each
-standalone strategy works out of, keyed by strategy id:
-
-```dotenv
-STRATEGY_CAPITAL={"gold_gaparmor_calm_v31":5000}
+```bash
+curl -s --retry 10 --retry-all-errors \
+  localhost:8420/healthz
 ```
 
-The declared capital becomes that strategy's base for return %, max drawdown, drawdown
-periods and its equity curve, and shows as its Capital on the Strategies pages. It is kept
-apart from the daemon's metadata, so a strategy restart does not wipe it; a portfolio
-allocation still wins where both exist. A change takes a container restart, and a malformed
-map refuses to start. How the base is resolved, how the equity curve is built, and the value
-each box runs are in [`docs/operations/strategy-capital.md`](docs/operations/strategy-capital.md).
+**2. Send it a trade**
 
-## Run modes
+qkt does this for you once it points here (step 4). Sending one by hand shows what the collector expects:
 
-One image, one entrypoint, three shapes — pick with the container command:
+```bash
+export INGEST_TOKEN='change-this-to-a-long-random-token'
 
-| mode | what runs | use it for |
-|---|---|---|
-| `collect` | store + `POST /ingest` | headless recorder on a separate box |
-| `serve` | collect + REST/WS API | API-only, UI hosted elsewhere |
-| `run` *(default)* | serve + the web app | the full thing on one port |
+T=$(date +%s%3N); curl -s localhost:8420/ingest \
+  -H "Authorization: Bearer $INGEST_TOKEN" \
+  -H "Content-Type: application/json" -d @- <<EOF
+{"instanceId":"demo","events":[{"v":1,"id":"t1","seq":1,
+"instanceId":"demo","strategyId":"ema-cross","ts":$T,
+"type":"trade","payload":{"orderId":"O-1","side":"BUY",
+"symbol":"EURUSD","price":1.0842,"qty":0.1,"ts":$T}}]}
+EOF
+```
 
-## Connecting a qkt instance
+**3. Sign in and read it back**
 
-In your `qkt.config.yaml` (requires qkt ≥ 0.40.0):
+```bash
+curl -s -c jar.txt localhost:8420/auth/login \
+  -H "Content-Type: application/json" \
+  -d '{"username":"admin","password":"change-this-password"}'
+
+curl -s -b jar.txt \
+  "localhost:8420/stats?instance=demo&strategy=ema-cross"
+```
+
+You will see `"accepted": 1` from step 2 and `"tradeCount": 1` here. Open <http://localhost:8420>, sign in, and
+the `demo` instance is in the sidebar with the trade on its Trades page.
+
+**4. Point qkt at it**
+
+In `qkt.config.yaml` (qkt 0.40.0 or newer), with the same token in `INGEST_TOKEN`:
 
 ```yaml
 insights:
   enabled: true
-  url: "http://insights-host:8420/ingest"
-  instance_id: "qkt-prod"          # how this instance appears in the sidebar
+  url: "http://localhost:8420/ingest"
+  instance_id: "qkt-prod"
   token: "${INGEST_TOKEN}"
-  events: [trade, order, signal, risk, position, state, deal, lifecycle, log] # sink health is emitted automatically while insights is enabled
+  events: [trade, order, signal, risk, position, log]
 ```
 
-Each family is opt-in. Sink health snapshots report sent/failed/dropped/queued telemetry automatically; qkt versions with the local insights journal also report whether replay is enabled and how many rows are pending. `state` polls broker account/position truth, `deal` backfills durable broker deal history where the broker supports it, `lifecycle` streams strategy start/stop events, and `log` attaches a logback appender that streams INFO+ engine logs. The old `snapshot` family is accepted by older configs but no longer wires an emitter in current qkt. Omit `enabled` or set it `false` and qkt wires nothing: no thread, no queue, zero overhead.
+<br/>
 
-## Uptime and alerts
+## Next
 
-Every 30s the collector checks one **heartbeat** monitor per reporting instance (down after
-90s of silence — three missed pulses), every **http** monitor declared in
-`INSIGHTS_MONITORS`, and, when `INSIGHTS_MARKETDATA_MONITOR` is on, one **market data**
-monitor per instance (named `<instance> market data`). A monitor goes down after three straight failures and comes back on the
-first success; each transition is stored, shown on Health, and pushed to every configured
-channel. All of it is optional and off by default — with nothing set you still get the
-heartbeats and the Health page, just no alerts.
+| I want to | Read |
+| --- | --- |
+| See every page | [Screens](docs/PAGES.md) |
+| Change a setting, pick a run mode | [Configuration](docs/CONFIGURATION.md) |
+| Reach it from the internet | [Exposing the dashboard](docs/operations/internet-exposure.md) |
+| Get alerts when something goes quiet | [Uptime and alerts](docs/operations/uptime-and-alerts.md) |
+| Share a read-only view | [Sharing dashboards publicly](docs/operations/public-sharing.md) |
+| Measure a strategy against its own capital | [Strategy capital](docs/operations/strategy-capital.md) |
+| Back up and restore | [Retention, backup and restore](docs/operations/retention-backup-restore.md) |
+| Install it on a phone | [Install on your phone](docs/operations/install-on-phone.md) |
+| Understand how it is built | [Features and architecture](docs/ARCHITECTURE.md) |
+| Contribute | [CONTRIBUTING.md](CONTRIBUTING.md) |
 
-```dotenv
-# HTTP probes: 2xx required; `expect` asserts top-level JSON fields, which is how a gateway
-# that answers but has lost its MT5 login still counts as down. `headers` go out with the
-# probe: mt5-gateway keeps /health behind its API key.
-INSIGHTS_MONITORS=[{"name":"mt5-gateway","url":"http://mt5-gateway:5001/health","expect":{"mt5_status":"connected"},"headers":{"Authorization":"Bearer <MT5_API_KEY>"}}]
+<br/>
 
-# Alerts. Same bot and chat qkt and qkt-guardrails use; the webhook receives the transition as JSON.
-TELEGRAM_BOT_TOKEN=
-TELEGRAM_CHAT_ID=
-ALERT_WEBHOOK_URL=
-
-# Market data: down while any symbol has been stale longer than the threshold (default 180s).
-# Needs a qkt that sends marketdata.recovered; leave it off for older engines (see below).
-INSIGHTS_MARKETDATA_MONITOR=0
-INSIGHTS_MARKETDATA_ALERT_AFTER_S=180
-
-# Dead-man: GET on every tick. Point it at healthchecks.io or an Uptime Kuma push monitor and the
-# outside world pages when this box, not just a daemon on it, goes dark.
-DEADMAN_URL=
-```
-
-`INSIGHTS_NAME` prefixes every alert, so several boxes can share one chat. Monitoring runs in
-`collect` and `run` modes, next to the collector that receives the heartbeats.
-
-What to expect, and the edges that are deliberate:
-
-- **First boot says UP once per monitor.** That is the monitor being created, not a recovery.
-  Restarts are silent: the last transition is restored from the database.
-- **Heartbeats are judged on the collector's clock**, not the instance's. A VPS whose clock
-  drifts by minutes still reads as alive as long as the collector keeps hearing from it.
-- **An instance silent for 30 days leaves the monitor list** (its outage was announced long
-  ago) rather than staying red forever; it is still listed under Runtime health.
-- **Three failures, then down; one success, then up.** A gateway that flaps every couple of
-  minutes will send a message each way every time. There is no cooldown yet; if that happens
-  the fix is on the gateway side, not a quieter alert.
-- **`DEADMAN_URL` means "the collector is alive", nothing more.** It is pinged even while
-  every monitor is down; the outside service pages only when the pings stop, which is what
-  catches the whole box going dark.
-- **A malformed `INSIGHTS_MONITORS` refuses to start** with a message naming the field, the
-  same way a bad guardian config does. A monitoring stack that silently ignores half its
-  config is worse than one that fails loudly at boot.
-- **Weekends stay quiet.** Heartbeats keep flowing and the gateway stays logged in while the
-  market is closed, so neither monitor kind fires on a Saturday. The market-data monitor
-  relies on qkt only reporting in-session staleness (24/7 crypto included).
-- **Market data is judged from qkt's own reports.** An episode opens on `marketdata.stale` for
-  a symbol and closes on a later `marketdata.recovered` for it, or on a later
-  `marketdata.connected` from the same source naming it (qkt sends that once per session
-  start, and a fresh session re-reports anything still stale, so a restart mid-episode does
-  not page forever). `marketdata.reconnected` does not close an episode: qkt keeps its
-  quote-health state across a feed reconnect and would not report a still-stale symbol
-  again. The monitor is down while any episode has been open longer than
-  `INSIGHTS_MARKETDATA_ALERT_AFTER_S`, then the usual three failed checks confirm it, so the
-  first message lands about a minute after the threshold. It names each overdue symbol, how
-  long, and why: `market data stale: PROP_S01:EURUSD 12m (quote age), PROP_S01:XAUUSD 12m
-  (clock skew)`. Episodes are aged on the instance's clock, the time qkt reported them.
-- **The market-data monitor needs a qkt that sends `marketdata.recovered`** (the first release
-  after v0.53.0 that ships it). Older engines never report recovery, so a stale symbol would
-  only clear at the next session start; that is why the monitor is off unless
-  `INSIGHTS_MARKETDATA_MONITOR=1`. Collectors accept both the older and the current payloads.
-- **Probes send `headers` verbatim and follow redirects; 5s timeout; 2xx required.** Assert on
-  `expect` fields rather than status alone whenever the endpoint can answer 200 while degraded.
-
-## Architecture
-
-A pnpm workspace of small, single-purpose packages:
-
-| package | responsibility |
-|---|---|
-| `packages/contract` | the wire truth — Zod schemas for every envelope type; validation at the boundary, types everywhere else |
-| `packages/store` | the only SQLite writer — WAL, FTS5, forward-only migrations, order-state folding, stats (Sharpe, drawdown, win rate) |
-| `packages/collector` | `POST /ingest` — bearer auth, Zod-validated, idempotent on event id, timestamp/seq-aware order folding |
-| `packages/api` | REST + WS `/live` behind the session guard |
-| `apps/web` | React + Vite + Tailwind dashboard |
-| `src/server.ts` | one entry, boots subsystems by mode |
-
-Design notes live in [`docs/specs/`](docs/specs/) and the implementation plans in [`docs/plans/`](docs/plans/).
-
-## Development
-
-```bash
-pnpm install
-pnpm test            # vitest — real SQLite, real HTTP, no mocks
-pnpm build:all       # tsc project references + vite web build
-pnpm --filter @qkt-insights/web dev    # web dev server proxying to :8420
-node dist/src/server.js serve          # backend against ./insights.db
-```
-
-Conventions: TypeScript strict, smallest reasonable change, no mocks in e2e tests,
-commit subjects only. CI runs the full suite on every push and PR; merges to `main`
-publish `ghcr.io/elitekaycy/qkt-insights:latest`.
-
-## Contributing
-
-Issues and PRs welcome. Branch off `dev` (the default branch), keep PRs focused, and
-make sure `pnpm test` and `pnpm build:all` pass. If you're adding an event type,
-start in `packages/contract` — the schema is the contract both sides compile against.
-
-## License
-
-[Apache 2.0](LICENSE) © Dickson Anyaele
+<sub>Apache 2.0 licensed. &copy; Dickson Anyaele. Built for [qkt](https://github.com/elitekaycy/qkt); live MetaTrader 5 trading goes through [mt5-gateway](https://github.com/elitekaycy/mt5-gateway).</sub>
