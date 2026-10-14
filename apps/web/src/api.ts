@@ -108,7 +108,7 @@ export interface StripBucket {
 }
 export interface MonitorSummary {
   name: string;
-  kind: "heartbeat" | "http";
+  kind: "heartbeat" | "http" | "marketdata";
   target: string;
   status: MonitorStatus;
   since: number | null;

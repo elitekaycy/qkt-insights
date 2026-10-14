@@ -1,11 +1,11 @@
 import type { FastifyBaseLogger } from "fastify";
-import { listInstances, RETENTION_DAYS, type Db, type MonitorCheck, type MonitorTransition, type Monitors } from "@qkt-insights/store";
+import { listInstances, RETENTION_DAYS, type Db, type MarketDataEpisode, type MarketDataEpisodes, type MonitorCheck, type MonitorTransition, type Monitors } from "@qkt-insights/store";
 
 /*
  * The uptime loop. Every tick it derives one heartbeat monitor per reporting
  * instance from the collector's own last_seen, probes every declared HTTP
- * target, records the results, and pushes each up/down transition to the
- * configured channels. It runs beside the collector because the collector is
+ * target, optionally judges each instance's open market-data episodes, records
+ * the results, and pushes each up/down transition to the configured channels. It runs beside the collector because the collector is
  * what receives the heartbeats; the trading path never waits on it.
  */
 
@@ -27,10 +27,18 @@ export interface Channels {
   deadman?: string;
 }
 
+export interface MarketDataMonitor {
+  episodes: MarketDataEpisodes;
+  /** An episode open longer than this takes the instance's market-data monitor down. */
+  alertAfterMs: number;
+}
+
 export interface MonitorRunnerDeps {
   db: Db;
   monitors: Monitors;
   http: HttpMonitor[];
+  /** Absent unless INSIGHTS_MARKETDATA_MONITOR is on. */
+  marketData?: MarketDataMonitor | null;
   channels: Channels;
   /** Prefix on every alert so boxes sharing one chat can be told apart. */
   brand: string | null;
@@ -43,6 +51,11 @@ export const TICK_MS = 30_000;
 const PROBE_TIMEOUT_MS = 5_000;
 
 const HEARTBEAT_TARGET = "collector heartbeat";
+export const MARKETDATA_ALERT_AFTER_S = 180;
+
+export function marketDataMonitorName(instanceId: string): string {
+  return `${instanceId} market data`;
+}
 
 export function parseHttpMonitors(json: string | undefined): HttpMonitor[] {
   if (!json?.trim()) return [];
@@ -78,6 +91,54 @@ export function parseHttpMonitors(json: string | undefined): HttpMonitor[] {
     }
     return monitor;
   });
+}
+
+/**
+ * Off unless INSIGHTS_MARKETDATA_MONITOR is on: an engine that predates marketdata.recovered
+ * never closes an episode, so turning this on for it would page until its next restart.
+ */
+export function parseMarketDataMonitor(env: NodeJS.ProcessEnv): { alertAfterMs: number } | null {
+  const flag = env.INSIGHTS_MARKETDATA_MONITOR?.trim().toLowerCase() ?? "";
+  if (["", "0", "false", "off", "no"].includes(flag)) return null;
+  if (!["1", "true", "on", "yes"].includes(flag)) {
+    throw new Error(`INSIGHTS_MARKETDATA_MONITOR must be 1 or 0, got ${env.INSIGHTS_MARKETDATA_MONITOR}`);
+  }
+  const raw = env.INSIGHTS_MARKETDATA_ALERT_AFTER_S?.trim();
+  const seconds = raw ? Number(raw) : MARKETDATA_ALERT_AFTER_S;
+  if (!Number.isInteger(seconds) || seconds <= 0) {
+    throw new Error(`INSIGHTS_MARKETDATA_ALERT_AFTER_S must be a positive whole number of seconds, got ${raw}`);
+  }
+  return { alertAfterMs: seconds * 1000 };
+}
+
+/** "45s", "12m", "1h05m", "2d03h". */
+export function episodeDuration(ms: number): string {
+  const s = Math.max(0, Math.floor(ms / 1000));
+  if (s < 60) return `${s}s`;
+  const m = Math.floor(s / 60);
+  if (m < 60) return `${m}m`;
+  const h = Math.floor(m / 60);
+  if (h < 24) return `${h}h${String(m % 60).padStart(2, "0")}m`;
+  return `${Math.floor(h / 24)}d${String(h % 24).padStart(2, "0")}h`;
+}
+
+/** The kind when qkt sent one, else read from the reason older engines send. */
+function episodeCause(e: MarketDataEpisode): string {
+  const reason = e.reason ?? "";
+  if (e.kind === "clock_skew" || (e.kind == null && /clock skew/iu.test(reason))) return "clock skew";
+  if (e.kind === "outlier" || (e.kind == null && /outlier/iu.test(reason))) return "outliers";
+  if (e.kind === "stale" || (e.kind == null && /quote age/iu.test(reason))) return "quote age";
+  return e.kind ?? (reason || "stale");
+}
+
+/** e.g. "market data stale: PROP_S01:EURUSD 12m (quote age), PROP_S01:XAUUSD 12m (clock skew)". */
+export function formatEpisodes(episodes: MarketDataEpisode[], now: number): string {
+  return `market data stale: ${episodes.map((e) => `${e.symbol} ${episodeDuration(now - e.since)} (${episodeCause(e)})`).join(", ")}`;
+}
+
+export function marketDataCheck(episodes: MarketDataEpisode[], alertAfterMs: number, now: number): MonitorCheck {
+  const overdue = episodes.filter((e) => now - e.since > alertAfterMs);
+  return overdue.length === 0 ? { up: true } : { up: false, detail: formatEpisodes(overdue, now) };
 }
 
 export function channelsFromEnv(env: NodeJS.ProcessEnv): Channels {
@@ -175,13 +236,26 @@ export async function tick(deps: MonitorRunnerDeps, now = Date.now()): Promise<M
   // with a skewed clock must not read as dead. An instance silent past the retention
   // window was decommissioned, not lost: its outage has long been announced, so it leaves
   // the monitor list rather than staying red.
+  //
+  // Market-data episodes are aged on the instance's clock (the stale report's own ts): the
+  // collector cannot know when the quotes really went stale, only when qkt said so.
+  const md = deps.marketData;
+  const monitored = new Set<string>();
   for (const inst of listInstances(deps.db)) {
     const silentMs = now - (inst.heardAt ?? inst.lastSeen);
     if (silentMs > RETENTION_DAYS * 86_400_000) continue;
     names.add(inst.id);
     push(deps.monitors.record(inst.id, "heartbeat", HEARTBEAT_TARGET,
       { up: silentMs <= HEARTBEAT_STALE_MS, detail: `silent for ${Math.round(silentMs / 1000)}s` }, now));
+    if (md) {
+      const name = marketDataMonitorName(inst.id);
+      names.add(name);
+      monitored.add(inst.id);
+      push(deps.monitors.record(name, "marketdata", `quote health · alert after ${md.alertAfterMs / 1000}s`,
+        marketDataCheck(md.episodes.open(inst.id), md.alertAfterMs, now), now));
+    }
   }
+  md?.episodes.retain(monitored);
 
   const checks = await Promise.all(deps.http.map(probe));
   deps.http.forEach((m, i) => {

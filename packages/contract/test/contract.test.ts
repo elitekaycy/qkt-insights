@@ -252,6 +252,24 @@ describe("enriched qkt payloads", () => {
       payload: { source: "Composite", symbols: ["EXNESS:XAUUSD"], state: "stale", reason: "quote age exceeded threshold", ts: base.ts } }).success).toBe(true);
   });
 
+  it("accepts marketdata.stale with and without kind, and marketdata.recovered", () => {
+    const stale = { source: "Composite", symbols: ["PROP_S01:EURUSD"], state: "stale", reason: "quote age 60553ms exceeds 60000ms threshold", ts: base.ts };
+    expect(EnvelopeSchema.safeParse({ ...base, type: "marketdata.stale", payload: stale }).success).toBe(true);
+    for (const kind of ["stale", "clock_skew", "outlier"]) {
+      const r = EnvelopeSchema.safeParse({ ...base, type: "marketdata.stale", payload: { ...stale, kind } });
+      expect(r.success && r.data.type === "marketdata.stale" && r.data.payload.kind).toBe(kind);
+    }
+    const recovered = EnvelopeSchema.safeParse({ ...base, type: "marketdata.recovered",
+      payload: { source: "Composite", symbols: ["PROP_S01:EURUSD"], state: "recovered", reason: "fresh quote", ts: base.ts, unhealthyForMs: 720_000 } });
+    expect(recovered.success && recovered.data.type === "marketdata.recovered" && recovered.data.payload.unhealthyForMs).toBe(720_000);
+    expect(EnvelopeSchema.safeParse({ ...base, type: "marketdata.recovered",
+      payload: { source: "Composite", symbols: ["PROP_S01:EURUSD"], state: "recovered", ts: base.ts } }).success).toBe(true);
+    expect(EnvelopeSchema.safeParse({ ...base, type: "marketdata.recovered",
+      payload: { symbols: ["PROP_S01:EURUSD"], unhealthyForMs: 1 } }).success).toBe(false);
+    expect(EnvelopeSchema.safeParse({ ...base, type: "marketdata.recovered",
+      payload: { source: "Composite", unhealthyForMs: "12m" } }).success).toBe(false);
+  });
+
   it("accepts durable position risk and portfolio projection payloads", () => {
     expect(EnvelopeSchema.safeParse({ ...base, type: "position.valued",
       payload: { broker: "EXNESS", ticket: "123", symbol: "EXNESS:XAUUSD", side: "BUY", qty: 0.01,

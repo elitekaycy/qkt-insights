@@ -108,7 +108,7 @@ function sinceLabel(m: MonitorSummary): string {
 }
 
 function MonitorRow({ m }: { m: MonitorSummary }) {
-  const target = m.kind === "http" ? m.target : "qkt heartbeat · 30s pulse";
+  const target = m.kind === "heartbeat" ? "qkt heartbeat · 30s pulse" : m.target;
   return (
     <li className="px-4 py-3.5 transition-colors hover:bg-raised/40 focus-within:bg-raised/40">
       <div className="flex items-center gap-3">

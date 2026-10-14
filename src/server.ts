@@ -3,13 +3,13 @@ import argon2 from "argon2";
 import cookie from "@fastify/cookie";
 import websocket from "@fastify/websocket";
 import fastifyStatic from "@fastify/static";
-import { openDb, checkpoint, LiveBus, LiveStateStore, Monitors, Sessions, Shares, Views, pruneRetention, pruneStaleStrategies, replaceStrategyCapital } from "@qkt-insights/store";
+import { openDb, checkpoint, LiveBus, LiveStateStore, MarketDataEpisodes, Monitors, Sessions, Shares, Views, pruneRetention, pruneStaleStrategies, replaceStrategyCapital } from "@qkt-insights/store";
 import { registerCollector } from "@qkt-insights/collector";
 import {
   REQUESTS_PER_MINUTE, TotpVerifier, TtlCache, generateTotpSecret, hasSession, registerAuth, registerLive, registerPublic, registerRest, registerSecurity,
   invalidateShareScopes, registerShares, registerViews, sweepHiddenShares, totpUri,
 } from "@qkt-insights/api";
-import { authAlertText, channelsFromEnv, parseHttpMonitors, sendAlert, startMonitors } from "./monitors.js";
+import { authAlertText, channelsFromEnv, parseHttpMonitors, parseMarketDataMonitor, sendAlert, startMonitors } from "./monitors.js";
 import { parseStrategyCapital } from "./capital.js";
 import { existsSync, readFileSync } from "node:fs";
 import { join, dirname } from "node:path";
@@ -93,9 +93,11 @@ export async function buildServer(mode: Mode) {
   registerCollector(app, { db, bus, liveState, ingestToken: secret("INGEST_TOKEN", 24) });
   const channels = channelsFromEnv(process.env);
   // Uptime runs beside the collector: it is the process that receives the heartbeats.
+  const marketData = parseMarketDataMonitor(process.env);
   const stopMonitors = startMonitors({
     db, monitors, brand, log: app.log,
     http: parseHttpMonitors(process.env.INSIGHTS_MONITORS),
+    marketData: marketData && { episodes: new MarketDataEpisodes(db), alertAfterMs: marketData.alertAfterMs },
     channels,
   });
   app.addHook("onClose", async () => stopMonitors());
