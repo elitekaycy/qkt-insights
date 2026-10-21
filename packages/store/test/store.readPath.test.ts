@@ -90,8 +90,8 @@ describe("analytics scope", () => {
     expect(closeQueries).toBe(1);
     closeQueries = 0;
     withAnalyticsScope(db, () => {
-      dailyNets(db, F);
-      dailyNets(db, { ...F, from: T0 + 2 * HOUR });
+      tradeBreakdowns(db, F);
+      tradeBreakdowns(db, { ...F, from: T0 + 2 * HOUR });
     });
     expect(closeQueries).toBe(2);
   });

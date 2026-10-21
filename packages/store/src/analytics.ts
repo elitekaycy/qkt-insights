@@ -2,6 +2,7 @@ import type { Db } from "./db.js";
 import { OUT_LEGS } from "./closedTrades.js";
 import { refreshProjections } from "./projections.js";
 import { statement } from "./statements.js";
+import { dailyRows, strategyTotals, type DailyRow } from "./strategyDaily.js";
 
 export { OUT_LEGS };
 
@@ -476,7 +477,24 @@ export function dailyNets(db: Db, f: AnalyticsFilter): DayNet[] {
   return memo(db, "dailyNets", f, () => dayNets(db, f));
 }
 
+/**
+ * The strategy_daily rows that answer `f`, when they can: the projection holds whole days of the
+ * whole history, so a `from` window, a cutoff before the newest close, or closedPositionsOnly
+ * (which drops closes per cutoff) is computed from the closes instead. Null also when the source
+ * the strategy's figures come from has no closes (the snapshot fallback applies).
+ */
+function projectedDays(db: Db, f: AnalyticsFilter): { rows: DailyRow[]; dealBacked: boolean } | null {
+  if (f.closedPositionsOnly || f.from != null) return null;
+  const deal = dealBacked(db, f);
+  refreshProjections(db);
+  const totals = strategyTotals(db, f.instanceId, f.strategyId, deal ? "deal" : "ledger");
+  if (!totals || (f.to != null && f.to < totals.lastTs)) return null;
+  return { rows: dailyRows(db, f.instanceId, f.strategyId, deal ? "deal" : "ledger"), dealBacked: deal };
+}
+
 function dayNets(db: Db, f: AnalyticsFilter): DayNet[] {
+  const projected = projectedDays(db, f);
+  if (projected) return projected.rows.map((d) => ({ day: d.day, net: d.net, trades: d.trades }));
   // Closed-trades path: group per UTC day — net is the day's realized sum, trades the number of
   // closing legs. Uses closes() so it falls back to trade.closed rows when broker deals were not
   // polled (engine-native fills), matching report/contribution; otherwise a live book that trades
@@ -838,10 +856,8 @@ export interface RollingPoint {
  */
 export function rollingStats(db: Db, f: AnalyticsFilter, windowDays = 30): RollingPoint[] {
   const win = Number.isFinite(windowDays) ? Math.min(180, Math.max(7, Math.floor(windowDays))) : 30;
-  const snaps = series(db, f);
-  if (snaps.length === 0) return [];
-  const eqByDay = new Map<string, number>();
-  for (const s of snaps) eqByDay.set(utcDay(s.ts), s.equity);
+  const eqByDay = endOfDayEquity(db, f);
+  if (eqByDay.size === 0) return [];
   const days = [...eqByDay.keys()].sort();
   const nets = new Map(dailyNets(db, f).map((d) => [d.day, d.net]));
 
@@ -868,6 +884,28 @@ export function rollingStats(db: Db, f: AnalyticsFilter, windowDays = 30): Rolli
       meanNet: dayNets.length > 0 ? dayNets.reduce((a, b) => a + b, 0) / dayNets.length : null,
     };
   });
+}
+
+/**
+ * Last equity of each UTC day in the money-over-time series (series()). For the deals-rebuilt
+ * curve that is the starting base plus the running realized total at the day's last close, with
+ * the base itself on the day the first traded position opened: strategy_daily holds the running
+ * totals, so this is O(days). Snapshot series are read as before.
+ */
+function endOfDayEquity(db: Db, f: AnalyticsFilter): Map<string, number> {
+  const projected = projectedDays(db, f);
+  if (projected?.dealBacked) {
+    const totals = strategyTotals(db, f.instanceId, f.strategyId, "deal")!;
+    const sb = strategyBase(db, f) ?? 0;
+    const out = new Map<string, number>();
+    const anchor = totals.firstEntryTs ?? totals.firstTs;
+    if (f.to == null || anchor <= f.to) out.set(utcDay(anchor), sb);
+    for (const d of projected.rows) out.set(d.day, sb + d.closeCum);
+    return out;
+  }
+  const out = new Map<string, number>();
+  for (const s of series(db, f)) out.set(utcDay(s.ts), s.equity);
+  return out;
 }
 
 export interface CostRow {

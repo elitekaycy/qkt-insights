@@ -1,6 +1,7 @@
 import type { Db } from "./db.js";
 import { statement } from "./statements.js";
 import { clearClosedTrades, positionKeysAfter, recomputePosition, recomputeTicket, type ClosedTradeKey } from "./closedTrades.js";
+import { clearDaily, dailyKey, dailyUnitsAfter, recomputeDaily, recomputeDailyKeys, utcDay, type CloseSource } from "./strategyDaily.js";
 
 /**
  * Write-time projections: tables kept up to date as their sources change, so a read is an index
@@ -34,30 +35,56 @@ export const PROJECTIONS: Record<string, Projection> = {
       return keys.length < batch || last == null ? null : JSON.stringify(last);
     },
   },
+  strategy_daily: {
+    version: 1,
+    clear: clearDaily,
+    step: (db, cursor, batch) => {
+      const after = cursor == null ? null : (JSON.parse(cursor) as { source: CloseSource; instanceId: string; strategyId: string });
+      const units = dailyUnitsAfter(db, after, batch);
+      for (const u of units) recomputeDaily(db, u.instanceId, u.source, u.strategyId, "0000-00-00");
+      const last = units[units.length - 1];
+      return units.length < batch || last == null ? null : JSON.stringify(last);
+    },
+  },
 };
 
-/** Called with the closes one position recompute replaced; later projections fold them in. */
-function changedCloses(_db: Db, _instanceId: string, _change: { before: ClosedTradeKey[]; after: ClosedTradeKey[] }): void {}
+/**
+ * Queues the strategy days whose closes one position recompute changed: for each close added,
+ * removed or altered, its owner's day before and after.
+ */
+function changedCloses(db: Db, instanceId: string, change: { before: ClosedTradeKey[]; after: ClosedTradeKey[] }): void {
+  const queue = statement(db, "INSERT OR IGNORE INTO projection_dirty (kind, instance_id, key) VALUES ('daily', ?, ?)");
+  const mark = (r: ClosedTradeKey) => { if (r.strategyId != null) queue.run(instanceId, dailyKey("deal", r.strategyId, utcDay(r.ts))); };
+  const after = new Map(change.after.map((r) => [r.dealRowid, r]));
+  for (const b of change.before) {
+    const a = after.get(b.dealRowid);
+    if (a && a.strategyId === b.strategyId && a.ts === b.ts && Object.is(a.realized, b.realized)) { after.delete(b.dealRowid); continue; }
+    mark(b);
+  }
+  for (const a of after.values()) mark(a);
+}
 
 /** Rows drained per pass; a pass may queue more keys (a ticket marks its positions). */
 const DRAIN_BATCH = 500;
+
+/** Kinds drained in this order: a ticket marks positions, a position marks strategy days. */
+const DRAIN_ORDER = ["ticket", "position", "daily"] as const;
 
 /** Brings every projection up to date with the writes recorded since the last call. Cheap when nothing changed. */
 export function refreshProjections(db: Db): void {
   if (statement(db, "SELECT 1 FROM projection_dirty LIMIT 1").get() == null) return;
   db.transaction(() => {
-    const take = statement(db,
-      `SELECT kind, instance_id instanceId, key FROM projection_dirty
-       ORDER BY CASE kind WHEN 'ticket' THEN 0 WHEN 'position' THEN 1 ELSE 2 END, instance_id, key LIMIT ?`,
-    );
+    const take = statement(db, "SELECT instance_id instanceId, key FROM projection_dirty WHERE kind=? LIMIT ?");
     const done = statement(db, "DELETE FROM projection_dirty WHERE kind=? AND instance_id=? AND key=?");
-    for (;;) {
-      const rows = take.all(DRAIN_BATCH) as Array<{ kind: string; instanceId: string; key: string }>;
-      if (rows.length === 0) return;
-      for (const r of rows) {
-        done.run(r.kind, r.instanceId, r.key);
-        if (r.kind === "ticket") recomputeTicket(db, r.instanceId, r.key);
-        else if (r.kind === "position") changedCloses(db, r.instanceId, recomputePosition(db, r.instanceId, r.key));
+    for (const kind of DRAIN_ORDER) {
+      for (;;) {
+        // A strategy's days are rewritten from the earliest changed one, so take them all at once.
+        const rows = take.all(kind, kind === "daily" ? -1 : DRAIN_BATCH) as Array<{ instanceId: string; key: string }>;
+        if (rows.length === 0) break;
+        for (const r of rows) done.run(kind, r.instanceId, r.key);
+        if (kind === "ticket") for (const r of rows) recomputeTicket(db, r.instanceId, r.key);
+        else if (kind === "position") for (const r of rows) changedCloses(db, r.instanceId, recomputePosition(db, r.instanceId, r.key));
+        else recomputeDailyKeys(db, rows);
       }
     }
   })();
