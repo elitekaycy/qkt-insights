@@ -26,7 +26,7 @@ export default function CalendarPage({ instanceId }: { instanceId: string | null
       />
       <div className="mt-5">
         <Loadable loading={summary.isPending} error={summary.isError} retry={() => summary.refetch()} what="the calendar" lines={8}>
-          {summary.data && <CalendarView days={summary.data.dailyNets} returnBase={(month) => bases.get(month)?.base ?? null} baseLabel={baseLabel} />}
+          {summary.data && <CalendarView days={summary.data.dailyNets} returnBase={(month) => bases.get(month)?.base ?? null} baseLabel={baseLabel} drill={{ instanceId }} />}
         </Loadable>
       </div>
     </div>

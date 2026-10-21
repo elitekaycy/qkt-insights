@@ -9,3 +9,4 @@ export * from "./public.js";
 export * from "./publicView.js";
 export * from "./cache.js";
 export * from "./views.js";
+export * from "./roundTrips.js";

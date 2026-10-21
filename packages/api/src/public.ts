@@ -1,7 +1,8 @@
 import { createHash } from "node:crypto";
 import type { FastifyInstance, FastifyReply, FastifyRequest } from "fastify";
 import {
-  accountDrawdown, accountEquity, accountPerformance, accountRisk, closedTrades, fullyClosedPositions, listDeals, listStrategyRoster, listTrades, openPositionsAt, portfolioGroupOf,
+  accountDrawdown, accountEquity, accountPerformance, accountRisk, closedTrades, fullyClosedPositions, listDeals, listRoundTrips, listStrategyRoster, listTrades, openPositionsAt, portfolioGroupOf,
+  roundTripFacets, roundTripTotals, ROUND_TRIP_SORTS, type RoundTripScope, type RoundTripSort,
   resolveVisibility, strategyEquityCurve, strategyStats, type AccountLimits, type Db, type LiveStateStore, type ShareKind, type ShareRow, type Shares, type StrategyRow, type Views,
 } from "@qkt-insights/store";
 import { isSameOrigin, requireSession } from "./auth.js";
@@ -9,7 +10,8 @@ import type { TtlCache } from "./cache.js";
 import { WindowCounter } from "./limits.js";
 import { performanceBundle } from "./performance.js";
 import { ACCOUNT_EQUITY_POINTS } from "./rest.js";
-import { accountLabeller, publicAccountSummary, publicBundle, publicDeal, publicStrategy, publicTrade } from "./publicView.js";
+import { accountLabeller, publicAccountSummary, publicBundle, publicDeal, publicRoundTrip, publicStrategy, publicTrade } from "./publicView.js";
+import { parseFor } from "./roundTrips.js";
 
 export const PUBLIC_REQUESTS_PER_MINUTE = 240;
 /** Uncached public computations allowed per minute for one link, and for one client IP. */
@@ -460,6 +462,39 @@ export function registerPublic(app: FastifyInstance, deps: PublicDeps): void {
         .filter((d) => d.strategyId != null && scope.allowed.has(d.strategyId) && d.positionTicket != null && closed.has(d.positionTicket))
         .slice(0, p.limit)
         .map(publicDeal);
+    },
+  });
+
+  // Round trips of the link's strategies, fully closed by the cutoff. No cursor (it would carry a
+  // ticket): one page of at most 500, with the totals of the whole match beside it.
+  const roundTripScope = (scope: Scope, strategy: string | null, cutoff: number): RoundTripScope =>
+    ({ instanceId: scope.instanceId, allowed: strategy ? [strategy] : [...scope.allowed], closedBy: cutoff });
+  route("/round-trips", {
+    params: (q, scope) => {
+      const s = optionalStrategy(q, scope);
+      if (s === NOT_FOUND) return NOT_FOUND;
+      const sort = text(q.sort) ?? "exit";
+      return {
+        ...s, q: (text(q.q) ?? "").slice(0, 500), sort: Object.hasOwn(ROUND_TRIP_SORTS, sort) ? sort as RoundTripSort : "exit",
+        dir: q.dir === "asc" ? "asc" as const : "desc" as const, limit: snap(q.limit, [100, 200, 500], 200),
+      };
+    },
+    compute: (scope, p, cutoff) => {
+      const base = roundTripScope(scope, p.strategy, cutoff);
+      const parsed = parseFor(deps.db, base, p.q);
+      const q = { ...base, filter: parsed.filter, sort: p.sort, dir: p.dir, limit: p.limit };
+      return {
+        rows: listRoundTrips(deps.db, q).rows.map(publicRoundTrip), nextCursor: null, totals: roundTripTotals(deps.db, q),
+        query: { canonical: parsed.canonical, errors: parsed.errors },
+      };
+    },
+  });
+
+  route("/round-trips/facets", {
+    params: (q, scope) => optionalStrategy(q, scope),
+    compute: (scope, p, cutoff) => {
+      const f = roundTripFacets(deps.db, roundTripScope(scope, p.strategy, cutoff));
+      return { ...f, strategies: f.strategies.filter((s) => s.id != null) };
     },
   });
 

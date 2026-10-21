@@ -25,8 +25,8 @@ const MOVED: Record<string, PageKey> = {
   find: "logs",
 };
 
-export type StrategyTab = "overview" | "performance" | "calendar";
-export const STRATEGY_TABS: readonly StrategyTab[] = ["overview", "performance", "calendar"];
+export type StrategyTab = "overview" | "trades" | "performance" | "calendar";
+export const STRATEGY_TABS: readonly StrategyTab[] = ["overview", "trades", "performance", "calendar"];
 
 export type SettingsSection = "sharing" | "viewership" | "appearance" | "account";
 export const SETTINGS_SECTIONS: readonly SettingsSection[] = ["sharing", "viewership", "appearance", "account"];
@@ -82,12 +82,16 @@ export function routePath(route: Route): string {
 /** Query keys that describe the viewer's scope and follow them from page to page. */
 const SCOPE_KEYS = ["i", "range"];
 
+/** Pages with the query bar: the search (`q`) follows the viewer between them, and only them. */
+const QUERY_PAGES: ReadonlySet<PageKey> = new Set<PageKey>(["trades", "strategies", "calendar", "logs"]);
+
 /** Merges the current scope params into a target URL's query unless the target sets them itself. */
 export function withScope(to: string, currentSearch: string): string {
   const [p, q = ""] = to.split("?");
   const next = new URLSearchParams(q);
   const cur = new URLSearchParams(currentSearch);
-  for (const k of SCOPE_KEYS) {
+  const keys = QUERY_PAGES.has(parsePath(p ?? "/").page) ? [...SCOPE_KEYS, "q"] : SCOPE_KEYS;
+  for (const k of keys) {
     const v = cur.get(k);
     if (v != null && !next.has(k)) next.set(k, v);
   }

@@ -19,7 +19,7 @@ export default defineConfig({
       manifest: false,
       workbox: {
         // Live trading data — never let the service worker serve a stale API response.
-        navigateFallbackDenylist: [/^\/(auth|brand|instances|strategies|orders|trades|search|equity|health|live)(\/|$)/],
+        navigateFallbackDenylist: [/^\/(auth|brand|instances|strategies|orders|trades|round-trips|search|equity|health|live|logs|public)(\/|$)/],
         // Fonts are the one third-party fetch on every cold start; keep them so the
         // shell (and the offline splash) renders in the real typeface without a trip.
         runtimeCaching: [

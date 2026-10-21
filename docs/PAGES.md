@@ -47,8 +47,9 @@ replaces whatever the earlier halt events implied for the strategy.
 ## Calendar
 
 The account's P&L calendar: Monday-first weeks with a week column, each day shaded by its
-size, today marked in progress, and monthly returns on the account's base. Click a day or a
-month for its breakdown.
+size, today marked in progress, and monthly returns on the account's base. Click a day for the
+round trips that closed on it (each opens the trade drawer, and "Open in Trades" lists them with
+`exit:<day>`), or a month for its breakdown.
 
 ## Edge
 
@@ -60,14 +61,32 @@ desaturated — thin slices are noise, and the UI says so.
 
 ## Trades
 
-Every executed fill, sourced from broker deal history, filterable by strategy and
-symbol.
+Every round trip on the instance, one row per position from entry to exit, with P&L after
+commission, swap and fees, R against the initial stop, hold time and how it ended (stop, target,
+the strategy's signal, the venue, or by hand). Unattributed positions are included.
+
+The query bar takes free text and tags, and every tag becomes a removable chip:
+`strategy:gold_ema_pullback`, `symbol:XAUUSD` (broker prefixes folded), `side:long|short`, `pnl:>50`,
+`pnl:<0`, `r:>=1`, `held:<1h`, `held:1h..4h`, `entry:2026-10`, `exit:2026-10-21`,
+`ended:stop|tp|signal|venue|manual`, `size:>=0.5`, `#<ticket>`, and the bare words `win`, `loss` and `open`.
+A later tag of the same key replaces the earlier one; a word it cannot read gets a message naming
+what it expected, and the rest still apply. Completions come from the instance's own strategies,
+instruments and days. `/` focuses the bar, `Esc` clears it, `j`/`k` move through the rows and
+`Enter` opens the trade. The query lives in the URL (`?q=`) and follows you to a strategy's Trades
+tab, the Calendar and Logs. Headers sort, Export CSV downloads the whole match, and the count line
+says how many of how many, with their net and win rate.
+
+A row opens the trade drawer (`?trade=<ticket>`, so it can be linked): the timeline from the rule
+and signal through submit, venue accept, fills, stop/target changes and the close, with the time
+between steps; slippage against the engine's reference price, stop or target in price and money;
+MAE/MFE from the position's marks; the venue's deals; and the raw events as copyable JSON.
 
 ![Trades](assets/screenshots/trades.png)
 
 ## Logs
 
-Engine logs shipped from the instance, with level filters and full-text search.
+Engine logs shipped from the instance, searched with the same query bar: `level:error`,
+`strategy:`, `logger:MT5Broker`, `time:1h` or `time:2026-10-21`, and free text.
 
 ![Logs](assets/screenshots/logs.png)
 

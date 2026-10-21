@@ -1,9 +1,10 @@
 import type { FastifyInstance } from "fastify";
-import { listInstances, listStrategies, listTrades, searchEvents, equityCurve, instanceHealth, listLogs, strategyStats, listDeals, accountEquity, accountDrawdown, accountPerformance, accountRisk, monitorSummaries, listMonitorEvents, type AccountLimits, type Db, type LiveStateStore, type Monitors } from "@qkt-insights/store";
+import { listInstances, listStrategies, listTrades, searchEvents, equityCurve, instanceHealth, searchLogs, strategyStats, listDeals, accountEquity, accountDrawdown, accountPerformance, accountRisk, monitorSummaries, listMonitorEvents, type AccountLimits, type Db, type LiveStateStore, type Monitors } from "@qkt-insights/store";
 import { requireSession } from "./auth.js";
 import { TtlCache } from "./cache.js";
 import { performanceBundle } from "./performance.js";
 import { Revalidated } from "./revalidate.js";
+import { registerRoundTrips } from "./roundTrips.js";
 
 export interface RestDeps {
   db: Db; liveState: LiveStateStore; monitors: Monitors;
@@ -60,7 +61,10 @@ export function registerRest(app: FastifyInstance, deps: RestDeps): void {
 
   app.get<{ Querystring: Record<string, string> }>("/logs", guard, async (req, reply) => {
     const q = req.query; const i = q.instance; if (!need(reply, i, "instance")) return;
-    return cache.get(req.url, () => listLogs(deps.db, { instanceId: i, strategyId: q.strategy, level: q.level, q: q.q, limit: LIMIT(q) }));
+    // logger (part of the name), from and to (ms, [from, to)) narrow further; all optional
+    const ms = (v: string | undefined) => (v != null && Number.isFinite(Number(v)) ? Number(v) : undefined);
+    return cache.get(req.url, () => searchLogs(deps.db, { instanceId: i, strategyId: q.strategy, level: q.level, q: q.q, logger: q.logger,
+      from: ms(q.from), to: ms(q.to), limit: LIMIT(q) }));
   });
 
   app.get<{ Querystring: Record<string, string> }>("/stats", guard, async (req, reply) => {
@@ -126,4 +130,6 @@ export function registerRest(app: FastifyInstance, deps: RestDeps): void {
     const i = req.query.instance; if (!need(reply, i, "instance")) return;
     return cache.get(req.url, () => accountRisk(deps.db, { instanceId: i, limits: deps.accountLimits, now: Date.now() }));
   });
+
+  registerRoundTrips(app, deps);
 }
