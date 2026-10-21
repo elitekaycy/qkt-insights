@@ -3,6 +3,7 @@ import { statement } from "./statements.js";
 import { refreshProjections } from "./projections.js";
 import { bumpEpoch, bumpMarks, bumpStrategy } from "./versions.js";
 import { OUTAGE_AFTER_MS } from "./monitors.js";
+import { setInstanceCurrency } from "./money.js";
 import { isLiveStateType, type Envelope, type QuarantinedEnvelope } from "@qkt-insights/contract";
 
 /** A flat position still records one valuation this often so its holding period is visible. */
@@ -101,6 +102,10 @@ export function replaceStrategyCapital(db: Db, capitals: Record<string, number>)
 }
 
 export function persistStateEvent(db: Db, instanceId: string, e: Envelope): void {
+  if (e.type === "state.account") {
+    setInstanceCurrency(db, instanceId, e.payload.currency);
+    return;
+  }
   if (e.type !== "state.positions") return;
   const p = e.payload;
   const positions = p.positions ?? [];

@@ -3,7 +3,8 @@ import type { LogRow } from "./queries.js";
 
 export interface LogSearch {
   instanceId: string;
-  strategyId?: string;
+  /** A strategy's lines; null: the lines no strategy wrote. */
+  strategyId?: string | null;
   level?: string;
   /** Part of the logger name, any case: `MT5Broker` finds `com.qkt.connector.mt5.MT5Broker`. */
   logger?: string;
@@ -64,7 +65,8 @@ function decodeCursor(cursor: string): Cursor | null {
 /** The filters as SQL over `logs l` (joined to logs_fts `ft` when there are words), with their parameters. */
 function where(f: LogSearch): { from: string; clauses: string[]; params: Record<string, unknown> } | null {
   const cl: string[] = ["l.instance_id=@instanceId"];
-  if (f.strategyId) cl.push("l.strategy_id=@strategyId");
+  if (f.strategyId === null) cl.push("l.strategy_id IS NULL");
+  else if (f.strategyId) cl.push("l.strategy_id=@strategyId");
   if (f.level) cl.push("l.level=@level");
   if (f.logger) cl.push("lower(l.logger) LIKE @logger ESCAPE '\\'");
   if (f.from != null) cl.push("l.ts>=@from");

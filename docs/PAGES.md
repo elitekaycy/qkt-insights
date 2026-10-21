@@ -109,6 +109,15 @@ instruments and days. `/` focuses the bar, `Esc` clears it, `j`/`k` move through
 tab, the Calendar and Logs. Headers sort, Export CSV downloads the whole match, and the count line
 says how many of how many, with their net and win rate.
 
+Money is held at the account currency's minor unit (cents for USD): every closing leg and round
+trip is stored rounded to it, so `pnl:=-280.35` finds the trade printed as −280.35, a trade that
+nets to 0.00 is breakeven (neither a win nor a loss), and every total is the exact sum of the rows
+it counts. `exit:` selects the round trips with a closing leg in its range: a position closed in
+parts over two days is listed on both days, its row marked "part" with what it closed in the range,
+and the count line's net is what the legs inside the range realized, so a calendar day and its
+drill show the same money. R and `r:` cover only the trades whose initial stop is known (read from
+the entry's submit event); the Risk card says how many of the closed trades that is.
+
 A row opens the trade drawer (`?trade=<ticket>`, so it can be linked): the timeline from the rule
 and signal through submit, venue accept, fills, stop/target changes and the close, with the time
 between steps; slippage against the engine's reference price, stop or target in price and money;

@@ -1,5 +1,6 @@
 import type { Db } from "./db.js";
 import { statement } from "./statements.js";
+import { cumulativeRounding, instanceMoneyDigits } from "./money.js";
 
 /** Closing legs of a position: the deal entries that take volume off it. */
 export const OUT_LEGS = "('OUT','INOUT','OUT_BY')";
@@ -69,6 +70,7 @@ export function recomputePosition(db: Db, instanceId: string, key: string): { be
     const before = rowsOf(db, `SELECT ${keyed} FROM closed_trades WHERE deal_rowid=?`, [rowid]);
     statement(db, "DELETE FROM closed_trades WHERE deal_rowid=?").run(rowid);
     statement(db, `INSERT INTO closed_trades (${COLUMNS}) ${POSITION_ROWS("o.rowid=@rowid AND o.position_ticket IS NULL")}`).run({ rowid });
+    roundToMinorUnit(db, instanceId, rowsOf(db, `SELECT ${keyed} FROM closed_trades WHERE deal_rowid=?`, [rowid]));
     return { before, after: rowsOf(db, `SELECT ${keyed} FROM closed_trades WHERE deal_rowid=?`, [rowid]) };
   }
   const position = key.slice(2);
@@ -76,8 +78,23 @@ export function recomputePosition(db: Db, instanceId: string, key: string): { be
   statement(db, "DELETE FROM closed_trades WHERE instance_id=? AND position_ticket=?").run(instanceId, position);
   statement(db, `INSERT INTO closed_trades (${COLUMNS}) ${POSITION_ROWS("o.instance_id=@instanceId AND o.position_ticket=@position")}`)
     .run({ instanceId, position });
+  roundToMinorUnit(db, instanceId,
+    rowsOf(db, `SELECT ${keyed} FROM closed_trades WHERE instance_id=? AND position_ticket=? ORDER BY ts ASC, deal_rowid ASC`, [instanceId, position]));
   writeClosures(db, instanceId, position);
   return { before, after: rowsOf(db, `SELECT ${keyed} FROM closed_trades WHERE instance_id=? AND position_ticket=?`, [instanceId, position]) };
+}
+
+/**
+ * Stores a position's closes at the account currency's minor unit, rounding the running total
+ * rather than each close: a close is its running total at that unit minus the one before it, so
+ * the closes of a position add up exactly to its net at that unit (its round trip), and each is
+ * within one minor unit of its share. A whole close of venue amounts is unchanged by this.
+ */
+function roundToMinorUnit(db: Db, instanceId: string, rows: ClosedTradeKey[]): void {
+  const digits = instanceMoneyDigits(db, instanceId);
+  const rounded = cumulativeRounding(rows.map((r) => r.realized ?? 0), digits);
+  const set = statement(db, "UPDATE closed_trades SET realized=? WHERE deal_rowid=?");
+  rows.forEach((r, i) => { if (r.realized != null && r.realized !== rounded[i]) set.run(rounded[i], r.dealRowid); });
 }
 
 function writeClosures(db: Db, instanceId: string, position: string): void {

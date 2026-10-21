@@ -19,7 +19,7 @@ import { TradeDrawer, useOpenTrade } from "../trades/TradeDrawer";
 import { useLiveState } from "../useLiveState";
 import { usePublicPageView, useView } from "../view";
 import { CalendarSection, DailySection, MonthlySection } from "./Days";
-import { toggleToken, without } from "./journal";
+import { chipOf, toggleToken, without } from "./journal";
 import { OverviewSection } from "./Overview";
 import { TimeRiskSection } from "./TimeRisk";
 import { BigPnl, Icon, ICON, Widget } from "./widgets";
@@ -138,7 +138,7 @@ export function StrategyDetail({ instanceId, strategyId }: { instanceId: string;
   const toggle = (token: string) => setQ(toggleToken(q, token), { push: true });
   const a = analytics.data;
   const totals: RoundTripTotals | null = a
-    ? { total: a.total, matched: a.matched, closed: a.closed, open: a.open, net: a.pnl, wins: a.wins, losses: a.losses, winRate: a.winRate, avg: a.expectancy, best: a.best?.pnl ?? null, worst: a.worst?.pnl ?? null }
+    ? { total: a.total, matched: a.matched, closed: a.closed, open: a.open, net: a.pnl, netInExit: chipOf(q, "exit") != null, wins: a.wins, losses: a.losses, winRate: a.winRate, avg: a.expectancy, best: a.best?.pnl ?? null, worst: a.worst?.pnl ?? null }
     : null;
   const suggestData = useMemo(
     () => ({

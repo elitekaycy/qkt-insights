@@ -1,5 +1,6 @@
 import type { AccountRiskRow, LiveAccount, LivePositionRow, StrategyRow } from "./api";
 import { instrumentOf, openPnl } from "./format";
+import { roundMoney } from "@qkt-insights/contract/money";
 
 /*
  * Home's figures, as pure functions over what the API already returns: the account's live state,
@@ -152,16 +153,24 @@ export function utcMonthStart(now: number): number {
   return Date.UTC(d.getUTCFullYear(), d.getUTCMonth(), 1);
 }
 
+/** Where 7D begins: the UTC midnight six days before today's, so 7D is today and the six UTC days before. */
+export function sevenDayStart(now: number): number {
+  return Math.floor(now / DAY_MS) * DAY_MS - 6 * DAY_MS;
+}
+
 /**
  * Per-strategy period sums over every close on the account, keyed by strategy id (null for closes
- * no strategy claimed). `floating` adds open P&L to Today; a strategy with only an open position
- * gets a row.
+ * no strategy claimed), at the account currency's minor unit (`digits`, default 2). 7D is today
+ * and the six UTC days before (sevenDayStart), as the P&L chart's 7D. `floating` adds open P&L to
+ * Today; a strategy with only an open position gets a row.
  */
 export function strategyPeriods(
   closes: ReadonlyArray<{ strategyId: string | null; ts: number; realized: number }>,
-  opts: { now: number; dayStart: number; floating?: ReadonlyMap<string | null, number> },
+  opts: { now: number; dayStart: number; floating?: ReadonlyMap<string | null, number>; digits?: number },
 ): Map<string | null, StrategyPeriods> {
-  const weekStart = opts.now - 7 * DAY_MS;
+  const digits = opts.digits ?? 2;
+  const plus = (a: number, b: number) => roundMoney(a + b, digits);
+  const weekStart = sevenDayStart(opts.now);
   const monthStart = utcMonthStart(opts.now);
   const out = new Map<string | null, StrategyPeriods & { cum: number; peak: number }>();
   const row = (key: string | null) => {
@@ -175,23 +184,23 @@ export function strategyPeriods(
   const ordered = [...closes].filter((c) => c.ts <= opts.now).sort((a, b) => a.ts - b.ts);
   for (const c of ordered) {
     const r = row(c.strategyId);
-    r.all += c.realized;
+    r.all = plus(r.all, c.realized);
     r.trades++;
     if (c.realized > 0) r.wins++;
     else if (c.realized < 0) r.losses++;
-    if (c.ts >= opts.dayStart) r.todayRealized += c.realized;
-    if (c.ts > weekStart) r.d7 += c.realized;
-    if (c.ts >= monthStart) r.mtd += c.realized;
+    if (c.ts >= opts.dayStart) r.todayRealized = plus(r.todayRealized, c.realized);
+    if (c.ts >= weekStart) r.d7 = plus(r.d7, c.realized);
+    if (c.ts >= monthStart) r.mtd = plus(r.mtd, c.realized);
     r.lastTs = c.ts;
-    r.cum += c.realized;
+    r.cum = plus(r.cum, c.realized);
     r.peak = Math.max(r.peak, r.cum);
-    r.maxDd = Math.max(r.maxDd, r.peak - r.cum);
+    r.maxDd = Math.max(r.maxDd, plus(r.peak, -r.cum));
   }
-  for (const [key, value] of opts.floating ?? []) row(key).floating += value;
+  for (const [key, value] of opts.floating ?? []) row(key).floating = plus(row(key).floating, value);
   const result = new Map<string | null, StrategyPeriods>();
   for (const [key, { cum: _cum, peak: _peak, ...r }] of out) {
     const decided = r.wins + r.losses;
-    result.set(key, { ...r, today: r.todayRealized + r.floating, winRate: decided > 0 ? r.wins / decided : null });
+    result.set(key, { ...r, today: plus(r.todayRealized, r.floating), winRate: decided > 0 ? r.wins / decided : null });
   }
   return result;
 }
@@ -220,7 +229,7 @@ export function rangeFirstDay(range: HomeRange, now: number): string | null {
   if (range === "all") return null;
   if (range === "mtd") return new Date(Date.UTC(d.getUTCFullYear(), d.getUTCMonth(), 1)).toISOString().slice(0, 10);
   if (range === "ytd") return `${d.getUTCFullYear()}-01-01`;
-  return new Date(Date.UTC(d.getUTCFullYear(), d.getUTCMonth(), d.getUTCDate()) - 6 * DAY_MS).toISOString().slice(0, 10);
+  return new Date(sevenDayStart(now)).toISOString().slice(0, 10);
 }
 
 /** A strategy with no close and no open position yet: every period at zero. */

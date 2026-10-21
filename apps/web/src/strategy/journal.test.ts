@@ -52,7 +52,7 @@ describe("formats and ranges", () => {
     expect(rangeStart("today", now)).toBe(Date.UTC(2026, 9, 21));
     expect(rangeStart("mtd", now)).toBe(Date.UTC(2026, 9, 1));
     expect(rangeStart("ytd", now)).toBe(Date.UTC(2026, 0, 1));
-    expect(rangeStart("7d", now)).toBe(now - 7 * 86_400_000);
+    expect(rangeStart("7d", now)).toBe(Date.UTC(2026, 9, 15));
     expect(rangeStart("all", now)).toBe(0);
   });
 });

@@ -1,6 +1,7 @@
 import type { Db } from "./db.js";
 import { statement } from "./statements.js";
 import { refreshProjections } from "./projections.js";
+import { instanceMoneyDigits, roundMoney } from "./money.js";
 
 /** Window around a leg in which the engine events that explain it are looked for. */
 const BEFORE_MS = 10 * 60_000;
@@ -69,6 +70,10 @@ export function recomputeRoundTrip(db: Db, instanceId: string, position: string)
   const inSide = ins[0]?.side ?? (outs[0]?.side === "BUY" ? "SELL" : outs[0]?.side === "SELL" ? "BUY" : null);
   let gross = 0, commission = 0, swap = 0, fee = 0;
   for (const l of legs) { gross += l.profit ?? 0; commission += l.commission ?? 0; swap += l.swap ?? 0; fee += l.fee ?? 0; }
+  // at the account currency's minor unit: the sums of venue amounts carry float noise past it
+  const digits = instanceMoneyDigits(db, instanceId);
+  const realized = roundMoney(gross + commission + swap + fee, digits);
+  [gross, commission, swap, fee] = [gross, commission, swap, fee].map((v) => roundMoney(v, digits)) as [number, number, number, number];
   const inQty = ins.reduce((a, l) => a + (l.qty ?? 0), 0);
   const fullyClosed = statement(db,
     "SELECT 1 FROM position_closures WHERE instance_id=? AND position_ticket=? AND until_ts IS NULL",
@@ -94,7 +99,7 @@ export function recomputeRoundTrip(db: Db, instanceId: string, position: string)
     exitTs,
     exitPrice: weighted(outs),
     qty: ins.length > 0 ? inQty : outs.reduce((a, l) => a + (l.qty ?? 0), 0),
-    realized: gross + commission + swap + fee,
+    realized,
     gross, commission, swap, fee,
     legs: legs.length,
     entryOrderId,
@@ -134,13 +139,14 @@ export function recomputeLedgerTrip(db: Db, instanceId: string, closeId: string)
     "SELECT strategy_id strategyId, symbol, side, qty, price, realized, entry_ts entryTs, ts FROM trade_closes WHERE instance_id=? AND id=?",
   ).get(instanceId, closeId) as { strategyId: string | null; symbol: string; side: string; qty: number; price: number; realized: number; entryTs: number | null; ts: number } | undefined;
   if (!c) return;
+  const realized = roundMoney(c.realized, instanceMoneyDigits(db, instanceId));
   statement(db,
     `INSERT INTO round_trips (instance_id, position_ticket, broker, strategy_id, instrument, symbol, side, entry_ts, entry_price,
        exit_ts, exit_price, qty, realized, gross, commission, swap, fee, legs, entry_order_id, entry_order_ticket, stop_price,
        target_price, ended, hold_ms, open, source)
      VALUES (?, ?, NULL, ?, ?, ?, ?, ?, NULL, ?, ?, ?, ?, ?, 0, 0, 0, 1, NULL, NULL, NULL, NULL, NULL, ?, 0, 'ledger')`,
   ).run(instanceId, closeId, c.strategyId, instrument(c.symbol), c.symbol, c.side === "BUY" ? "short" : "long", c.entryTs,
-    c.ts, c.price, c.qty, c.realized, c.realized, c.entryTs != null ? c.ts - c.entryTs : null);
+    c.ts, c.price, c.qty, realized, realized, c.entryTs != null ? c.ts - c.entryTs : null);
 }
 
 /**

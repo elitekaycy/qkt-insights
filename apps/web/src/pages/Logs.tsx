@@ -1,6 +1,6 @@
 import { useEffect, useMemo, useRef } from "react";
 import { keepPreviousData, useInfiniteQuery, useQuery } from "@tanstack/react-query";
-import { LOG_KEYS, parseQuery } from "@qkt-insights/contract/query";
+import { LOG_KEYS, parseQuery, UNATTRIBUTED_STRATEGY } from "@qkt-insights/contract/query";
 import { get, type LogRow, type StrategyRow } from "../api";
 import { Card, Empty, Loadable, PageHeader, Panel, RangeChips, rangeStart, useRangeParam } from "../components/ui";
 import { useSearchParam } from "../router";
@@ -43,7 +43,7 @@ export default function Logs({ instanceId }: { instanceId: string | null }) {
   const params = useMemo(() => {
     const p = new URLSearchParams({ instance: instanceId ?? "", limit: String(PAGE) });
     if (f.level) p.set("level", f.level);
-    if (f.strategy) p.set("strategy", f.strategy);
+    if (f.strategy !== undefined) p.set("strategy", f.strategy ?? UNATTRIBUTED_STRATEGY);
     if (f.logger) p.set("logger", f.logger);
     if (f.text.length) p.set("q", ftsWords(f.text));
     if (from) p.set("from", String(from));
@@ -78,7 +78,7 @@ export default function Logs({ instanceId }: { instanceId: string | null }) {
   const liveLogs = live.filter((e) => {
     if (e.type !== "log") return false;
     const msg = String(e.payload.message ?? "").toLowerCase();
-    return (!f.strategy || e.strategyId === f.strategy)
+    return (f.strategy === undefined || (e.strategyId ?? null) === f.strategy)
       && (!f.level || e.payload.level === f.level)
       && (!f.logger || String(e.payload.logger ?? "").toLowerCase().includes(f.logger.toLowerCase()))
       && f.text.every((w) => msg.includes(w.toLowerCase()))

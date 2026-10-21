@@ -1,8 +1,9 @@
 import type { Db } from "./db.js";
 import {
-  canonicalDeal, closedTradeRows, fullyClosedPosition, instrumentOf, OUT_LEGS,
+  canonicalDeal, closeDealOf, closedTradeRows, fullyClosedPosition, instrumentOf, OUT_LEGS,
   type DayNet, type DealClosedTrade,
 } from "./analytics.js";
+import { addMoney, instanceMoneyDigits, roundMoney } from "./money.js";
 
 /**
  * Account-level figures: every closed trade on the instance's account, whichever strategy owned it.
@@ -42,7 +43,11 @@ export function accountCloses(db: Db, f: AccountFilter): AccountClose[] {
   const deals = closedTradeRows(db, { instanceId: f.instanceId, to: f.to, closedPositionsOnly: f.closedPositionsOnly, strategyIds: ids });
   const dealBacked = new Set(deals.map((d) => d.strategyId));
 
-  const out: AccountClose[] = deals.map((d) => ({ ...d, instrument: instrumentOf(d.symbol) }));
+  const out: AccountClose[] = deals.map((d) => {
+    const row = { ...d, instrument: instrumentOf(d.symbol) };
+    tripOf.set(row, d.orderId != null ? `p:${d.orderId}` : `d:${closeDealOf(d)}`);
+    return row;
+  });
   // trade.closed rows carry no position identity, so public (closedPositionsOnly) views skip them.
   if (!f.closedPositionsOnly) {
     const lc = ["instance_id=@instanceId"];
@@ -55,10 +60,11 @@ export function accountCloses(db: Db, f: AccountFilter): AccountClose[] {
       ts: number; symbol: string; side: string; qty: number; price: number; realized: number;
       entryTs: number | null; orderId: string | null; strategyId: string | null;
     }>;
+    const digits = instanceMoneyDigits(db, f.instanceId);
     for (const r of ledger) {
       if (dealBacked.has(r.strategyId)) continue;
       out.push({
-        ...r, entryPrice: null, exitPrice: r.price, holdMs: r.entryTs != null ? r.ts - r.entryTs : null,
+        ...r, realized: roundMoney(r.realized, digits), entryPrice: null, exitPrice: r.price, holdMs: r.entryTs != null ? r.ts - r.entryTs : null,
         entryOrderId: null, exitOrderId: null, instrument: instrumentOf(r.symbol),
       });
     }
@@ -66,6 +72,9 @@ export function accountCloses(db: Db, f: AccountFilter): AccountClose[] {
   }
   return f.from == null ? out : out.filter((c) => c.ts >= f.from!);
 }
+
+/** The round trip a close belongs to ("p:<position>", "d:<deal rowid>"); an engine close has none (it is its own). */
+const tripOf = new WeakMap<AccountClose, string>();
 
 export interface AccountCosts { grossProfit: number; commission: number; swap: number; fee: number; net: number }
 
@@ -83,10 +92,13 @@ export interface AccountBucket {
 export interface AccountSummary {
   /** Newest first. */
   closes: AccountClose[];
-  /** Net per UTC close day. */
+  /**
+   * Net per UTC close day: the realized of every closing leg booked that day. `trades` counts the
+   * round trips (positions) with a closing leg that day, the ones the day's `exit:<day>` drill lists.
+   */
   dailyNets: DayNet[];
   totalNet: number;
-  /** Closed round trips (one per closing leg). */
+  /** Closes (one per closing leg); wins, losses and breakeven classify each close at the minor unit. */
   trades: number;
   wins: number;
   losses: number;
@@ -102,9 +114,9 @@ export interface AccountSummary {
   byStrategy: AccountBucket[];
 }
 
-function bucket(map: Map<string | null, AccountBucket>, key: string | null, c: AccountClose): AccountBucket {
+function bucket(map: Map<string | null, AccountBucket>, key: string | null, c: AccountClose, digits: number): AccountBucket {
   const b = map.get(key) ?? { key, net: 0, trades: 0, wins: 0, losses: 0 };
-  b.net += c.realized;
+  b.net = addMoney(b.net, c.realized, digits);
   b.trades++;
   if (c.realized > 0) b.wins++;
   else if (c.realized < 0) b.losses++;
@@ -115,23 +127,29 @@ function bucket(map: Map<string | null, AccountBucket>, key: string | null, c: A
 /** The account roll-up the Overview shows: totals, costs, and where the money came from. */
 export function accountSummary(db: Db, f: AccountFilter): AccountSummary {
   const closes = accountCloses(db, f);
+  const digits = instanceMoneyDigits(db, f.instanceId);
   const byDay = new Map<string, DayNet>();
+  const tripsByDay = new Map<string, Set<string>>();
   const byInstrument = new Map<string | null, AccountBucket>();
   const byStrategy = new Map<string | null, AccountBucket>();
   let totalNet = 0, wins = 0, losses = 0, sumWins = 0, sumLosses = 0;
-  for (const c of closes) {
-    totalNet += c.realized;
-    if (c.realized > 0) { wins++; sumWins += c.realized; } else if (c.realized < 0) { losses++; sumLosses -= c.realized; }
+  closes.forEach((c, i) => {
+    totalNet = addMoney(totalNet, c.realized, digits);
+    if (c.realized > 0) { wins++; sumWins = addMoney(sumWins, c.realized, digits); } else if (c.realized < 0) { losses++; sumLosses = addMoney(sumLosses, -c.realized, digits); }
     const day = new Date(c.ts).toISOString().slice(0, 10);
     const d = byDay.get(day) ?? { day, net: 0, trades: 0 };
-    d.net += c.realized;
-    d.trades++;
+    d.net = addMoney(d.net, c.realized, digits);
+    // a position closed in parts on one day is one round trip of that day; an engine close is its own
+    const trips = tripsByDay.get(day) ?? new Set<string>();
+    trips.add(tripOf.get(c) ?? `l:${i}`);
+    tripsByDay.set(day, trips);
+    d.trades = trips.size;
     byDay.set(day, d);
-    const inst = bucket(byInstrument, c.instrument, c);
+    const inst = bucket(byInstrument, c.instrument, c, digits);
     inst.venues ??= [];
     if (!inst.venues.includes(c.symbol)) inst.venues.push(c.symbol);
-    bucket(byStrategy, c.strategyId, c);
-  }
+    bucket(byStrategy, c.strategyId, c, digits);
+  });
   return {
     closes: [...closes].reverse(),
     dailyNets: [...byDay.values()].sort((a, b) => (a.day < b.day ? -1 : 1)),
@@ -165,8 +183,7 @@ function accountCosts(db: Db, f: AccountFilter): AccountCosts | null {
     n: number; outs: number | null; grossProfit: number; commission: number; swap: number; fee: number;
   };
   if (!row.outs) return null;
-  return {
-    grossProfit: row.grossProfit, commission: row.commission, swap: row.swap, fee: row.fee,
-    net: row.grossProfit + row.commission + row.swap + row.fee,
-  };
+  const digits = instanceMoneyDigits(db, f.instanceId);
+  const [grossProfit, commission, swap, fee] = [row.grossProfit, row.commission, row.swap, row.fee].map((v) => roundMoney(v, digits)) as [number, number, number, number];
+  return { grossProfit, commission, swap, fee, net: roundMoney(grossProfit + commission + swap + fee, digits) };
 }

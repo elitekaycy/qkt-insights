@@ -37,6 +37,11 @@ export interface QueryFilter {
   /** Hold time in ms. */
   held?: Range;
   entry?: Window;
+  /**
+   * Round trips with a closing leg in the window: a position closed in parts matches on every day
+   * it closed some, and its totals then count only the legs inside the window. An engine close
+   * (no venue legs) is its own single leg.
+   */
   exit?: Window;
   ended?: Ended;
   size?: Range;

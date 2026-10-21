@@ -47,6 +47,20 @@ function Cell({ children, right, className = "" }: { children: ReactNode; right?
   );
 }
 
+/**
+ * A row's P&L. Under an `exit:` window, a position closed in parts across its edge shows what its
+ * legs inside the window realized (so the rows add up to the count line's net), marked "part",
+ * with the whole position's P&L in the tooltip.
+ */
+function TripPnl({ t }: { t: RoundTrip }) {
+  if (t.pnlInExit == null) return <>{pnl(t.pnl)}</>;
+  return (
+    <span title={`${pnl(t.pnlInExit)} closed in this range; the position's other closing legs fell on other days (whole position ${pnl(t.pnl)})`}>
+      <span className="mr-1 text-[10px] font-medium text-faint">part</span>{pnl(t.pnlInExit)}
+    </span>
+  );
+}
+
 function cells(t: RoundTrip, hide: ReadonlySet<string>): ReactNode[] {
   const all: Record<string, ReactNode> = {
     id: <Cell className="font-mono text-xs text-faint">{t.id}</Cell>,
@@ -58,8 +72,8 @@ function cells(t: RoundTrip, hide: ReadonlySet<string>): ReactNode[] {
     exit: <Cell className="font-mono text-xs text-body">{t.status === "open" ? <Pill tone="info">open</Pill> : minuteStamp(t.exitTs)}</Cell>,
     exitPrice: <Cell right className="text-body">{t.status === "open" ? DASH : px(t.exitPrice, t.priceDigits)}</Cell>,
     size: <Cell right className="text-body">{quantity(t.qty)}</Cell>,
-    pnl: <Cell right className={`font-semibold ${toneClass(t.pnl)}`}>{t.pnl == null ? DASH : pnl(t.pnl)}</Cell>,
-    r: <Cell right className={t.r == null ? "text-faint" : toneClass(t.r)}>{t.r == null ? (t.status === "open" ? DASH : <span title="No stop on the entry, so no R">no stop</span>) : rMultiple(t.r)}</Cell>,
+    pnl: <Cell right className={`font-semibold ${toneClass(t.pnlInExit ?? t.pnl)}`}>{t.pnl == null ? DASH : <TripPnl t={t} />}</Cell>,
+    r: <Cell right className={t.r == null ? "text-faint" : toneClass(t.r)}>{t.r == null ? (t.status === "open" ? DASH : <span title="No stop known for this entry (none was sent, or its events are past retention), so no R">no stop</span>) : rMultiple(t.r)}</Cell>,
     held: <Cell right className="text-body">{t.status === "open" ? DASH : duration(t.holdMs)}</Cell>,
     ended: <Cell><EndedBadge ended={t.ended} open={t.status === "open"} /></Cell>,
   };
@@ -241,7 +255,7 @@ export function RoundTripTable({ scope, q, sort, dir, onSort, hide = [], height 
         <div className="flex items-center gap-2">
           <span className="font-semibold text-bright">{t.instrument}</span>
           <SideText side={t.side} />
-          <span className={`ml-auto shrink-0 font-semibold ${toneClass(t.pnl)}`}>{t.status === "open" ? <Pill tone="info">open</Pill> : pnl(t.pnl)}</span>
+          <span className={`ml-auto shrink-0 font-semibold ${toneClass(t.pnlInExit ?? t.pnl)}`}>{t.status === "open" ? <Pill tone="info">open</Pill> : <TripPnl t={t} />}</span>
           {clickable && <RowChevron />}
         </div>
         <div className="flex items-center gap-2 text-xs text-muted">

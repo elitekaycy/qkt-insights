@@ -172,7 +172,7 @@ export function OverviewSection({ instanceId, strategyId, q, toggle, a, busy, ca
           <div className="mt-1 text-sm text-muted">
             {a.r.n > 0 ? (
               <>
-                <span className={`font-semibold ${toneClass(a.r.avg)}`}>{rMultiple(a.r.avg)}</span> average over {count(a.r.n)} trade{a.r.n === 1 ? "" : "s"} with a stop
+                <span className={`font-semibold ${toneClass(a.r.avg)}`}>{rMultiple(a.r.avg)}</span> average over {count(a.r.n)} of {count(a.closed)} trade{a.closed === 1 ? "" : "s"} (those with a known stop)
               </>
             ) : (
               "no stop on the entries, so no R"

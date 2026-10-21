@@ -223,7 +223,9 @@ function rangePreset(v: unknown, cutoff: number): string {
   return best[0];
 }
 
+/** Where a preset begins before `cutoff`: 7d is the cutoff's UTC day and the six before it, as the dashboard's 7D; the others roll. */
 function presetFrom(preset: string, cutoff: number): number | undefined {
+  if (preset === "7d") return Math.floor(cutoff / DAY_MS) * DAY_MS - 6 * DAY_MS;
   const ms = RANGE_PRESETS.find(([key]) => key === preset)?.[1];
   return ms == null ? undefined : cutoff - ms;
 }

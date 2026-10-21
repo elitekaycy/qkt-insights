@@ -1,5 +1,6 @@
 import type { Db } from "./db.js";
 import { statement } from "./statements.js";
+import { addMoney, instanceMoneyDigits } from "./money.js";
 
 /** Where a strategy's closes come from: broker deals (closed_trades) or the engine's trade.closed rows. */
 export type CloseSource = "deal" | "ledger";
@@ -30,8 +31,9 @@ const CLOSES_NEWEST_FIRST: Record<CloseSource, string> = {
 
 /**
  * Rewrites one strategy's days from `sinceDay` on, and its totals. The day's net and the running
- * total are summed in close order, as the readers that build them from the closes do, so a figure
- * served from here is bit-for-bit the one a rebuild from the closes gives. O(closes since the day)
+ * total are summed in close order, as the readers that build them from the closes do, at the
+ * account currency's minor unit (addMoney), so a figure served from here is bit-for-bit the one a
+ * rebuild from the closes gives. O(closes since the day)
  * for the days; the newest-first total re-adds every close, O(closes of the strategy).
  */
 export function recomputeDaily(db: Db, instanceId: string, source: CloseSource, strategyId: string, sinceDay: string): void {
@@ -44,6 +46,8 @@ export function recomputeDaily(db: Db, instanceId: string, source: CloseSource, 
   const ins = statement(db,
     "INSERT INTO strategy_daily (instance_id, strategy_id, source, day, net, trades, close_cum, last_ts) VALUES (?,?,?,?,?,?,?,?)",
   );
+  const digits = instanceMoneyDigits(db, instanceId);
+  const add = (a: number, b: number) => addMoney(a, b, digits);
   let cum = prev?.cum ?? 0;
   let day: string | null = null, net = 0, trades = 0, lastTs = 0;
   for (const c of closes) {
@@ -52,8 +56,8 @@ export function recomputeDaily(db: Db, instanceId: string, source: CloseSource, 
       if (day != null) ins.run(instanceId, strategyId, source, day, net, trades, cum, lastTs);
       day = d; net = 0; trades = 0;
     }
-    net += c.realized;
-    cum += c.realized;
+    net = add(net, c.realized);
+    cum = add(cum, c.realized);
     trades++;
     lastTs = c.ts;
   }
@@ -62,7 +66,7 @@ export function recomputeDaily(db: Db, instanceId: string, source: CloseSource, 
   let total = 0, n = 0;
   let newest: { ts: number } | null = null, oldest: { ts: number; entryTs: number | null } | null = null;
   for (const c of statement(db, CLOSES_NEWEST_FIRST[source]).iterate(instanceId, strategyId) as IterableIterator<{ ts: number; realized: number; entryTs: number | null }>) {
-    total += c.realized;
+    total = add(total, c.realized);
     n++;
     newest ??= c;
     oldest = c;

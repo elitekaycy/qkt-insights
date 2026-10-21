@@ -101,10 +101,10 @@ export function TimeRiskSection({ q, toggle, a, busy, openTrade }: SectionProps)
         <EChart option={hourOption} height={220} zoom={false} label="Realized P&L by UTC entry hour" onAxisClick={(x) => { const b = hours[Math.round(x)]; if (b && b.n > 0) toggle(b.filter); }} />
       </Widget>
       <Widget icon={ICON.shield} title="Risk" busy={busy}
-        explain="R is a trade's P&L over the money it stood to lose at its initial stop. Trades without a stop on the entry have no R. On a fast market a stop can fill worse than its level, so losses beyond −1R happen.">
-        <StatRow label="Trades with a stop">{count(a.r.n)} of {count(a.closed)}</StatRow>
-        <StatRow label="Average R"><span className={toneClass(a.r.avg)}>{a.r.n ? rMultiple(a.r.avg) : "no stop"}</span></StatRow>
-        <StatRow label="Total R"><span className={toneClass(a.r.total)}>{a.r.n ? rMultiple(a.r.total) : "no stop"}</span></StatRow>
+        explain="R is a trade's P&L over the money it stood to lose at its initial stop. Only trades whose stop is known have an R: the stop is read from the entry's submit event, so a trade without one, or one older than the events kept, counts as no stop even if it had one at the venue. Average and total R cover only those trades. On a fast market a stop can fill worse than its level, so losses beyond −1R happen.">
+        <StatRow label="Trades with a known stop">{count(a.r.n)} of {count(a.closed)}</StatRow>
+        <StatRow label="Average R"><span className={toneClass(a.r.avg)}>{a.r.n ? rMultiple(a.r.avg) : "no stop"}</span>{a.r.n > 0 && a.r.n < a.closed && <span className="text-muted"> · {count(a.r.n)} of {count(a.closed)}</span>}</StatRow>
+        <StatRow label="Total R"><span className={toneClass(a.r.total)}>{a.r.n ? rMultiple(a.r.total) : "no stop"}</span>{a.r.n > 0 && a.r.n < a.closed && <span className="text-muted"> · {count(a.r.n)} of {count(a.closed)}</span>}</StatRow>
         <StatRow label="Payoff ratio">{num(a.payoff)}</StatRow>
         <StatRow label="Average hold">{a.avgHoldMs == null ? DASH : duration(a.avgHoldMs)}</StatRow>
       </Widget>

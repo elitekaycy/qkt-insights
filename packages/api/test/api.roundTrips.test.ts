@@ -73,7 +73,7 @@ describe("GET /round-trips", () => {
     const body = res.json() as Page;
     expect(body.rows).toHaveLength(5);
     expect(body.rows.every((r) => r.side === "short" && r.pnl === -500)).toBe(true);
-    expect(body.totals).toEqual({ total: 30, matched: 15, closed: 15, open: 0, net: -7500, wins: 0, losses: 15, winRate: 0, avg: -500, best: -500, worst: -500 });
+    expect(body.totals).toEqual({ total: 30, matched: 15, closed: 15, open: 0, net: -7500, netInExit: false, wins: 0, losses: 15, winRate: 0, avg: -500, best: -500, worst: -500 });
     expect(body.query).toEqual({ canonical: "side:short pnl:<0", errors: [] });
   });
 

@@ -1,7 +1,9 @@
 import { describe, it, expect } from "vitest";
 import type { Envelope } from "@qkt-insights/contract";
 import { parseQuery } from "@qkt-insights/contract/query";
-import { openDb, ingestEvents, listRoundTrips, roundTripTotals, roundTripAnalytics, accountSummary, type Db } from "../src/index.js";
+import {
+  openDb, ingestEvents, listRoundTrips, roundTripTotals, roundTripAnalytics, accountSummary, persistStateEvent, instanceMoneyDigits, sumMoney, type Db,
+} from "../src/index.js";
 
 /*
  * Regression tests from an independent accuracy audit of the filters and drill-downs: every figure
@@ -110,5 +112,115 @@ describe("a calendar day's cell and its drill (`exit:<day>`) show the same trade
       expect({ day: cell.day, trades: drill.matched, net: Math.round(drill.net * 100) / 100 })
         .toEqual({ day: cell.day, trades: cell.trades, net: Math.round(cell.net * 100) / 100 });
     }
+  });
+});
+
+describe("a position closed in parts across two UTC days", () => {
+  const tue = Date.UTC(2026, 9, 13), wed = tue + D;
+  /** 400 as above; 401 opened and closed Wed (-30); 402 closed in two legs on Wed (+5, +5). */
+  function fixture(): Db {
+    seq = 1;
+    const db = openDb(":memory:");
+    ingestEvents(db, I, [
+      deal({ ticket: "1", position: "400", entry: "IN", side: "BUY", ts: tue + 10 * H, price: 4000, qty: 1 }),
+      deal({ ticket: "2", position: "400", entry: "OUT", side: "SELL", ts: tue + 20 * H, price: 4002, qty: 0.5, profit: 100 }),
+      deal({ ticket: "3", position: "400", entry: "OUT", side: "SELL", ts: wed + 2 * H, price: 4001, qty: 0.5, profit: 50 }),
+      deal({ ticket: "4", position: "401", entry: "IN", side: "BUY", ts: wed + 5 * H, price: 4000 }),
+      deal({ ticket: "5", position: "401", entry: "OUT", side: "SELL", ts: wed + 6 * H, price: 3999.4, profit: -30 }),
+      deal({ ticket: "6", position: "402", entry: "IN", side: "BUY", ts: wed + 7 * H, price: 4000, qty: 1 }),
+      deal({ ticket: "7", position: "402", entry: "OUT", side: "SELL", ts: wed + 8 * H, price: 4000.1, qty: 0.5, profit: 5 }),
+      deal({ ticket: "8", position: "402", entry: "OUT", side: "SELL", ts: wed + 9 * H, price: 4000.1, qty: 0.5, profit: 5 }),
+    ]);
+    return db;
+  }
+
+  it("exit:<day> lists every round trip with a closing leg that day, and nets only that day's legs", () => {
+    const db = fixture();
+    expect(ids(db, "exit:2026-10-13")).toEqual(["400"]);
+    expect(ids(db, "exit:2026-10-14")).toEqual(["400", "401", "402"]);
+    expect(ids(db, "exit:<2026-10-14")).toEqual(["400"]);
+    expect(ids(db, "exit:2026-10-13..2026-10-14")).toEqual(["400", "401", "402"]);
+    expect(roundTripTotals(db, q("exit:2026-10-13"))).toMatchObject({ matched: 1, net: 100, netInExit: true });
+    expect(roundTripTotals(db, q("exit:2026-10-14"))).toMatchObject({ matched: 3, net: 30, netInExit: true });
+    // without a window the net is every leg
+    expect(roundTripTotals(db, q())).toMatchObject({ matched: 3, net: 130, netInExit: false });
+  });
+
+  it("marks the rows whose other legs closed outside the window with what they closed inside it", () => {
+    const db = fixture();
+    const rows = (text: string) => Object.fromEntries(listRoundTrips(db, q(text)).rows.map((r) => [r.id, { pnl: r.pnl, inExit: r.pnlInExit }]));
+    expect(rows("exit:2026-10-13")).toEqual({ "400": { pnl: 150, inExit: 100 } });
+    expect(rows("exit:2026-10-14")).toEqual({ "400": { pnl: 150, inExit: 50 }, "401": { pnl: -30, inExit: null }, "402": { pnl: 10, inExit: null } });
+    expect(rows("exit:2026-10")).toEqual({ "400": { pnl: 150, inExit: null }, "401": { pnl: -30, inExit: null }, "402": { pnl: 10, inExit: null } });
+    expect(rows("")["400"]).toEqual({ pnl: 150, inExit: null });
+  });
+
+  it("counts a calendar day's round trips, not its legs, and the strategy journal's days agree with the drill", () => {
+    const db = fixture();
+    expect(accountSummary(db, { instanceId: I }).dailyNets).toEqual([
+      { day: "2026-10-13", net: 100, trades: 1 },
+      { day: "2026-10-14", net: 30, trades: 3 },
+    ]);
+    const a = roundTripAnalytics(db, q());
+    expect(a.daily).toEqual([
+      { day: "2026-10-13", n: 1, wins: 1, losses: 0, pnl: 100 },
+      { day: "2026-10-14", n: 3, wins: 2, losses: 1, pnl: 30 },
+    ]);
+    expect(a.monthly).toEqual([{ day: "2026-10", n: 3, wins: 2, losses: 1, pnl: 130, grossWin: 160, grossLoss: -30 }]);
+    for (const d of a.daily) {
+      const drill = roundTripAnalytics(db, q(`exit:${d.day}`));
+      expect({ n: drill.matched, pnl: drill.pnl, daily: drill.daily }).toEqual({ n: d.n, pnl: d.pnl, daily: [d] });
+    }
+  });
+});
+
+describe("money at the account currency's minor unit", () => {
+  it("splits an entry's cost over partial closes so the closes add up to the round trip to the cent", () => {
+    seq = 1;
+    const db = openDb(":memory:");
+    // -0.07 entry commission over three equal closes: shares of -0.02333... each
+    ingestEvents(db, I, [
+      deal({ ticket: "1", position: "500", entry: "IN", side: "BUY", ts: T0, price: 4000, qty: 0.3, commission: -0.07 }),
+      deal({ ticket: "2", position: "500", entry: "OUT", side: "SELL", ts: T0 + H, price: 4001, qty: 0.1, profit: 10.01 }),
+      deal({ ticket: "3", position: "500", entry: "OUT", side: "SELL", ts: T0 + 2 * H, price: 4001, qty: 0.1, profit: 10.01 }),
+      deal({ ticket: "4", position: "500", entry: "OUT", side: "SELL", ts: T0 + 3 * H, price: 4001, qty: 0.1, profit: 10.01 }),
+    ]);
+    const legs = accountSummary(db, { instanceId: I }).closes.map((c) => c.realized);
+    expect(legs.every((v) => Math.round(v * 100) / 100 === v)).toBe(true);
+    expect(sumMoney(legs, 2)).toBe(29.96);
+    expect(listRoundTrips(db, q()).rows[0]!.pnl).toBe(29.96);
+    expect(accountSummary(db, { instanceId: I }).totalNet).toBe(29.96);
+  });
+
+  it("totals are the exact sum of the rows they count", () => {
+    const db = centsFixture();
+    const rows = listRoundTrips(db, q()).rows;
+    const t = roundTripTotals(db, q());
+    expect(t.net).toBe(sumMoney(rows.map((r) => r.pnl ?? 0), 2));
+    expect(t.net).toBe(-350.3);
+    const s = accountSummary(db, { instanceId: I });
+    expect(s.totalNet).toBe(-350.3);
+    expect(s.dailyNets).toEqual([{ day: "2026-10-12", net: -350.3, trades: 3 }]);
+    expect({ wins: s.wins, losses: s.losses, breakeven: s.breakeven }).toEqual({ wins: 0, losses: 2, breakeven: 1 });
+    expect(roundTripAnalytics(db, q()).pnl).toBe(-350.3);
+  });
+
+  it("takes the minor unit from the account currency the broker reports, and restores it when that changes", () => {
+    seq = 1;
+    const db = openDb(":memory:");
+    ingestEvents(db, I, [
+      deal({ ticket: "1", position: "600", entry: "IN", side: "BUY", ts: T0, price: 4000 }),
+      deal({ ticket: "2", position: "600", entry: "OUT", side: "SELL", ts: T0 + H, price: 4001, profit: 12.3456 }),
+    ]);
+    expect(listRoundTrips(db, q()).rows[0]!.pnl).toBe(12.35);
+    const account = (currency: string) => env("state.account", T0 + 2 * H, { broker: "ICMARKETS", currency, balance: 1000, equity: 1000 });
+    persistStateEvent(db, I, account("KWD"));
+    expect(instanceMoneyDigits(db, I)).toBe(3);
+    expect(listRoundTrips(db, q()).rows[0]!.pnl).toBe(12.346);
+    expect(accountSummary(db, { instanceId: I }).totalNet).toBe(12.346);
+    persistStateEvent(db, I, account("JPY"));
+    expect(listRoundTrips(db, q()).rows[0]!.pnl).toBe(12);
+    persistStateEvent(db, I, account("USD"));
+    expect(listRoundTrips(db, q()).rows[0]!.pnl).toBe(12.35);
   });
 });

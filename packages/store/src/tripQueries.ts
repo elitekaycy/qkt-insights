@@ -4,6 +4,7 @@ import type { Db } from "./db.js";
 import { winRatePct } from "./analytics.js";
 import { refreshProjections } from "./projections.js";
 import { statement } from "./statements.js";
+import { instanceMoneyDigits, roundMoney } from "./money.js";
 
 /*
  * Reads over the round_trips projection (one row per venue position, kept on write by the
@@ -33,6 +34,12 @@ export interface TripRow {
   qty: number;
   /** Realized money incl. commission, swap and fee (a still-open position: what it booked so far). */
   pnl: number | null;
+  /**
+   * With an `exit:` window in the query: the realized of this position's closing legs inside the
+   * window, when it also has closing legs outside it (closed in parts across the window's edge).
+   * null otherwise, where `pnl` is all of it.
+   */
+  pnlInExit: number | null;
   holdMs: number | null;
   stopPrice: number | null;
   targetPrice: number | null;
@@ -169,8 +176,14 @@ export interface RoundTripTotals {
   matched: number;
   closed: number;
   open: number;
-  /** Realized P&L of the matched round trips (a partly closed one counts what it closed). */
+  /**
+   * Realized P&L of the matched round trips (a partly closed one counts what it closed). With an
+   * `exit:` window it is the realized of their closing legs inside the window, so a day's drill
+   * shows the day's money as the calendar books it (per closing leg, on the leg's UTC day).
+   */
   net: number;
+  /** Whether `net` is the closing legs inside the query's `exit:` window. */
+  netInExit: boolean;
   wins: number;
   losses: number;
   /** Winning over decided closed round trips, in percent; null when none was decided. */
@@ -212,6 +225,40 @@ function windowSql(col: string, w: Window | undefined, sql: Sql): void {
   if (w.to !== undefined) sql.where.push(`${col}<${sql.bind(w.to)}`);
 }
 
+/**
+ * `exit:` selects the round trips with a closing leg in the window (a position closed in parts
+ * matches on each day it closed some). An engine close (ledger row) is its own single leg. The
+ * trip's exit_ts is its latest closing leg, so `exit_ts >= from` is implied and narrows by index.
+ */
+function exitSql(w: Window | undefined, sql: Sql): void {
+  if (!w) return;
+  const legs = legWindow(w, sql, "ct.ts");
+  const own = legWindow(w, sql, "t.exit_ts");
+  if (w.from !== undefined) sql.where.push(`t.exit_ts>=${sql.bind(w.from)}`);
+  sql.where.push(`(CASE WHEN t.source='ledger' THEN ${own} ELSE EXISTS (SELECT 1 FROM closed_trades ct
+    WHERE ct.instance_id=t.instance_id AND ct.position_ticket=t.position_ticket AND ${legs}) END)`);
+}
+
+/** The window as a condition on `col` ("1" without bounds). */
+function legWindow(w: Window, sql: Sql, col: string): string {
+  const c: string[] = [];
+  if (w.from !== undefined) c.push(`${col}>=${sql.bind(w.from)}`);
+  if (w.to !== undefined) c.push(`${col}<${sql.bind(w.to)}`);
+  return c.length ? c.join(" AND ") : "1";
+}
+
+/** The realized of a trip's closing legs inside an `exit:` window (an engine close: all of it). */
+function realizedInExit(w: Window, sql: Sql): string {
+  return `(CASE WHEN t.source='ledger' THEN t.realized ELSE (SELECT COALESCE(SUM(ct.realized), 0) FROM closed_trades ct
+    WHERE ct.instance_id=t.instance_id AND ct.position_ticket=t.position_ticket AND ${legWindow(w, sql, "ct.ts")}) END)`;
+}
+
+/** Whether a deal trip also has closing legs outside an `exit:` window. */
+function legsOutsideExit(w: Window, sql: Sql): string {
+  return `(t.source<>'ledger' AND EXISTS (SELECT 1 FROM closed_trades ct
+    WHERE ct.instance_id=t.instance_id AND ct.position_ticket=t.position_ticket AND NOT (${legWindow(w, sql, "ct.ts")})))`;
+}
+
 const likeEscape = (s: string) => s.replace(/[\\%_]/g, (c) => `\\${c}`);
 
 /**
@@ -241,7 +288,7 @@ function filterSql(f: QueryFilter | undefined, sql: Sql, hideIds = false): void 
   rangeSql("t.hold_ms", f.held, sql);
   rangeSql("t.qty", f.size, sql);
   windowSql("t.entry_ts", f.entry, sql);
-  windowSql("t.exit_ts", f.exit, sql);
+  exitSql(f.exit, sql);
   if (f.ended) sql.where.push(`t.ended=${sql.bind(f.ended === "venue" ? "so" : f.ended)}`);
   if (f.weekday !== undefined) sql.where.push(`t.entry_ts IS NOT NULL AND ${ENTRY_WEEKDAY}=${sql.bind(f.weekday)}`);
   if (f.hour) {
@@ -293,15 +340,19 @@ export function listRoundTrips(db: Db, q: RoundTripQuery): RoundTripPage {
   }
   const limit = Math.max(1, Math.min(q.limit ?? 100, 1000));
   const order = desc ? "DESC" : "ASC";
+  const exit = q.filter?.exit;
+  const inExit = exit ? `CASE WHEN ${legsOutsideExit(exit, sql)} THEN ${realizedInExit(exit, sql)} END` : "NULL";
   const rows = db.prepare(
-    `SELECT ${COLUMNS}, ${col} sortValue FROM round_trips t WHERE ${sql.where.join(" AND ")}
+    `SELECT ${COLUMNS}, ${inExit} pnlInExit, ${col} sortValue FROM round_trips t WHERE ${sql.where.join(" AND ")}
      ORDER BY (${col} IS NULL) ASC, ${col} ${order}, t.position_ticket ${order} LIMIT ${limit + 1}`,
   ).all(sql.params) as Array<StoredTrip & { sortValue: string | number | null }>;
   const more = rows.length > limit;
   const page = rows.slice(0, limit);
   const last = page[page.length - 1];
+  const digits = exit ? instanceMoneyDigits(db, q.instanceId) : 2;
   return {
-    rows: withDigits(page.map(({ sortValue: _s, ...row }) => row), instrumentDigits(db, q.instanceId)),
+    rows: withDigits(page.map(({ sortValue: _s, ...row }) => (row.pnlInExit == null ? row : { ...row, pnlInExit: roundMoney(row.pnlInExit, digits) })),
+      instrumentDigits(db, q.instanceId)),
     nextCursor: more && last ? encodeCursor([last.sortValue == null ? 1 : 0, last.sortValue, last.id]) : null,
   };
 }
@@ -315,14 +366,17 @@ export function roundTripTotals(db: Db, q: RoundTripQuery): RoundTripTotals {
   const sql = new Sql();
   scopeSql(q, sql);
   filterSql(q.filter, sql, q.allowed != null);
+  const exit = q.filter?.exit;
   const a = db.prepare(
-    `SELECT COUNT(*) matched, COALESCE(SUM(t.open=0),0) closed, COALESCE(SUM(t.open=1),0) open, COALESCE(SUM(t.realized),0) net,
+    `SELECT COUNT(*) matched, COALESCE(SUM(t.open=0),0) closed, COALESCE(SUM(t.open=1),0) open,
+       COALESCE(SUM(${exit ? realizedInExit(exit, sql) : "t.realized"}),0) net,
        COALESCE(SUM(t.open=0 AND t.realized>0),0) wins, COALESCE(SUM(t.open=0 AND t.realized<0),0) losses,
        AVG(CASE WHEN t.open=0 THEN t.realized END) avg,
        MAX(CASE WHEN t.open=0 THEN t.realized END) best, MIN(CASE WHEN t.open=0 THEN t.realized END) worst
      FROM round_trips t WHERE ${sql.where.join(" AND ")}`,
-  ).get(sql.params) as Omit<RoundTripTotals, "total" | "winRate">;
-  return { total, ...a, winRate: winRatePct(a.wins, a.losses) };
+  ).get(sql.params) as Omit<RoundTripTotals, "total" | "winRate" | "netInExit">;
+  // the stored figures are at the minor unit; their float sum is brought back to it
+  return { total, ...a, net: roundMoney(a.net, instanceMoneyDigits(db, q.instanceId)), netInExit: exit != null, winRate: winRatePct(a.wins, a.losses) };
 }
 
 export interface RoundTripFacets {
@@ -411,7 +465,7 @@ const BETWEEN_TYPES = ["order.modified", "bot.modify", "bot.cancel"];
 /** The round trip with its legs, the engine's story of it and its execution quality; null when there is none. */
 export function roundTripDetail(db: Db, instanceId: string, id: string): RoundTripDetail | null {
   refreshProjections(db);
-  const stored = statement(db, `SELECT ${COLUMNS} FROM round_trips t WHERE t.instance_id=? AND t.position_ticket=?`).get(instanceId, id) as StoredTrip | undefined;
+  const stored = statement(db, `SELECT ${COLUMNS}, NULL pnlInExit FROM round_trips t WHERE t.instance_id=? AND t.position_ticket=?`).get(instanceId, id) as StoredTrip | undefined;
   if (!stored) return null;
   const legs = venueLegs(db, instanceId, stored.id);
   const digits = digitsFrom(legs.flatMap((l) => (l.price != null ? [l.price] : [])), stored.instrument);
