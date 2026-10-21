@@ -19,11 +19,14 @@ describe("schema", () => {
     }
   });
 
-  it("drops the write-only tables", () => {
+  it("keeps the tables the previous release writes, so a rollback onto this schema still ingests", () => {
     const db = openDb(":memory:");
     const names = db.prepare("SELECT name FROM sqlite_master WHERE type IN ('table')").all().map((r: any) => r.name);
-    expect(names).not.toContain("ingest_observations");
-    expect(names).not.toContain("portfolio_exposure");
+    expect(names).toContain("ingest_observations");
+    expect(names).toContain("portfolio_exposure");
+    const indexes = db.prepare("SELECT name FROM sqlite_master WHERE type = 'index'").all().map((r: any) => r.name);
+    expect(indexes).not.toContain("idx_deals_position");
+    expect(indexes).not.toContain("idx_position_valuations_lookup");
   });
 
   it("enables WAL on a file-backed db", () => {
