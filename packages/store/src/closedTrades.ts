@@ -135,5 +135,6 @@ export function clearClosedTrades(db: Db): void {
   ).run();
   statement(db, "DELETE FROM closed_trades").run();
   statement(db, "DELETE FROM position_closures").run();
+  statement(db, "DELETE FROM round_trips").run();
   statement(db, "DELETE FROM projection_dirty WHERE kind IN ('position','ticket')").run();
 }

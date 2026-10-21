@@ -2,6 +2,7 @@ import type { Db } from "./db.js";
 import { statement } from "./statements.js";
 import { clearClosedTrades, positionKeysAfter, recomputePosition, recomputeTicket, type ClosedTradeKey } from "./closedTrades.js";
 import { accountRebuildStep, clearAccountProjection, recomputeAccountKeys } from "./accountProjection.js";
+import { recomputeRoundTrip } from "./roundTrips.js";
 import { clearExcursions, excursionsAfter, recomputeExcursions, recomputeTicketExcursions } from "./excursions.js";
 import { clearDaily, dailyKey, dailyUnitsAfter, recomputeDaily, recomputeDailyKeys, utcDay, type CloseSource } from "./strategyDaily.js";
 
@@ -66,9 +67,10 @@ PROJECTIONS.account_drawdown = {
   step: (db, cursor) => accountRebuildStep(db, cursor),
 };
 
-/** Recomputes one position's closes, then what is derived per close: its excursion and its strategy's days. */
+/** Recomputes one position's closes and round trip, then what is derived per close: its excursion and its strategy's days. */
 function positionChanged(db: Db, instanceId: string, key: string): void {
   const change = recomputePosition(db, instanceId, key);
+  if (key.startsWith("p:")) recomputeRoundTrip(db, instanceId, key.slice(2));
   recomputeExcursions(db, [...new Set([...change.before, ...change.after].map((r) => r.dealRowid))]);
   changedCloses(db, instanceId, change);
 }

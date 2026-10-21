@@ -7,6 +7,7 @@ rebuilt from its source tables at any time; nothing in it is the only copy of an
 | Projection | Tables | Source | Kept up to date | Serves |
 |---|---|---|---|---|
 | `closed_trades` | `closed_trades`, `position_closures`, `deals.canonical` | `deals` | per position, on every deal stored, attributed or changed: O(legs) | every closed-trade list and figure, the public cutoff rule, costs |
+| (same) `round_trips` | `round_trips` | `deals`, `orders`, `order.submit` / `order.filled` / `bot.close` events | per position, with its closed trades; an order learning its broker id or one of those events re-marks the position | the Trades page: one row per position, entry to exit |
 | `strategy_daily` | `strategy_daily`, `strategy_totals` | `closed_trades`, `trade_closes` | in the same transaction, from the first changed day | daily nets, calendar, rolling stats, the strategy list |
 | `position_excursions` | `position_excursions` | `closed_trades`, `position_valuations` | per mark: O(1); a pruned mark recomputes its ticket | MAE/MFE |
 | `account_drawdown` | `account_drawdown_state`, `account_labels`, `account_minute_labels`, `account_label_pairs`, `account_groups` | `account_equity` | per minute rollup | `/account/drawdown`, `/account/risk`, month bases, `/account/equity` sampling |
@@ -36,7 +37,7 @@ point at), stop the server and run:
 
 ```bash
 docker compose run --rm --no-deps qkt-insights rebuild all
-# or one projection: rebuild closed_trades | strategy_daily | position_excursions | account_drawdown
+# or one projection: rebuild closed_trades (with round_trips) | strategy_daily | position_excursions | account_drawdown
 ```
 
 Run it with the server stopped: a rebuild empties the projection first, and a running server
