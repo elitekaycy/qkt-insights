@@ -37,10 +37,18 @@ export function listStrategyRoster(db: Db, instanceId: string): StrategyRow[] {
 /** The admin roster, with realized figures and each strategy's current halt. */
 export function listStrategies(db: Db, instanceId: string, now = Date.now()): Array<StrategyRow & StrategyHalt> {
   const halts = currentHalts(db, instanceId, now);
+  // One grouped read of strategy_totals: each strategy's closes from broker deals when it has any,
+  // else its trade.closed rows (the closedTrades choice), totalled newest first as the list was.
+  refreshProjections(db);
+  const totals = new Map<string, { deal?: { closes: number; net: number }; ledger?: { closes: number; net: number } }>();
+  for (const t of statement(db, "SELECT strategy_id s, source, closes, net_newest_first net FROM strategy_totals WHERE instance_id=?").all(instanceId) as Array<{ s: string; source: "deal" | "ledger"; closes: number; net: number }>) {
+    totals.set(t.s, { ...totals.get(t.s), [t.source]: { closes: t.closes, net: t.net } });
+  }
   return strategyRosterRows(db, instanceId).map((r) => {
-    const closes = closedTrades(db, { instanceId, strategyId: r.strategyId });
+    const t = totals.get(r.strategyId);
+    const closes = t?.deal ?? t?.ledger;
     return {
-      ...r, realizedNet: closes.length > 0 ? closes.reduce((a, c) => a + c.realized, 0) : null, dealCount: closes.length,
+      ...r, realizedNet: closes ? closes.net : null, dealCount: closes?.closes ?? 0,
       ...strategyHalt(halts, r.strategyId),
     };
   });

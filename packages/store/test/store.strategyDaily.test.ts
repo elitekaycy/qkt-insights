@@ -1,5 +1,5 @@
 import { describe, it, expect } from "vitest";
-import { openDb, ingestEvents, dailyNets, rollingStats, rebuildProjection, refreshProjections, type Db } from "../src/index.js";
+import { openDb, ingestEvents, dailyNets, rollingStats, rebuildProjection, refreshProjections, listStrategies, closedTrades, type Db } from "../src/index.js";
 import type { Envelope } from "@qkt-insights/contract";
 
 const H = 3_600_000;
@@ -100,5 +100,19 @@ describe("strategy_daily projection", () => {
     rebuildProjection(db, "closed_trades", { force: true });
     rebuildProjection(db, "strategy_daily", { force: true, batch: 1 });
     expect(rows()).toEqual(maintained);
+  });
+
+  it("lists each strategy's realized total and close count exactly as its closed trades add up", () => {
+    const db = seeded();
+    for (let p = 0; p < 50; p++) ingestEvents(db, I, [deal(`${p}i`, `P${p}`, "IN", T0 + p * 3 * H, 0, "a"), deal(`${p}o`, `P${p}`, "OUT", T0 + p * 3 * H + H, pnl(p + 7), "a")]);
+    ingestEvents(db, I, Array.from({ length: 25 }, (_, k) => closed(T0 + k * 2 * H, pnl(k + 300), "b")));
+    ingestEvents(db, I, [deal("late-i", "PL", "IN", T0 - DAY, 0, "a"), deal("late-o", "PL", "OUT", T0 - DAY + H, 0.07, "a")]);
+    const listed = new Map(listStrategies(db, I, T0).map((s) => [s.strategyId, s]));
+    for (const id of ["a", "b"]) {
+      const closes = closedTrades(db, { instanceId: I, strategyId: id });
+      expect(listed.get(id)).toMatchObject({ realizedNet: closes.reduce((n, c) => n + c.realized, 0), dealCount: closes.length });
+    }
+    db.prepare("INSERT INTO strategies (instance_id, strategy_id, first_seen, last_seen) VALUES (?,?,?,?)").run(I, "idle", T0, T0);
+    expect(listStrategies(db, I, T0).find((s) => s.strategyId === "idle")).toMatchObject({ realizedNet: null, dealCount: 0 });
   });
 });
