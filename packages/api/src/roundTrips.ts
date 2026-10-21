@@ -2,7 +2,7 @@ import { Readable } from "node:stream";
 import type { FastifyInstance, FastifyReply } from "fastify";
 import { parseQuery, UNATTRIBUTED_STRATEGY, type ParsedQuery } from "@qkt-insights/contract/query";
 import {
-  listRoundTrips, roundTripDetail, roundTripFacets, roundTripPages, roundTripTotals, ROUND_TRIP_SORTS, tripPrice,
+  listRoundTrips, roundTripAnalytics, roundTripDetail, roundTripFacets, roundTripPages, roundTripTotals, ROUND_TRIP_SORTS, tripPrice,
   type Db, type RoundTripQuery, type TripRow, type RoundTripScope, type RoundTripSort, type RoundTripTotals,
 } from "@qkt-insights/store";
 import { requireSession } from "./auth.js";
@@ -102,6 +102,16 @@ export function registerRoundTrips(app: FastifyInstance, deps: { db: Db }): void
       const page = listRoundTrips(deps.db, q);
       return { ...page, totals: cursor ? null : roundTripTotals(deps.db, q), query: { canonical: r.parsed.canonical, errors: r.parsed.errors } };
     });
+  });
+
+  // Every aggregate of a strategy's journal sections, for the same scope and query as the list.
+  app.get<{ Querystring: Query }>("/round-trips/analytics", guard, async (req, reply) => {
+    const r = readRoundTripRequest(deps.db, req.query);
+    if (typeof r === "string") return bad(reply, r);
+    return versioned.send(req, reply, [{ instance: r.scope.instanceId }], () => ({
+      ...roundTripAnalytics(deps.db, { ...r.scope, filter: r.parsed.filter }),
+      query: { canonical: r.parsed.canonical, errors: r.parsed.errors },
+    }));
   });
 
   app.get<{ Querystring: Query }>("/round-trips/facets", guard, async (req, reply) => {

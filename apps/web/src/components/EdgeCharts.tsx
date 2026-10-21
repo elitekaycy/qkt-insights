@@ -1,4 +1,4 @@
-import type { BreakdownRow, ContributionRanking, CostDecomposition, DowHourCell, RollingPoint } from "../api";
+import type { BreakdownRow, DowHourCell, RollingPoint } from "../api";
 import { money, pct, signedMoney, winPct } from "../format";
 import { token } from "../theme";
 import { chartColors, EChart, qktBottomLegend, qktChartAxis, qktChartGrid, qktChartTooltip, qktLegend, qktXAxis, tok, useNarrowChart, type QktChartOption } from "./EChart";
@@ -204,108 +204,6 @@ export function RollingChart({ points, height = 260 }: { points: RollingPoint[];
     series: [
       { name: "rolling Sharpe", type: "line", showSymbol: false, connectNulls: false, data: points.map((p) => p.sharpe) },
       { name: "rolling winning days", type: "line", yAxisIndex: 1, showSymbol: false, connectNulls: false, data: points.map((p) => p.winRate) },
-    ],
-  };
-  return <EChart option={option} height={height} />;
-}
-
-/** Gross profit vs commission vs swap per month — what trading actually cost. */
-export function CostStack({ costs, height = 260 }: { costs: CostDecomposition; height?: number }) {
-  const rows = costs.byMonth;
-  const option: QktChartOption = {
-    color: [UP, chartColors.series[1], chartColors.series[3], chartColors.series[4]],
-    grid: qktChartGrid,
-    tooltip: {
-      ...qktChartTooltip(),
-      trigger: "axis",
-      formatter: (params: unknown) => {
-        const list = params as { dataIndex: number }[];
-        const r = rows[list[0]?.dataIndex ?? 0];
-        if (!r) return "";
-        return `${r.key}<br/>gross ${signedMoney(r.grossProfit)}<br/>commission ${signedMoney(r.commission)}<br/>swap ${signedMoney(r.swap)}<br/>fee ${signedMoney(r.fee)}<br/><b>net ${signedMoney(r.net)}</b> · ${r.trades} closes`;
-      },
-    },
-    legend: qktLegend(),
-    xAxis: { type: "category", data: rows.map((r) => r.key), ...qktXAxis },
-    yAxis: { type: "value", ...qktChartAxis },
-    series: [
-      { name: "gross (before costs)", type: "bar", data: rows.map((r) => r.grossProfit), itemStyle: { color: UP, opacity: 0.9 } },
-      { name: "commission", type: "bar", stack: "cost", data: rows.map((r) => r.commission), itemStyle: { color: chartColors.series[1] } },
-      { name: "swap", type: "bar", stack: "cost", data: rows.map((r) => r.swap), itemStyle: { color: chartColors.series[3] } },
-      { name: "fee", type: "bar", stack: "cost", data: rows.map((r) => r.fee), itemStyle: { color: chartColors.series[4] } },
-    ],
-  };
-  return <EChart option={option} height={height} />;
-}
-
-/** Ranked net contribution bars (horizontal), expectancy in the tooltip. */
-export function ContributionBars({ ranking, height = 260 }: { ranking: ContributionRanking; height?: number }) {
-  const rows = [...ranking.bySymbol].reverse(); // horizontal bars read bottom-up
-  const option: QktChartOption = {
-    grid: { ...qktChartGrid, left: 110 },
-    tooltip: {
-      ...qktChartTooltip(),
-      formatter: (params: unknown) => {
-        const p = params as { dataIndex: number };
-        const r = rows[p.dataIndex];
-        if (!r) return "";
-        const share = r.share != null ? ` · ${pct(r.share, 0)} of net` : "";
-        return `${r.key}<br/>net ${signedMoney(r.net)}${share}<br/>n ${r.trades} · win ${winPct(r.winRate)} · expectancy ${signedMoney(r.expectancy)}`;
-      },
-    },
-    xAxis: { type: "value", ...qktChartAxis },
-    yAxis: { type: "category", data: rows.map((r) => r.key), ...qktChartAxis, splitLine: { show: false } },
-    series: [
-      {
-        type: "bar",
-        data: rows.map((r) => ({
-          value: r.net,
-          itemStyle: { color: r.net >= 0 ? UP : DOWN, opacity: r.trades < MIN_N ? 0.35 : 0.95 },
-          label: { show: true, position: r.net >= 0 ? "right" : "left", fontSize: 9, color: tok("bright"), formatter: () => `n${r.trades}` },
-        })),
-      },
-    ],
-  };
-  return <EChart option={option} height={height} />;
-}
-
-/** Per-bucket P&L box plots (box over violin under small n); whiskers = min/max. */
-export function BucketBoxplot({ groups, height = 260 }: { groups: { key: string; values: number[] }[]; height?: number }) {
-  const boxRow = (values: number[]): [number, number, number, number, number] => {
-    const s = [...values].sort((a, b) => a - b);
-    const q = (p: number) => {
-      const idx = (s.length - 1) * p;
-      const lo = Math.floor(idx);
-      const hi = Math.ceil(idx);
-      return s[lo]! + (s[hi]! - s[lo]!) * (idx - lo);
-    };
-    return [s[0]!, q(0.25), q(0.5), q(0.75), s[s.length - 1]!];
-  };
-  const usable = groups.filter((g) => g.values.length >= 2);
-  const option: QktChartOption = {
-    grid: qktChartGrid,
-    tooltip: {
-      ...qktChartTooltip(),
-      formatter: (params: unknown) => {
-        const p = params as { dataIndex: number; data?: number[] };
-        const g = usable[p.dataIndex];
-        if (!g || !p.data) return "";
-        const [minV, q1, med, q3, maxV] = p.data.slice(1) as [number, number, number, number, number];
-        const warn = g.values.length < MIN_N ? `<br/><span style="color:${MUTED}">n < ${MIN_N}</span>` : "";
-        return `${g.key} (n ${g.values.length})<br/>max ${signedMoney(maxV)}<br/>q3 ${signedMoney(q3)}<br/>median ${signedMoney(med)}<br/>q1 ${signedMoney(q1)}<br/>min ${signedMoney(minV)}${warn}`;
-      },
-    },
-    xAxis: { type: "category", data: usable.map((g) => `${g.key} n${g.values.length}`), ...qktXAxis },
-    yAxis: { type: "value", ...qktChartAxis },
-    series: [
-      {
-        type: "boxplot",
-        itemStyle: { color: tok("s1", 0.12), borderColor: chartColors.primary },
-        data: usable.map((g) => ({
-          value: boxRow(g.values),
-          itemStyle: g.values.length < MIN_N ? { borderColor: MUTED, color: tok("faint", 0.1) } : undefined,
-        })),
-      },
     ],
   };
   return <EChart option={option} height={height} />;

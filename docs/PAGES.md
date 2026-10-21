@@ -33,14 +33,43 @@ underwater curve, and drawdown periods.
 
 ## Strategies
 
-Every standalone and portfolio strategy on the instance, with live P&L and return.
-A strategy the engine has halted (`risk.halted` with no later `risk.resumed`) carries a
-`halted` badge; clicking or tapping it gives the reason, when it tripped and how it clears, and the
-strategy page spells it out, with `qkt resume <name>` for a persistent halt.
-A session-level halt covers the strategies its session runs (`sessionStrategies`, qkt#1244);
-from older engines, which do not name them, it covers every strategy of the instance.
-A session start sends each strategy's own halt state (`risk.snapshot`, qkt v0.52.4); that
-replaces whatever the earlier halt events implied for the strategy.
+Every strategy on the instance in the sortable table Home uses: status (running, retired, or
+halted with the reason and how long ago under the name), Today on the account's trading day plus
+what it floats, 7D, MTD, all-time, max drawdown, trades, win rate and last close. Portfolio sleeves
+get one table per portfolio with its total and a link to the portfolio page; retired and empty
+strategies are one click away. A row opens the strategy.
+
+A strategy page follows the backtester journal. The header carries the net since the first trade
+(realized plus open), the return on the strategy's own base with the base named (portfolio
+allocation, `STRATEGY_CAPITAL`, or the starting balance), the status, and a Runtime popover (mode,
+DSL version, source, hash, streams). When the engine has halted it (`risk.halted` with no later
+`risk.resumed`), a banner at the top says why, since when, how it clears and, for a persistent
+halt, `qkt resume <name>`. A session-level halt covers the strategies its session runs
+(`sessionStrategies`, qkt#1244); from older engines, which do not name them, it covers every
+strategy of the instance. A session start sends each strategy's own halt state (`risk.snapshot`,
+qkt v0.52.4); that replaces whatever the earlier halt events implied for the strategy.
+
+The sections are in the URL (`/s/<id>`, `/s/<id>/calendar`, `daily`, `monthly`, `trades`, `time`,
+`logs`) and all read one scope: the date range chips (Today, 7D, MTD, YTD, All, as `range`) and the
+query bar (`q`), with "Showing k of n round trips" and their net and win rate. The unit is the
+closed round trip.
+
+- **Overview**: realised P&L with its return, win rate ring, profit factor gauge (break-even at
+  1.0), average win and loss with the payoff, expectancy in money and in R when the entries had a
+  stop, max drawdown of the running total, Sharpe, Sortino and Calmar once 20 days have closes,
+  the cumulative P&L and each trade's P&L (a click opens the trade), and drawdown on equity with
+  the cost split. The ratios and costs follow the range but not the search, and say so.
+- **Calendar**, **Daily**, **Monthly**: P&L by UTC exit day and month, the week column, the day
+  table with the running total, the zoom bar that sums exactly the visible days, the month table
+  with return on the base, and the year by month heat. A day or month click narrows the query
+  (`exit:<day>`) and lists its trades underneath while the whole period stays on screen.
+- **Trades**: the round trips of the query, sortable, with CSV export.
+- **Time & risk**: side, how trades ended, hold time, UTC entry weekday and hour (with n; buckets
+  under 30 trades are faded), R, streaks and how the next trade went after N losses.
+- **Logs**: the latest lines, and a link to Logs filtered with `strategy:<id>`.
+
+Every bar, bucket, row and ring segment narrows the query to the trades behind it (a second click
+clears it), and every card says what clicking does. Explanations open on click or tap.
 
 ![Strategies](assets/screenshots/strategies.png)
 
@@ -68,7 +97,8 @@ the strategy's signal, the venue, or by hand). Unattributed positions are includ
 The query bar takes free text and tags, and every tag becomes a removable chip:
 `strategy:gold_ema_pullback`, `symbol:XAUUSD` (broker prefixes folded), `side:long|short`, `pnl:>50`,
 `pnl:<0`, `r:>=1`, `held:<1h`, `held:1h..4h`, `entry:2026-10`, `exit:2026-10-21`,
-`ended:stop|tp|signal|venue|manual`, `size:>=0.5`, `#<ticket>`, and the bare words `win`, `loss` and `open`.
+`ended:stop|tp|signal|venue|manual`, `size:>=0.5`, `weekday:mon` and `hour:14` (UTC entry), `#<ticket>`, and the bare
+words `win`, `loss` and `open`.
 A later tag of the same key replaces the earlier one; a word it cannot read gets a message naming
 what it expected, and the rest still apply. Completions come from the instance's own strategies,
 instruments and days. `/` focuses the bar, `Esc` clears it, `j`/`k` move through the rows and

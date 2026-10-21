@@ -10,6 +10,7 @@
 
 export type QueryKey =
   | "text" | "strategy" | "symbol" | "side" | "outcome" | "pnl" | "r" | "held" | "entry" | "exit" | "ended" | "size" | "ticket"
+  | "weekday" | "hour"
   | "level" | "logger" | "time";
 
 /** A numeric bound pair; each bound is inclusive unless its `*Open` flag says otherwise. */
@@ -40,6 +41,10 @@ export interface QueryFilter {
   ended?: Ended;
   size?: Range;
   ticket?: string;
+  /** Entry weekday, UTC: 0 is Monday, 6 is Sunday. */
+  weekday?: number;
+  /** Entry hour of day, UTC (0-23), as an inclusive range unless a bound says otherwise. */
+  hour?: Range;
   level?: Level;
   logger?: string;
   /** When a log line was written. */
@@ -77,7 +82,7 @@ export interface QueryContext {
 }
 
 /** The keys each page applies; the bar keeps the others as chips but says the page ignores them. */
-export const TRADE_KEYS: ReadonlySet<QueryKey> = new Set<QueryKey>(["text", "strategy", "symbol", "side", "outcome", "pnl", "r", "held", "entry", "exit", "ended", "size", "ticket"]);
+export const TRADE_KEYS: ReadonlySet<QueryKey> = new Set<QueryKey>(["text", "strategy", "symbol", "side", "outcome", "pnl", "r", "held", "entry", "exit", "ended", "size", "ticket", "weekday", "hour"]);
 export const LOG_KEYS: ReadonlySet<QueryKey> = new Set<QueryKey>(["text", "strategy", "level", "logger", "time"]);
 
 const KEY_ALIAS: Record<string, QueryKey> = {
@@ -93,6 +98,8 @@ const KEY_ALIAS: Record<string, QueryKey> = {
   ended: "ended", end: "ended", by: "ended", reason: "ended",
   size: "size", qty: "size", lots: "size", volume: "size",
   ticket: "ticket", id: "ticket", position: "ticket", trade: "ticket",
+  weekday: "weekday", dow: "weekday", wd: "weekday",
+  hour: "hour",
   level: "level", lvl: "level", severity: "level",
   logger: "logger",
   time: "time", at: "time", when: "time",
@@ -114,6 +121,14 @@ const ENDED: Record<string, Ended> = {
   signal: "signal", rule: "signal", strategy: "signal",
   venue: "venue", stopout: "venue", stop_out: "venue", margin: "venue", liquidation: "venue",
   manual: "manual", bot: "manual", hand: "manual",
+};
+/** Weekday names to 0 (Monday) .. 6 (Sunday), the week the calendar draws. */
+export const WEEKDAY_NAMES = ["mon", "tue", "wed", "thu", "fri", "sat", "sun"] as const;
+const WEEKDAY_LABEL = ["Monday", "Tuesday", "Wednesday", "Thursday", "Friday", "Saturday", "Sunday"];
+/** `mon`, `monday`, `tues`: at least three letters of the day's name. */
+const weekdayOf = (s: string): number | null => {
+  const i = s.length >= 3 ? WEEKDAY_LABEL.findIndex((d) => d.toLowerCase().startsWith(s)) : -1;
+  return i >= 0 ? i : null;
 };
 const LEVELS: Record<string, Level> = { error: "ERROR", err: "ERROR", warn: "WARN", warning: "WARN", info: "INFO", debug: "DEBUG", trace: "TRACE" };
 /** Bare words that name a filter on their own: `win`, `long`, `stop`. */
@@ -153,6 +168,10 @@ const money = (s: string): number | null => {
 const multiple = (s: string): number | null => {
   const m = /^([+-]?\d+(?:\.\d+)?)r?$/i.exec(s.trim());
   return m ? Number(m[1]) : null;
+};
+const hourOf = (s: string): number | null => {
+  const m = /^(\d{1,2})$/.exec(s.trim());
+  return m && Number(m[1]) <= 23 ? Number(m[1]) : null;
 };
 const lots = (s: string): number | null => {
   const m = /^(\d+(?:\.\d+)?)$/.exec(s.trim());
@@ -233,7 +252,7 @@ export function foldInstrument(symbol: string): string {
   return (i >= 0 ? symbol.slice(i + 1) : symbol).toUpperCase();
 }
 
-const KNOWN = "strategy:, symbol:, side:, pnl:, r:, held:, entry:, exit:, ended:, size:, #ticket, level:, logger:, time:";
+const KNOWN = "strategy:, symbol:, side:, pnl:, r:, held:, entry:, exit:, ended:, size:, weekday:, hour:, #ticket, level:, logger:, time:";
 const HINT: Partial<Record<QueryKey, string>> = {
   side: "side: long or short",
   outcome: "outcome: win, loss, breakeven, open or closed",
@@ -245,6 +264,8 @@ const HINT: Partial<Record<QueryKey, string>> = {
   time: "time: a UTC date or span like 2026-10-21, >=2026-10-15, today, 1h or 7d",
   ended: "ended: stop, tp, signal, venue or manual",
   size: "size: lots like >=0.5, <1 or 0.1..0.5",
+  weekday: "weekday: the UTC entry day, mon to sun",
+  hour: "hour: the UTC entry hour 0-23, like 14, >=8 or 8..16",
   ticket: "#ticket: the venue position ticket, like #1000123456",
   level: "level: error, warn, info or debug",
   logger: "logger: part of a logger name, like logger:MT5Broker",
@@ -323,6 +344,14 @@ function interpret(key: QueryKey, value: string, ctx: QueryContext): Interpreted
       if (!w) return key === "exit" && ENDED[lv] ? `exit: takes a date. For how a trade ended use ended:${ENDED[lv]}` : HINT[key]!;
       const verb = key === "entry" ? "Entered" : key === "exit" ? "Exited" : "Written";
       return { key, text: `${key}:${lv}`, label: `${verb} ${windowLabel(w)} (UTC)`, apply: (f) => { f[key] = w; } };
+    }
+    case "weekday": {
+      const d = weekdayOf(lv);
+      return d === null ? HINT.weekday! : { key, text: `weekday:${WEEKDAY_NAMES[d]}`, label: `Entered on a ${WEEKDAY_LABEL[d]} (UTC)`, apply: (f) => { f.weekday = d; } };
+    }
+    case "hour": {
+      const r = parseRange(lv, hourOf);
+      return r ? { key, text: `hour:${lv}`, label: `Entered ${op(r, (n) => `${String(n).padStart(2, "0")}:00`)} UTC`, apply: (f) => { f.hour = r; } } : HINT.hour!;
     }
     case "ticket": {
       const t = value.replace(/^#/, "");

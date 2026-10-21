@@ -1,4 +1,4 @@
-import { useMemo, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 import type { DayNet } from "../api";
 import { compact, compactPnl, count, DASH, day as utcDay, human, monthName, pct, pnl, signedMoney, signedPct } from "../format";
 import { Card, Cell, Empty, Field, IconButton, Modal, Pnl, Row, Table } from "./ui";
@@ -42,6 +42,10 @@ export function CalendarView({
   returnBase,
   baseLabel = "starting capital",
   drill,
+  onDay,
+  selectedDay = null,
+  month: wantedMonth = null,
+  monthlyTable = true,
 }: {
   days: DayNet[];
   /** Capital a month's (and its days') return is measured against; null hides the return. */
@@ -50,11 +54,21 @@ export function CalendarView({
   baseLabel?: string;
   /** Where a day's round trips come from: the instance, and the strategy on a strategy page. */
   drill?: { instanceId: string; strategy?: string };
+  /** A day click goes here instead of opening the day dialog (a page that filters by the day). */
+  onDay?: (day: string) => void;
+  /** The picked day, ringed; and the month to show (follows the prop when it changes). */
+  selectedDay?: string | null;
+  month?: string | null;
+  /** Hide the monthly returns table (a page with its own monthly section). */
+  monthlyTable?: boolean;
 }) {
   const byDay = useMemo(() => new Map(days.map((d) => [d.day, d])), [days]);
   const months = useMemo(() => [...new Set(days.map((d) => monthKey(d.day)))].sort(), [days]);
   const today = utcDay(Date.now());
-  const [picked, setMonth] = useState<string | null>(null);
+  const [picked, setMonth] = useState<string | null>(wantedMonth);
+  useEffect(() => {
+    if (wantedMonth) setMonth(wantedMonth);
+  }, [wantedMonth]);
   const month = picked && months.includes(picked) ? picked : (months[months.length - 1] ?? monthKey(today));
   const [openDay, setDay] = useState<string | null>(null);
   const [trade, setTrade] = useSearchParam("trade");
@@ -124,7 +138,7 @@ export function CalendarView({
       <Card className="p-4">
         <div className="flex flex-wrap items-center gap-2 text-sm">
           <span className="font-medium text-body">P&L calendar</span>
-          <span className="ml-auto text-xs text-muted">by close day (UTC){drill ? " · click a day for its trades" : ""}</span>
+          <span className="ml-auto text-xs text-muted">by close day (UTC){drill || onDay ? " · click a day for its trades" : ""}</span>
         </div>
         <div className="mt-3 flex flex-wrap items-center gap-x-3 gap-y-2">
           <IconButton label="Previous month" disabled={idx <= 0} onClick={() => idx > 0 && setMonth(months[idx - 1]!)} d="M15 18l-6-6 6-6" />
@@ -192,11 +206,12 @@ export function CalendarView({
                       key={c.day}
                       type="button"
                       role="gridcell"
-                      onClick={() => setOpenDay(c.day)}
+                      onClick={() => (onDay ? onDay(c.day) : setOpenDay(c.day))}
                       style={{ background: shade(d.net, maxAbs) }}
                       aria-label={`${c.day}: ${signedMoney(d.net)}, ${d.trades} trades`}
+                      aria-pressed={onDay ? c.day === selectedDay : undefined}
                       className={`flex min-h-12 min-w-0 flex-col justify-between rounded-lg border px-1.5 py-1 text-left transition hover:-translate-y-px hover:border-faint @xl:min-h-[78px] @xl:px-2 @xl:py-1.5 ${
-                        isToday ? "border-accent-hi" : "border-line"
+                        c.day === selectedDay ? "border-accent-hi ring-2 ring-accent-soft" : isToday ? "border-accent-hi" : "border-line"
                       }`}
                     >
                       <span className="flex items-center justify-between text-[11px] text-bright">
@@ -233,7 +248,7 @@ export function CalendarView({
         </div>
       </Card>
 
-      <Card className="overflow-hidden">
+      {monthlyTable && <Card className="overflow-hidden">
         <div className="flex flex-wrap items-baseline gap-x-3 gap-y-1 border-b border-line px-4 py-3">
           <h3 className="text-sm font-medium text-body">Monthly returns</h3>
           <span className="text-xs text-muted">
@@ -263,7 +278,7 @@ export function CalendarView({
             ))}
           </Table>
         </div>
-      </Card>
+      </Card>}
 
       {openDay && dayInfo && (
         <Modal

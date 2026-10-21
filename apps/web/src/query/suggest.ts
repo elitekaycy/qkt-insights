@@ -54,6 +54,9 @@ const STATIC: Cand[] = [
   { key: "exit", text: "exit:today", label: "Closed today (UTC)", group: "Exit", words: "today closed exited" },
   { key: "exit", text: "exit:7d", label: "Closed in the last 7 days", group: "Exit", words: "week recent closed" },
   { key: "entry", text: "entry:7d", label: "Opened in the last 7 days", group: "Entry", words: "week recent opened" },
+  ...["mon", "tue", "wed", "thu", "fri", "sat", "sun"].map((d, i) => ({
+    key: "weekday" as const, text: `weekday:${d}`, label: `Entered on ${["Monday", "Tuesday", "Wednesday", "Thursday", "Friday", "Saturday", "Sunday"][i]} (UTC)`, group: "Entry weekday", words: "weekday day dow",
+  })),
   { key: "level", text: "level:error", label: "Errors", group: "Level", words: "error err fail" },
   { key: "level", text: "level:warn", label: "Warnings", group: "Level", words: "warn warning" },
   { key: "level", text: "level:info", label: "Info lines", group: "Level", words: "info" },
@@ -81,6 +84,8 @@ const KEYS: Array<[QueryKey, string, string]> = [
   ["exit", "exit:", "a UTC date or month, today, 7d"],
   ["ended", "ended:", "stop / tp / signal / venue / manual"],
   ["size", "size:", "lots, like >=0.5"],
+  ["weekday", "weekday:", "the UTC entry day, mon to sun"],
+  ["hour", "hour:", "the UTC entry hour, like 14 or 8..16"],
   ["ticket", "#", "a venue ticket"],
   ["level", "level:", "error / warn / info / debug"],
   ["logger", "logger:", "part of a logger name"],

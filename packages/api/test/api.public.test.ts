@@ -294,6 +294,12 @@ describe("public links", () => {
     expect(facets.json()).toMatchObject({ strategies: [{ id: "gold", n: 1 }], instruments: [{ name: "GBPUSD", n: 1 }] });
     expectNoSecrets(facets.body);
     expect((await pub(token, "/round-trips?strategy=secret")).statusCode).toBe(404);
+    // the journal aggregates cover the same closed round trips, with opaque trade ids
+    const analytics = await pub(token, "/round-trips/analytics?q=side:long");
+    expect(analytics.json()).toMatchObject({ matched: 1, closed: 1, pnl: 25, best: { pnl: 25 }, query: { canonical: "side:long" } });
+    expect((analytics.json() as { trades: Array<{ id: string }> }).trades[0]!.id).toMatch(/^[0-9a-f]{16}$/);
+    expectNoSecrets(analytics.body);
+    expect((await pub(token, "/round-trips/analytics?strategy=secret")).statusCode).toBe(404);
   });
 
   it("shows account state without identity, and open positions only as a count and total marked at the cutoff", async () => {

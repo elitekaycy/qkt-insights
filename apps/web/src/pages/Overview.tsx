@@ -7,7 +7,7 @@ import { StrategyTable, type StrategyLine } from "../components/HomeStrategies";
 import { ShareControl } from "../components/ShareControl";
 import { Card, Loadable, PageHeader } from "../components/ui";
 import { day as utcDay } from "../format";
-import { dayBasisLabel, floatingByStrategy, HOME_RANGES, openRisk, riskRowFor, strategyPeriods, type HomeRange } from "../home";
+import { dayBasisLabel, floatingByStrategy, HOME_RANGES, openRisk, riskRowFor, strategyLines, strategyPeriods, type HomeRange } from "../home";
 import { strategyDisplayName } from "../portfolio";
 import { useSearchParam } from "../router";
 import { useLiveState } from "../useLiveState";
@@ -76,13 +76,7 @@ export default function Home({ instanceId }: { instanceId: string | null }) {
     ? new Map<string | null, number>(Object.entries(liveState.data?.openByStrategy ?? {}))
     : floatingByStrategy(positions);
   const periods = summary.data ? strategyPeriods(summary.data.closes, { now, dayStart, floating }) : null;
-  const lines: StrategyLine[] = periods
-    ? [
-        ...rows.map((row) => ({ key: row.strategyId, row, periods: periods.get(row.strategyId) ?? emptyPeriods(row.strategyId) })),
-        // closes whose strategy left the roster still count, as does the unattributed bucket
-        ...[...periods.values()].filter((p) => p.key == null || !byId.has(p.key)).map((p) => ({ key: p.key, row: null, periods: p })),
-      ]
-    : [];
+  const lines: StrategyLine[] = periods ? strategyLines(rows, periods) : [];
   // the account's realized today when it has no risk row yet: the strategies' sum over the same day
   const realizedFallback = periods ? [...periods.values()].reduce((a, p) => a + p.todayRealized, 0) : 0;
 
@@ -149,8 +143,4 @@ export default function Home({ instanceId }: { instanceId: string | null }) {
       </Loadable>
     </div>
   );
-}
-
-function emptyPeriods(key: string) {
-  return { key, today: 0, todayRealized: 0, floating: 0, d7: 0, mtd: 0, all: 0, maxDd: 0, trades: 0, wins: 0, losses: 0, winRate: null, lastTs: null };
 }

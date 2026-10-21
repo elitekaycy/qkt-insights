@@ -9,7 +9,10 @@ describe("routes", () => {
       { page: "home" },
       { page: "strategies" },
       { page: "strategies", strategy: "gold_rsi_fade_v2", tab: "overview" },
-      { page: "strategies", strategy: "gold rsi/fade", tab: "performance" },
+      { page: "strategies", strategy: "gold rsi/fade", tab: "time" },
+      { page: "strategies", strategy: "gold", tab: "daily" },
+      { page: "strategies", strategy: "gold", tab: "monthly" },
+      { page: "strategies", strategy: "gold", tab: "logs" },
       { page: "strategies", strategy: "eurusd", tab: "calendar" },
       { page: "strategies", portfolio: "book-1" },
       { page: "trades" },
@@ -27,6 +30,8 @@ describe("routes", () => {
   it("falls back to Home on an unknown path and to the overview tab on an unknown tab", () => {
     expect(parsePath("/nope")).toEqual({ page: "home" });
     expect(parsePath("/s/x/nope")).toEqual({ page: "strategies", strategy: "x", tab: "overview" });
+    // the retired performance tab's figures live on the overview now
+    expect(parsePath("/s/x/performance")).toEqual({ page: "strategies", strategy: "x", tab: "overview" });
     expect(parsePath("/find")).toEqual({ page: "logs" });
     expect(movedPath("/find")).toBe("/log");
     expect(movedPath("/log")).toBeNull();

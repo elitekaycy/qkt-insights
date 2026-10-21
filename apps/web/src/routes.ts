@@ -25,8 +25,9 @@ const MOVED: Record<string, PageKey> = {
   find: "logs",
 };
 
-export type StrategyTab = "overview" | "trades" | "performance" | "calendar";
-export const STRATEGY_TABS: readonly StrategyTab[] = ["overview", "trades", "performance", "calendar"];
+/** A strategy's sections, the journal's: the path segment of each (overview has none). */
+export type StrategyTab = "overview" | "calendar" | "daily" | "monthly" | "trades" | "time" | "logs";
+export const STRATEGY_TABS: readonly StrategyTab[] = ["overview", "calendar", "daily", "monthly", "trades", "time", "logs"];
 
 export type SettingsSection = "sharing" | "viewership" | "appearance" | "account";
 export const SETTINGS_SECTIONS: readonly SettingsSection[] = ["sharing", "viewership", "appearance", "account"];
