@@ -1,5 +1,5 @@
 import type { Db } from "./db.js";
-import type { Envelope } from "@qkt-insights/contract";
+import { isLiveStateType, type Envelope, type QuarantinedEnvelope } from "@qkt-insights/contract";
 
 /** A flat position still records one valuation this often so its holding period is visible. */
 /** A flat position is still re-marked this often, so a stored mark proves it was held. */
@@ -206,7 +206,21 @@ export function persistStateEvent(db: Db, instanceId: string, e: Envelope): void
   tx();
 }
 
+/** What ingest did with one envelope: stored, or already stored under the same id. */
+export type IngestStatus = "accepted" | "duplicate";
+
+export interface IngestOutcome {
+  /** Envelopes that wrote a new row. */
+  accepted: number;
+  /** One status per input envelope, in input order. */
+  statuses: IngestStatus[];
+}
+
 export function ingestEvents(db: Db, instanceId: string, events: Envelope[], heardAt = Date.now()): number {
+  return ingestEnvelopes(db, instanceId, events, heardAt).accepted;
+}
+
+export function ingestEnvelopes(db: Db, instanceId: string, events: Envelope[], heardAt = Date.now()): IngestOutcome {
   const insEvent = db.prepare(
     "INSERT OR IGNORE INTO events (id, instance_id, type, strategy_id, seq, ts, payload) VALUES (?,?,?,?,?,?,?)",
   );
@@ -255,16 +269,21 @@ export function ingestEvents(db: Db, instanceId: string, events: Envelope[], hea
      VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)`,
   );
 
-  const tx = db.transaction((evs: Envelope[]) => {
+  const tx = db.transaction((evs: Envelope[]): IngestOutcome => {
     let accepted = 0;
-    for (const e of evs) {
+    const statuses: IngestStatus[] = evs.map(() => "accepted");
+    for (const [i, e] of evs.entries()) {
+      const duplicate = () => {
+        statuses[i] = "duplicate";
+        observeDuplicate(db, instanceId, e);
+      };
       // Logs are high-volume operational data, not trading history: they get their
       // own table + FTS index and stay out of the events record.
       if (e.type === "log") {
         const p = e.payload;
         const info = insLog.run(e.id, instanceId, e.strategyId ?? null, p.level, p.logger, p.message, e.ts, e.seq);
         if (info.changes === 0) {
-          observeDuplicate(db, instanceId, e);
+          duplicate();
           continue;
         }
         accepted++;
@@ -277,7 +296,7 @@ export function ingestEvents(db: Db, instanceId: string, events: Envelope[], hea
       }
       // Live last-value state belongs to the in-memory store; the collector routes
       // state.* envelopes before ingest, this branch is defense in depth.
-      if (e.type.startsWith("state.")) continue;
+      if (isLiveStateType(e.type)) continue;
       // Deals are durable broker history with their own table, same rule as logs:
       // no events row, no FTS row, idempotent by deterministic id.
       if (e.type === "broker.deal") {
@@ -290,7 +309,7 @@ export function ingestEvents(db: Db, instanceId: string, events: Envelope[], hea
           decimalText(p.qty), decimalText(p.price), decimalText(p.profit), decimalText(p.commission), decimalText(p.swap),
           decimalText(p.fee));
         if (info.changes === 0) {
-          observeDuplicate(db, instanceId, e);
+          duplicate();
           // Re-ingested deal (the 30d backfill re-runs on every restart). If it
           // first stored unattributed but now resolves — its strategies row
           // appeared, or a sibling got attributed — fill the NULL instead of skipping.
@@ -329,7 +348,7 @@ export function ingestEvents(db: Db, instanceId: string, events: Envelope[], hea
       }
       const info = insEvent.run(e.id, instanceId, e.type, e.strategyId ?? null, e.seq, e.ts, JSON.stringify(e.payload));
       if (info.changes === 0) {
-        observeDuplicate(db, instanceId, e);
+        duplicate();
         continue; // duplicate id, skip the rest of the fold
       }
       accepted++;
@@ -356,9 +375,27 @@ export function ingestEvents(db: Db, instanceId: string, events: Envelope[], hea
       foldRisk(db, instanceId, e);
       foldPortfolio(db, instanceId, e);
     }
-    return accepted;
+    return { accepted, statuses };
   });
   return tx(events);
+}
+
+/**
+ * Keep envelopes ingest could not project, raw, once per (instance, id). Returns how many were
+ * stored for the first time; a redelivered one leaves its first row untouched.
+ */
+export function quarantineEnvelopes(db: Db, instanceId: string, envelopes: Array<QuarantinedEnvelope & { id: string }>, receivedAt = Date.now()): number {
+  const ins = db.prepare(
+    `INSERT OR IGNORE INTO quarantined_events (instance_id, id, type, v, ts, received_at, reason, envelope)
+     VALUES (?,?,?,?,?,?,?,?)`,
+  );
+  return db.transaction(() => {
+    let stored = 0;
+    for (const q of envelopes) {
+      stored += ins.run(instanceId, q.id, q.type, q.v, q.ts, receivedAt, q.reason, JSON.stringify(q.raw)).changes;
+    }
+    return stored;
+  })();
 }
 
 // qkt sends every deal on the account and names the strategy only when it knows it

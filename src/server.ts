@@ -120,7 +120,7 @@ export async function buildServer(mode: Mode) {
     try {
       const now = Date.now();
       const r = pruneRetention(db, now);
-      if (r.logs || r.events || r.valuations || r.views)
+      if (r.logs || r.events || r.valuations || r.views || r.quarantined)
         app.log.info({ ...r }, "retention prune");
       // Retire strategies that stopped reporting past the window (e.g. a swapped-out book) along
       // with all their data, so old registrations don't linger in the dashboard forever.

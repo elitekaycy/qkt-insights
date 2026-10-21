@@ -46,8 +46,13 @@ describe("log envelope", () => {
       payload: { level: "WARN", logger: "com.qkt.app.LiveSession", message: "stale symbol XAUUSD" } };
     expect(EnvelopeSchema.parse(env).type).toBe("log");
   });
-  it("rejects an unknown log level", () => {
+  it("keeps a log level it does not know as sent", () => {
     const env = { ...base, type: "log", payload: { level: "TRACE", logger: "x", message: "m" } };
+    expect(EnvelopeSchema.parse(env).payload).toMatchObject({ level: "TRACE" });
+  });
+
+  it("rejects an empty log level", () => {
+    const env = { ...base, type: "log", payload: { level: "", logger: "x", message: "m" } };
     expect(() => EnvelopeSchema.parse(env)).toThrow();
   });
 });

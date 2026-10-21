@@ -6,6 +6,11 @@ const object = <T extends z.ZodRawShape>(shape: T) => z.object(shape).passthroug
 export const payloadByType = {
   signal: object({ symbol: z.string(), side, qty: z.number().optional(), intent: z.string().optional(), note: z.string().optional(), order: z.unknown().optional() }),
   "signal.cancel": object({ symbol: z.string(), intent: z.string().optional() }),
+  // Gated signal drops (portfolio/risk gate) and DSL-level suppressions; symbol is absent for
+  // structure groups and latch arms.
+  "signal.suppressed": object({ reason: z.string(), symbol: z.string().optional(), kind: z.string().optional(), intent: z.string().optional() }),
+  // A multi-leg structure open/close; legs is "SIDE QTY SYMBOL" joined by ";".
+  "signal.structure": object({ intent: z.string(), structureId: z.string(), alias: z.string().optional(), closes: z.string().optional(), legs: z.string() }),
   "signal.latch_armed": object({ intent: z.string().optional(), reference: z.string(), offset: z.string(), streamAlias: z.string().optional(), name: z.string().optional(), armWindowMs: z.number().optional(), expiresAt: z.number().optional() }),
   "order.submit": object({
     orderId: z.string(),
@@ -71,6 +76,11 @@ export const payloadByType = {
     deal: z.string().optional(),
     price: z.string().optional(),
   }),
+  // One-shot bot command provenance (`qkt bot buy|sell|...`); strategyId is the --as name.
+  "bot.command": object({ source: z.string(), sha256: z.string(), qktVersion: z.string().optional(), argv: z.array(z.string()).optional(), symbol: z.string().optional(), run: z.string().optional() }),
+  // Bot venue actions from the trail; every value is a string, absent when null.
+  "bot.modify": object({ symbol: z.string(), ticket: z.string(), sl: z.string().optional(), tp: z.string().optional(), ok: z.string().optional(), reason: z.string().optional(), run: z.string().optional() }),
+  "bot.cancel": object({ symbol: z.string(), ticket: z.string(), ok: z.string().optional(), run: z.string().optional() }),
   // A bot-session order intent (qkt `bot session start` runs, e.g. the AI lab's
   // paper/live sessions). Values arrive as strings from the session trail.
   "bot.session.intent": object({
@@ -178,7 +188,9 @@ export const payloadByType = {
   "snapshot.equity": object({ strategyId: z.string(), realized: z.number(), unrealized: z.number(), equity: z.number(), startingBalance: z.number() }),
   "snapshot.position": object({ strategyId: z.string(), symbol: z.string(),
     legs: z.array(object({ side, qty: z.number(), entryPrice: z.number(), entryTs: z.number() })) }),
-  log: object({ level: z.enum(["DEBUG", "INFO", "WARN", "ERROR"]), logger: z.string(), message: z.string() }),
+  // Any level string is kept as sent (e.g. TRACE): logs are display-only, so an unknown level
+  // needs no reducer change and must not cost the envelope.
+  log: object({ level: z.string().min(1), logger: z.string(), message: z.string() }),
   "trade.closed": object({ orderId: z.string(), symbol: z.string(), side, qty: z.number(), price: z.number(),
     realized: z.number(), entryTs: z.number().optional(), ts: z.number() }),
   "state.account": object({
@@ -223,6 +235,12 @@ export const payloadByType = {
   "portfolio.allocation.updated": object({ portfolioId: z.string(), ts: z.number().optional() }),
   "portfolio.exposure.updated": object({ portfolioId: z.string(), ts: z.number().optional() }),
   "portfolio.equity.updated": object({ portfolioId: z.string(), equity: z.number().optional(), realized: z.number().optional(), unrealized: z.number().optional(), ts: z.number().optional() }),
+  // Durable-state health, emitted when strategy-state persistence becomes unsafe.
+  "state.persistence": object({
+    enabled: z.boolean(), totalWrites: z.number().optional(), slowWrites: z.number().optional(), failedWrites: z.number().optional(),
+    consecutiveFailures: z.number().optional(), failureEpisodes: z.number().optional(), queueSize: z.number().optional(),
+    callerRunsTotal: z.number().optional(),
+  }),
   "instance.roster": object({ strategies: z.array(z.string()) }),
 } as const;
 

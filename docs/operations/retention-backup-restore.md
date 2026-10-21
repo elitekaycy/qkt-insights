@@ -16,6 +16,8 @@ Recommended baseline:
 - Account equity and position valuation history: retain for at least 1 year, then archive by month if the DB grows beyond operational limits.
 - Logs: retain 30-90 days unless needed for an incident.
 - Ingest observations: retain at least as long as raw events so duplicate delivery remains auditable.
+- Quarantined envelopes (`quarantined_events`): the weekly prune drops rows received more than 30 days ago.
+  Export them first if a contract fix should replay older ones.
 
 Do not delete broker deals or order history until tax, audit, and strategy-review requirements are satisfied.
 
