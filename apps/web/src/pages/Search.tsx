@@ -29,8 +29,8 @@ export default function Search({ instanceId }: { instanceId: string | null }) {
       <PageHeader title="Search" sub={`Full-text search across every event and log line of ${instanceId}.`} />
 
       <form
-        className="rise mt-5 flex gap-2"
-        style={{ "--stagger": 1 } as React.CSSProperties}
+        className="mt-5 flex gap-2"
+       
         onSubmit={(e) => {
           e.preventDefault();
           setQ(input.trim());
@@ -50,7 +50,7 @@ export default function Search({ instanceId }: { instanceId: string | null }) {
 
       {q && (
         <div className="mt-6 grid grid-cols-1 items-start gap-5 xl:grid-cols-2">
-          <Panel stagger={0} title="Events" hint={`${eventHits.length} hits`} scroll="max-h-[30rem]">
+          <Panel title="Events" hint={`${eventHits.length} hits`} scroll="max-h-[30rem]">
             <Loadable loading={events.isPending} error={events.isError} retry={() => events.refetch()} what="event hits">
             <div className="p-2">
               {eventHits.map((h) => (
@@ -63,7 +63,7 @@ export default function Search({ instanceId }: { instanceId: string | null }) {
             </div>
             </Loadable>
           </Panel>
-          <Panel stagger={1} title="Logs" hint={`${logHits.length} hits`} scroll="max-h-[30rem]">
+          <Panel title="Logs" hint={`${logHits.length} hits`} scroll="max-h-[30rem]">
             <Loadable loading={logs.isPending} error={logs.isError} retry={() => logs.refetch()} what="log hits">
             <div className="p-2">
               {logHits.map((l) => (

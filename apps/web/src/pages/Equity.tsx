@@ -107,7 +107,7 @@ export default function Equity({ instanceId }: { instanceId: string | null }) {
           </div>
         }
       />
-      <Panel className="mt-5" stagger={1} title="Account equity" hint="broker-reported, 1-minute rollup">
+      <Panel className="mt-5" title="Account equity" hint="broker-reported, 1-minute rollup">
         <Loadable loading={account.isPending} error={account.isError} retry={() => account.refetch()} what="the account curve" lines={4}>
           {accountByBroker.size === 0 ? (
             <Empty>No account history yet — waiting for the broker state poller.</Empty>
@@ -115,7 +115,7 @@ export default function Equity({ instanceId }: { instanceId: string | null }) {
             [...accountByBroker.entries()].map(([broker, pts]) => (
               <div key={broker} className="p-4">
                 {accountByBroker.size > 1 && (
-                  <div className="mb-2 text-[11px] font-semibold uppercase tracking-[0.12em] text-muted">{broker}</div>
+                  <div className="mb-2 text-[11px] font-semibold uppercase tracking-[0.06em] text-muted">{broker}</div>
                 )}
                 <EquityChart points={pts} height={320} />
               </div>
@@ -124,7 +124,7 @@ export default function Equity({ instanceId }: { instanceId: string | null }) {
         </Loadable>
       </Panel>
 
-      <Panel className="mt-5" stagger={2} title="Strategy equity" hint="broker deals when available, % change from first point">
+      <Panel className="mt-5" title="Strategy equity" hint="broker deals when available, % change from first point">
         <Loadable
           loading={strategies.isPending || curves.some((c) => c.isPending)}
           error={strategies.isError || curves.some((c) => c.isError)}
@@ -142,7 +142,7 @@ export default function Equity({ instanceId }: { instanceId: string | null }) {
       </Panel>
 
       <div className="mt-5 grid grid-cols-1 items-start gap-5 2xl:grid-cols-2">
-        <Panel stagger={2} title="Underwater" hint="5 deepest drawdowns shaded on the curve, depth below" toolbar={ddSelect}>
+        <Panel title="Underwater" hint="5 deepest drawdowns shaded on the curve, depth below" toolbar={ddSelect}>
           <Loadable
             loading={strategies.isPending || (focusIdx >= 0 && (curves[focusIdx]?.isPending ?? false))}
             error={focusIdx >= 0 && (curves[focusIdx]?.isError ?? false)}
@@ -161,7 +161,7 @@ export default function Equity({ instanceId }: { instanceId: string | null }) {
           </Loadable>
         </Panel>
 
-        <Panel stagger={3} title="Drawdown periods" hint={`${focusId} · click a row to inspect`}>
+        <Panel title="Drawdown periods" hint={`${focusId} · click a row to inspect`}>
           <Loadable
             loading={!!focusId && performance.isPending}
             error={performance.isError}
@@ -178,10 +178,10 @@ export default function Equity({ instanceId }: { instanceId: string | null }) {
               <>
                 <Cell className="whitespace-nowrap text-muted">{tsDay(p.peakTs).slice(0, 14)}</Cell>
                 <Cell className="whitespace-nowrap text-muted">{tsDay(p.troughTs).slice(0, 14)}</Cell>
-                <Cell className="font-mono text-down">
+                <Cell className="text-loss">
                   {money(-p.depth)} <span className="text-faint">({p.depthPct.toFixed(2)}%)</span>
                 </Cell>
-                <Cell className="font-mono text-muted">{p.lengthDays.toFixed(1)}d</Cell>
+                <Cell className="text-muted">{p.lengthDays.toFixed(1)}d</Cell>
                 <Cell>
                   {p.recoveryTs != null ? (
                     <Pill tone="up">recovered {p.recoveryDays!.toFixed(1)}d</Pill>
@@ -194,8 +194,8 @@ export default function Equity({ instanceId }: { instanceId: string | null }) {
             card={(p) => (
               <>
                 <div className="flex items-baseline gap-2">
-                  <span className="font-mono text-sm font-semibold text-down">{money(-p.depth)}</span>
-                  <span className="font-mono text-xs text-faint">({p.depthPct.toFixed(2)}%)</span>
+                  <span className="text-sm font-semibold text-loss">{money(-p.depth)}</span>
+                  <span className="text-xs text-faint">({p.depthPct.toFixed(2)}%)</span>
                   <span className="ml-auto shrink-0">
                     {p.recoveryTs != null ? (
                       <Pill tone="up">recovered {p.recoveryDays!.toFixed(1)}d</Pill>
@@ -208,7 +208,7 @@ export default function Equity({ instanceId }: { instanceId: string | null }) {
                   <span className="whitespace-nowrap">
                     {tsDay(p.peakTs).slice(4, 14)} → {tsDay(p.troughTs).slice(4, 14)}
                   </span>
-                  <span className="ml-auto whitespace-nowrap font-mono">{p.lengthDays.toFixed(1)}d</span>
+                  <span className="ml-auto whitespace-nowrap ">{p.lengthDays.toFixed(1)}d</span>
                 </div>
               </>
             )}
@@ -223,7 +223,7 @@ export default function Equity({ instanceId }: { instanceId: string | null }) {
             <Field label="Peak (equity high before the fall)">{human(openDd.peakTs)}</Field>
             <Field label="Trough (deepest point)">{human(openDd.troughTs)}</Field>
             <Field label="Depth">
-              <span className="text-down">{money(-openDd.depth)}</span>
+              <span className="text-loss">{money(-openDd.depth)}</span>
               <span className="ml-2 text-xs text-faint">{openDd.depthPct.toFixed(2)}% below the peak</span>
             </Field>
             <Field label="Peak to trough">{duration(openDd.troughTs - openDd.peakTs)}</Field>

@@ -91,7 +91,7 @@ export function Edge({ instanceId }: { instanceId: string | null }) {
       <Panel
         title="Day × hour P&L"
         hint={`close-time buckets, UTC · ${totalTrades} closed trades · cells under n=${MIN_N} desaturated`}
-        stagger={0}
+       
         className="min-w-0"
       >
         <Loadable loading={perf.isPending} error={perf.isError} retry={() => perf.refetch()} what="the day × hour matrix" lines={6}>
@@ -107,12 +107,12 @@ export function Edge({ instanceId }: { instanceId: string | null }) {
       </Panel>
 
       <div className="grid gap-5 xl:grid-cols-2">
-        <Panel title="Weekday P&L" hint="net bar · n label · whisker = per-trade mean ± SE" stagger={1}>
+        <Panel title="Weekday P&L" hint="net bar · n label · whisker = per-trade mean ± SE">
           <Loadable loading={perf.isPending} error={perf.isError} retry={() => perf.refetch()} what="weekday buckets" lines={4}>
             {byDow.length > 0 ? <div className="p-3"><HonestBucketBars rows={byDow} /></div> : <Empty>No per-trade rows yet.</Empty>}
           </Loadable>
         </Panel>
-        <Panel title="Hour-of-day P&L" hint="close hour, UTC — mind the n labels before believing a spike" stagger={2}>
+        <Panel title="Hour-of-day P&L" hint="close hour, UTC — mind the n labels before believing a spike">
           <Loadable loading={perf.isPending} error={perf.isError} retry={() => perf.refetch()} what="hour buckets" lines={4}>
             {byHour.length > 0 ? <div className="p-3"><HonestBucketBars rows={byHour} /></div> : <Empty>No per-trade rows yet.</Empty>}
           </Loadable>
@@ -122,7 +122,7 @@ export function Edge({ instanceId }: { instanceId: string | null }) {
       <Panel
         title="Edge stability"
         hint={`rolling over the last ${window} daily observations — gaps are warmup, not zero`}
-        stagger={3}
+       
         toolbar={
           <Select value={String(window)} onChange={(e) => setWindow(Number(e.target.value) as (typeof WINDOWS)[number])}>
             {WINDOWS.map((w) => <option key={w} value={w}>{w}d window</option>)}
@@ -139,7 +139,7 @@ export function Edge({ instanceId }: { instanceId: string | null }) {
       <Panel
         title="Strategy comparison"
         hint="outline radar over the instance's most active strategies · axes min-max normalized across those shown"
-        stagger={4}
+       
       >
         {radarEntries.length >= 2
           ? <div className="p-3"><StrategyRadar entries={radarEntries} /></div>

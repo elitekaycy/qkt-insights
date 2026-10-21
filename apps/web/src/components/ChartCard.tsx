@@ -10,7 +10,6 @@ export function ChartCard({
   toolbar,
   children,
   className = "",
-  stagger,
 }: {
   title: string;
   description: string;
@@ -19,7 +18,6 @@ export function ChartCard({
   toolbar?: ReactNode;
   children: ReactNode;
   className?: string;
-  stagger?: number;
 }) {
   const [expanded, setExpanded] = useState(false);
   const header = (
@@ -29,13 +27,13 @@ export function ChartCard({
         <p className="mt-0.5 text-xs leading-relaxed text-muted">{description}</p>
         {meta && <p className="mt-1 text-[11px] text-faint">{meta}</p>}
       </div>
-      {value && <div className="font-mono text-xl font-semibold text-bright">{value}</div>}
+      {value && <div className="text-xl font-semibold text-bright">{value}</div>}
     </div>
   );
 
   return (
     <>
-      <Card className={`min-w-0 overflow-hidden ${className}`} stagger={stagger}>
+      <Card className={`min-w-0 overflow-hidden ${className}`}>
         <div className="flex items-start gap-3 border-b border-line/70 px-4 py-3.5 sm:px-5">
           {header}
           <div className="flex shrink-0 items-center gap-2">

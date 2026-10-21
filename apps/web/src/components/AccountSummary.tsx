@@ -79,29 +79,29 @@ export function AccountSummary({
 
   return (
     <section className="mt-8">
-      <div className="rise flex items-baseline justify-between" style={{ "--stagger": 2 } as React.CSSProperties}>
-        <h3 className="text-sm font-bold uppercase tracking-[0.08em] text-body">Account performance</h3>
+      <div className="flex items-baseline justify-between">
+        <h3 className="text-sm font-semibold uppercase tracking-[0.06em] text-body">Account performance</h3>
         <span className="text-xs text-faint">every close on the account, retired strategies and unattributed deals included · realized</span>
       </div>
       <div className="mt-3 grid grid-cols-2 gap-4 sm:grid-cols-3 lg:grid-cols-4 xl:grid-cols-6">
-        <Stat label="Net P&L" value={money(netTotal)} tone={sign(netTotal)} stagger={0} />
-        <Stat label="Gross P&L" value={dash(gross, money)} sub="before commission and swap" tone={gross == null ? "neutral" : sign(gross)} stagger={0} />
-        <Stat label="Commission" value={dash(commission, (n) => money(-Math.abs(n)))} tone={commission ? "down" : "neutral"} stagger={0} />
-        <Stat label="Swap" value={dash(swap, money)} tone={swap == null ? "neutral" : sign(swap)} stagger={0} />
-        <Stat label="Win rate" value={pct(winRate)} sub={`${wins}W / ${losses}L · breakeven excluded`} stagger={1} />
-        <Stat label="Expectancy" value={dash(expectancy, (n) => money(n))} sub="per trade" tone={expectancy == null ? "neutral" : sign(expectancy)} stagger={1} />
-        <Stat label="Trades" value={num(tradeCount, 0)} sub={`${longs} long · ${shorts} short`} stagger={1} />
-        <Stat label="Trading days" value={num(tradingDays, 0)} sub="days with closes (UTC)" stagger={1} />
-        <Stat label={ddRows.length === 1 && ddRows[0]!.basis === "static" ? "Account DD · static" : "Account DD · from peak"} value={dash(accountDD, (n) => money(-n))} sub={ddSub} tone={accountDD ? "down" : "neutral"} stagger={2} />
-        <Stat label="Worst day" value={money(worstDay)} tone={sign(worstDay)} stagger={2} />
-        <Stat label="This week" value={money(weekPnl)} tone={sign(weekPnl)} stagger={2} />
-        <Stat label="Worst week" value={money(worstWeek)} tone={sign(worstWeek)} stagger={2} />
+        <Stat label="Net P&L" value={money(netTotal)} tone={sign(netTotal)} />
+        <Stat label="Gross P&L" value={dash(gross, money)} sub="before commission and swap" tone={gross == null ? "neutral" : sign(gross)} />
+        <Stat label="Commission" value={dash(commission, (n) => money(-Math.abs(n)))} tone={commission ? "down" : "neutral"} />
+        <Stat label="Swap" value={dash(swap, money)} tone={swap == null ? "neutral" : sign(swap)} />
+        <Stat label="Win rate" value={pct(winRate)} sub={`${wins}W / ${losses}L · breakeven excluded`} />
+        <Stat label="Expectancy" value={dash(expectancy, (n) => money(n))} sub="per trade" tone={expectancy == null ? "neutral" : sign(expectancy)} />
+        <Stat label="Trades" value={num(tradeCount, 0)} sub={`${longs} long · ${shorts} short`} />
+        <Stat label="Trading days" value={num(tradingDays, 0)} sub="days with closes (UTC)" />
+        <Stat label={ddRows.length === 1 && ddRows[0]!.basis === "static" ? "Account DD · static" : "Account DD · from peak"} value={dash(accountDD, (n) => money(-n))} sub={ddSub} tone={accountDD ? "down" : "neutral"} />
+        <Stat label="Worst day" value={money(worstDay)} tone={sign(worstDay)} />
+        <Stat label="This week" value={money(weekPnl)} tone={sign(weekPnl)} />
+        <Stat label="Worst week" value={money(worstWeek)} tone={sign(worstWeek)} />
       </div>
 
       <div className="mt-4 grid grid-cols-1 gap-4 lg:grid-cols-3">
         <div className="lg:col-span-1">
           <Panel
-            stagger={3}
+           
             title={split === "instrument" ? "Symbols traded" : "Strategies"}
             hint={split === "instrument" ? "by instrument, broker profiles folded · by trade count" : "by net · unattributed = deals no strategy claimed"}
             scroll="max-h-[20rem]"
@@ -118,8 +118,8 @@ export function AccountSummary({
                   <Cell className="font-semibold text-bright">
                     <span title={s.venues?.join(", ")}>{label(s.key)}</span>
                   </Cell>
-                  <Cell className="font-mono text-body">{s.trades}</Cell>
-                  <Cell className={`font-mono ${s.net > 0 ? "text-up" : s.net < 0 ? "text-down" : "text-muted"}`}>{money(s.net)}</Cell>
+                  <Cell className="text-body">{s.trades}</Cell>
+                  <Cell className={`${s.net > 0 ? "text-gain" : s.net < 0 ? "text-loss" : "text-muted"}`}>{money(s.net)}</Cell>
                 </Row>
               ))}
               {buckets.length === 0 && <Empty colSpan={3}>No closed trades yet.</Empty>}

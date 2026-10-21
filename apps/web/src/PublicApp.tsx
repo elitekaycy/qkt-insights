@@ -24,10 +24,10 @@ function Wordmark({ brand, iconsOnly = false }: { brand: string | null; iconsOnl
     <div className={`flex min-w-0 items-center gap-3 ${iconsOnly ? "justify-center" : ""}`}>
       <Mark />
       <div className={`min-w-0 ${iconsOnly ? "hidden" : ""}`}>
-        <div className="text-lg font-extrabold leading-tight tracking-tight text-bright">
-          qkt<span className="text-accent">·</span>insights
+        <div className="text-lg font-headline leading-tight tracking-tight text-bright">
+          qkt<span className="text-brand">·</span>insights
         </div>
-        {brand && <div className="truncate text-xs font-semibold text-accent">{brand}</div>}
+        {brand && <div className="truncate text-xs font-medium text-muted">{brand}</div>}
       </div>
     </div>
   );
@@ -72,9 +72,9 @@ export default function PublicApp() {
     return (
       <Centered>
         <Mark />
-        <div className="text-lg font-bold text-bright">Temporarily unavailable</div>
+        <div className="text-lg font-semibold text-bright">Temporarily unavailable</div>
         <div className="max-w-sm text-sm leading-relaxed text-muted">The dashboard is busy or unreachable. Try again in a minute.</div>
-        <button type="button" onClick={() => void meta.refetch()} className="rounded-lg bg-accent px-5 py-2.5 text-sm font-bold text-ink">
+        <button type="button" onClick={() => void meta.refetch()} className="rounded-lg bg-accent px-5 py-2.5 text-sm font-semibold text-ink">
           Retry
         </button>
       </Centered>
@@ -84,7 +84,7 @@ export default function PublicApp() {
     return (
       <Centered>
         <Mark />
-        <div className="text-lg font-bold text-bright">This link is not available</div>
+        <div className="text-lg font-semibold text-bright">This link is not available</div>
         <div className="max-w-sm text-sm leading-relaxed text-muted">It may have been made private or replaced by a new link. Ask whoever shared it for a current one.</div>
       </Centered>
     );
@@ -132,7 +132,7 @@ function SharedOverview({ meta, brand }: { meta: PublicMeta; brand: string | nul
       {!iconsOnly && (
         <div className="px-4">
           <div className="rounded-card border border-line bg-raised p-3.5">
-            <div className="text-[11px] font-bold uppercase tracking-[0.14em] text-muted">Shared view</div>
+            <div className="text-[11px] font-semibold uppercase tracking-[0.06em] text-muted">Shared view</div>
             <div className="mt-1.5 truncate text-[15px] font-semibold text-bright">{meta.instanceId}</div>
           </div>
         </div>
@@ -140,7 +140,7 @@ function SharedOverview({ meta, brand }: { meta: PublicMeta; brand: string | nul
       <nav className={`mt-1 flex-1 overflow-y-auto pb-4 ${iconsOnly ? "px-2" : "px-4"}`}>
         {NAV.map((group) => (
           <div key={group.section} className="mt-4">
-            {!iconsOnly && <div className="px-3.5 pb-2 text-[11px] font-bold uppercase tracking-[0.16em] text-faint">{group.section}</div>}
+            {!iconsOnly && <div className="px-3.5 pb-2 text-[11px] font-semibold uppercase tracking-[0.06em] text-faint">{group.section}</div>}
             {group.items.map((n) => {
               const active = page === n.key;
               return (
@@ -151,7 +151,7 @@ function SharedOverview({ meta, brand }: { meta: PublicMeta; brand: string | nul
                   aria-current={active ? "page" : undefined}
                   className={`flex w-full items-center gap-3 rounded-lg px-3.5 py-2.5 text-left text-[15px] font-medium transition active:scale-[0.98] ${
                     iconsOnly ? "justify-center px-0" : ""
-                  } ${active ? "bg-accent text-ink" : "text-muted hover:bg-raised hover:text-body"}`}
+                  } ${active ? "bg-accent text-on-accent" : "text-muted hover:bg-raised hover:text-body"}`}
                 >
                   <NavIcon d={ICONS[n.key]} big />
                   {!iconsOnly && n.label}
@@ -176,7 +176,7 @@ function SharedOverview({ meta, brand }: { meta: PublicMeta; brand: string | nul
           <NavIcon d="M4 6h16M4 12h16M4 18h16" big />
         </button>
         <Mark />
-        <div className="min-w-0 truncate text-[15px] font-extrabold tracking-tight text-bright">{brand ?? meta.instanceId}</div>
+        <div className="min-w-0 truncate text-[15px] font-headline tracking-tight text-bright">{brand ?? meta.instanceId}</div>
       </div>
       <Drawer open={drawer} onClose={() => setDrawer(false)} label="shared navigation">
         {sidebar(false)}

@@ -98,7 +98,7 @@ export default function Trades({ instanceId }: { instanceId: string | null }) {
       />
       <Panel
         className="mt-5"
-        stagger={1}
+       
         title={usingDeals ? "Deals" : "Fills"}
         hint={usingDeals ? "source: broker deals" : "source: engine fills"}
         scroll="max-h-[calc(100vh-15rem)]"
@@ -164,10 +164,10 @@ export default function Trades({ instanceId }: { instanceId: string | null }) {
                     <Cell>
                       <SideTag side={d.side} />
                     </Cell>
-                    <Cell className="font-mono text-muted">{d.entry ?? "—"}</Cell>
-                    <Cell className="font-mono">{d.qty ?? "—"}</Cell>
-                    <Cell className="font-mono">{price(d.price)}</Cell>
-                    <Cell className={`font-mono font-semibold ${n > 0 ? "text-up" : n < 0 ? "text-down" : "text-muted"}`}>
+                    <Cell className="text-muted">{d.entry ?? "—"}</Cell>
+                    <Cell className="">{d.qty ?? "—"}</Cell>
+                    <Cell className="">{price(d.price)}</Cell>
+                    <Cell className={`font-semibold ${n > 0 ? "text-gain" : n < 0 ? "text-loss" : "text-muted"}`}>
                       {n > 0 ? "+" : ""}
                       {fixed(n)}
                     </Cell>
@@ -182,14 +182,14 @@ export default function Trades({ instanceId }: { instanceId: string | null }) {
                     <div className="flex items-baseline gap-2">
                       <span className="min-w-0 truncate font-semibold text-bright">{d.symbol ?? "—"}</span>
                       <SideTag side={d.side} />
-                      <span className={`ml-auto shrink-0 font-mono text-sm font-semibold ${n > 0 ? "text-up" : n < 0 ? "text-down" : "text-muted"}`}>
+                      <span className={`ml-auto shrink-0 text-sm font-semibold ${n > 0 ? "text-gain" : n < 0 ? "text-loss" : "text-muted"}`}>
                         {n > 0 ? "+" : ""}
                         {fixed(n)}
                       </span>
                     </div>
                     <div className="mt-1 flex items-center gap-2 text-xs text-faint">
                       <span className="min-w-0 truncate">{d.strategyId ?? "unattributed"}</span>
-                      <span className="ml-auto shrink-0 whitespace-nowrap font-mono">
+                      <span className="ml-auto shrink-0 whitespace-nowrap ">
                         {d.qty ?? "—"} @ {price(d.price)} · {tsShort(d.ts)}
                       </span>
                     </div>
@@ -217,9 +217,9 @@ export default function Trades({ instanceId }: { instanceId: string | null }) {
                     <Cell>
                       <SideTag side={t.payload.side} />
                     </Cell>
-                    <Cell className="font-mono">{t.payload.qty}</Cell>
-                    <Cell className="font-mono">{price(t.payload.price)}</Cell>
-                    <Cell className={`font-mono ${r.className}`}>{r.text}</Cell>
+                    <Cell className="">{t.payload.qty}</Cell>
+                    <Cell className="">{price(t.payload.price)}</Cell>
+                    <Cell className={`${r.className}`}>{r.text}</Cell>
                     <Cell className="font-mono text-xs text-faint">{t.payload.orderId}</Cell>
                   </>
                 );
@@ -231,11 +231,11 @@ export default function Trades({ instanceId }: { instanceId: string | null }) {
                     <div className="flex items-baseline gap-2">
                       <span className="min-w-0 truncate font-semibold text-bright">{t.payload.symbol}</span>
                       <SideTag side={t.payload.side} />
-                      <span className={`ml-auto shrink-0 font-mono text-sm font-semibold ${r.className}`}>{r.text}</span>
+                      <span className={`ml-auto shrink-0 text-sm font-semibold ${r.className}`}>{r.text}</span>
                     </div>
                     <div className="mt-1 flex items-center gap-2 text-xs text-faint">
                       <span className="min-w-0 truncate">{t.strategyId ?? "unattributed"}</span>
-                      <span className="ml-auto shrink-0 whitespace-nowrap font-mono">
+                      <span className="ml-auto shrink-0 whitespace-nowrap ">
                         {t.payload.qty} @ {price(t.payload.price)} · {tsShort(t.ts)}
                       </span>
                     </div>

@@ -46,7 +46,7 @@ export interface OverviewDashboardData {
 export function OverviewDashboard({ data }: { data: OverviewDashboardData }) {
   return (
     <section className="mt-7">
-      <div className="rise">
+      <div className="">
         <h3 className="text-lg font-semibold text-bright">Dashboard</h3>
         <p className="mt-0.5 text-xs text-muted">Performance, risk, behavior, and runtime truth in one complete view.</p>
       </div>
@@ -97,7 +97,7 @@ function PnlWidget({ data }: { data: OverviewDashboardData }) {
     ],
   };
   return (
-    <ChartCard title="Daily and cumulative P&L" description="Realized results by UTC close day; bars are daily, line is cumulative." meta={`${rows.reduce((a, x) => a + x.trades, 0)} closed trades`} value={<span className={total >= 0 ? "text-up" : "text-down"}>{money(total)}</span>}>
+    <ChartCard title="Daily and cumulative P&L" description="Realized results by UTC close day; bars are daily, line is cumulative." meta={`${rows.reduce((a, x) => a + x.trades, 0)} closed trades`} value={<span className={total >= 0 ? "text-gain" : "text-loss"}>{money(total)}</span>}>
       {rows.length > 0 ? <div className="p-3 sm:p-4"><EChart option={option} height={300} /></div> : <WidgetEmpty>Closed trades will build the daily P&L history.</WidgetEmpty>}
     </ChartCard>
   );
@@ -134,7 +134,7 @@ function RiskWidget({ data }: { data: OverviewDashboardData }) {
       {data.risk.length === 0 && <WidgetEmpty>Account limits appear with the first broker account rollup.</WidgetEmpty>}
       {data.risk.map((r) => (
         <div key={r.account} className="grid gap-5 border-b border-line/70 p-5 sm:grid-cols-2">
-          {data.risk.length > 1 && <div className="text-[11px] font-semibold uppercase tracking-[0.12em] text-muted sm:col-span-2">{r.label}</div>}
+          {data.risk.length > 1 && <div className="text-[11px] font-semibold uppercase tracking-[0.06em] text-muted sm:col-span-2">{r.label}</div>}
           <Budget
             label={`Daily loss · ${r.dailyLoss.includesFloating ? "incl. floating" : "realized"}`}
             used={r.dailyLoss.used}
@@ -164,8 +164,8 @@ function Budget({ label, used, cap, detail }: { label: string; used: number | nu
   const pct = used != null && cap != null && cap > 0 ? (used / cap) * 100 : null;
   return (
     <div>
-      <div className="flex items-baseline justify-between gap-3"><span className="text-xs font-semibold text-body">{label}</span><span className="font-mono text-xs text-muted">{used == null ? "—" : money(used)} / {cap == null ? "no cap" : money(cap)}</span></div>
-      <div className="mt-2 h-2 overflow-hidden rounded-full bg-raised"><div className={`h-full rounded-full ${pct != null && pct >= 80 ? "bg-down" : pct != null && pct >= 55 ? "bg-warn" : "bg-info"}`} style={{ width: `${Math.min(100, pct ?? 0)}%` }} /></div>
+      <div className="flex items-baseline justify-between gap-3"><span className="text-xs font-semibold text-body">{label}</span><span className="text-xs text-muted">{used == null ? "—" : money(used)} / {cap == null ? "no cap" : money(cap)}</span></div>
+      <div className="mt-2 h-2 overflow-hidden rounded-full bg-raised"><div className={`h-full rounded-full ${pct != null && pct >= 80 ? "bg-loss-fill" : pct != null && pct >= 55 ? "bg-warn" : "bg-info"}`} style={{ width: `${Math.min(100, pct ?? 0)}%` }} /></div>
       <div className="mt-1.5 text-[11px] text-faint">{pct == null ? detail : `${pct.toFixed(1)}% used · ${detail}`}</div>
     </div>
   );
@@ -207,8 +207,8 @@ function DirectionWidget({ closes }: { closes: ClosedTradeRow[] }) {
       <div className="grid gap-5 p-5">
         {rows.map((row) => (
           <div key={row.side}>
-            <div className="flex items-baseline gap-3"><span className="w-12 text-xs font-semibold text-body">{row.side}</span><span className={`font-mono text-lg font-semibold ${row.net >= 0 ? "text-up" : "text-down"}`}>{money(row.net)}</span><span className="ml-auto text-xs text-faint">n={row.n} · avg qty {row.n > 0 ? (row.qty / row.n).toFixed(2) : "—"}</span></div>
-            <div className="mt-2 h-2 rounded-full bg-raised"><div className={`h-full rounded-full ${row.net >= 0 ? "bg-up" : "bg-down"}`} style={{ width: `${Math.max(2, (Math.abs(row.net) / extent) * 100)}%` }} /></div>
+            <div className="flex items-baseline gap-3"><span className="w-12 text-xs font-semibold text-body">{row.side}</span><span className={`text-lg font-semibold ${row.net >= 0 ? "text-gain" : "text-loss"}`}>{money(row.net)}</span><span className="ml-auto text-xs text-faint">n={row.n} · avg qty {row.n > 0 ? (row.qty / row.n).toFixed(2) : "—"}</span></div>
+            <div className="mt-2 h-2 rounded-full bg-raised"><div className={`h-full rounded-full ${row.net >= 0 ? "bg-gain-fill" : "bg-loss-fill"}`} style={{ width: `${Math.max(2, (Math.abs(row.net) / extent) * 100)}%` }} /></div>
           </div>
         ))}
       </div>
@@ -260,7 +260,7 @@ function WidgetHeader({ title, description }: { title: string; description: stri
 }
 
 function Metric({ label, value, tone }: { label: string; value: ReactNode; tone?: "up" | "down" }) {
-  return <div className="bg-panel p-4"><div className="text-[11px] font-semibold uppercase tracking-[0.1em] text-muted">{label}</div><div className={`mt-1.5 font-mono text-lg font-semibold ${tone === "up" ? "text-up" : tone === "down" ? "text-down" : "text-bright"}`}>{value}</div></div>;
+  return <div className="bg-panel p-4"><div className="text-[11px] font-semibold uppercase tracking-[0.06em] text-muted">{label}</div><div className={`mt-1.5 text-lg font-semibold ${tone === "up" ? "text-gain" : tone === "down" ? "text-loss" : "text-bright"}`}>{value}</div></div>;
 }
 
 function WidgetEmpty({ children }: { children: ReactNode }) {

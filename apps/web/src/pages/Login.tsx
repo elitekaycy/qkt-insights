@@ -38,14 +38,14 @@ export default function Login({ onLoggedIn }: { onLoggedIn: () => void }) {
             "radial-gradient(60rem 30rem at 70% -10%, color-mix(in srgb, var(--color-accent) 7%, transparent), transparent), radial-gradient(40rem 24rem at 10% 110%, color-mix(in srgb, #a78bfa 6%, transparent), transparent)",
         }}
       />
-      <form onSubmit={submit} className="rise relative w-[22rem] rounded-card border border-line bg-panel p-7">
-        <div className="text-xl font-extrabold tracking-tight text-bright">
-          qkt<span className="text-accent">·</span>insights
+      <form onSubmit={submit} className="relative w-[22rem] rounded-card border border-line bg-panel p-7">
+        <div className="text-xl font-headline tracking-tight text-bright">
+          qkt<span className="text-brand">·</span>insights
         </div>
         <p className="mt-1 text-sm text-muted">
           {brand ? (
             <>
-              Sign in to <span className="font-semibold text-accent">{brand}</span>
+              Sign in to <span className="font-medium text-muted">{brand}</span>
             </>
           ) : (
             "Sign in to continue"
@@ -88,7 +88,7 @@ export default function Login({ onLoggedIn }: { onLoggedIn: () => void }) {
             placeholder="authenticator code"
           />
         )}
-        {error === "denied" && <p className="mt-2.5 text-sm text-down">{needsCode ? "Wrong username, password or code" : "Wrong username or password"}</p>}
+        {error === "denied" && <p className="mt-2.5 text-sm text-loss">{needsCode ? "Wrong username, password or code" : "Wrong username or password"}</p>}
         {error === "locked" && <p className="mt-2.5 text-sm text-warn">Too many failed attempts. Sign-in is paused for a few minutes.</p>}
         {error === "unreachable" && <p className="mt-2.5 text-sm text-warn">Can't reach the collector — check the connection and try again.</p>}
         <Button type="submit" variant="primary" disabled={busy || username.length === 0 || password.length === 0 || (needsCode && code.length !== 6)} className="mt-5 w-full py-2">

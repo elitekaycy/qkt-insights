@@ -15,7 +15,7 @@ import Viewership from "./pages/Viewership";
 import { InstallApp } from "./components/InstallApp";
 import { Drawer } from "./components/Drawer";
 import { useBrand } from "./useBrand";
-import { ICONS, Mark, NavIcon, type Page } from "./components/chrome";
+import { ICONS, Mark, NavIcon, ThemeToggle, type Page } from "./components/chrome";
 import { usePullToRefresh } from "./hooks/usePullToRefresh";
 import { useResumeRefresh } from "./hooks/useResumeRefresh";
 
@@ -54,11 +54,11 @@ function Splash({ brand, status, busy, onRetry }: { brand: string | null; status
     <div className="pad-safe-top pad-safe-bottom flex h-screen flex-col items-center justify-center gap-5 bg-ink px-6 text-center" role="status" aria-live="polite">
       <div className="flex items-center gap-3">
         <Mark />
-        <div className="text-lg font-extrabold tracking-tight text-bright">
-          qkt<span className="text-accent">·</span>insights
+        <div className="text-lg font-headline tracking-tight text-bright">
+          qkt<span className="text-brand">·</span>insights
         </div>
       </div>
-      {brand && <div className="-mt-3 text-sm font-semibold text-accent">{brand}</div>}
+      {brand && <div className="-mt-3 text-sm font-medium text-muted">{brand}</div>}
       {status === "loading" ? (
         <div className="flex items-center gap-2.5 text-sm text-muted">
           <span className="live-dot inline-block h-2 w-2 rounded-full bg-accent" />
@@ -73,7 +73,7 @@ function Splash({ brand, status, busy, onRetry }: { brand: string | null; status
             type="button"
             onClick={onRetry}
             disabled={busy}
-            className="rounded-lg bg-accent px-5 py-2.5 text-sm font-bold text-ink transition active:scale-[0.98] hover:bg-accent-dim disabled:opacity-60"
+            className="rounded-lg bg-accent px-5 py-2.5 text-sm font-semibold text-ink transition active:scale-[0.98] hover:bg-accent-hi disabled:opacity-60"
           >
             {busy ? "Retrying…" : "Retry"}
           </button>
@@ -142,9 +142,9 @@ export default function App() {
         onClick={() => goto(n.key)}
         title={n.label}
         aria-current={active ? "page" : undefined}
-        className={`group flex w-full items-center gap-3 rounded-lg px-3.5 py-2.5 text-left text-[15px] font-medium transition active:scale-[0.98] ${
+        className={`relative flex h-9 w-full items-center gap-3 rounded-lg px-3 text-left text-sm font-medium transition ${
           iconsOnly ? "justify-center px-0" : ""
-        } ${active ? "bg-accent text-ink" : "text-muted hover:bg-raised hover:text-body active:bg-raised"}`}
+        } ${active ? "bg-accent-soft text-bright before:absolute before:-left-2 before:top-2 before:bottom-2 before:w-[3px] before:rounded-r before:bg-accent-hi" : "text-body hover:bg-hover hover:text-bright"}`}
       >
         <NavIcon d={ICONS[n.key]} big />
         {!iconsOnly && n.label}
@@ -158,10 +158,10 @@ export default function App() {
         <Mark />
         {!iconsOnly && (
           <div className="min-w-0">
-            <div className="text-lg font-extrabold leading-tight tracking-tight text-bright">
-              qkt<span className="text-accent">·</span>insights
+            <div className="text-lg font-headline leading-tight tracking-tight text-bright">
+              qkt<span className="text-brand">·</span>insights
             </div>
-            {brand && <div className="truncate text-xs font-semibold text-accent">{brand}</div>}
+            {brand && <div className="truncate text-xs font-medium text-muted">{brand}</div>}
           </div>
         )}
       </div>
@@ -174,7 +174,7 @@ export default function App() {
         ) : (
           <div className="rounded-card border border-line bg-raised p-3.5">
             <div className="flex items-center justify-between">
-              <span className="text-[11px] font-bold uppercase tracking-[0.14em] text-muted">Instance</span>
+              <span className="text-[11px] font-semibold uppercase tracking-[0.06em] text-muted">Instance</span>
               <LiveDot on={live} />
             </div>
             <Select
@@ -195,7 +195,7 @@ export default function App() {
 
       <div className={`mt-4 ${iconsOnly ? "px-2" : "px-4"}`}>
         {!iconsOnly && (
-          <div className="px-3.5 pb-2 text-[11px] font-bold uppercase tracking-[0.16em] text-faint">All strategies</div>
+          <div className="px-3.5 pb-2 text-[11px] font-semibold uppercase tracking-[0.06em] text-faint">All strategies</div>
         )}
         {ALL_STRATEGIES.map((n) => navButton(n, iconsOnly))}
       </div>
@@ -204,7 +204,7 @@ export default function App() {
         {PER_INSTANCE.map((group) => (
           <div key={group.section} className="mt-4">
             {!iconsOnly && (
-              <div className="px-3.5 pb-2 text-[11px] font-bold uppercase tracking-[0.16em] text-faint">
+              <div className="px-3.5 pb-2 text-[11px] font-semibold uppercase tracking-[0.06em] text-faint">
                 {group.section}
               </div>
             )}
@@ -227,6 +227,7 @@ export default function App() {
           </span>
           {!iconsOnly && (fetching > 0 ? "Refreshing…" : "Refresh")}
         </button>
+        <ThemeToggle iconsOnly={iconsOnly} />
         <InstallApp variant="sidebar" iconsOnly={iconsOnly} />
         <button
           onClick={async () => {
@@ -303,10 +304,10 @@ export default function App() {
           <NavIcon d="M4 6h16M4 12h16M4 18h16" big />
         </button>
         <Mark />
-        <div className="min-w-0 truncate text-[15px] font-extrabold tracking-tight text-bright">
+        <div className="min-w-0 truncate text-[15px] font-headline tracking-tight text-bright">
           {brand ?? (
             <>
-              qkt<span className="text-accent">·</span>insights
+              qkt<span className="text-brand">·</span>insights
             </>
           )}
         </div>
@@ -322,7 +323,7 @@ export default function App() {
 
       {/* desktop sidebar */}
       <aside
-        className={`pad-safe-left relative hidden shrink-0 flex-col border-r border-line bg-panel transition-all lg:flex ${
+        className={`pad-safe-left relative hidden shrink-0 flex-col border-r border-line bg-side transition-all lg:flex ${
           collapsed ? "w-[4.5rem]" : "w-[17rem]"
         }`}
       >

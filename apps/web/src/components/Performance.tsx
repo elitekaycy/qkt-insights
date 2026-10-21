@@ -46,7 +46,7 @@ function outcomeLabel(realized: number): string {
 
 function realizedClass(realized: number | null | undefined): string {
   if (realized == null) return "text-faint";
-  return realized > 0 ? "text-up" : realized < 0 ? "text-down" : "text-muted";
+  return realized > 0 ? "text-gain" : realized < 0 ? "text-loss" : "text-muted";
 }
 
 function signedMoney(realized: number): string {
@@ -56,8 +56,8 @@ function signedMoney(realized: number): string {
 function CostFact({ label, className = "", children }: { label: string; className?: string; children: ReactNode }) {
   return (
     <div className="min-w-0">
-      <dt className="text-[10px] font-bold uppercase tracking-[0.12em] text-faint">{label}</dt>
-      <dd className={`truncate font-mono text-sm ${className}`}>{children}</dd>
+      <dt className="text-[10px] font-semibold uppercase tracking-[0.06em] text-faint">{label}</dt>
+      <dd className={`truncate text-sm ${className}`}>{children}</dd>
     </div>
   );
 }
@@ -78,7 +78,7 @@ function CloseList({ rows, hint }: { rows: ClosedTradeRow[]; hint?: string }) {
   }
   return (
     <div>
-      {hint && <div className="pb-1.5 text-[11px] font-semibold uppercase tracking-[0.12em] text-muted">{hint}</div>}
+      {hint && <div className="pb-1.5 text-[11px] font-semibold uppercase tracking-[0.06em] text-muted">{hint}</div>}
       <div className="max-h-72 overflow-auto rounded-lg border border-line">
         <DataList
           head={["Closed", "Symbol", "Outcome", "Qty", "Exit px", "P&L", "Held"]}
@@ -92,10 +92,10 @@ function CloseList({ rows, hint }: { rows: ClosedTradeRow[]; hint?: string }) {
               <Cell>
                 <Pill tone={outcomeTone(c.realized)}>{outcomeLabel(c.realized)}</Pill>
               </Cell>
-              <Cell className="font-mono">{c.qty}</Cell>
-              <Cell className="whitespace-nowrap font-mono text-muted">@ {price(c.price)}</Cell>
-              <Cell className={`font-mono font-semibold ${realizedClass(c.realized)}`}>{signedMoney(c.realized)}</Cell>
-              <Cell className="font-mono text-muted">{c.entryTs != null ? duration(c.ts - c.entryTs) : "—"}</Cell>
+              <Cell className="">{c.qty}</Cell>
+              <Cell className="whitespace-nowrap text-muted">@ {price(c.price)}</Cell>
+              <Cell className={`font-semibold ${realizedClass(c.realized)}`}>{signedMoney(c.realized)}</Cell>
+              <Cell className="text-muted">{c.entryTs != null ? duration(c.ts - c.entryTs) : "—"}</Cell>
             </>
           )}
           card={(c) => (
@@ -103,9 +103,9 @@ function CloseList({ rows, hint }: { rows: ClosedTradeRow[]; hint?: string }) {
               <div className="flex items-baseline gap-2">
                 <span className="min-w-0 truncate font-semibold text-bright">{c.symbol}</span>
                 <Pill tone={outcomeTone(c.realized)}>{outcomeLabel(c.realized)}</Pill>
-                <span className={`ml-auto shrink-0 font-mono text-sm font-semibold ${realizedClass(c.realized)}`}>{signedMoney(c.realized)}</span>
+                <span className={`ml-auto shrink-0 text-sm font-semibold ${realizedClass(c.realized)}`}>{signedMoney(c.realized)}</span>
               </div>
-              <div className="mt-1 flex items-center gap-2 font-mono text-xs text-faint">
+              <div className="mt-1 flex items-center gap-2 text-xs text-faint">
                 <span className="whitespace-nowrap">
                   {c.qty} @ {price(c.price)}
                   {c.entryTs != null && ` · held ${duration(c.ts - c.entryTs)}`}
@@ -125,17 +125,17 @@ function DayList({ rows, hint }: { rows: DayNet[]; hint?: string }) {
   if (rows.length === 0) return <p className="text-sm text-faint">No trading days in this range yet.</p>;
   return (
     <div>
-      {hint && <div className="pb-1.5 text-[11px] font-semibold uppercase tracking-[0.12em] text-muted">{hint}</div>}
+      {hint && <div className="pb-1.5 text-[11px] font-semibold uppercase tracking-[0.06em] text-muted">{hint}</div>}
       <div className="max-h-72 overflow-auto rounded-lg border border-line">
         <Table head={["Day", "Net", "Fills"]}>
           {rows.map((d) => (
             <Row key={d.day}>
-              <Cell className="font-mono text-muted">{d.day}</Cell>
-              <Cell className={`font-mono font-semibold ${d.net > 0 ? "text-up" : d.net < 0 ? "text-down" : "text-muted"}`}>
+              <Cell className="text-muted">{d.day}</Cell>
+              <Cell className={`font-semibold ${d.net > 0 ? "text-gain" : d.net < 0 ? "text-loss" : "text-muted"}`}>
                 {d.net > 0 ? "+" : ""}
                 {money(d.net)}
               </Cell>
-              <Cell className="font-mono text-muted">{d.trades}</Cell>
+              <Cell className="text-muted">{d.trades}</Cell>
             </Row>
           ))}
         </Table>
@@ -203,8 +203,8 @@ function MStat({
         content: (
           <div className="grid gap-3 p-4 sm:p-5">
             <div className="rounded-lg border border-line bg-raised px-4 py-3">
-              <div className="text-[10px] font-bold uppercase tracking-[0.14em] text-muted">Current value</div>
-              <div className={`mt-1 font-mono text-2xl font-semibold ${tone === "up" ? "text-up" : tone === "down" ? "text-down" : "text-bright"}`}>
+              <div className="text-[10px] font-semibold uppercase tracking-[0.06em] text-muted">Current value</div>
+              <div className={`mt-1 text-2xl font-semibold ${tone === "up" ? "text-gain" : tone === "down" ? "text-loss" : "text-bright"}`}>
                 {value}
               </div>
               {sub && <div className="mt-0.5 text-xs text-faint">{sub}</div>}
@@ -224,7 +224,7 @@ export function PerformancePanels({ bundle }: { bundle: PerformanceBundle }) {
   const noTrades = r.wins + r.losses === 0;
   if (noTrades) {
     return (
-      <Panel title="Performance" stagger={0}>
+      <Panel title="Performance">
         <Empty>No closed trades in this range yet.</Empty>
       </Panel>
     );
@@ -255,7 +255,7 @@ export function PerformancePanels({ bundle }: { bundle: PerformanceBundle }) {
 
   return (
     <div className="grid gap-5">
-      <Panel title="Profitability" stagger={0} right={<Approx on={r.approximate} />}>
+      <Panel title="Profitability" right={<Approx on={r.approximate} />}>
         <div className="grid grid-cols-2 gap-3 p-4 md:grid-cols-4">
           <MStat
             label="Profit factor"
@@ -355,7 +355,7 @@ export function PerformancePanels({ bundle }: { bundle: PerformanceBundle }) {
         </div>
       </Panel>
 
-      <Panel title="Risk" stagger={1} right={<Approx on={r.approximate} />}>
+      <Panel title="Risk" right={<Approx on={r.approximate} />}>
         <div className="grid grid-cols-2 gap-3 p-4 md:grid-cols-4">
           <MStat
             label="Max drawdown"
@@ -425,7 +425,7 @@ export function PerformancePanels({ bundle }: { bundle: PerformanceBundle }) {
         </div>
       </Panel>
 
-      <Panel title="Streaks" stagger={2} right={<Approx on={r.approximate} />}>
+      <Panel title="Streaks" right={<Approx on={r.approximate} />}>
         <div className="grid grid-cols-2 gap-3 p-4 md:grid-cols-4">
           <MStat
             label="Current streak"
@@ -462,7 +462,7 @@ export function PerformancePanels({ bundle }: { bundle: PerformanceBundle }) {
         </div>
         {bundle.postLoss.length > 0 && (
           <div className="border-t border-line">
-            <div className="px-4 pt-3 text-[11px] font-semibold uppercase tracking-[0.12em] text-muted">
+            <div className="px-4 pt-3 text-[11px] font-semibold uppercase tracking-[0.06em] text-muted">
               After N consecutive losses, the next trade…
             </div>
             <DataList
@@ -472,23 +472,23 @@ export function PerformancePanels({ bundle }: { bundle: PerformanceBundle }) {
               empty="No losing streaks yet"
               cells={(p) => (
                 <>
-                  <Cell className="font-mono">{p.n}</Cell>
-                  <Cell className="font-mono text-muted">{p.sample}</Cell>
+                  <Cell className="">{p.n}</Cell>
+                  <Cell className="text-muted">{p.sample}</Cell>
                   <Cell>
                     <Pill tone={p.nextWinRate >= 50 ? "up" : "down"}>{p.nextWinRate.toFixed(0)}%</Pill>
                   </Cell>
-                  <Cell className={`font-mono ${p.nextAvg >= 0 ? "text-up" : "text-down"}`}>{money(p.nextAvg)}</Cell>
+                  <Cell className={`${p.nextAvg >= 0 ? "text-gain" : "text-loss"}`}>{money(p.nextAvg)}</Cell>
                 </>
               )}
               card={(p) => (
                 <div className="flex items-center gap-2">
                   <span className="text-sm text-body">
-                    after <span className="font-mono font-semibold text-bright">{p.n}</span> {p.n === 1 ? "loss" : "losses"}
+                    after <span className="font-semibold text-bright">{p.n}</span> {p.n === 1 ? "loss" : "losses"}
                   </span>
                   <span className="text-xs text-faint">· seen {p.sample}×</span>
                   <span className="ml-auto flex shrink-0 items-center gap-2">
                     <Pill tone={p.nextWinRate >= 50 ? "up" : "down"}>{p.nextWinRate.toFixed(0)}% win</Pill>
-                    <span className={`font-mono text-sm ${p.nextAvg >= 0 ? "text-up" : "text-down"}`}>{money(p.nextAvg)}</span>
+                    <span className={`text-sm ${p.nextAvg >= 0 ? "text-gain" : "text-loss"}`}>{money(p.nextAvg)}</span>
                   </span>
                 </div>
               )}
@@ -716,7 +716,7 @@ function TradeAnalysis({ bundle }: { bundle: PerformanceBundle }) {
     <Panel
       title="Trade analysis"
       hint="closed trades"
-      stagger={3}
+     
       toolbar={
         <div className="flex flex-wrap items-end gap-2">
           <FilterField label="Side">
@@ -800,7 +800,7 @@ function TradeAnalysis({ bundle }: { bundle: PerformanceBundle }) {
 function RankedTrades({ title, rows }: { title: string; rows: ClosedTradeRow[] }) {
   return (
     <div className="rounded-lg border border-line bg-ink/25">
-      <div className="px-4 pt-3 text-[11px] font-bold uppercase tracking-[0.12em] text-muted">{title}</div>
+      <div className="px-4 pt-3 text-[11px] font-semibold uppercase tracking-[0.06em] text-muted">{title}</div>
       <DataList
         head={["Closed", "Symbol", "Side", "Qty", "P&L"]}
         rows={rows}
@@ -813,8 +813,8 @@ function RankedTrades({ title, rows }: { title: string; rows: ClosedTradeRow[] }
             <Cell>
               <Pill tone={sideKey(c.side) === "long" ? "up" : "info"}>{sideKey(c.side)}</Pill>
             </Cell>
-            <Cell className="font-mono">{c.qty}</Cell>
-            <Cell className={`font-mono ${realizedClass(c.realized)}`}>{signedMoney(c.realized)}</Cell>
+            <Cell className="">{c.qty}</Cell>
+            <Cell className={`${realizedClass(c.realized)}`}>{signedMoney(c.realized)}</Cell>
           </>
         )}
         card={(c) => (
@@ -822,9 +822,9 @@ function RankedTrades({ title, rows }: { title: string; rows: ClosedTradeRow[] }
             <div className="flex items-baseline gap-2">
               <span className="min-w-0 truncate font-semibold text-bright">{c.symbol}</span>
               <Pill tone={sideKey(c.side) === "long" ? "up" : "info"}>{sideKey(c.side)}</Pill>
-              <span className={`ml-auto shrink-0 font-mono text-sm font-semibold ${realizedClass(c.realized)}`}>{signedMoney(c.realized)}</span>
+              <span className={`ml-auto shrink-0 text-sm font-semibold ${realizedClass(c.realized)}`}>{signedMoney(c.realized)}</span>
             </div>
-            <div className="mt-1 flex items-center gap-2 font-mono text-xs text-faint">
+            <div className="mt-1 flex items-center gap-2 text-xs text-faint">
               <span>{c.qty} lots</span>
               <span className="ml-auto whitespace-nowrap">{tsShort(c.ts)}</span>
             </div>
@@ -838,7 +838,7 @@ function RankedTrades({ title, rows }: { title: string; rows: ClosedTradeRow[] }
 function FilterField({ label, children }: { label: string; children: ReactNode }) {
   return (
     <label className="grid gap-1">
-      <span className="text-[10px] font-bold uppercase tracking-[0.12em] text-faint">{label}</span>
+      <span className="text-[10px] font-semibold uppercase tracking-[0.06em] text-faint">{label}</span>
       {children}
     </label>
   );
@@ -848,7 +848,7 @@ function ChartShell({ title, hint, children }: { title: string; hint: string; ch
   return (
     <div className="rounded-lg border border-line bg-raised/45 p-3 shadow-inner shadow-black/10">
       <div className="flex flex-wrap items-baseline justify-between gap-2 pb-2">
-        <div className="text-[11px] font-bold uppercase tracking-[0.12em] text-body">{title}</div>
+        <div className="text-[11px] font-semibold uppercase tracking-[0.06em] text-body">{title}</div>
         <div className="text-xs text-faint">{hint}</div>
       </div>
       {children}
@@ -886,7 +886,7 @@ export function EdgeDetailPanels({ bundle }: { bundle: PerformanceBundle }) {
   return (
     <div className="grid gap-5">
       <div className="grid gap-5 xl:grid-cols-2">
-        <Panel title="Cost of trading" hint="gross (before commission and swap) vs commission vs swap, per UTC month" stagger={4}>
+        <Panel title="Cost of trading" hint="gross (before commission and swap) vs commission vs swap, per UTC month">
           {costs && costs.byMonth.length > 0 ? (
             <div className="grid gap-3 p-3">
               <CostStack costs={costs} />
@@ -895,20 +895,20 @@ export function EdgeDetailPanels({ bundle }: { bundle: PerformanceBundle }) {
                   <Table head={["", "Gross", "Commission", "Swap", "Fee", "Net"]}>
                     <Row>
                       <Cell className="text-muted">total</Cell>
-                      <Cell className="font-mono text-up">{money(costs.total.grossProfit)}</Cell>
-                      <Cell className="font-mono text-down">{money(costs.total.commission)}</Cell>
-                      <Cell className={`font-mono ${costs.total.swap < 0 ? "text-down" : "text-muted"}`}>{money(costs.total.swap)}</Cell>
-                      <Cell className={`font-mono ${costs.total.fee < 0 ? "text-down" : "text-muted"}`}>{money(costs.total.fee)}</Cell>
-                      <Cell className={`font-mono font-semibold ${costs.total.net >= 0 ? "text-up" : "text-down"}`}>{money(costs.total.net)}</Cell>
+                      <Cell className="text-gain">{money(costs.total.grossProfit)}</Cell>
+                      <Cell className="text-loss">{money(costs.total.commission)}</Cell>
+                      <Cell className={`${costs.total.swap < 0 ? "text-loss" : "text-muted"}`}>{money(costs.total.swap)}</Cell>
+                      <Cell className={`${costs.total.fee < 0 ? "text-loss" : "text-muted"}`}>{money(costs.total.fee)}</Cell>
+                      <Cell className={`font-semibold ${costs.total.net >= 0 ? "text-gain" : "text-loss"}`}>{money(costs.total.net)}</Cell>
                     </Row>
                   </Table>
                 </div>
                 <dl className="grid grid-cols-3 gap-x-3 gap-y-2.5 px-4 py-3 sm:hidden">
-                  <CostFact label="gross" className="text-up">{money(costs.total.grossProfit)}</CostFact>
-                  <CostFact label="commission" className="text-down">{money(costs.total.commission)}</CostFact>
-                  <CostFact label="swap" className={costs.total.swap < 0 ? "text-down" : "text-muted"}>{money(costs.total.swap)}</CostFact>
-                  <CostFact label="fee" className={costs.total.fee < 0 ? "text-down" : "text-muted"}>{money(costs.total.fee)}</CostFact>
-                  <CostFact label="net" className={`font-semibold ${costs.total.net >= 0 ? "text-up" : "text-down"}`}>{money(costs.total.net)}</CostFact>
+                  <CostFact label="gross" className="text-gain">{money(costs.total.grossProfit)}</CostFact>
+                  <CostFact label="commission" className="text-loss">{money(costs.total.commission)}</CostFact>
+                  <CostFact label="swap" className={costs.total.swap < 0 ? "text-loss" : "text-muted"}>{money(costs.total.swap)}</CostFact>
+                  <CostFact label="fee" className={costs.total.fee < 0 ? "text-loss" : "text-muted"}>{money(costs.total.fee)}</CostFact>
+                  <CostFact label="net" className={`font-semibold ${costs.total.net >= 0 ? "text-gain" : "text-loss"}`}>{money(costs.total.net)}</CostFact>
                 </dl>
               </div>
             </div>
@@ -916,7 +916,7 @@ export function EdgeDetailPanels({ bundle }: { bundle: PerformanceBundle }) {
             <Empty>Cost split needs broker deals — paper instances carry realized P&L without a commission/swap breakdown.</Empty>
           )}
         </Panel>
-        <Panel title="Where the money comes from" hint="net contribution by instrument (broker-profile symbols folded) · n labels · expectancy in tooltip" stagger={5}>
+        <Panel title="Where the money comes from" hint="net contribution by instrument (broker-profile symbols folded) · n labels · expectancy in tooltip">
           {contribution && contribution.bySymbol.length > 0 ? (
             <div className="grid gap-3 p-3">
               <ContributionBars ranking={contribution} />
@@ -929,23 +929,23 @@ export function EdgeDetailPanels({ bundle }: { bundle: PerformanceBundle }) {
                   cells={(r) => (
                     <>
                       <Cell className="font-semibold text-bright"><span title={r.venues?.join(", ")}>{r.key}</span></Cell>
-                      <Cell className={`font-mono ${r.net >= 0 ? "text-up" : "text-down"}`}>{money(r.net)}</Cell>
-                      <Cell className="font-mono text-muted">{r.trades}</Cell>
-                      <Cell className="font-mono text-muted">{winPct(r.winRate)}</Cell>
-                      <Cell className={`font-mono ${r.expectancy >= 0 ? "text-up" : "text-down"}`}>{money(r.expectancy)}</Cell>
+                      <Cell className={`${r.net >= 0 ? "text-gain" : "text-loss"}`}>{money(r.net)}</Cell>
+                      <Cell className="text-muted">{r.trades}</Cell>
+                      <Cell className="text-muted">{winPct(r.winRate)}</Cell>
+                      <Cell className={`${r.expectancy >= 0 ? "text-gain" : "text-loss"}`}>{money(r.expectancy)}</Cell>
                     </>
                   )}
                   card={(r) => (
                     <>
                       <div className="flex items-baseline gap-2">
                         <span className="min-w-0 truncate font-semibold text-bright">{r.key}</span>
-                        <span className={`ml-auto shrink-0 font-mono text-sm font-semibold ${r.net >= 0 ? "text-up" : "text-down"}`}>{money(r.net)}</span>
+                        <span className={`ml-auto shrink-0 text-sm font-semibold ${r.net >= 0 ? "text-gain" : "text-loss"}`}>{money(r.net)}</span>
                       </div>
-                      <div className="mt-1 flex items-center gap-2 font-mono text-xs text-faint">
+                      <div className="mt-1 flex items-center gap-2 text-xs text-faint">
                         <span>
                           {r.trades} trades · {winPct(r.winRate)} win
                         </span>
-                        <span className={`ml-auto whitespace-nowrap ${r.expectancy >= 0 ? "text-up" : "text-down"}`}>{money(r.expectancy)} / trade</span>
+                        <span className={`ml-auto whitespace-nowrap ${r.expectancy >= 0 ? "text-gain" : "text-loss"}`}>{money(r.expectancy)} / trade</span>
                       </div>
                     </>
                   )}
@@ -958,7 +958,7 @@ export function EdgeDetailPanels({ bundle }: { bundle: PerformanceBundle }) {
         </Panel>
       </div>
       {boxGroups.length > 0 && (
-        <Panel title="P&L dispersion by weekday" hint="box = quartiles, whiskers = min/max · UTC close day · grey under n=30" stagger={6}>
+        <Panel title="P&L dispersion by weekday" hint="box = quartiles, whiskers = min/max · UTC close day · grey under n=30">
           <div className="p-3"><BucketBoxplot groups={boxGroups} /></div>
         </Panel>
       )}

@@ -53,7 +53,7 @@ export default function Logs({ instanceId }: { instanceId: string | null }) {
       <PageHeader title="Logs" sub={`Engine logs shipped from ${instanceId}; live tail on top, history below.`} />
 
       {liveLogs.length > 0 && (
-        <Panel className="mt-5 border-up/30" stagger={0} title="Live" right={<PulseDot />} scroll="max-h-[20rem]">
+        <Panel className="mt-5 border-gain-fill/30" title="Live" right={<PulseDot />} scroll="max-h-[20rem]">
           <div className="p-2">
             {liveLogs.slice(0, 20).map((e) => (
               <LogLine
@@ -74,7 +74,7 @@ export default function Logs({ instanceId }: { instanceId: string | null }) {
 
       <Panel
         className="mt-5"
-        stagger={1}
+       
         title="History"
         scroll="max-h-[34rem]"
         toolbar={
@@ -141,6 +141,6 @@ export default function Logs({ instanceId }: { instanceId: string | null }) {
 }
 
 function PulseDot() {
-  return <span className="live-dot inline-block h-2 w-2 rounded-full bg-up" />;
+  return <span className="live-dot inline-block h-2 w-2 rounded-full bg-gain-fill" />;
 }
 

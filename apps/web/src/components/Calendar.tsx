@@ -25,7 +25,7 @@ function tint(net: number, maxAbs: number): string {
 }
 
 function netClass(net: number): string {
-  return net > 0 ? "text-up" : net < 0 ? "text-down" : "text-muted";
+  return net > 0 ? "text-gain" : net < 0 ? "text-loss" : "text-muted";
 }
 
 export function CalendarView({
@@ -82,7 +82,7 @@ export function CalendarView({
 
   if (days.length === 0) {
     return (
-      <Panel title="Calendar" stagger={0}>
+      <Panel title="Calendar">
         <Empty>No trading days in this range yet.</Empty>
       </Panel>
     );
@@ -100,7 +100,7 @@ export function CalendarView({
       <Panel
         title={first.toLocaleDateString("en-GB", { month: "long", year: "numeric", timeZone: "UTC" })}
         hint={`month net ${money(monthNet)} · click a day`}
-        stagger={0}
+       
         right={
           <div className="flex gap-1.5">
             <IconButton label="previous month" disabled={idx <= 0} onClick={() => idx > 0 && setMonth(months[idx - 1]!)} d="M15 18l-6-6 6-6" />
@@ -114,7 +114,7 @@ export function CalendarView({
         }
       >
         <div className="p-4">
-          <div className="grid grid-cols-7 gap-1.5 text-center text-[10px] font-bold uppercase tracking-[0.12em] text-faint">
+          <div className="grid grid-cols-7 gap-1.5 text-center text-[10px] font-semibold uppercase tracking-[0.06em] text-faint">
             {WEEKDAYS.map((w) => (
               <div key={w} className="pb-1">
                 {w}
@@ -141,7 +141,7 @@ export function CalendarView({
                 >
                   <span className="text-[10px] text-faint">{i + 1}</span>
                   {d && (
-                    <span className={`mt-auto truncate font-mono text-[11px] font-semibold ${netClass(d.net)}`}>
+                    <span className={`mt-auto truncate text-[11px] font-semibold ${netClass(d.net)}`}>
                       {d.net > 0 ? "+" : ""}
                       {Math.abs(d.net) >= 1000 ? `${(d.net / 1000).toFixed(1)}k` : d.net.toFixed(0)}
                     </span>
@@ -153,7 +153,7 @@ export function CalendarView({
         </div>
       </Panel>
 
-      <Panel title="Monthly returns" hint={`YTD ${money(ytd)}${hasBase ? ` · return on ${baseLabel}` : ""} · click a month`} stagger={1} scroll="max-h-[30rem]">
+      <Panel title="Monthly returns" hint={`YTD ${money(ytd)}${hasBase ? ` · return on ${baseLabel}` : ""} · click a month`} scroll="max-h-[30rem]">
         <Table head={["Month", "Net", hasBase ? "Return" : "", "Fills"].filter(Boolean) as string[]}>
           {monthly.map(([k, v]) => (
             <Row
@@ -163,14 +163,14 @@ export function CalendarView({
                 setOpenMonth(k);
               }}
             >
-              <Cell className="font-mono">{k}</Cell>
-              <Cell className={`font-mono ${netClass(v.net)}`}>
+              <Cell className="">{k}</Cell>
+              <Cell className={`${netClass(v.net)}`}>
                 <span className="rounded px-2 py-0.5" style={{ background: tint(v.net, monthlyMaxAbs) }}>{money(v.net)}</span>
               </Cell>
               {hasBase ? (
-                <Cell className="font-mono text-muted">{pctOf(v.net, k)}</Cell>
+                <Cell className="text-muted">{pctOf(v.net, k)}</Cell>
               ) : null}
-              <Cell className="font-mono text-muted">{v.trades}</Cell>
+              <Cell className="text-muted">{v.trades}</Cell>
             </Row>
           ))}
         </Table>
@@ -190,7 +190,7 @@ export function CalendarView({
             </Field>
             <Field label={`Return on ${baseLabel}`}>{pctOf(dayInfo.net, monthKey(openDay))}</Field>
           </div>
-          <div className="px-4 pb-1 text-[11px] font-semibold uppercase tracking-[0.12em] text-muted">
+          <div className="px-4 pb-1 text-[11px] font-semibold uppercase tracking-[0.06em] text-muted">
             Trades that day {onTrade && dayFills.some((t) => t.raw) ? "· click one to inspect" : ""}
           </div>
           <Table>
@@ -203,8 +203,8 @@ export function CalendarView({
                   <Cell>
                     <SideTag side={t.side} />
                   </Cell>
-                  <Cell className="font-mono">{t.qty}</Cell>
-                  <Cell className="font-mono text-muted">@ {price(t.price)}</Cell>
+                  <Cell className="">{t.qty}</Cell>
+                  <Cell className="text-muted">@ {price(t.price)}</Cell>
                 </Row>
               );
             })}
@@ -229,7 +229,7 @@ export function CalendarView({
             <Field label="Best day">
               {bestDay ? (
                 <>
-                  {bestDay.day} <span className="ml-2 text-up">{money(bestDay.net)}</span>
+                  {bestDay.day} <span className="ml-2 text-gain">{money(bestDay.net)}</span>
                 </>
               ) : (
                 "—"
@@ -252,7 +252,7 @@ export function CalendarView({
               </Pill>
             </Field>
           </div>
-          <div className="px-4 pb-1 text-[11px] font-semibold uppercase tracking-[0.12em] text-muted">Day by day · click to open</div>
+          <div className="px-4 pb-1 text-[11px] font-semibold uppercase tracking-[0.06em] text-muted">Day by day · click to open</div>
           <Table head={["Day", "Net", "Fills"]}>
             {openMonthDays.map((d) => (
               <Row
@@ -262,9 +262,9 @@ export function CalendarView({
                   setOpenDay(d.day);
                 }}
               >
-                <Cell className="font-mono text-muted">{d.day}</Cell>
-                <Cell className={`font-mono ${netClass(d.net)}`}>{money(d.net)}</Cell>
-                <Cell className="font-mono text-muted">{d.trades}</Cell>
+                <Cell className="text-muted">{d.day}</Cell>
+                <Cell className={`${netClass(d.net)}`}>{money(d.net)}</Cell>
+                <Cell className="text-muted">{d.trades}</Cell>
               </Row>
             ))}
           </Table>

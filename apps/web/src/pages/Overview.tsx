@@ -117,8 +117,8 @@ export default function Overview({
       />
 
       <div className="mt-6">
-        <div className="rise flex items-baseline justify-between" style={{ "--stagger": 0 } as React.CSSProperties}>
-          <h3 className="text-sm font-bold uppercase tracking-[0.08em] text-body">Account</h3>
+        <div className="flex items-baseline justify-between">
+          <h3 className="text-sm font-semibold uppercase tracking-[0.06em] text-body">Account</h3>
           <span className="text-xs text-faint">broker-reported, whole account</span>
         </div>
         <Loadable
@@ -129,7 +129,7 @@ export default function Overview({
           lines={2}
         >
         {accounts.length === 0 && (
-          <Card className="mt-3 p-8 text-center text-faint" stagger={0}>
+          <Card className="mt-3 p-8 text-center text-faint">
             No broker account state yet — waiting for the state poller.
           </Card>
         )}
@@ -145,20 +145,20 @@ export default function Overview({
               {a.stale && <Pill>stale {Math.max(0, Math.floor((Date.now() - a.lastSeen) / 1000))}s</Pill>}
             </div>
             <div className="mt-3 grid grid-cols-2 gap-4 sm:grid-cols-3 lg:grid-cols-6">
-              <Stat label="Balance" value={money(a.balance)} sub={a.currency} stagger={0} />
-              <Stat label="Equity" value={<FlashValue value={a.equity}>{money(a.equity)}</FlashValue>} stagger={0} />
+              <Stat label="Balance" value={money(a.balance)} sub={a.currency} />
+              <Stat label="Equity" value={<FlashValue value={a.equity}>{money(a.equity)}</FlashValue>} />
               <Stat
                 label="Open P&L"
                 value={<FlashValue value={a.openProfit}>{money(a.openProfit)}</FlashValue>}
                 tone={a.openProfit == null ? "neutral" : a.openProfit > 0 ? "up" : a.openProfit < 0 ? "down" : "neutral"}
-                stagger={1}
+               
               />
               {!view.public && (
                 <Stat
                   label="Margin level"
                   value={a.marginLevel == null ? "—" : `${num(a.marginLevel)}%`}
                   sub={a.margin != null ? `margin ${money(a.margin)}` : undefined}
-                  stagger={1}
+                 
                 />
               )}
               {(() => {
@@ -174,14 +174,14 @@ export default function Overview({
                       value={cur == null ? "\u2014" : `${num(cur)}%`}
                       sub={dd?.peakEquity != null ? `peak ${money(dd.peakEquity)}` : undefined}
                       tone={cur == null ? "neutral" : cur > 5 ? "down" : cur > 0.005 ? "neutral" : "up"}
-                      stagger={2}
+                     
                     />
                     <Stat
                       label="Max DD"
                       value={max == null ? "\u2014" : `${num(max)}%`}
                       sub="whole retained history"
                       tone={max != null && max > 5 ? "down" : "neutral"}
-                      stagger={2}
+                     
                     />
                   </>
                 );
@@ -194,7 +194,7 @@ export default function Overview({
           {view.public ? (
             <PublicOpenPositions summary={liveState.data?.openPositions ?? null} loading={liveState.isPending} />
           ) : (
-          <Panel stagger={1} title="Open positions" hint="live broker tickets, broker-valued" scroll="max-h-[22rem]">
+          <Panel title="Open positions" hint="live broker tickets, broker-valued" scroll="max-h-[22rem]">
             <Loadable
               loading={liveState.isPending}
               error={liveState.isError}
@@ -213,20 +213,20 @@ export default function Overview({
                   <Cell>
                     <SideTag side={p.side} />
                   </Cell>
-                  <Cell className="font-mono">{p.qty}</Cell>
-                  <Cell className="whitespace-nowrap font-mono text-muted">@ {price(p.entryPrice)}</Cell>
-                  <Cell className="font-mono">{price(p.currentPrice)}</Cell>
+                  <Cell className="">{p.qty}</Cell>
+                  <Cell className="whitespace-nowrap text-muted">@ {price(p.entryPrice)}</Cell>
+                  <Cell className="">{price(p.currentPrice)}</Cell>
                   <Cell className="text-muted">
                     <span title={p.openedAt ? new Date(p.openedAt).toISOString() : undefined}>
                       {p.openedAt ? duration(Date.now() - p.openedAt) : "—"}
                     </span>
                   </Cell>
-                  <Cell className={`font-mono font-semibold ${profitTone(p.profit)}`}>
+                  <Cell className={`font-semibold ${profitTone(p.profit)}`}>
                     <FlashValue value={p.profit}>
                       {p.profit == null ? "—" : `${p.profit > 0 ? "+" : ""}${fixed(p.profit)}`}
                     </FlashValue>
                   </Cell>
-                  <Cell className="font-mono text-muted">{p.swap ?? "—"}</Cell>
+                  <Cell className="text-muted">{p.swap ?? "—"}</Cell>
                   <Cell>
                     {p.strategyId ? (
                       <span title={p.strategyId}>{nameByStrategy.get(p.strategyId) ?? p.strategyId}</span>
@@ -241,7 +241,7 @@ export default function Overview({
                   <div className="flex items-baseline gap-2">
                     <span className="min-w-0 truncate font-semibold text-bright">{p.symbol}</span>
                     <SideTag side={p.side} />
-                    <span className={`ml-auto shrink-0 font-mono text-sm font-semibold ${profitTone(p.profit)}`}>
+                    <span className={`ml-auto shrink-0 text-sm font-semibold ${profitTone(p.profit)}`}>
                       <FlashValue value={p.profit}>
                         {p.profit == null ? "—" : `${p.profit > 0 ? "+" : ""}${fixed(p.profit)}`}
                       </FlashValue>
@@ -251,7 +251,7 @@ export default function Overview({
                     <span className="min-w-0 truncate">
                       {p.strategyId ? nameByStrategy.get(p.strategyId) ?? p.strategyId : "unattributed"}
                     </span>
-                    <span className="ml-auto shrink-0 whitespace-nowrap font-mono">
+                    <span className="ml-auto shrink-0 whitespace-nowrap ">
                       {p.qty} @ {price(p.entryPrice)} · {p.openedAt ? duration(Date.now() - p.openedAt) : "—"}
                     </span>
                   </div>
@@ -304,10 +304,10 @@ function PublicOpenPositions({ summary, loading }: { summary: { count: number; u
   const count = summary?.count ?? 0;
   const unrealized = summary?.unrealized ?? null;
   return (
-    <Card className="flex flex-wrap items-baseline gap-x-6 gap-y-1 px-5 py-4" stagger={1}>
-      <span className="text-[11px] font-semibold uppercase tracking-[0.12em] text-muted">Open positions</span>
-      <span className="font-mono text-xl font-semibold text-bright">{loading ? "…" : count}</span>
-      <span className={`font-mono text-xl font-semibold ${profitTone(unrealized)}`}>
+    <Card className="flex flex-wrap items-baseline gap-x-6 gap-y-1 px-5 py-4">
+      <span className="text-[11px] font-semibold uppercase tracking-[0.06em] text-muted">Open positions</span>
+      <span className="text-xl font-semibold text-bright">{loading ? "…" : count}</span>
+      <span className={`text-xl font-semibold ${profitTone(unrealized)}`}>
         {unrealized == null ? "—" : `${unrealized > 0 ? "+" : ""}${money(unrealized)}`}
       </span>
       <span className="text-xs text-faint">
@@ -320,5 +320,5 @@ function PublicOpenPositions({ summary, loading }: { summary: { count: number; u
 function profitTone(v: number | null | undefined): string {
   if (v == null) return "text-faint";
   if (v === 0) return "text-muted";
-  return v > 0 ? "text-up" : "text-down";
+  return v > 0 ? "text-gain" : "text-loss";
 }

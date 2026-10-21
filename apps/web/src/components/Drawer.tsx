@@ -67,7 +67,7 @@ export function Drawer({ open, onClose, label, children }: { open: boolean; onCl
 
   return createPortal(
     <div className="fixed inset-0 z-50 lg:hidden">
-      <div className="drawer-scrim absolute inset-0 bg-ink/70 backdrop-blur-md" onClick={onClose} />
+      <div className="drawer-scrim absolute inset-0 bg-scrim" onClick={onClose} />
       <aside
         ref={panel}
         role="dialog"

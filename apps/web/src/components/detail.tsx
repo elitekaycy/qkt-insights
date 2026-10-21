@@ -9,7 +9,7 @@ function OutcomeFields({ close }: { close: ClosedTradeRow | null | undefined }) 
     <Field label="Realized P&L" wide>
       {close ? (
         <span className="flex items-center gap-2.5">
-          <span className={close.realized > 0 ? "text-up" : close.realized < 0 ? "text-down" : "text-muted"}>
+          <span className={close.realized > 0 ? "text-gain" : close.realized < 0 ? "text-loss" : "text-muted"}>
             {close.realized > 0 ? "+" : ""}
             {money(close.realized)}
           </span>
