@@ -319,6 +319,16 @@ describe("public links", () => {
     expect((state as unknown as { openByStrategy: Record<string, number> }).openByStrategy).toEqual({ gold: 12 });
   });
 
+  it("counts a child position reported under its DSL name toward the child its deals name", async () => {
+    ingestEvents(db, "i1", [deal("book:s0", "c1", "ticket-child", "IN", BEFORE)]);
+    db.prepare("INSERT INTO position_valuations (instance_id, broker, ticket, ts, symbol, side, qty, entry_price, current_price, profit, swap, strategy_id) VALUES ('i1','EXNESS_P549','ticket-child',?,'EXNESS_P549:GBPUSD','SELL',1,1.3525,1.35,7,0,'leg_a')")
+      .run(NOW - DELAY - MIN);
+    await share("strategy", "secret", "private");
+    const token = (await share("overview", "", "public")).overview.token!;
+    const state = (await pub(token, "/live/state")).json() as { openByStrategy: Record<string, number> };
+    expect(state.openByStrategy).toEqual({ gold: 12, "book:s0": 7 });
+  });
+
   it("a strategy link exposes only that strategy and no account-level data", async () => {
     const token = (await share("strategy", "gold", "public")).strategies.find((s) => s.id === "gold")!.token!;
     expect(((await pub(token, "/strategies")).json() as Array<{ strategyId: string }>).map((r) => r.strategyId)).toEqual(["gold"]);

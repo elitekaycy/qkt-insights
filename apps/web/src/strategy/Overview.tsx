@@ -5,7 +5,7 @@ import { chartColors, EChart, areaFade, qktChartAxis, qktChartGrid, qktChartTool
 import { rangeStart, type RangeKey } from "../components/ui";
 import { count, DASH, day as utcDay, days, duration, num, pct, pctValue, pnl, polarity, signedMoney, signedPct, toneClass, tsShort } from "../format";
 import { rMultiple } from "../trades/format";
-import { chipOf, exitSpan, nearestByTime, profitFactorText } from "./journal";
+import { chipOf, emptyHint, exitSpan, nearestByTime, profitFactorText } from "./journal";
 import type { SectionProps } from "./StrategyPage";
 import { BigPnl, Gauge, ICON, PayoffBars, Ring, SignedBars, Spark, StatRow, Widget } from "./widgets";
 
@@ -23,7 +23,7 @@ function thin<T>(rows: readonly T[], max: number): T[] {
   return Array.from({ length: max }, (_, i) => rows[Math.min(rows.length - 1, Math.round(i * step))]!).concat(rows[rows.length - 1]!);
 }
 
-export function OverviewSection({ instanceId, strategyId, q, toggle, a, busy, capital, openTrade, goTab, range }: SectionProps & { range: RangeKey }) {
+export function OverviewSection({ instanceId, strategyId, scope, q, toggle, a, busy, capital, openTrade, goTab, range }: SectionProps & { range: RangeKey }) {
   const from = rangeStart(range);
   // the ratios walk the strategy's daily equity on its base: they follow the range, not the search
   const perf = useQuery({
@@ -77,7 +77,7 @@ export function OverviewSection({ instanceId, strategyId, q, toggle, a, busy, ca
   if (a.matched === 0) {
     return (
       <div className="rounded-card border border-line bg-panel px-6 py-10 text-center text-sm text-muted">
-        <b className="text-bright">No round trips match.</b> {q ? "Loosen the search above or widen the range." : "Widen the range: none closed in it."}
+        <b className="text-bright">No round trips match.</b> {emptyHint(q, scope.from)}
       </div>
     );
   }

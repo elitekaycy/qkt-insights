@@ -1,7 +1,7 @@
 import type { ReactNode } from "react";
 import type { AccountRiskRow, LiveAccount } from "../api";
 import { clock, count, DASH, money, pctValue, signedMoney } from "../format";
-import { accountToday, dayBasisLabel, limitUse, type LimitUse, type OpenRisk } from "../home";
+import { accountToday, dailyMeasured, dayBasisLabel, drawdownMeasured, limitUse, type LimitUse, type OpenRisk } from "../home";
 import { maskLogin } from "../accounts";
 import { Card, FlashValue, Freshness, InfoIcon, Pill, Pnl, Popover } from "./ui";
 
@@ -54,7 +54,41 @@ function Arc({ pct }: { pct: number | null }) {
   );
 }
 
-function LimitGauge({ label, use, basis, help }: { label: string; use: LimitUse; basis: string; help: string }) {
+/**
+ * One loss limit. With a cap: a gauge of the cap's use. Without one: the measured figure itself
+ * (`value`, `measured`) and a quiet note that no limit is set, never an empty gauge.
+ */
+function LimitGauge({ label, use, value, measured, basis, help }: {
+  label: string; use: LimitUse; value: ReactNode; measured: string;
+  /** How the figure is measured; null where `measured` already says it. */
+  basis: string | null;
+  help: string;
+}) {
+  const info = (
+    <Popover label={`How ${label.toLowerCase()} is measured`} align="right" trigger={<InfoIcon className="h-3.5 w-3.5 text-faint hover:text-bright" />}>
+      {help}
+    </Popover>
+  );
+  if (use.cap == null) {
+    return (
+      <Kpi
+        icon={ICON.gauge}
+        label={label}
+        sub={
+          <>
+            <div>{measured}</div>
+            {basis && <div className="text-faint">{basis}</div>}
+            <div className="flex items-start gap-1 text-faint">
+              <span title={NO_LIMIT_HINT}>no limit set</span>
+              {info}
+            </div>
+          </>
+        }
+      >
+        <span className="text-lg sm:text-xl">{value}</span>
+      </Kpi>
+    );
+  }
   return (
     <Kpi
       icon={ICON.gauge}
@@ -62,13 +96,11 @@ function LimitGauge({ label, use, basis, help }: { label: string; use: LimitUse;
       sub={
         <>
           <div className={use.pct != null && use.pct >= 100 ? "font-medium text-loss" : ""}>
-            {use.cap == null ? `${money(use.used)} used · no limit set` : `${money(use.used)} of ${money(use.cap)}${use.pct != null && use.pct >= 100 ? " · over the limit" : ""}`}
+            {`${money(use.used)} of ${money(use.cap)}${use.pct != null && use.pct >= 100 ? " · over the limit" : ""}`}
           </div>
           <div className="flex items-start gap-1 text-faint">
             <span>{basis}</span>
-            <Popover label={`How ${label.toLowerCase()} is measured`} align="right" trigger={<InfoIcon className="h-3.5 w-3.5 text-faint hover:text-bright" />}>
-              {help}
-            </Popover>
+            {info}
           </div>
         </>
       }
@@ -82,6 +114,8 @@ function LimitGauge({ label, use, basis, help }: { label: string; use: LimitUse;
     </Kpi>
   );
 }
+
+const NO_LIMIT_HINT = "Set INSIGHTS_ACCOUNT_LIMITS on the collector, or the account caps in the strategies' qkt risk config.";
 
 export function AccountStrip({
   account,
@@ -160,6 +194,8 @@ export function AccountStrip({
             <LimitGauge
               label="Daily loss"
               use={use.daily}
+              value={<span className={use.daily.used != null && use.daily.used > 0 ? "text-loss" : "text-bright"}>{signedMoney(use.daily.used == null ? null : -use.daily.used)}</span>}
+              measured={dailyMeasured(risk, use.daily)}
               basis={`${risk.dailyLoss.includesFloating ? "incl. floating" : "realized only"} · ${dayBasisLabel(risk)}`}
               help={
                 risk.dailyLoss.includesFloating
@@ -170,7 +206,9 @@ export function AccountStrip({
             <LimitGauge
               label="Max drawdown"
               use={use.drawdown}
-              basis={risk.basis === "static" ? `static below start ${money(risk.startBalance)}` : `from peak equity ${money(risk.peakEquity == null ? null : Math.max(risk.peakEquity, account.equity))}`}
+              value={<span className={use.drawdown.used != null && use.drawdown.used > 0 ? "text-loss" : "text-bright"}>{pctValue(use.drawdown.usedPct ?? (use.drawdown.used === 0 ? 0 : null), 2)}</span>}
+              measured={drawdownMeasured(risk, use.drawdown)}
+              basis={use.drawdown.cap == null ? null : risk.basis === "static" ? `static below start ${money(risk.startBalance)}` : `from peak equity ${money(risk.peakEquity == null ? null : Math.max(risk.peakEquity, account.equity))}`}
               help={
                 risk.basis === "static"
                   ? `How far equity is below the start balance (${risk.startBalanceSource ?? "unknown source"}). ${limitSource(risk)}`
@@ -187,5 +225,5 @@ export function AccountStrip({
 }
 
 function limitSource(risk: AccountRiskRow): string {
-  return risk.source == null ? "No limits configured: set INSIGHTS_ACCOUNT_LIMITS or the strategies' qkt risk caps." : `Limits from ${risk.source}.`;
+  return risk.source == null ? `No limits configured. ${NO_LIMIT_HINT}` : `Limits from ${risk.source}.`;
 }
