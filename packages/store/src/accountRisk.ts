@@ -1,6 +1,7 @@
 import type { Db } from "./db.js";
 import { accountCloses, accountSummary, type AccountFilter, type AccountSummary } from "./account.js";
 import { dataVersion } from "./versions.js";
+import { NeedsScan, projectedViews, seriesViews, type AccountView } from "./accountViews.js";
 
 const HOUR = 3_600_000;
 const DAY = 86_400_000;
@@ -235,20 +236,46 @@ export function accountRisk(
   db: Db,
   f: { instanceId: string; limits?: AccountLimits; now: number; strategyIds?: ReadonlySet<string>; closedPositionsOnly?: boolean },
 ): AccountRiskRow[] {
-  const series = accountSeries(db, { instanceId: f.instanceId, to: f.now });
+  return withAccountViews(db, f.instanceId, f.now, (accounts) => riskRows(db, f, accounts));
+}
+
+/** accountRisk over the full stitched series: what the projected answer must equal, and its fallback. */
+export function accountRiskScan(db: Db, f: Parameters<typeof accountRisk>[1]): AccountRiskRow[] {
+  return riskRows(db, f, seriesViews(accountSeries(db, { instanceId: f.instanceId, to: f.now })));
+}
+
+/**
+ * Runs `read` over the instance's accounts as of `to`, answered from the account projections; when
+ * they cannot answer one of its questions exactly, over the full stitched series instead.
+ */
+function withAccountViews<T>(db: Db, instanceId: string, to: number | undefined, read: (accounts: AccountView[]) => T): T {
+  try {
+    const projected = projectedViews(db, instanceId, to);
+    if (projected) return read(projected);
+  } catch (e) {
+    if (!(e instanceof NeedsScan)) throw e;
+  }
+  return read(seriesViews(accountSeries(db, { instanceId, to })));
+}
+
+function riskRows(
+  db: Db,
+  f: { instanceId: string; limits?: AccountLimits; now: number; strategyIds?: ReadonlySet<string>; closedPositionsOnly?: boolean },
+  accounts: AccountView[],
+): AccountRiskRow[] {
   // The strategies' risk config cannot say which account it belongs to, so it applies only when
   // the instance reports a single account.
-  const fallback = series.length === 1 ? strategyProfile(db, f.instanceId) : null;
-  return series.filter((s) => s.points.length > 0).map((s) => {
+  const fallback = accounts.length === 1 ? strategyProfile(db, f.instanceId) : null;
+  return accounts.map((s) => {
     const configured = (s.identity != null ? f.limits?.[s.identity] : undefined)
       ?? s.labels.map((l) => f.limits?.[l]).find((p) => p != null)
       ?? f.limits?.["*"];
     const profile = configured ?? fallback ?? {};
     const source: AccountRiskRow["source"] = configured ? "account limits" : fallback ? "strategy risk config" : null;
     const basis = profile.basis ?? "peak";
-    const last = s.points[s.points.length - 1]!;
-    const peak = s.points.reduce((m, p) => Math.max(m, p.equity), -Infinity);
-    const firstBalance = s.points.find((p) => p.balance != null)?.balance ?? null;
+    const last = s.last();
+    const peak = s.peak();
+    const firstBalance = s.firstBalance();
     const startBalance = profile.startBalance ?? firstBalance;
     const startBalanceSource: AccountRiskRow["startBalanceSource"] = profile.startBalance != null
       ? (configured ? "configured" : "strategy risk config")
@@ -261,8 +288,7 @@ export function accountRisk(
     const resetHour = profile.dailyResetHour ?? 0;
     const timezone = profile.timezone ?? "UTC";
     const dayStart = tradingDayStart(f.now, resetHour, timezone);
-    const before = s.points.filter((p) => p.ts <= dayStart && p.balance != null);
-    const dayStartBalance = (before.length > 0 ? before[before.length - 1]!.balance : s.points.find((p) => p.ts > dayStart && p.balance != null)?.balance) ?? null;
+    const dayStartBalance = s.balanceAround(dayStart);
     const realizedToday = accountCloses(db, {
       instanceId: f.instanceId, strategyIds: f.strategyIds, from: dayStart, to: f.now, closedPositionsOnly: f.closedPositionsOnly,
     }).reduce((a, c) => a + c.realized, 0);
@@ -297,7 +323,15 @@ export interface PeriodBase { period: string; base: number; source: "account equ
  * (they share one account), else the sum of their own balances (separate paper accounts).
  */
 export function monthBases(db: Db, f: { instanceId: string; months: string[]; to?: number }): PeriodBase[] {
-  const series = accountSeries(db, { instanceId: f.instanceId, to: f.to });
+  return withAccountViews(db, f.instanceId, f.to, (accounts) => periodBases(db, f, accounts));
+}
+
+/** monthBases over the full stitched series. */
+export function monthBasesScan(db: Db, f: { instanceId: string; months: string[]; to?: number }): PeriodBase[] {
+  return periodBases(db, f, seriesViews(accountSeries(db, { instanceId: f.instanceId, to: f.to })));
+}
+
+function periodBases(db: Db, f: { instanceId: string; months: string[] }, accounts: AccountView[]): PeriodBase[] {
   const out: PeriodBase[] = [];
   let fallback: number | null | undefined;
   for (const month of f.months) {
@@ -305,12 +339,8 @@ export function monthBases(db: Db, f: { instanceId: string; months: string[]; to
     const end = Date.UTC(Number(month.slice(0, 4)), Number(month.slice(5, 7)), 1);
     let base = 0;
     let found = false;
-    for (const s of series) {
-      let at: number | null = null;
-      for (const p of s.points) {
-        if (p.ts <= start) at = p.equity;
-        else { if (at == null && p.ts < end) at = p.equity; break; }
-      }
+    for (const s of accounts) {
+      const at = s.equityAtStart(start, end);
       if (at != null) { base += at; found = true; }
     }
     if (found && base > 0) { out.push({ period: month, base, source: "account equity" }); continue; }

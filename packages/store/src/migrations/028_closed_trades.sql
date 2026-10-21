@@ -63,30 +63,38 @@ CREATE TABLE IF NOT EXISTS position_closures (
   PRIMARY KEY (instance_id, position_ticket, from_ts)
 ) WITHOUT ROWID;
 
+-- Trigger inserts skip keys already queued with NOT EXISTS rather than OR IGNORE: inside a trigger
+-- the outer statement's conflict policy (an upsert's, say) replaces the trigger's own.
 CREATE TRIGGER IF NOT EXISTS deals_projection_insert AFTER INSERT ON deals BEGIN
   UPDATE deals SET canonical = NOT EXISTS (
     SELECT 1 FROM deals d WHERE d.instance_id=NEW.instance_id AND d.deal_ticket=NEW.deal_ticket AND d.rowid<NEW.rowid)
   WHERE rowid=NEW.rowid;
-  INSERT OR IGNORE INTO projection_dirty (kind, instance_id, key)
-  VALUES ('position', NEW.instance_id, COALESCE('p:' || NEW.position_ticket, 'd:' || NEW.rowid));
+  INSERT INTO projection_dirty (kind, instance_id, key)
+  SELECT 'position', NEW.instance_id, COALESCE('p:' || NEW.position_ticket, 'd:' || NEW.rowid)
+  WHERE NOT EXISTS (SELECT 1 FROM projection_dirty WHERE kind='position' AND instance_id=NEW.instance_id
+                      AND key=COALESCE('p:' || NEW.position_ticket, 'd:' || NEW.rowid));
 END;
 
 CREATE TRIGGER IF NOT EXISTS deals_projection_update
 AFTER UPDATE OF instance_id, deal_ticket, position_ticket, order_ticket, symbol, side, entry, qty, price, profit,
   commission, swap, fee, strategy_id, ts ON deals BEGIN
-  INSERT OR IGNORE INTO projection_dirty (kind, instance_id, key)
-  VALUES ('position', OLD.instance_id, COALESCE('p:' || OLD.position_ticket, 'd:' || OLD.rowid)),
-         ('position', NEW.instance_id, COALESCE('p:' || NEW.position_ticket, 'd:' || NEW.rowid));
-  INSERT OR IGNORE INTO projection_dirty (kind, instance_id, key)
-  SELECT 'ticket', OLD.instance_id, OLD.deal_ticket WHERE OLD.deal_ticket IS NOT NEW.deal_ticket OR OLD.instance_id IS NOT NEW.instance_id
-  UNION ALL
-  SELECT 'ticket', NEW.instance_id, NEW.deal_ticket WHERE OLD.deal_ticket IS NOT NEW.deal_ticket OR OLD.instance_id IS NOT NEW.instance_id;
+  INSERT INTO projection_dirty (kind, instance_id, key)
+  SELECT q.kind, q.instance_id, q.key FROM (
+    SELECT 'position' kind, OLD.instance_id instance_id, COALESCE('p:' || OLD.position_ticket, 'd:' || OLD.rowid) key
+    UNION SELECT 'position', NEW.instance_id, COALESCE('p:' || NEW.position_ticket, 'd:' || NEW.rowid)
+    UNION SELECT 'ticket', OLD.instance_id, OLD.deal_ticket WHERE OLD.deal_ticket IS NOT NEW.deal_ticket OR OLD.instance_id IS NOT NEW.instance_id
+    UNION SELECT 'ticket', NEW.instance_id, NEW.deal_ticket WHERE OLD.deal_ticket IS NOT NEW.deal_ticket OR OLD.instance_id IS NOT NEW.instance_id
+  ) q
+  WHERE NOT EXISTS (SELECT 1 FROM projection_dirty d WHERE d.kind=q.kind AND d.instance_id=q.instance_id AND d.key=q.key);
 END;
 
 CREATE TRIGGER IF NOT EXISTS deals_projection_delete AFTER DELETE ON deals BEGIN
-  INSERT OR IGNORE INTO projection_dirty (kind, instance_id, key)
-  VALUES ('position', OLD.instance_id, COALESCE('p:' || OLD.position_ticket, 'd:' || OLD.rowid)),
-         ('ticket', OLD.instance_id, OLD.deal_ticket);
+  INSERT INTO projection_dirty (kind, instance_id, key)
+  SELECT q.kind, q.instance_id, q.key FROM (
+    SELECT 'position' kind, OLD.instance_id instance_id, COALESCE('p:' || OLD.position_ticket, 'd:' || OLD.rowid) key
+    UNION SELECT 'ticket', OLD.instance_id, OLD.deal_ticket
+  ) q
+  WHERE NOT EXISTS (SELECT 1 FROM projection_dirty d WHERE d.kind=q.kind AND d.instance_id=q.instance_id AND d.key=q.key);
 END;
 
 INSERT OR IGNORE INTO projections (name, version) VALUES ('closed_trades', 0);

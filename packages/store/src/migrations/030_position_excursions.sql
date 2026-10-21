@@ -25,14 +25,18 @@ CREATE TRIGGER IF NOT EXISTS position_valuations_excursion_insert AFTER INSERT O
 END;
 
 CREATE TRIGGER IF NOT EXISTS position_valuations_excursion_delete AFTER DELETE ON position_valuations WHEN OLD.profit IS NOT NULL BEGIN
-  INSERT OR IGNORE INTO projection_dirty (kind, instance_id, key)
+  INSERT INTO projection_dirty (kind, instance_id, key)
   SELECT 'excursion', OLD.instance_id, OLD.ticket
-  WHERE EXISTS (SELECT 1 FROM position_excursions pe WHERE pe.instance_id=OLD.instance_id AND pe.ticket=OLD.ticket AND pe.lo<=OLD.ts AND pe.hi>=OLD.ts);
+  WHERE EXISTS (SELECT 1 FROM position_excursions pe WHERE pe.instance_id=OLD.instance_id AND pe.ticket=OLD.ticket AND pe.lo<=OLD.ts AND pe.hi>=OLD.ts)
+    AND NOT EXISTS (SELECT 1 FROM projection_dirty d WHERE d.kind='excursion' AND d.instance_id=OLD.instance_id AND d.key=OLD.ticket);
 END;
 
 CREATE TRIGGER IF NOT EXISTS position_valuations_excursion_update AFTER UPDATE ON position_valuations BEGIN
-  INSERT OR IGNORE INTO projection_dirty (kind, instance_id, key)
-  VALUES ('excursion', OLD.instance_id, OLD.ticket), ('excursion', NEW.instance_id, NEW.ticket);
+  INSERT INTO projection_dirty (kind, instance_id, key)
+  SELECT 'excursion', q.instance_id, q.ticket FROM (
+    SELECT OLD.instance_id instance_id, OLD.ticket ticket UNION SELECT NEW.instance_id, NEW.ticket
+  ) q
+  WHERE NOT EXISTS (SELECT 1 FROM projection_dirty d WHERE d.kind='excursion' AND d.instance_id=q.instance_id AND d.key=q.ticket);
 END;
 
 INSERT OR IGNORE INTO projections (name, version) VALUES ('position_excursions', 0);

@@ -30,20 +30,24 @@ CREATE TABLE IF NOT EXISTS strategy_totals (
 ) WITHOUT ROWID;
 
 CREATE TRIGGER IF NOT EXISTS trade_closes_projection_insert AFTER INSERT ON trade_closes WHEN NEW.strategy_id IS NOT NULL BEGIN
-  INSERT OR IGNORE INTO projection_dirty (kind, instance_id, key)
-  VALUES ('daily', NEW.instance_id, 'ledger' || char(0) || NEW.strategy_id || char(0) || date(NEW.ts / 1000, 'unixepoch'));
+  INSERT INTO projection_dirty (kind, instance_id, key)
+  SELECT 'daily', NEW.instance_id, k.key FROM (SELECT 'ledger' || char(0) || NEW.strategy_id || char(0) || date(NEW.ts / 1000, 'unixepoch') key) k
+  WHERE NOT EXISTS (SELECT 1 FROM projection_dirty d WHERE d.kind='daily' AND d.instance_id=NEW.instance_id AND d.key=k.key);
 END;
 
 CREATE TRIGGER IF NOT EXISTS trade_closes_projection_update AFTER UPDATE ON trade_closes BEGIN
-  INSERT OR IGNORE INTO projection_dirty (kind, instance_id, key)
-  SELECT 'daily', OLD.instance_id, 'ledger' || char(0) || OLD.strategy_id || char(0) || date(OLD.ts / 1000, 'unixepoch') WHERE OLD.strategy_id IS NOT NULL
-  UNION ALL
-  SELECT 'daily', NEW.instance_id, 'ledger' || char(0) || NEW.strategy_id || char(0) || date(NEW.ts / 1000, 'unixepoch') WHERE NEW.strategy_id IS NOT NULL;
+  INSERT INTO projection_dirty (kind, instance_id, key)
+  SELECT 'daily', q.instance_id, q.key FROM (
+    SELECT OLD.instance_id instance_id, 'ledger' || char(0) || OLD.strategy_id || char(0) || date(OLD.ts / 1000, 'unixepoch') key WHERE OLD.strategy_id IS NOT NULL
+    UNION SELECT NEW.instance_id, 'ledger' || char(0) || NEW.strategy_id || char(0) || date(NEW.ts / 1000, 'unixepoch') WHERE NEW.strategy_id IS NOT NULL
+  ) q
+  WHERE NOT EXISTS (SELECT 1 FROM projection_dirty d WHERE d.kind='daily' AND d.instance_id=q.instance_id AND d.key=q.key);
 END;
 
 CREATE TRIGGER IF NOT EXISTS trade_closes_projection_delete AFTER DELETE ON trade_closes WHEN OLD.strategy_id IS NOT NULL BEGIN
-  INSERT OR IGNORE INTO projection_dirty (kind, instance_id, key)
-  VALUES ('daily', OLD.instance_id, 'ledger' || char(0) || OLD.strategy_id || char(0) || date(OLD.ts / 1000, 'unixepoch'));
+  INSERT INTO projection_dirty (kind, instance_id, key)
+  SELECT 'daily', OLD.instance_id, k.key FROM (SELECT 'ledger' || char(0) || OLD.strategy_id || char(0) || date(OLD.ts / 1000, 'unixepoch') key) k
+  WHERE NOT EXISTS (SELECT 1 FROM projection_dirty d WHERE d.kind='daily' AND d.instance_id=OLD.instance_id AND d.key=k.key);
 END;
 
 INSERT OR IGNORE INTO projections (name, version) VALUES ('strategy_daily', 0);

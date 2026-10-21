@@ -1,6 +1,7 @@
 import type { Db } from "./db.js";
 import { statement } from "./statements.js";
 import { clearClosedTrades, positionKeysAfter, recomputePosition, recomputeTicket, type ClosedTradeKey } from "./closedTrades.js";
+import { accountRebuildStep, clearAccountProjection, recomputeAccountKeys } from "./accountProjection.js";
 import { clearExcursions, excursionsAfter, recomputeExcursions, recomputeTicketExcursions } from "./excursions.js";
 import { clearDaily, dailyKey, dailyUnitsAfter, recomputeDaily, recomputeDailyKeys, utcDay, type CloseSource } from "./strategyDaily.js";
 
@@ -59,6 +60,12 @@ export const PROJECTIONS: Record<string, Projection> = {
   },
 };
 
+PROJECTIONS.account_drawdown = {
+  version: 1,
+  clear: clearAccountProjection,
+  step: (db, cursor) => accountRebuildStep(db, cursor),
+};
+
 /** Recomputes one position's closes, then what is derived per close: its excursion and its strategy's days. */
 function positionChanged(db: Db, instanceId: string, key: string): void {
   const change = recomputePosition(db, instanceId, key);
@@ -86,7 +93,7 @@ function changedCloses(db: Db, instanceId: string, change: { before: ClosedTrade
 const DRAIN_BATCH = 500;
 
 /** Kinds drained in this order: a ticket marks positions, a position marks strategy days; marks are per ticket. */
-const DRAIN_ORDER = ["ticket", "position", "excursion", "daily"] as const;
+const DRAIN_ORDER = ["ticket", "position", "excursion", "daily", "account"] as const;
 
 /** Brings every projection up to date with the writes recorded since the last call. Cheap when nothing changed. */
 export function refreshProjections(db: Db): void {
@@ -96,14 +103,15 @@ export function refreshProjections(db: Db): void {
     const done = statement(db, "DELETE FROM projection_dirty WHERE kind=? AND instance_id=? AND key=?");
     for (const kind of DRAIN_ORDER) {
       for (;;) {
-        // A strategy's days are rewritten from the earliest changed one, so take them all at once.
-        const rows = take.all(kind, kind === "daily" ? -1 : DRAIN_BATCH) as Array<{ instanceId: string; key: string }>;
+        // A strategy's days and an account's walks are rewritten from the earliest changed minute, so take them all at once.
+        const rows = take.all(kind, kind === "daily" || kind === "account" ? -1 : DRAIN_BATCH) as Array<{ instanceId: string; key: string }>;
         if (rows.length === 0) break;
         for (const r of rows) done.run(kind, r.instanceId, r.key);
         if (kind === "ticket") for (const r of rows) recomputeTicket(db, r.instanceId, r.key);
         else if (kind === "position") for (const r of rows) positionChanged(db, r.instanceId, r.key);
         else if (kind === "excursion") for (const r of rows) recomputeTicketExcursions(db, r.instanceId, r.key);
-        else recomputeDailyKeys(db, rows);
+        else if (kind === "daily") recomputeDailyKeys(db, rows);
+        else recomputeAccountKeys(db, rows);
       }
     }
   })();
