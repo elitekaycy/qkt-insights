@@ -1,5 +1,5 @@
 import { describe, it, expect, beforeEach } from "vitest";
-import { openDb, ingestEvents, listInstances, listStrategies, listOrders, listTrades, searchEvents, equityCurve, instanceHealth, listDeals, accountEquity, strategyStats, persistStateEvent, listCurrentPositions, listRiskEvents, listPortfolioEquity, upsertRoster, ROSTER_WINDOW_MS } from "../src/index.js";
+import { openDb, ingestEvents, listInstances, listStrategies, listTrades, searchEvents, equityCurve, instanceHealth, listDeals, accountEquity, strategyStats, persistStateEvent, upsertRoster, ROSTER_WINDOW_MS } from "../src/index.js";
 import type { Db } from "../src/index.js";
 import type { Envelope } from "@qkt-insights/contract";
 
@@ -73,10 +73,9 @@ describe("queries", () => {
     upsertRoster(db, "qkt-prod", [], 1718000200000);
     expect(listStrategies(db, "qkt-prod").find((s) => s.strategyId === "latch")!.active).toBe(true);
   });
-  it("lists orders filtered by instance and state", () => {
-    const rows = listOrders(db, { instanceId: "qkt-prod", state: "FILLED", limit: 50 });
-    expect(rows).toHaveLength(1);
-    expect(rows[0]!.orderId).toBe("o1");
+  it("folds the order lifecycle into one row per order", () => {
+    expect(db.prepare("SELECT order_id orderId FROM orders WHERE instance_id='qkt-prod' AND state='FILLED'").all())
+      .toEqual([{ orderId: "o1" }]);
   });
   it("lists trades filtered by symbol", () => {
     const rows = listTrades(db, { instanceId: "qkt-prod", symbol: "XAUUSD", limit: 50 });
@@ -140,7 +139,7 @@ describe("queries", () => {
     expect(listStrategies(db, "qkt-prod").map((s) => s.strategyId)).toEqual(["latch"]);
   });
 
-  it("queries current positions, risk events, and portfolio equity projections", () => {
+  it("persists current positions, risk events, and portfolio equity projections", () => {
     persistStateEvent(db, "qkt-prod", env({ id: "posn-1", type: "state.positions", ts: 1718000004000, payload: {
       broker: "EXNESS",
       positions: [{ ticket: "123", symbol: "EXNESS:XAUUSD", side: "BUY", qty: 0.01, entryPrice: 2300.5, currentPrice: 2310.2, profit: 9.7, strategyId: "latch" }],
@@ -152,12 +151,23 @@ describe("queries", () => {
         payload: { portfolioId: "book", equity: 1010, realized: 10, unrealized: 0 } }),
     ]);
 
-    expect(listCurrentPositions(db, { instanceId: "qkt-prod", strategyId: "latch" })[0])
-      .toMatchObject({ broker: "EXNESS", ticket: "123", symbol: "EXNESS:XAUUSD", profit: 9.7 });
-    expect(listRiskEvents(db, { instanceId: "qkt-prod", strategyId: "latch", limit: 10 })[0])
-      .toMatchObject({ kind: "risk.rejected", reason: "max-order", symbol: "EXNESS:XAUUSD" });
-    expect(listPortfolioEquity(db, { instanceId: "qkt-prod", portfolioId: "book", limit: 10 })[0])
-      .toMatchObject({ portfolioId: "book", equity: 1010, realized: 10 });
+    expect(db.prepare("SELECT broker, ticket, symbol, profit FROM positions_current WHERE strategy_id='latch'").get())
+      .toEqual({ broker: "EXNESS", ticket: "123", symbol: "EXNESS:XAUUSD", profit: 9.7 });
+    expect(db.prepare("SELECT kind, reason, symbol FROM risk_events WHERE strategy_id='latch'").get())
+      .toEqual({ kind: "risk.rejected", reason: "max-order", symbol: "EXNESS:XAUUSD" });
+    expect(db.prepare("SELECT portfolio_id portfolioId, equity, realized FROM portfolio_equity").get())
+      .toEqual({ portfolioId: "book", equity: 1010, realized: 10 });
+  });
+
+  it("keeps position.* types qkt does not emit as events, without folding them into open positions", () => {
+    expect(ingestEvents(db, "qkt-prod", [
+      env({ id: "pos-open-1", strategyId: "latch", type: "position.opened", ts: 1718000007000,
+        payload: { symbol: "XAUUSD", side: "BUY", qty: 0.1, ticket: "777", broker: "EXNESS" } }),
+      env({ id: "expo-1", type: "portfolio.exposure.updated", ts: 1718000008000, payload: { portfolioId: "book" } }),
+    ])).toBe(2);
+    expect(db.prepare("SELECT type FROM events WHERE id IN ('pos-open-1','expo-1') ORDER BY ts").all())
+      .toEqual([{ type: "position.opened" }, { type: "portfolio.exposure.updated" }]);
+    expect(db.prepare("SELECT COUNT(*) c FROM positions_current WHERE ticket='777'").get()).toEqual({ c: 0 });
   });
 });
 

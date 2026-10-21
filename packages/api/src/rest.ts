@@ -1,5 +1,5 @@
 import type { FastifyInstance } from "fastify";
-import { listInstances, listStrategies, listOrders, listTrades, searchEvents, equityCurve, instanceHealth, listLogs, strategyStats, listDeals, accountEquity, accountDrawdown, accountPerformance, accountRisk, listIngestObservations, monitorSummaries, listMonitorEvents, type AccountLimits, type Db, type LiveStateStore, type Monitors } from "@qkt-insights/store";
+import { listInstances, listStrategies, listTrades, searchEvents, equityCurve, instanceHealth, listLogs, strategyStats, listDeals, accountEquity, accountDrawdown, accountPerformance, accountRisk, monitorSummaries, listMonitorEvents, type AccountLimits, type Db, type LiveStateStore, type Monitors } from "@qkt-insights/store";
 import { requireSession } from "./auth.js";
 import { TtlCache } from "./cache.js";
 import { performanceBundle } from "./performance.js";
@@ -31,11 +31,6 @@ export function registerRest(app: FastifyInstance, deps: RestDeps): void {
   app.get<{ Querystring: Record<string, string> }>("/strategies", guard, async (req, reply) => {
     const i = req.query.instance; if (!need(reply, i, "instance")) return;
     return cache.get(req.url, () => listStrategies(deps.db, i));
-  });
-
-  app.get<{ Querystring: Record<string, string> }>("/orders", guard, async (req, reply) => {
-    const q = req.query; const i = q.instance; if (!need(reply, i, "instance")) return;
-    return cache.get(req.url, () => listOrders(deps.db, { instanceId: i, strategyId: q.strategy, symbol: q.symbol, state: q.state, limit: LIMIT(q) }));
   });
 
   // Also the one WS reconciliation misses: a fill lands on the wire the instant it
@@ -114,15 +109,5 @@ export function registerRest(app: FastifyInstance, deps: RestDeps): void {
   app.get<{ Querystring: Record<string, string> }>("/account/risk", guard, async (req, reply) => {
     const i = req.query.instance; if (!need(reply, i, "instance")) return;
     return cache.get(req.url, () => accountRisk(deps.db, { instanceId: i, limits: deps.accountLimits, now: Date.now() }));
-  });
-
-  app.get<{ Querystring: Record<string, string> }>("/ingest/observations", guard, async (req, reply) => {
-    const q = req.query; if (!need(reply, q.instance, "instance")) return;
-    return listIngestObservations(deps.db, {
-      instanceId: q.instance,
-      kind: q.kind,
-      sinceTs: q.since ? Number(q.since) : undefined,
-      limit: LIMIT(q),
-    });
   });
 }

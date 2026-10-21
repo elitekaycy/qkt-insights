@@ -55,10 +55,6 @@ describe("REST", () => {
     ingestEvents(db, "qkt-prod", [env({ id: "resume-1", seq: 3, ts: ts + 1, strategyId: "latch", type: "risk.resumed", payload: { strategyId: "latch" } })]);
     expect((await get("/strategies?instance=qkt-prod&_=2")).json()).toMatchObject([{ strategyId: "latch", halted: false }]);
   });
-  it("lists orders", async () => {
-    const rows = (await get("/orders?instance=qkt-prod&state=FILLED")).json();
-    expect(rows).toHaveLength(1);
-  });
   it("lists trades by symbol", async () => {
     const rows = (await get("/trades?instance=qkt-prod&symbol=XAUUSD")).json();
     expect(rows).toHaveLength(1);
@@ -68,7 +64,7 @@ describe("REST", () => {
     expect(rows.length).toBeGreaterThanOrEqual(1);
   });
   it("returns 400 when instance is missing on a scoped route", async () => {
-    expect((await get("/orders")).statusCode).toBe(400);
+    expect((await get("/trades")).statusCode).toBe(400);
   });
 });
 
@@ -234,14 +230,9 @@ describe("broker state REST", () => {
   });
 });
 
-describe("ingest observations REST", () => {
-  it("serves persisted duplicate observations", async () => {
-    const duplicate = env({ id: "duplicate-1", seq: 10, type: "trade",
-      payload: { orderId: "duplicate-1", symbol: "XAUUSD", side: "BUY", price: 2350, qty: 0.1, ts: 1718000000000 } });
-    ingestEvents(db, "qkt-prod", [duplicate]);
-    ingestEvents(db, "qkt-prod", [duplicate]);
-    expect((await get("/ingest/observations")).statusCode).toBe(400);
-    const rows = (await get("/ingest/observations?instance=qkt-prod&kind=duplicate")).json();
-    expect(rows[0]).toMatchObject({ kind: "duplicate", eventId: "duplicate-1", seq: 10 });
+describe("removed REST routes", () => {
+  it("no longer serves the order list or ingest observations", async () => {
+    expect((await get("/orders?instance=qkt-prod&state=FILLED")).statusCode).toBe(404);
+    expect((await get("/ingest/observations?instance=qkt-prod")).statusCode).toBe(404);
   });
 });

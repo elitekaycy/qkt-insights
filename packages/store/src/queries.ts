@@ -12,24 +12,12 @@ export const RETIRED_AFTER_MS = 30 * 86_400_000;
 
 export interface InstanceRow { id: string; name: string | null; firstSeen: number; lastSeen: number; lastSeq: number; /** Collector clock; null only for rows older than the column. */ heardAt: number | null }
 export interface StrategyRow { strategyId: string; firstSeen: number; lastSeen: number; startingBalance: number | null; /** Operator-declared capital (STRATEGY_CAPITAL); wins over startingBalance as the strategy's base. */ definedCapital: number | null; metadata: Record<string, unknown> | null; realizedNet: number | null; dealCount: number; active: boolean }
-export interface OrderRow { orderId: string; strategyId: string | null; symbol: string | null; side: string | null; type: string | null; state: string; qty: number | null; cumQty: number; avgPrice: number | null; createdTs: number; updatedTs: number }
 export interface TradeRow { id: string; strategyId: string | null; ts: number; payload: unknown }
 export interface SearchHit { id: string; instanceId: string; type: string; ts: number; payload: unknown }
 export interface EquityPoint { ts: number; equity: number; realized: number; unrealized: number }
 export interface HealthRow { instanceId: string; lastSeen: number; lastSeq: number; strategies: number; insightsSent: number | null; insightsFailed: number | null; insightsDropped: number | null; insightsQueued: number | null; insightsJournalEnabled: number | null; insightsJournalPending: number | null; insightsHealthTs: number | null; quarantined: QuarantineCount[] }
 /** Envelopes held raw for one instance, per type and major; `reason` is the newest one's. */
 export interface QuarantineCount { type: string | null; v: number | null; count: number; lastReceivedAt: number; reason: string }
-export interface CurrentPositionRow {
-  broker: string; ticket: string; symbol: string; side: string; qty: number; entryPrice: number;
-  currentPrice: number | null; profit: number | null; swap: number | null; openedAt: number | null;
-  strategyId: string | null; lastSeen: number;
-}
-export interface RiskEventRow { id: string; strategyId: string | null; kind: string; reason: string | null; symbol: string | null; side: string | null; qty: number | null; ts: number; payload: unknown }
-export interface PortfolioEquityRow { portfolioId: string; ts: number; equity: number | null; realized: number | null; unrealized: number | null; payload: unknown }
-export interface IngestObservationRow {
-  id: number; instanceId: string; kind: string; eventId: string | null; type: string | null;
-  seq: number | null; previousSeq: number | null; expectedSeq: number | null; ts: number; detail: string | null;
-}
 
 export function listInstances(db: Db): InstanceRow[] {
   return db.prepare("SELECT id, name, first_seen firstSeen, last_seen lastSeen, last_seq lastSeq, heard_at heardAt FROM instances ORDER BY id").all() as InstanceRow[];
@@ -81,17 +69,6 @@ function strategyRosterRows(db: Db, instanceId: string): Array<Omit<StrategyRow,
     metadata: typeof r.metadata === "string" ? JSON.parse(r.metadata) as Record<string, unknown> : null,
     active: r.active === 1,
   }));
-}
-
-export function listOrders(db: Db, f: { instanceId: string; strategyId?: string; symbol?: string; state?: string; limit: number }): OrderRow[] {
-  const cl: string[] = ["instance_id=@instanceId"];
-  if (f.strategyId) cl.push("strategy_id=@strategyId");
-  if (f.symbol) cl.push("symbol=@symbol");
-  if (f.state) cl.push("state=@state");
-  return db.prepare(
-    `SELECT order_id orderId, strategy_id strategyId, symbol, side, type, state, qty, cum_qty cumQty, avg_price avgPrice, created_ts createdTs, updated_ts updatedTs
-     FROM orders WHERE ${cl.join(" AND ")} ORDER BY updated_ts DESC LIMIT @limit`,
-  ).all(f) as OrderRow[];
 }
 
 // qkt's TradeEvent carries no strategyId; attribute through the originating order.
@@ -192,27 +169,6 @@ export function instanceHealth(db: Db): HealthRow[] {
      ORDER BY i.id`,
   ).all() as Array<Omit<HealthRow, "quarantined">>;
   return rows.map((r) => ({ ...r, quarantined: quarantined.get(r.instanceId) ?? [] }));
-}
-
-export function listCurrentPositions(db: Db, f: { instanceId: string; strategyId?: string; symbol?: string }): CurrentPositionRow[] {
-  const cl: string[] = ["instance_id=@instanceId"];
-  if (f.strategyId) cl.push("strategy_id=@strategyId");
-  if (f.symbol) cl.push("symbol=@symbol");
-  return db.prepare(
-    `SELECT broker, ticket, symbol, side, qty, entry_price entryPrice, current_price currentPrice,
-            profit, swap, opened_at openedAt, strategy_id strategyId, last_seen lastSeen
-     FROM positions_current WHERE ${cl.join(" AND ")} ORDER BY last_seen DESC, broker, ticket`,
-  ).all(f) as CurrentPositionRow[];
-}
-
-export function listRiskEvents(db: Db, f: { instanceId: string; strategyId?: string; limit: number }): RiskEventRow[] {
-  const cl: string[] = ["instance_id=@instanceId"];
-  if (f.strategyId) cl.push("strategy_id=@strategyId");
-  const rows = db.prepare(
-    `SELECT event_id id, strategy_id strategyId, kind, reason, symbol, side, qty, ts, payload
-     FROM risk_events WHERE ${cl.join(" AND ")} ORDER BY ts DESC LIMIT @limit`,
-  ).all(f) as Array<Omit<RiskEventRow, "payload"> & { payload: string }>;
-  return rows.map((r) => ({ ...r, payload: JSON.parse(r.payload) }));
 }
 
 export type HaltScope = "TRANSIENT" | "DAILY" | "PERSISTENT";
@@ -366,39 +322,13 @@ export function strategyHalt(halts: InstanceHalts, strategyId: string): Strategy
   return { halted: true, haltReason: h.reason, haltScope: h.scope, haltPersistent: h.persistent, haltedAt: h.ts };
 }
 
-export function listPortfolioEquity(db: Db, f: { instanceId: string; portfolioId: string; limit: number }): PortfolioEquityRow[] {
-  const rows = db.prepare(
-    `SELECT portfolio_id portfolioId, ts, equity, realized, unrealized, payload
-     FROM portfolio_equity WHERE instance_id=@instanceId AND portfolio_id=@portfolioId
-     ORDER BY ts ASC LIMIT @limit`,
-  ).all(f) as Array<Omit<PortfolioEquityRow, "payload"> & { payload: string }>;
-  return rows.map((r) => ({ ...r, payload: JSON.parse(r.payload) }));
-}
-
-export function listIngestObservations(
-  db: Db,
-  f: { instanceId: string; kind?: string; sinceTs?: number; limit: number },
-): IngestObservationRow[] {
-  const cl: string[] = ["instance_id=@instanceId"];
-  if (f.kind) cl.push("kind=@kind");
-  if (f.sinceTs != null) cl.push("ts>=@sinceTs");
-  return db.prepare(
-    `SELECT id, instance_id instanceId, kind, event_id eventId, type, seq,
-            previous_seq previousSeq, expected_seq expectedSeq, ts, detail
-     FROM ingest_observations WHERE ${cl.join(" AND ")}
-     ORDER BY id DESC LIMIT @limit`,
-  ).all(f) as IngestObservationRow[];
-}
-
-export function ingestAck(db: Db, instanceId: string, sinceTs: number, limit = 100): {
-  instanceId: string; lastSeq: number | null; observations: IngestObservationRow[];
-} {
+/**
+ * The ack an ingest response carries. `observations` stays an empty list: the collector no
+ * longer records duplicate deliveries, and a producer that logs the ack keeps its shape.
+ */
+export function ingestAck(db: Db, instanceId: string): { instanceId: string; lastSeq: number | null; observations: never[] } {
   const row = db.prepare("SELECT last_seq lastSeq FROM instances WHERE id=?").get(instanceId) as { lastSeq: number } | undefined;
-  return {
-    instanceId,
-    lastSeq: row?.lastSeq ?? null,
-    observations: listIngestObservations(db, { instanceId, sinceTs, limit }),
-  };
+  return { instanceId, lastSeq: row?.lastSeq ?? null, observations: [] };
 }
 
 export interface LogRow { id: string; strategyId: string | null; level: string; logger: string; message: string; ts: number }
@@ -592,7 +522,7 @@ export interface StrategyStats {
  * - equity/startingBalance: with deals, equity = starting balance + realized,
  *   always current because every close updates it. Without deals they come from
  *   ledger snapshots only while fresh (newest younger than 10 minutes vs [now]);
- *   qkt no longer emits snapshot.equity, so an old figure would be a frozen lie.
+ *   a strategy that stopped sending snapshot.equity would otherwise show a frozen figure.
  */
 export function strategyStats(db: Db, f: { instanceId: string; strategyId: string; to?: number; closedPositionsOnly?: boolean }, now = Date.now()): StrategyStats {
   const t: any = db.prepare(

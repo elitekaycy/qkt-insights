@@ -18,8 +18,7 @@ The deployment has to supply the rest.
 2. **Terminate TLS at a reverse proxy** and give the dashboard a hostname.
 3. **Refuse `POST /ingest` on the public hostname.** qkt posts to
    `http://qkt-insights:8420/ingest` over the Docker network; nothing on the internet
-   needs that path. Block only the exact path: the dashboard reads
-   `/ingest/observations`.
+   needs that path. Block only the exact path `/ingest`.
 4. **Turn on two-factor sign-in** (below).
 5. **Set `TELEGRAM_BOT_TOKEN` and `TELEGRAM_CHAT_ID`** so every new sign-in and every
    lockout reaches your phone. An unexpected sign-in alert means rotate the password,

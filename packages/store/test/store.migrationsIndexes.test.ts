@@ -10,7 +10,7 @@ describe("deals indexes", () => {
     const db = openDb(":memory:");
     const names = (db.prepare("SELECT name FROM sqlite_master WHERE type='index' AND tbl_name='deals'").all() as { name: string }[])
       .map((r) => r.name);
-    expect(names).toEqual(expect.arrayContaining(["idx_deals_ticket", "idx_deals_position", "idx_deals_strategy", "idx_deals_lookup"]));
+    expect(names).toEqual(expect.arrayContaining(["idx_deals_ticket", "idx_deals_position_ts", "idx_deals_strategy", "idx_deals_lookup"]));
     const plan = (db.prepare(
       `EXPLAIN QUERY PLAN SELECT count(*) FROM deals o WHERE o.instance_id=? AND o.strategy_id=? AND o.entry IN ('OUT','INOUT','OUT_BY')
          AND o.rowid=(SELECT MIN(dd.rowid) FROM deals dd WHERE dd.instance_id=o.instance_id AND dd.deal_ticket=o.deal_ticket)`,

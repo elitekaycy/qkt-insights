@@ -27,7 +27,8 @@ export interface RetentionResult {
  *
  * What is pruned:
  *  - `logs` (+ its `logs_fts` mirror): debug/operational log lines, fully disposable.
- *  - `events` (+ `events_fts`): only NON-`trade` types (health checks, signal/latch heartbeats).
+ *  - `events` (+ `events_fts`): every NON-`trade` type, including order lifecycle, signals and
+ *    lifecycle events, so /search and order-event history reach back only this far.
  *    `type='trade'` events are the source of truth for win rate, expectancy, the calendar and cost
  *    decomposition, so they are never pruned.
  *  - `position_valuations`: per-tick marks whose (instance, broker, ticket) is not in

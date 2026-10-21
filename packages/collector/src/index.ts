@@ -72,8 +72,6 @@ export function registerCollector(app: FastifyInstance, deps: CollectorDeps): vo
     const stateEvents = events.filter((e) => isLiveStateType(e.type));
     const rosterEvents = events.filter((e) => e.type === "instance.roster");
     const rest = events.filter((e) => !isLiveStateType(e.type) && e.type !== "instance.roster");
-    const stamped = [...events, ...quarantined.filter((q) => q.ts != null)];
-    const sinceTs = stamped.length > 0 ? Math.min(...stamped.map((e) => e.ts as number)) : Date.now();
     const outcome = ingestEnvelopes(deps.db, instanceId, rest);
     for (const e of stateEvents) {
       deps.liveState.upsert(instanceId, e);
@@ -106,7 +104,7 @@ export function registerCollector(app: FastifyInstance, deps: CollectorDeps): vo
       quarantined: quarantined.length,
       envelopes: statuses,
       ack: {
-        ...ingestAck(deps.db, instanceId, sinceTs),
+        ...ingestAck(deps.db, instanceId),
         received: classes.length,
         acknowledgedIds: statuses.map((s) => s.id),
       },
