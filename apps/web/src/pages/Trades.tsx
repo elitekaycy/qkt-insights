@@ -7,7 +7,7 @@ import {
   useRangeParam,
 } from "../components/ui";
 import { useSearchParam } from "../router";
-import { dealNet, price, quantity, tsShort } from "../format";
+import { count, dealNet, price, quantity, tsShort } from "../format";
 import { realizedLabel, useCloseMap } from "../useCloses";
 import { useLiveStream } from "../useLiveStream";
 import { usePublicPageView, useView } from "../view";
@@ -96,14 +96,7 @@ export default function Trades({ instanceId }: { instanceId: string | null }) {
             ? `Broker deal history for ${instanceId} — every executed in/out leg as the venue recorded it.`
             : `Every fill recorded for ${instanceId}. Click a row for the full story.`
         }
-      />
-      <Panel
-        className="mt-5"
-       
-        title={usingDeals ? "Deals" : "Fills"}
-        hint={usingDeals ? "source: broker deals" : "source: engine fills"}
-        scroll="max-h-[calc(100vh-15rem)]"
-        toolbar={
+        scope={
           <>
             <SearchInput
               value={q}
@@ -112,7 +105,7 @@ export default function Trades({ instanceId }: { instanceId: string | null }) {
                 setCap(30);
               }}
               placeholder={usingDeals ? "search symbol, deal ticket, strategy…" : "search symbol, order id, strategy…"}
-              className="w-full sm:w-72"
+              className="w-full sm:max-w-md sm:flex-1"
             />
             <Select
               value={strategy}
@@ -136,8 +129,19 @@ export default function Trades({ instanceId }: { instanceId: string | null }) {
                 setCap(30);
               }}
             />
+            <span className="ml-auto text-sm text-muted">
+              Showing <b className="font-semibold text-bright">{count(usingDeals ? shownDeals.length : shown.length)}</b> of{" "}
+              {count(usingDeals ? filteredDeals.length : filtered.length)} {usingDeals ? "deals" : "fills"}
+            </span>
           </>
         }
+      />
+      <Panel
+        className="mt-5"
+       
+        title={usingDeals ? "Deals" : "Fills"}
+        hint={usingDeals ? "source: broker deals" : "source: engine fills"}
+        scroll="max-h-[calc(100vh-15rem)]"
       >
         <Loadable
           loading={trades.isPending || deals.isPending}

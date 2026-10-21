@@ -263,6 +263,13 @@ th,
   letter-spacing: -0.01em;
 }
 
+/* the "qkt·insights" wordmark keeps its own typeface and weight: it is part of the logo */
+.wordmark {
+  font-family: "Archivo", var(--font-sans);
+  font-weight: 800;
+  letter-spacing: -0.025em;
+}
+
 /* eyebrow label: table headers, small section labels */
 .eyebrow {
   font-size: 11px;

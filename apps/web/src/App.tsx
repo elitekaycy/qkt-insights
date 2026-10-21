@@ -1,110 +1,45 @@
 import { lazy, Suspense, useCallback, useState } from "react";
 import { useIsFetching, useQuery, useQueryClient } from "@tanstack/react-query";
-import { get, logout, logoutEverywhere, Unauthorized, type InstanceRow } from "./api";
-import { LiveDot, Select } from "./components/ui";
+import { get, Unauthorized, type InstanceRow } from "./api";
+import { ICONS, MAIN_NAV, NavIcon, SETTINGS_NAV, Shell, Wordmark } from "./components/chrome";
+import { LiveDot, PageFallback, Select } from "./components/ui";
 import Login from "./pages/Login";
-import { PageFallback } from "./components/ui";
+import { useBrand } from "./useBrand";
+import { usePullToRefresh } from "./hooks/usePullToRefresh";
+import { useResumeRefresh } from "./hooks/useResumeRefresh";
+import { useRoute, useSearchParam, type PageKey } from "./router";
 
 // one chunk per page: the shell paints first, and a page's charts load only when it opens
 const Overview = lazy(() => import("./pages/Overview"));
 const Health = lazy(() => import("./pages/Health"));
 const Strategies = lazy(() => import("./pages/Strategies"));
 const Trades = lazy(() => import("./pages/Trades"));
+const CalendarPage = lazy(() => import("./pages/CalendarPage"));
 const Logs = lazy(() => import("./pages/Logs"));
-const Search = lazy(() => import("./pages/Search"));
 const Equity = lazy(() => import("./pages/Equity"));
 const Edge = lazy(() => import("./pages/Edge").then((m) => ({ default: m.Edge })));
-const Viewership = lazy(() => import("./pages/Viewership"));
-import { InstallApp } from "./components/InstallApp";
-import { Drawer } from "./components/Drawer";
-import { useBrand } from "./useBrand";
-import { ICONS, Mark, NavIcon, ThemeToggle, type Page } from "./components/chrome";
-import { useRoute, useSearchParam, type Route } from "./router";
+const Settings = lazy(() => import("./pages/Settings"));
 
-/** Where each sidebar entry leads. */
-const PAGE_ROUTES: Record<Page, string> = {
-  overview: "/",
-  equity: "/risk",
-  strategies: "/s",
-  edge: "/edge",
-  trades: "/t",
-  logs: "/log",
-  health: "/status",
-  search: "/find",
-  viewership: "/settings/viewership",
-};
-
-function pageOf(route: Route): Page {
-  switch (route.page) {
-    case "home":
-    case "calendar":
-      return "overview";
-    case "risk":
-      return "equity";
-    case "settings":
-      return "viewership";
-    default:
-      return route.page;
-  }
-}
-import { usePullToRefresh } from "./hooks/usePullToRefresh";
-import { useResumeRefresh } from "./hooks/useResumeRefresh";
-
-
-
-
-/** Nav groups; "All strategies" renders right below the instance selector. */
-const ALL_STRATEGIES: { key: Page; label: string }[] = [
-  { key: "overview", label: "Overview" },
-  { key: "equity", label: "Equity" },
-];
-
-const PER_INSTANCE: { section: string; items: { key: Page; label: string }[] }[] = [
-  {
-    section: "Performance",
-    items: [
-      { key: "strategies", label: "Strategies" },
-      { key: "edge", label: "Edge" },
-      { key: "trades", label: "Trades" },
-    ],
-  },
-  { section: "Audience", items: [{ key: "viewership", label: "Viewership" }] },
-  {
-    section: "Monitor",
-    items: [
-      { key: "logs", label: "Logs" },
-      { key: "health", label: "Health" },
-    ],
-  },
-  { section: "Find", items: [{ key: "search", label: "Search" }] },
-];
+const PHONE_TABS: PageKey[] = ["home", "strategies", "trades", "calendar"];
 
 /** Full-screen state before the app has anything to render: connecting, or unreachable. */
 function Splash({ brand, status, busy, onRetry }: { brand: string | null; status: "loading" | "offline"; busy?: boolean; onRetry?: () => void }) {
   return (
-    <div className="pad-safe-top pad-safe-bottom flex h-screen flex-col items-center justify-center gap-5 bg-ink px-6 text-center" role="status" aria-live="polite">
-      <div className="flex items-center gap-3">
-        <Mark />
-        <div className="text-lg font-headline tracking-tight text-bright">
-          qkt<span className="text-brand">·</span>insights
-        </div>
-      </div>
-      {brand && <div className="-mt-3 text-sm font-medium text-muted">{brand}</div>}
+    <div className="pad-safe-top pad-safe-bottom flex h-dvh flex-col items-center justify-center gap-5 bg-ink px-6 text-center" role="status" aria-live="polite">
+      <Wordmark brand={brand} />
       {status === "loading" ? (
         <div className="flex items-center gap-2.5 text-sm text-muted">
-          <span className="live-dot inline-block h-2 w-2 rounded-full bg-accent" />
+          <span className="live-dot inline-block h-2 w-2 rounded-full bg-ok" />
           {brand ? `Loading ${brand}…` : "Connecting to the collector…"}
         </div>
       ) : (
         <>
-          <div className="max-w-xs text-sm leading-relaxed text-muted">
-            Can't reach the collector. Check the connection and try again.
-          </div>
+          <div className="max-w-xs text-sm leading-relaxed text-muted">Can't reach the collector. Check the connection and try again.</div>
           <button
             type="button"
             onClick={onRetry}
             disabled={busy}
-            className="rounded-lg bg-accent px-5 py-2.5 text-sm font-semibold text-ink transition active:scale-[0.98] hover:bg-accent-hi disabled:opacity-60"
+            className="h-9 rounded-lg bg-accent px-5 text-sm font-medium text-on-accent transition hover:bg-accent-hi disabled:opacity-60"
           >
             {busy ? "Retrying…" : "Retry"}
           </button>
@@ -116,11 +51,8 @@ function Splash({ brand, status, busy, onRetry }: { brand: string | null; status
 
 export default function App() {
   const queryClient = useQueryClient();
-  const { route, navigate } = useRoute();
+  const { route } = useRoute();
   const [instance, setInstance] = useSearchParam("i");
-  const page = pageOf(route);
-  const [collapsed, setCollapsed] = useState(false);
-  const [drawer, setDrawer] = useState(false);
   // "signed out" is a decision, not a server round-trip: the sign-in screen shows at
   // once, and a logout that could not be sent is retried when the link returns
   const [signedOut, setSignedOut] = useState(false);
@@ -148,9 +80,7 @@ export default function App() {
   }
   // First load (and the reload right after signing in) has no data to show yet;
   // a bare dark screen on a phone reads as "the app is broken".
-  if (instances.isPending) {
-    return <Splash brand={brand} status="loading" />;
-  }
+  if (instances.isPending) return <Splash brand={brand} status="loading" />;
   if (instances.isError && instances.data == null) {
     return <Splash brand={brand} status="offline" busy={instances.isFetching} onRetry={() => void instances.refetch()} />;
   }
@@ -160,214 +90,85 @@ export default function App() {
   const selectedRow = list.find((i) => i.id === selected);
   const live = selectedRow != null && Date.now() - selectedRow.lastSeen < 30_000;
 
-  const goto = (p: Page) => {
-    navigate(PAGE_ROUTES[p]);
-    setDrawer(false);
-  };
-
-  const navButton = (n: { key: Page; label: string }, iconsOnly: boolean) => {
-    const active = page === n.key;
-    return (
-      <button
-        key={n.key}
-        onClick={() => goto(n.key)}
-        title={n.label}
-        aria-current={active ? "page" : undefined}
-        className={`relative flex h-9 w-full items-center gap-3 rounded-lg px-3 text-left text-sm font-medium transition ${
-          iconsOnly ? "justify-center px-0" : ""
-        } ${active ? "bg-accent-soft text-bright before:absolute before:-left-2 before:top-2 before:bottom-2 before:w-[3px] before:rounded-r before:bg-accent-hi" : "text-body hover:bg-hover hover:text-bright"}`}
-      >
-        <NavIcon d={ICONS[n.key]} big />
-        {!iconsOnly && n.label}
-      </button>
+  const scope = (iconsOnly: boolean) =>
+    iconsOnly ? (
+      <div className="flex justify-center py-2" title={selected ?? "no instance"}>
+        <LiveDot on={live} />
+      </div>
+    ) : (
+      <label className="block">
+        <span className="eyebrow flex items-center justify-between px-1 pb-1.5">
+          Instance
+          <LiveDot on={live} />
+        </span>
+        <Select className="w-full" value={selected ?? ""} onChange={(e) => setInstance(e.target.value, { push: true })} aria-label="Instance">
+          {list.length === 0 && <option value="">no instances yet</option>}
+          {list.map((i) => (
+            <option key={i.id} value={i.id}>
+              {i.name ?? i.id}
+            </option>
+          ))}
+        </Select>
+      </label>
     );
-  };
 
-  const sidebar = (iconsOnly: boolean) => (
-    <>
-      <div className={`flex items-center gap-3 px-5 pb-5 pt-6 ${iconsOnly ? "justify-center px-0" : ""}`}>
-        <Mark />
-        {!iconsOnly && (
-          <div className="min-w-0">
-            <div className="text-lg font-headline leading-tight tracking-tight text-bright">
-              qkt<span className="text-brand">·</span>insights
-            </div>
-            {brand && <div className="truncate text-xs font-medium text-muted">{brand}</div>}
-          </div>
-        )}
-      </div>
-
-      <div className={iconsOnly ? "px-2" : "px-4"}>
-        {iconsOnly ? (
-          <div className="flex justify-center py-2" title={selected ?? "no instance"}>
-            <LiveDot on={live} />
-          </div>
-        ) : (
-          <div className="rounded-card border border-line bg-raised p-3.5">
-            <div className="flex items-center justify-between">
-              <span className="text-[11px] font-semibold uppercase tracking-[0.06em] text-muted">Instance</span>
-              <LiveDot on={live} />
-            </div>
-            <Select
-              className="mt-2.5 h-10 w-full border-line-strong bg-panel text-[15px]"
-              value={selected ?? ""}
-              onChange={(e) => setInstance(e.target.value, { push: true })}
-            >
-              {list.length === 0 && <option value="">no instances yet</option>}
-              {list.map((i) => (
-                <option key={i.id} value={i.id}>
-                  {i.name ?? i.id}
-                </option>
-              ))}
-            </Select>
-          </div>
-        )}
-      </div>
-
-      <div className={`mt-4 ${iconsOnly ? "px-2" : "px-4"}`}>
-        {!iconsOnly && (
-          <div className="px-3.5 pb-2 text-[11px] font-semibold uppercase tracking-[0.06em] text-faint">All strategies</div>
-        )}
-        {ALL_STRATEGIES.map((n) => navButton(n, iconsOnly))}
-      </div>
-
-      <nav className={`mt-1 flex-1 overflow-y-auto pb-4 ${iconsOnly ? "px-2" : "px-4"}`}>
-        {PER_INSTANCE.map((group) => (
-          <div key={group.section} className="mt-4">
-            {!iconsOnly && (
-              <div className="px-3.5 pb-2 text-[11px] font-semibold uppercase tracking-[0.06em] text-faint">
-                {group.section}
-              </div>
-            )}
-            {group.items.map((n) => navButton(n, iconsOnly))}
-          </div>
-        ))}
-      </nav>
-
-      <div className={`border-t border-line p-3 ${iconsOnly ? "px-2" : "px-4"}`}>
-        <button
-          onClick={() => void refreshAll()}
-          disabled={fetching > 0}
-          title="Refresh"
-          className={`flex w-full items-center gap-3 rounded-lg px-3.5 py-2.5 text-[15px] font-medium text-muted transition hover:bg-raised hover:text-body disabled:opacity-60 ${
-            iconsOnly ? "justify-center px-0" : ""
-          }`}
-        >
-          <span className={fetching > 0 ? "animate-spin" : ""}>
-            <NavIcon d="M21 12a9 9 0 1 1-2.64-6.36M21 3v6h-6" big />
-          </span>
-          {!iconsOnly && (fetching > 0 ? "Refreshing…" : "Refresh")}
-        </button>
-        <ThemeToggle iconsOnly={iconsOnly} />
-        <InstallApp variant="sidebar" iconsOnly={iconsOnly} />
-        <button
-          onClick={async () => {
-            setSignedOut(true);
-            setDrawer(false);
-            queryClient.clear();
-            if (!(await logout())) window.addEventListener("online", () => void logout(), { once: true });
-          }}
-          title="Sign out"
-          className={`flex w-full items-center gap-3 rounded-lg px-3.5 py-2.5 text-[15px] font-medium text-muted transition hover:bg-raised hover:text-body ${
-            iconsOnly ? "justify-center px-0" : ""
-          }`}
-        >
-          <NavIcon d="M9 21H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h4M16 17l5-5-5-5M21 12H9" big />
-          {!iconsOnly && "Sign out"}
-        </button>
-        <button
-          onClick={async () => {
-            if (!window.confirm("Sign out every device, including this one?")) return;
-            if (!(await logoutEverywhere())) {
-              window.alert("Could not reach the collector. Nothing was signed out.");
-              return;
-            }
-            setSignedOut(true);
-            setDrawer(false);
-            queryClient.clear();
-          }}
-          title="Sign out everywhere"
-          className={`flex w-full items-center gap-3 rounded-lg px-3.5 py-2.5 text-[15px] font-medium text-muted transition hover:bg-raised hover:text-body ${
-            iconsOnly ? "justify-center px-0" : ""
-          }`}
-        >
-          <NavIcon d="M12 2v10M18.36 6.64a9 9 0 1 1-12.73 0" big />
-          {!iconsOnly && "Sign out everywhere"}
-        </button>
-      </div>
-    </>
-  );
-
-  const main = (
-    <div className="mx-auto max-w-[1500px] px-4 py-5 sm:px-6 lg:px-8 lg:py-7">
-      <Suspense fallback={<PageFallback />}>
-      {page === "overview" && (
-        <Overview instanceId={selected} />
-      )}
-      {page === "health" && <Health />}
-      {page === "strategies" && (
-        <Strategies instanceId={selected} />
-      )}
-      {page === "edge" && <Edge instanceId={selected} />}
-      {page === "trades" && <Trades instanceId={selected} />}
-      {page === "equity" && <Equity instanceId={selected} />}
-      {page === "logs" && <Logs instanceId={selected} />}
-      {page === "search" && <Search instanceId={selected} />}
-      {page === "viewership" && <Viewership instanceId={selected} />}
-      </Suspense>
+  const footer = (iconsOnly: boolean) => (
+    <div className={`flex items-center gap-2 text-xs text-muted ${iconsOnly ? "justify-center" : ""}`}>
+      {!iconsOnly && <span className="flex-1">All times UTC</span>}
+      <button
+        type="button"
+        onClick={() => void refreshAll()}
+        disabled={fetching > 0}
+        title="Refresh every panel"
+        aria-label="Refresh every panel"
+        className="inline-flex h-7 w-7 items-center justify-center rounded-md text-muted transition hover:bg-hover hover:text-bright disabled:opacity-60"
+      >
+        <span className={fetching > 0 ? "animate-spin" : ""}>
+          <NavIcon d={ICONS.refresh} />
+        </span>
+      </button>
     </div>
   );
 
+  const page = (() => {
+    switch (route.page) {
+      case "home":
+        return <Overview instanceId={selected} />;
+      case "strategies":
+        return <Strategies instanceId={selected} />;
+      case "trades":
+        return <Trades instanceId={selected} />;
+      case "calendar":
+        return <CalendarPage instanceId={selected} />;
+      case "risk":
+        return <Equity instanceId={selected} />;
+      case "edge":
+        return <Edge instanceId={selected} />;
+      case "logs":
+        return <Logs instanceId={selected} />;
+      case "health":
+        return <Health />;
+      case "settings":
+        return <Settings instanceId={selected} onSignedOut={() => setSignedOut(true)} />;
+    }
+  })();
+
   return (
-    <div className="flex h-screen flex-col bg-ink text-body lg:flex-row">
-      {/* mobile top bar */}
-      <div className="pad-safe-top sticky top-0 z-30 flex shrink-0 items-center gap-3 border-b border-line bg-panel px-4 py-2.5 lg:hidden">
-        <button
-          onClick={() => setDrawer(true)}
-          aria-label="open menu"
-          aria-expanded={drawer}
-          className="-ml-1 rounded-lg p-2.5 text-body transition active:bg-raised"
-        >
-          <NavIcon d="M4 6h16M4 12h16M4 18h16" big />
-        </button>
-        <Mark />
-        <div className="min-w-0 truncate text-[15px] font-headline tracking-tight text-bright">
-          {brand ?? (
-            <>
-              qkt<span className="text-brand">·</span>insights
-            </>
-          )}
-        </div>
-        <span className="ml-auto flex items-center gap-2 pr-1">
-          <span className="max-w-[7rem] truncate text-xs text-muted">{selected ?? "no instance"}</span>
+    <Shell
+      brand={brand}
+      nav={MAIN_NAV}
+      settings={SETTINGS_NAV}
+      tabs={PHONE_TABS}
+      scope={scope}
+      footer={footer}
+      mobileTitleRight={
+        <span className="flex min-w-0 items-center gap-2">
+          <span className="max-w-[8rem] truncate text-xs text-muted">{selectedRow?.name ?? selected ?? "no instance"}</span>
           <LiveDot on={live} />
         </span>
-      </div>
-
-      <Drawer open={drawer} onClose={() => setDrawer(false)} label="main navigation">
-        {sidebar(false)}
-      </Drawer>
-
-      {/* desktop sidebar */}
-      <aside
-        className={`pad-safe-left relative hidden shrink-0 flex-col border-r border-line bg-side transition-all lg:flex ${
-          collapsed ? "w-[4.5rem]" : "w-[17rem]"
-        }`}
-      >
-        {sidebar(collapsed)}
-        <button
-          onClick={() => setCollapsed((c) => !c)}
-          aria-label={collapsed ? "expand sidebar" : "collapse sidebar"}
-          title={collapsed ? "expand sidebar" : "collapse sidebar"}
-          className="absolute -right-3 top-7 rounded-full border border-line bg-raised p-1 text-muted transition hover:border-line-strong hover:text-body"
-        >
-          <svg viewBox="0 0 24 24" className="h-3 w-3" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round">
-            <path d={collapsed ? "M9 18l6-6-6-6" : "M15 18l-6-6 6-6"} />
-          </svg>
-        </button>
-      </aside>
-
-      <main ref={pull.ref} className="pad-safe-bottom min-h-0 flex-1 overflow-auto overscroll-contain">
+      }
+    >
+      <main ref={pull.ref} className="h-full overflow-auto overscroll-contain pb-[calc(4.5rem+env(safe-area-inset-bottom))] lg:pb-0">
         {/* pull-to-refresh well: grows with the drag, holds while refetching */}
         <div
           aria-live="polite"
@@ -378,8 +179,10 @@ export default function App() {
             <span className="pb-3">{pull.refreshing ? "Refreshing…" : pull.offset >= 64 ? "Release to refresh" : "Pull to refresh"}</span>
           )}
         </div>
-        {main}
+        <div className="mx-auto max-w-[1500px] px-4 py-5 sm:px-6 lg:px-8 lg:py-6">
+          <Suspense fallback={<PageFallback />}>{page}</Suspense>
+        </div>
       </main>
-    </div>
+    </Shell>
   );
 }

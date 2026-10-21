@@ -96,7 +96,7 @@ export default function Equity({ instanceId }: { instanceId: string | null }) {
   return (
     <div>
       <PageHeader
-        title="Equity"
+        title="Equity & risk"
         sub={`Broker account equity for ${instanceId}; per-strategy equity below, normalized to % change so different capital sizes compare fairly.`}
         right={
           <div className="flex flex-wrap gap-2">

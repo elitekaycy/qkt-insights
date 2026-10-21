@@ -1,6 +1,6 @@
 import { useMemo, useState } from "react";
 import type { DayNet, TradeRow, TradeView } from "../api";
-import { compactPnl, count, DASH, day as utcDay, human, monthName, pct, pnl, price, quantity, signedMoney, signedPct, ts } from "../format";
+import { compact, compactPnl, count, DASH, day as utcDay, human, monthName, pct, pnl, price, quantity, signedMoney, signedPct, ts } from "../format";
 import { Card, Cell, Empty, Field, IconButton, Modal, Pnl, Row, SideTag, Table } from "./ui";
 
 /*
@@ -21,6 +21,12 @@ function shade(net: number, maxAbs: number): string {
   const k = Math.min(1, Math.abs(net) / (maxAbs || 1));
   const color = net >= 0 ? "var(--color-gain-fill)" : "var(--color-loss-fill)";
   return `color-mix(in srgb, ${color} ${Math.round(9 + 46 * k)}%, var(--color-panel))`;
+}
+
+/** Phone-width cell figure: sign and compact size only, the shade carries the rest. */
+function compactSigned(net: number): string {
+  const c = compact(net);
+  return net > 0 && c !== "0" ? `+${c}` : c;
 }
 
 function shiftMonth(month: string, n: number): string {
@@ -54,13 +60,12 @@ export function CalendarView({
   const [openMonth, setOpenMonth] = useState<string | null>(null);
 
   const monthly = useMemo(() => {
-    const out = new Map<string, { net: number; trades: number; days: number }>();
+    const out = new Map<string, { net: number; trades: number }>();
     for (const d of days) {
       const k = monthKey(d.day);
-      const cur = out.get(k) ?? { net: 0, trades: 0, days: 0 };
+      const cur = out.get(k) ?? { net: 0, trades: 0 };
       cur.net += d.net;
       cur.trades += d.trades;
-      cur.days += d.trades > 0 ? 1 : 0;
       out.set(k, cur);
     }
     return [...out.entries()].sort((a, b) => (a[0] < b[0] ? -1 : 1));
@@ -193,7 +198,8 @@ export function CalendarView({
                         {n}
                         {isToday && <span className="hidden text-accent-ink @xl:inline">in progress</span>}
                       </span>
-                      <span className="truncate text-[11px] font-headline text-bright @xl:text-sm">{compactPnl(d.net)}</span>
+                      <span className="truncate text-[10px] font-headline text-bright @xl:hidden">{compactSigned(d.net)}</span>
+                      <span className="hidden truncate text-sm font-headline text-bright @xl:block">{compactPnl(d.net)}</span>
                       <span className="hidden text-[11px] text-bright @xl:block">
                         {d.trades} trade{d.trades === 1 ? "" : "s"}
                       </span>
@@ -231,7 +237,7 @@ export function CalendarView({
           </span>
         </div>
         <div className="max-h-[30rem] overflow-auto">
-          <Table head={["Month", "Net", ...(hasBase ? ["Return"] : []), "Trades", "Days"]}>
+          <Table head={["Month", "Net", ...(hasBase ? ["Return"] : []), "Trades"]}>
             {[...monthly].reverse().map(([k, v]) => (
               <Row
                 key={k}
@@ -248,7 +254,6 @@ export function CalendarView({
                 </Cell>
                 {hasBase && <Cell className="text-body">{pctOf(v.net, k)}</Cell>}
                 <Cell className="text-body">{count(v.trades)}</Cell>
-                <Cell className="text-body">{count(v.days)}</Cell>
               </Row>
             ))}
           </Table>

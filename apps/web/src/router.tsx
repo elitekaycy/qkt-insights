@@ -1,5 +1,5 @@
 import { createContext, useCallback, useContext, useEffect, useMemo, useState, type AnchorHTMLAttributes, type MouseEvent, type ReactNode } from "react";
-import { parsePath, withScope, type Route } from "./routes";
+import { movedPath, parsePath, withScope, type Route } from "./routes";
 
 export * from "./routes";
 
@@ -27,7 +27,14 @@ function readLocation(base: string): { path: string; search: string } {
 }
 
 export function RouterProvider({ base = "", children }: { base?: string; children: ReactNode }) {
-  const [loc, setLoc] = useState(() => readLocation(base));
+  const [loc, setLoc] = useState(() => {
+    const at = readLocation(base);
+    const moved = movedPath(at.path);
+    if (!moved) return at;
+    // a retired page's link lands on its successor, without an extra Back step
+    window.history.replaceState(null, "", `${base}${moved}${at.search}`);
+    return { path: moved, search: at.search };
+  });
   useEffect(() => {
     const onPop = () => setLoc(readLocation(base));
     window.addEventListener("popstate", onPop);

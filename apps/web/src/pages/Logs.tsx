@@ -5,6 +5,7 @@ import { Card, Empty, Loadable, LoadMore, PageHeader, Panel, RangeSelect, rangeS
 import { useSearchParam } from "../router";
 import { LogLine } from "../components/LogLine";
 import { useLiveStream } from "../useLiveStream";
+import { count } from "../format";
 
 const LEVELS = ["ERROR", "WARN", "INFO", "DEBUG"];
 const LOG_TYPES = ["log"];
@@ -51,34 +52,10 @@ export default function Logs({ instanceId }: { instanceId: string | null }) {
 
   return (
     <div>
-      <PageHeader title="Logs" sub={`Engine logs shipped from ${instanceId}; live tail on top, history below.`} />
-
-      {liveLogs.length > 0 && (
-        <Panel className="mt-5 border-gain-fill/30" title="Live" right={<PulseDot />} scroll="max-h-[20rem]">
-          <div className="p-2">
-            {liveLogs.slice(0, 20).map((e) => (
-              <LogLine
-                key={`${e.instanceId}-${e.id}`}
-                log={{
-                  id: e.id,
-                  strategyId: e.strategyId ?? null,
-                  level: String(e.payload.level) as LogRow["level"],
-                  logger: String(e.payload.logger ?? ""),
-                  message: String(e.payload.message ?? ""),
-                  ts: e.ts,
-                }}
-              />
-            ))}
-          </div>
-        </Panel>
-      )}
-
-      <Panel
-        className="mt-5"
-       
-        title="History"
-        scroll="max-h-[34rem]"
-        toolbar={
+      <PageHeader
+        title="Logs"
+        sub={`Engine logs shipped from ${instanceId}; live tail on top, history below. Times UTC.`}
+        scope={
           <>
             <SearchInput
               value={q}
@@ -87,7 +64,7 @@ export default function Logs({ instanceId }: { instanceId: string | null }) {
                 setCap(30);
               }}
               placeholder="search log text…"
-              className="w-full sm:w-72"
+              className="w-full sm:max-w-md sm:flex-1"
             />
             <Select
               value={level}
@@ -124,8 +101,38 @@ export default function Logs({ instanceId }: { instanceId: string | null }) {
                 setCap(30);
               }}
             />
+            <span className="ml-auto text-sm text-muted">
+              Showing <b className="font-semibold text-bright">{count(shown.length)}</b> of {count(filtered.length)} lines
+            </span>
           </>
         }
+      />
+
+      {liveLogs.length > 0 && (
+        <Panel className="mt-5 border-gain-fill/30" title="Live" right={<PulseDot />} scroll="max-h-[20rem]">
+          <div className="p-2">
+            {liveLogs.slice(0, 20).map((e) => (
+              <LogLine
+                key={`${e.instanceId}-${e.id}`}
+                log={{
+                  id: e.id,
+                  strategyId: e.strategyId ?? null,
+                  level: String(e.payload.level) as LogRow["level"],
+                  logger: String(e.payload.logger ?? ""),
+                  message: String(e.payload.message ?? ""),
+                  ts: e.ts,
+                }}
+              />
+            ))}
+          </div>
+        </Panel>
+      )}
+
+      <Panel
+        className="mt-5"
+       
+        title="History"
+        scroll="max-h-[34rem]"
       >
         <Loadable loading={logs.isPending} error={logs.isError} retry={() => logs.refetch()} what="log history">
         <div className="p-2">

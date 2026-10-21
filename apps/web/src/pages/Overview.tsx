@@ -107,7 +107,7 @@ export default function Overview({ instanceId }: { instanceId: string | null }) 
   return (
     <div>
       <PageHeader
-        title="Overview"
+        title="Home"
         sub={view.public ? `${instanceId} · public view, figures ${view.meta.delayMinutes} minutes behind` : `Everything ${instanceId} is doing, right now.`}
         right={<ShareControl instanceId={instanceId} kind="overview" />}
       />

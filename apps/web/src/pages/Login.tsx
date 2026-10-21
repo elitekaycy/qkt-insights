@@ -35,11 +35,11 @@ export default function Login({ onLoggedIn }: { onLoggedIn: () => void }) {
         className="pointer-events-none absolute inset-0"
         style={{
           background:
-            "radial-gradient(60rem 30rem at 70% -10%, color-mix(in srgb, var(--color-accent) 7%, transparent), transparent), radial-gradient(40rem 24rem at 10% 110%, color-mix(in srgb, #a78bfa 6%, transparent), transparent)",
+            "radial-gradient(60rem 30rem at 70% -10%, color-mix(in srgb, var(--color-accent) 7%, transparent), transparent), radial-gradient(40rem 24rem at 10% 110%, color-mix(in srgb, var(--color-brand-violet) 6%, transparent), transparent)",
         }}
       />
       <form onSubmit={submit} className="relative w-[22rem] rounded-card border border-line bg-panel p-7">
-        <div className="text-xl font-headline tracking-tight text-bright">
+        <div className="wordmark text-xl text-bright">
           qkt<span className="text-brand">·</span>insights
         </div>
         <p className="mt-1 text-sm text-muted">

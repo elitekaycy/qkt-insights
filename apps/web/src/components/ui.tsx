@@ -18,16 +18,24 @@ export function Card({ children, className = "" }: { children: ReactNode; classN
   );
 }
 
-/** Page title (20px, 650) with a one-line muted hint, the journal's section header. */
-export function PageHeader({ title, sub, right }: { title: string; sub?: string; right?: ReactNode }) {
+/**
+ * Page title (20px, 650) with a one-line muted hint, the journal's section header. `scope` is the
+ * row under the title reserved for the page's scope bar: the query box with its chips on the left,
+ * the live count ("Showing k of n") and page controls on the right. It takes the full width so the
+ * box can grow; the header keeps the same rhythm with or without it.
+ */
+export function PageHeader({ title, sub, right, scope }: { title: string; sub?: string; right?: ReactNode; scope?: ReactNode }) {
   return (
-    <div className="flex flex-wrap items-center justify-between gap-3">
-      <div className="min-w-0">
-        <h1 className="text-xl font-headline text-bright">{title}</h1>
-        {sub && <p className="mt-0.5 text-sm text-muted">{sub}</p>}
+    <header>
+      <div className="flex flex-wrap items-center justify-between gap-3">
+        <div className="min-w-0">
+          <h1 className="text-xl font-headline text-bright">{title}</h1>
+          {sub && <p className="mt-0.5 text-sm text-muted">{sub}</p>}
+        </div>
+        {right}
       </div>
-      {right}
-    </div>
+      {scope && <div className="mt-3 flex flex-wrap items-center gap-2 border-b border-line pb-3">{scope}</div>}
+    </header>
   );
 }
 
@@ -423,9 +431,10 @@ export function ReturnPct({ net, base, dim }: { net: number | null | undefined; 
   );
 }
 
+/** Order side as a neutral tag: colour is reserved for P&L, so direction reads from the word. */
 export function SideTag({ side }: { side: string | null | undefined }) {
-  if (!side) return <span className="text-faint">—</span>;
-  return <Pill tone={side === "BUY" ? "up" : "down"}>{side}</Pill>;
+  if (!side) return <span className="text-faint">{DASH}</span>;
+  return <Pill>{side}</Pill>;
 }
 
 export const LEVEL_TONE: Record<string, Tone> = {

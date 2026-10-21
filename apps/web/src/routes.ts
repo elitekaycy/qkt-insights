@@ -4,7 +4,7 @@
  * shell). routes.test.ts checks that against the API source.
  */
 
-export type PageKey = "home" | "strategies" | "trades" | "calendar" | "risk" | "edge" | "logs" | "health" | "settings" | "search";
+export type PageKey = "home" | "strategies" | "trades" | "calendar" | "risk" | "edge" | "logs" | "health" | "settings";
 
 /** Page roots. Short on purpose: "/strategies", "/trades", "/health", "/logs" and "/search" are API routes. */
 export const PAGE_PATHS: Record<PageKey, string> = {
@@ -17,7 +17,12 @@ export const PAGE_PATHS: Record<PageKey, string> = {
   logs: "/log",
   health: "/status",
   settings: "/settings",
-  search: "/find",
+};
+
+/** Retired paths and where they lead now, so old links never land on Home by surprise. */
+const MOVED: Record<string, PageKey> = {
+  // the search page gave way to the query bar on each page; logs is where text search lives
+  find: "logs",
 };
 
 export type StrategyTab = "overview" | "performance" | "calendar";
@@ -40,6 +45,13 @@ export interface Route {
 
 const seg = (s: string | undefined) => (s == null ? undefined : decodeURIComponent(s));
 
+/** The current path for a retired one ("/find" → "/log"), or null when the path is current. */
+export function movedPath(path: string): string | null {
+  const head = path.split("/").filter(Boolean)[0];
+  const to = head ? MOVED[head] : undefined;
+  return to ? PAGE_PATHS[to] : null;
+}
+
 /** Parses a path relative to the app base ("/s/gold/performance") into a route; unknown paths are Home. */
 export function parsePath(path: string): Route {
   const parts = path.split("/").filter(Boolean);
@@ -53,7 +65,7 @@ export function parsePath(path: string): Route {
   if (head === "portfolio" && a) return { page: "strategies", portfolio: seg(a) };
   if (head === "settings") return { page: "settings", section: SETTINGS_SECTIONS.find((x) => x === a) ?? "sharing" };
   const page = (Object.keys(PAGE_PATHS) as PageKey[]).find((k) => PAGE_PATHS[k] === `/${head}`);
-  return { page: page ?? "home" };
+  return { page: page ?? MOVED[head] ?? "home" };
 }
 
 /** The canonical path of a route; inverse of parsePath. */

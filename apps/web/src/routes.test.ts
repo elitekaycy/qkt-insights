@@ -1,7 +1,7 @@
 import { readdirSync, readFileSync } from "node:fs";
 import { fileURLToPath } from "node:url";
 import { describe, expect, it } from "vitest";
-import { PAGE_PATHS, parsePath, routePath, withScope, type Route } from "./routes";
+import { movedPath, PAGE_PATHS, parsePath, routePath, withScope, type Route } from "./routes";
 
 describe("routes", () => {
   it("round-trips every page and strategy deep link", () => {
@@ -18,7 +18,6 @@ describe("routes", () => {
       { page: "edge" },
       { page: "logs" },
       { page: "health" },
-      { page: "search" },
       { page: "settings", section: "sharing" },
       { page: "settings", section: "viewership" },
     ];
@@ -28,6 +27,9 @@ describe("routes", () => {
   it("falls back to Home on an unknown path and to the overview tab on an unknown tab", () => {
     expect(parsePath("/nope")).toEqual({ page: "home" });
     expect(parsePath("/s/x/nope")).toEqual({ page: "strategies", strategy: "x", tab: "overview" });
+    expect(parsePath("/find")).toEqual({ page: "logs" });
+    expect(movedPath("/find")).toBe("/log");
+    expect(movedPath("/log")).toBeNull();
   });
 
   it("carries the instance and range to the next page, never page filters", () => {
