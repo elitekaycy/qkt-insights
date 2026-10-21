@@ -10,6 +10,7 @@ export default defineConfig({
       "@qkt-insights/contract/query": fileURLToPath(new URL("packages/contract/src/query.ts", import.meta.url)),
       "@qkt-insights/contract/prices": fileURLToPath(new URL("packages/contract/src/prices.ts", import.meta.url)),
       "@qkt-insights/contract/money": fileURLToPath(new URL("packages/contract/src/money.ts", import.meta.url)),
+      "@qkt-insights/contract/accountIdentity": fileURLToPath(new URL("packages/contract/src/accountIdentity.ts", import.meta.url)),
       "@qkt-insights/contract": pkg("contract"),
       "@qkt-insights/store": pkg("store"),
       "@qkt-insights/collector": pkg("collector"),

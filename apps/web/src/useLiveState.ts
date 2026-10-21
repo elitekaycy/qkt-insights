@@ -12,7 +12,6 @@ function replaceOrAppend<T>(list: T[], match: (x: T) => boolean, next: T): T[] {
 }
 
 function accountKey(instanceId: string, account: Pick<LiveAccount, "broker" | "login" | "server" | "accountId">): string {
-  if (account.login && account.server) return JSON.stringify([instanceId, account.server, account.login]);
   if (account.accountId) return JSON.stringify([instanceId, account.accountId]);
   return JSON.stringify([instanceId, account.broker]);
 }

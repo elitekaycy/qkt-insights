@@ -515,7 +515,7 @@ export function registerPublic(app: FastifyInstance, deps: PublicDeps): void {
 
   /** How many distinct broker accounts the instance reports now; labels are collapsed when it is one. */
   const liveAccountCount = (instanceId: string) => {
-    const keys = new Set(deps.liveState.snapshot(now()).accounts.filter((a) => a.instanceId === instanceId).map((a) => (a.login && a.server ? `${a.server}:${a.login}` : a.broker)));
+    const keys = new Set(deps.liveState.snapshot(now()).accounts.filter((a) => a.instanceId === instanceId).map((a) => a.accountId ?? a.broker));
     return keys.size;
   };
 

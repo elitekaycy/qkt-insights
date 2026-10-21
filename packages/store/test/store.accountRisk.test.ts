@@ -1,4 +1,5 @@
 import { describe, it, expect } from "vitest";
+import { mt5AccountId, vgpAccountId } from "@qkt-insights/contract";
 import { openDb, accountRisk, accountSeries, accountEquity, accountPerformance, monthBases, tradingDayStart, type Db } from "../src/index.js";
 
 const I = "i1";
@@ -163,10 +164,10 @@ describe("account identity in the rollup", () => {
     live.upsert(I, { v: 1, instanceId: I, id: "a1", seq: 1, ts: T0, type: "state.account",
       payload: { broker: "BRK_S01", currency: "USD", balance: 1000, equity: 990, login: "42", server: "Demo-1" } } as never);
     live.flushRollup(db, T0 + 1000);
-    expect(db.prepare("SELECT broker, account FROM account_equity").all()).toEqual([{ broker: "BRK", account: "mt5:42@Demo-1" }]);
+    expect(db.prepare("SELECT broker, account FROM account_equity").all()).toEqual([{ broker: "BRK", account: mt5AccountId("42", "Demo-1") }]);
   });
 
-  it("records a stated account id and label as they are", async () => {
+  it("records a stated account id in its opaque form and the label as it is", async () => {
     const { LiveStateStore } = await import("../src/index.js");
     const db = openDb(":memory:");
     const live = new LiveStateStore();
@@ -174,6 +175,6 @@ describe("account identity in the rollup", () => {
       payload: { broker: "PAPER_DERIBIT", currency: "USDC", balance: 1000, equity: 990, login: "paper",
         venue: { connector: "vgp", adapter: "paper", label: "PAPER_DERIBIT" }, accountId: "vgp:paper:paper" } } as never);
     live.flushRollup(db, T0 + 1000);
-    expect(db.prepare("SELECT broker, account FROM account_equity").all()).toEqual([{ broker: "PAPER_DERIBIT", account: "vgp:paper:paper" }]);
+    expect(db.prepare("SELECT broker, account FROM account_equity").all()).toEqual([{ broker: "PAPER_DERIBIT", account: vgpAccountId("paper", "paper") }]);
   });
 });
