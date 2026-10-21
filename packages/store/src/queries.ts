@@ -653,14 +653,15 @@ export const POSITION_MARK_FRESH_MS = 2 * VALUATION_HEARTBEAT_MS + 60_000;
  * landed before the moment is excluded even if its last mark is still inside the window.
  */
 export function openPositionsAt(db: Db, f: { instanceId: string; at: number; freshMs?: number }): PositionMark[] {
+  // The window's marks come from the (instance, ts) index, then each last mark by primary key;
+  // left to itself the planner walks every mark of the instance for the GROUP BY.
   return db.prepare(
     `SELECT v.broker, v.ticket, v.strategy_id strategyId, v.profit, v.swap, v.ts
-     FROM position_valuations v
-     JOIN (SELECT broker, ticket, MAX(ts) ts FROM position_valuations
+     FROM (SELECT broker, ticket, MAX(ts) ts FROM position_valuations INDEXED BY idx_position_valuations_instance_ts
            WHERE instance_id=@instanceId AND ts<=@at AND ts>=@from GROUP BY broker, ticket) m
-       ON m.broker=v.broker AND m.ticket=v.ticket AND m.ts=v.ts
-     WHERE v.instance_id=@instanceId
-       AND NOT EXISTS (SELECT 1 FROM deals d WHERE d.instance_id=v.instance_id AND d.position_ticket=v.ticket
+     CROSS JOIN position_valuations v
+       ON v.instance_id=@instanceId AND v.broker=m.broker AND v.ticket=m.ticket AND v.ts=m.ts
+     WHERE NOT EXISTS (SELECT 1 FROM deals d WHERE d.instance_id=v.instance_id AND d.position_ticket=v.ticket
                          AND d.entry IN ('OUT','OUT_BY','INOUT') AND d.ts<=@at)
      ORDER BY v.broker, v.ticket`,
   ).all({ instanceId: f.instanceId, at: f.at, from: f.at - (f.freshMs ?? POSITION_MARK_FRESH_MS) }) as PositionMark[];
