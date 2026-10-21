@@ -10,11 +10,17 @@ placeholders — everything else (balance, positions, strategies, trades, logs) 
 
 ## Home
 
-Everything the selected instance is doing right now: account snapshot, open
-positions, account performance (net P&L, win rate, expectancy, drawdown), a
-trading calendar, monthly returns, daily/cumulative P&L, trade excursion, risk
-budget, long/short performance and trading behavior. Strategy equity lives on
-Equity & risk; instance status lives on Health.
+Am I safe right now, on one screen. Per venue account: balance, equity, **Today** (realized
+since the account's trading day began plus floating, the day basis printed), open risk to the
+stops in money (positions without a stop are counted and flagged, never summed), and gauges for
+daily loss and max drawdown against the account's own limits with their basis. Then the open
+positions with SL, TP, money to the stop, floating P&L incl. swap and held time; a sortable
+strategy table (status and halt reason, Today, 7D, MTD, all-time, max drawdown, trades, win rate,
+last close, plus an unattributed row) whose rows open the strategy; realized P&L by UTC day with
+7D/MTD/YTD/All chips held in the URL (`range`); and the month calendar, whose days open their
+trades. Shared links show the same page 15 minutes behind, with open positions as a count and
+total only. Instrument splits, monthly returns and drawdown periods live on Calendar, Equity &
+risk and the strategy pages.
 
 ![Overview](assets/screenshots/overview.png)
 

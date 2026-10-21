@@ -1,293 +1,156 @@
-import { useQueries, useQuery } from "@tanstack/react-query";
-import { get, type AccountDrawdownRow, type AccountRiskRow, type AccountSummary as AccountSummaryData, type PerformanceBundle, type StrategyRow } from "../api";
-import { AccountSummary } from "../components/AccountSummary";
-import { OverviewDashboard } from "../components/OverviewDashboard";
-import { Card, Cell, DataList, FlashValue, LiveDot, Loadable, PageHeader, Panel, Pill, Pnl, SideTag, Stat } from "../components/ui";
-import { DASH, duration, human, money, pctValue, pnl, polarity, price, quantity, signedMoney } from "../format";
+import { useQuery } from "@tanstack/react-query";
+import { get, type AccountRiskRow, type AccountSummary, type LivePositionRow, type StrategyRow } from "../api";
+import { AccountStrip } from "../components/HomeAccount";
+import { MonthCalendar, PnlChart } from "../components/HomeCharts";
+import { OpenPositions, PublicOpenPositions } from "../components/HomePositions";
+import { StrategyTable, type StrategyLine } from "../components/HomeStrategies";
+import { ShareControl } from "../components/ShareControl";
+import { Card, Loadable, PageHeader } from "../components/ui";
+import { day as utcDay } from "../format";
+import { dayBasisLabel, floatingByStrategy, HOME_RANGES, openRisk, riskRowFor, strategyPeriods, type HomeRange } from "../home";
 import { strategyDisplayName } from "../portfolio";
+import { useSearchParam } from "../router";
 import { useLiveState } from "../useLiveState";
 import { useLiveStream } from "../useLiveStream";
-import { ShareControl } from "../components/ShareControl";
 import { usePublicPageView, useView } from "../view";
 
-// Overview only needs broker state pushes for live account/position truth; raw
-// event inspection belongs on Logs/Search so payloads cannot stretch the layout.
+// Home needs only broker state pushes for live account and position truth.
 const FEED_TYPES = ["state.account", "state.positions"];
+const DAY_MS = 86_400_000;
 
-export default function Overview({ instanceId }: { instanceId: string | null }) {
+/**
+ * Home answers "am I safe right now": the account strip (balance, equity, today, open risk to the
+ * stops, loss limits), the open positions, every strategy's periods, the realized P&L history and
+ * the month. Shared links show the same page 15 minutes behind, without positions.
+ */
+export default function Home({ instanceId }: { instanceId: string | null }) {
   const view = useView();
   usePublicPageView("overview");
+  const enc = encodeURIComponent(instanceId ?? "");
   const strategies = useQuery({
     queryKey: ["strategies", instanceId],
-    queryFn: () => get<StrategyRow[]>(`/strategies?instance=${encodeURIComponent(instanceId!)}`),
+    queryFn: () => get<StrategyRow[]>(`/strategies?instance=${enc}`),
     enabled: !!instanceId,
     refetchInterval: 30_000,
   });
-
-  // Only the live deployed roster feeds the overview aggregates; ids left over from a
-  // prior bench topology (active=false) are excluded from counts, curves, and allocation.
-  const rows = (strategies.data ?? []).filter((s) => s.active);
-  const ids = rows.map((s) => s.strategyId);
-
   const live = useLiveStream(instanceId, 40, FEED_TYPES);
   const liveState = useLiveState(live);
-  // Account totals come from every close on the account, not the sum of the active roster:
-  // retired strategies and unattributed deals moved the balance too.
+  // every close on the account: retired strategies and unattributed deals included
   const summary = useQuery({
     queryKey: ["accountSummary", instanceId],
-    queryFn: () => get<AccountSummaryData>(`/account/summary?instance=${encodeURIComponent(instanceId!)}`),
+    queryFn: () => get<AccountSummary>(`/account/summary?instance=${enc}`),
     enabled: !!instanceId,
     refetchInterval: 60_000,
   });
-  // Excursions need per-position marks, which only the per-strategy bundle samples.
-  const perf = useQueries({
-    queries: ids.map((id) => ({
-      queryKey: ["perf-excursions", instanceId, id],
-      queryFn: () =>
-        get<Partial<PerformanceBundle>>(`/performance?instance=${encodeURIComponent(instanceId!)}&strategy=${encodeURIComponent(id)}&include=excursions`),
-      refetchInterval: 60000,
-    })),
-  });
-
   const risk = useQuery({
     queryKey: ["accountRisk", instanceId],
-    queryFn: () => get<AccountRiskRow[]>(`/account/risk?instance=${encodeURIComponent(instanceId!)}`),
-    enabled: instanceId != null,
+    queryFn: () => get<AccountRiskRow[]>(`/account/risk?instance=${enc}`),
+    enabled: !!instanceId,
     refetchInterval: 60_000,
   });
-
-  const drawdown = useQuery({
-    queryKey: ["accountDrawdown", instanceId],
-    queryFn: () => get<AccountDrawdownRow[]>(`/account/drawdown?instance=${encodeURIComponent(instanceId!)}`),
-    enabled: instanceId != null,
-    refetchInterval: 60_000,
-  });
+  const [rawRange, setRange] = useSearchParam("range", "all");
+  const range = (HOME_RANGES.find((r) => r.key === rawRange)?.key ?? "all") as HomeRange;
 
   if (!instanceId) {
     return (
       <Card className="p-10 text-center text-muted">
-        No instances reporting yet — enable the insights block on a qkt instance and it will appear here.
+        No instances reporting yet: enable the insights block on a qkt instance and it will appear here.
       </Card>
     );
   }
 
+  // a shared link is a still picture at its cutoff, never the live clock
+  const now = view.public ? Date.now() - view.meta.delayMinutes * 60_000 : Date.now();
   const accounts = (liveState.data?.accounts ?? []).filter((a) => a.instanceId === instanceId);
-  const brokerPositions = (liveState.data?.positions ?? []).filter((p) => p.instanceId === instanceId);
-  const nameByStrategy = new Map((strategies.data ?? []).map((r) => [r.strategyId, strategyDisplayName(r)]));
+  const groups = (liveState.data?.positions ?? []).filter((g) => g.instanceId === instanceId);
+  const positions: LivePositionRow[] = groups.flatMap((g) => g.list);
+  const rows = strategies.data ?? [];
+  const byId = new Map(rows.map((r) => [r.strategyId, r]));
+  const riskRows = risk.data ?? [];
 
-  // Live truth: open P&L summed across the instance's broker accounts.
-  const accountOpenPnl = accounts.length > 0 ? accounts.reduce((a, x) => a + (x.openProfit ?? 0), 0) : null;
-  const excursions = perf.flatMap((q) => q.data?.excursions ? [q.data.excursions] : []);
-
+  // Strategy Today follows the account's trading day; without a risk row it is the UTC day.
+  const primaryRisk = accounts[0] ? riskRowFor(accounts[0], riskRows) : riskRows[0] ?? null;
+  const dayStart = primaryRisk?.dailyLoss.dayStart ?? Math.floor(now / DAY_MS) * DAY_MS;
+  const dayLabel = primaryRisk ? dayBasisLabel(primaryRisk) : "day from 00:00 UTC";
+  const floating = view.public
+    ? new Map<string | null, number>(Object.entries(liveState.data?.openByStrategy ?? {}))
+    : floatingByStrategy(positions);
+  const periods = summary.data ? strategyPeriods(summary.data.closes, { now, dayStart, floating }) : null;
+  const lines: StrategyLine[] = periods
+    ? [
+        ...rows.map((row) => ({ key: row.strategyId, row, periods: periods.get(row.strategyId) ?? emptyPeriods(row.strategyId) })),
+        // closes whose strategy left the roster still count, as does the unattributed bucket
+        ...[...periods.values()].filter((p) => p.key == null || !byId.has(p.key)).map((p) => ({ key: p.key, row: null, periods: p })),
+      ]
+    : [];
+  // the account's realized today when it has no risk row yet: the strategies' sum over the same day
+  const realizedFallback = periods ? [...periods.values()].reduce((a, p) => a + p.todayRealized, 0) : 0;
 
   return (
-    <div>
+    <div className="grid gap-4">
       <PageHeader
         title="Home"
-        sub={view.public ? `${instanceId} · public view, figures ${view.meta.delayMinutes} minutes behind` : `Everything ${instanceId} is doing, right now.`}
+        sub={view.public ? `${instanceId} · shared view, figures ${view.meta.delayMinutes} minutes behind · times UTC` : `${instanceId}: where the account stands right now · times UTC`}
         right={<ShareControl instanceId={instanceId} kind="overview" />}
       />
 
-      <div className="mt-6">
-        <div className="flex items-baseline justify-between">
-          <h3 className="text-sm font-semibold uppercase tracking-[0.06em] text-body">Account</h3>
-          <span className="text-xs text-faint">broker-reported, whole account</span>
-        </div>
-        <Loadable
-          loading={liveState.isPending}
-          error={liveState.isError}
-          retry={() => liveState.refetch()}
-          what="broker account state"
-          lines={2}
-        >
-        {accounts.length === 0 && (
-          <Card className="mt-3 p-8 text-center text-faint">
+      <Loadable loading={liveState.isPending} error={liveState.isError} retry={() => liveState.refetch()} what="the account" lines={3}>
+        {accounts.length === 0 ? (
+          <Card className="p-6 text-center text-sm text-muted">
             {view.public
               ? `Account figures appear ${view.meta.delayMinutes} minutes behind; none has reached this shared view yet.`
-              : "No broker account state yet: waiting for the state poller."}
+              : "No account state yet: it arrives with the next state poll from qkt."}
           </Card>
-        )}
-        {accounts.map((a) => (
-          <div key={`${a.instanceId}:${a.broker}`} className={`mt-3 ${a.stale ? "opacity-50" : ""}`}>
-            <div className="flex flex-wrap items-center gap-2.5">
-              <LiveDot on={!a.stale} />
-              <span className="font-semibold text-bright">{a.broker}</span>
-              <Pill>{a.currency}</Pill>
-              {a.login && <span className="font-mono text-xs text-faint">#{a.login}</span>}
-              {a.server && <span className="text-xs text-faint">{a.server}</span>}
-              {a.name && <span className="text-xs text-muted">{a.name}</span>}
-              {a.stale && <Pill>stale {Math.max(0, Math.floor((Date.now() - a.lastSeen) / 1000))}s</Pill>}
-            </div>
-            <div className="mt-3 grid grid-cols-2 gap-4 sm:grid-cols-3 lg:grid-cols-6">
-              <Stat label="Balance" value={money(a.balance)} sub={a.currency} />
-              <Stat label="Equity" value={<FlashValue value={a.equity}>{money(a.equity)}</FlashValue>} />
-              <Stat
-                label="Open P&L"
-                value={<FlashValue value={a.openProfit}>{pnl(a.openProfit)}</FlashValue>}
-                tone={toneOf(a.openProfit)}
-               
+        ) : (
+          accounts.map((a) => {
+            const row = riskRowFor(a, riskRows);
+            const own = groups.filter((g) => g.broker === a.broker).flatMap((g) => g.list);
+            return (
+              <AccountStrip
+                key={`${a.broker}:${a.login ?? ""}`}
+                account={a}
+                risk={row}
+                realizedToday={row?.dailyLoss.realizedToday ?? realizedFallback}
+                dayLabel={row ? dayBasisLabel(row) : dayLabel}
+                open={view.public ? null : openRisk(accounts.length === 1 ? positions : own)}
+                isPublic={view.public}
+                now={now}
               />
-              {!view.public && (
-                <Stat
-                  label="Margin level"
-                  value={pctValue(a.marginLevel)}
-                  sub={a.margin != null ? `margin ${money(a.margin)}` : undefined}
-                 
-                />
-              )}
-              {(() => {
-                const all = drawdown.data ?? [];
-                // TOTAL spans broker relabels and multi-account portfolios; a
-                // single-label history has no TOTAL row and the label matches.
-                const dd = all.find((d) => d.broker === "TOTAL") ?? all.find((d) => d.broker === a.broker) ?? all[0];
-                const cur = dd?.currentDdPct; const max = dd?.maxDdPct;
-                return (
-                  <>
-                    <Stat
-                      label="DD from peak"
-                      value={pctValue(cur)}
-                      sub={dd?.peakEquity != null ? `peak ${money(dd.peakEquity)}` : undefined}
-                      tone={cur == null ? "neutral" : cur > 5 ? "down" : cur > 0.005 ? "neutral" : "up"}
-                     
-                    />
-                    <Stat
-                      label="Max DD"
-                      value={pctValue(max)}
-                      sub="whole retained history"
-                      tone={max != null && max > 5 ? "down" : "neutral"}
-                     
-                    />
-                  </>
-                );
-              })()}
-            </div>
-          </div>
-        ))}
-        </Loadable>
-        <div className="mt-4">
-          {view.public ? (
-            <PublicOpenPositions summary={liveState.data?.openPositions ?? null} loading={liveState.isPending} />
-          ) : (
-          <Panel title="Open positions" hint="live broker tickets, broker-valued" scroll="max-h-[22rem]">
-            <Loadable
-              loading={liveState.isPending}
-              error={liveState.isError}
-              retry={() => liveState.refetch()}
-              what="open positions"
-            >
-            <DataList
-              head={["Ticket", "Symbol", "Side", "Qty", "Entry", "Current", "Held", "Profit", "Swap", "Strategy"]}
-              rows={brokerPositions.flatMap((g) => g.list.map((p) => ({ broker: g.broker, p })))}
-              keyOf={({ broker, p }) => `${broker}-${p.ticket}`}
-              empty={brokerPositions.length === 0 ? "No broker state yet." : "Flat — no open broker positions."}
-              cells={({ p }) => (
-                <>
-                  <Cell className="font-mono text-xs text-faint">{p.ticket}</Cell>
-                  <Cell className="font-semibold text-bright">{p.symbol}</Cell>
-                  <Cell>
-                    <SideTag side={p.side} />
-                  </Cell>
-                  <Cell>{quantity(p.qty)}</Cell>
-                  <Cell className="whitespace-nowrap text-muted">@ {price(p.entryPrice)}</Cell>
-                  <Cell>{price(p.currentPrice)}</Cell>
-                  <Cell className="text-muted">
-                    <span title={p.openedAt ? `opened ${human(p.openedAt)}` : undefined}>
-                      {p.openedAt ? duration(Date.now() - p.openedAt) : "—"}
-                    </span>
-                  </Cell>
-                  <Cell className="font-semibold">
-                    <FlashValue value={p.profit}>
-                      <Pnl value={p.profit} glyphs={false} />
-                    </FlashValue>
-                  </Cell>
-                  <Cell className="text-muted">{signedMoney(p.swap)}</Cell>
-                  <Cell>
-                    {p.strategyId ? (
-                      <span title={p.strategyId}>{nameByStrategy.get(p.strategyId) ?? p.strategyId}</span>
-                    ) : (
-                      <Pill>unattributed</Pill>
-                    )}
-                  </Cell>
-                </>
-              )}
-              card={({ p }) => (
-                <>
-                  <div className="flex items-baseline gap-2">
-                    <span className="min-w-0 truncate font-semibold text-bright">{p.symbol}</span>
-                    <SideTag side={p.side} />
-                    <span className="ml-auto shrink-0 text-sm font-semibold">
-                      <FlashValue value={p.profit}>
-                        <Pnl value={p.profit} glyphs={false} />
-                      </FlashValue>
-                    </span>
-                  </div>
-                  <div className="mt-1 flex items-center gap-2 text-xs text-faint">
-                    <span className="min-w-0 truncate">
-                      {p.strategyId ? nameByStrategy.get(p.strategyId) ?? p.strategyId : "unattributed"}
-                    </span>
-                    <span className="ml-auto shrink-0 whitespace-nowrap ">
-                      {quantity(p.qty)} @ {price(p.entryPrice)} · {p.openedAt ? duration(Date.now() - p.openedAt) : DASH}
-                    </span>
-                  </div>
-                </>
-              )}
-            />
-            </Loadable>
-          </Panel>
-          )}
-        </div>
-      </div>
-
-      <Loadable
-        loading={summary.isPending || (rows.length > 0 && perf.some((query) => query.isPending))}
-        error={summary.isError || perf.some((query) => query.isError)}
-        retry={() => { void Promise.all([summary, ...perf].map((query) => query.refetch())); }}
-        what="overview analysis"
-        lines={8}
-      >
-        {summary.data && <>
-        <AccountSummary
-          summary={summary.data}
-          strategyName={(id) => nameByStrategy.get(id) ?? id}
-          risk={risk.data ?? []}
-        />
-        <OverviewDashboard
-          data={{
-            instanceId,
-            dailyNets: summary.data.dailyNets,
-            closes: summary.data.closes,
-            sumWins: summary.data.sumWins,
-            sumLosses: summary.data.sumLosses,
-            excursions,
-            accountOpenPnl,
-            risk: risk.data ?? [],
-          }}
-        />
-        </>}
+            );
+          })
+        )}
       </Loadable>
 
+      {view.public ? (
+        <PublicOpenPositions summary={liveState.data?.openPositions ?? null} />
+      ) : (
+        liveState.data && <OpenPositions positions={positions} now={now} strategyName={(id) => (byId.get(id) ? strategyDisplayName(byId.get(id)!) : id)} />
+      )}
 
+      <Loadable
+        loading={summary.isPending || strategies.isPending}
+        error={summary.isError || strategies.isError}
+        retry={() => { void summary.refetch(); void strategies.refetch(); }}
+        what="the strategies"
+        lines={5}
+      >
+        <StrategyTable lines={lines} now={now} isPublic={view.public} />
+      </Loadable>
+
+      <Loadable loading={summary.isPending} error={summary.isError} retry={() => summary.refetch()} what="the P&L history" lines={6}>
+        {summary.data && (
+          <div className="grid gap-4 lg:grid-cols-3">
+            <div className="min-w-0 lg:col-span-2">
+              <PnlChart days={summary.data.dailyNets} range={range} onRange={(r) => setRange(r, { push: true })} now={now} />
+            </div>
+            <MonthCalendar key={utcDay(now).slice(0, 7)} days={summary.data.dailyNets} now={now} />
+          </div>
+        )}
+      </Loadable>
     </div>
   );
 }
 
-/** Shared links show how many positions are open and their P&L, never what or where they are. */
-function PublicOpenPositions({ summary, loading }: { summary: { count: number; unrealized: number | null } | null; loading: boolean }) {
-  const count = summary?.count ?? 0;
-  const unrealized = summary?.unrealized ?? null;
-  return (
-    <Card className="flex flex-wrap items-baseline gap-x-6 gap-y-1 px-5 py-4">
-      <span className="text-[11px] font-semibold uppercase tracking-[0.06em] text-muted">Open positions</span>
-      <span className="text-xl font-semibold text-bright">{loading ? "…" : count}</span>
-      <Pnl value={unrealized} className="text-xl font-headline" />
-      <span className="text-xs text-faint">
-        unrealized · details stay private until each position closes
-      </span>
-    </Card>
-  );
-}
-
-function toneOf(v: number | null | undefined): "up" | "down" | "neutral" {
-  const p = polarity(v);
-  return p === "gain" ? "up" : p === "loss" ? "down" : "neutral";
+function emptyPeriods(key: string) {
+  return { key, today: 0, todayRealized: 0, floating: 0, d7: 0, mtd: 0, all: 0, maxDd: 0, trades: 0, wins: 0, losses: 0, winRate: null, lastTs: null };
 }
