@@ -7,11 +7,11 @@ import { EquityChart } from "../components/EquityChart";
 import { EdgeDetailPanels, PerformancePanels, TradeAnalysisPanels } from "../components/Performance";
 import { Sparkline } from "../components/Sparkline";
 import {
-  Card, Cell, DataList, Empty, Field, IconButton, Loadable, LoadMore, Modal, PageHeader, Panel, Pill, RangeSelect, rangeStart, ReturnPct, Row, SearchInput, Select, SideTag, Stat, Table, TimeCell,
+  Card, Cell, DataList, Empty, Field, IconButton, Loadable, LoadMore, Modal, PageHeader, Panel, Pill, Pnl, Popover, RangeSelect, rangeStart, ReturnPct, Row, SearchInput, Select, SideTag, Stat, Table, TimeCell,
   type RangeKey,
 } from "../components/ui";
 import { LogLine } from "../components/LogLine";
-import { age, fixed, money, num, openPnl, pct, price, ts, tsShort } from "../format";
+import { age, count, money, num, openPnl, pct, price, quantity, signedMoney, ts, tsShort } from "../format";
 import { buildCloseMap } from "../useCloses";
 import { useLiveState } from "../useLiveState";
 import { physicalPortfolioId, portfolioGroupId, strategyCapital, strategyDisplayName as displayName, summarizePortfolio } from "../portfolio";
@@ -211,19 +211,7 @@ export default function Strategies({
                         className="mt-4 flex items-baseline gap-3"
                         title="realized + open P&L attributed to this portfolio's sleeves — not the shared broker account equity"
                       >
-                        <span
-                          className={`text-2xl font-semibold ${
-                            summary.netPnl == null || live.stale
-                              ? "text-faint"
-                              : summary.netPnl > 0
-                                ? "text-gain"
-                                : summary.netPnl < 0
-                                  ? "text-loss"
-                                  : "text-bright"
-                          }`}
-                        >
-                          {money(summary.netPnl)}
-                        </span>
+                        <Pnl value={summary.netPnl} dim={live.stale} className="text-xl font-headline" />
                         <ReturnPct
                           net={summary.netPnl}
                           base={summary.allocatedCapital}
@@ -328,13 +316,7 @@ function StrategyCard({
           className="mt-4 flex items-baseline gap-3"
           title="net P&L = realized + open (this strategy, on a shared account)"
         >
-          <span
-            className={`text-2xl font-semibold ${net == null || liveStale ? "text-faint" : net >= 0 ? "text-gain" : "text-loss"}`}
-          >
-            {net == null
-              ? "—"
-              : `${net >= 0 ? "+" : "−"}${money(Math.abs(net))}`}
-          </span>
+          <Pnl value={net} dim={liveStale} className="text-xl font-headline" />
           <ReturnPct net={net} base={strategyCapital(s).amount} dim={liveStale} />
         </div>
       </Card>
@@ -342,14 +324,14 @@ function StrategyCard({
   );
 }
 
-/** Engine risk halt on a strategy row: the reason, how it ends and the resume command are in the tooltip. */
+/** Engine risk halt on a strategy row: tap or click for the reason, how it ends and the resume command. */
 function HaltBadge({ row }: { row: StrategyRow }) {
   const summary = haltSummary(row);
   if (!summary) return null;
   return (
-    <span title={summary} aria-label={summary}>
-      <Pill tone="warn">halted</Pill>
-    </span>
+    <Popover label="Why this strategy is halted" align="right" trigger={<Pill tone="warn">halted</Pill>}>
+      {summary}
+    </Popover>
   );
 }
 
@@ -417,32 +399,17 @@ function PortfolioDetail({
         />
         <Stat
           label="Net P&L"
-          value={money(summary.netPnl)}
-          tone={
-            summary.netPnl == null
-              ? "neutral"
-              : summary.netPnl >= 0
-                ? "up"
-                : "down"
-          }
+          signed={summary.netPnl}
           sub="realized + open"
         />
         <Stat
           label="Realized"
-          value={money(summary.realizedPnl)}
-          tone={summary.realizedPnl >= 0 ? "up" : "down"}
+          signed={summary.realizedPnl}
           sub="closed child deals"
         />
         <Stat
           label="Open"
-          value={money(summary.openPnl)}
-          tone={
-            summary.openPnl == null
-              ? "neutral"
-              : summary.openPnl >= 0
-                ? "up"
-                : "down"
-          }
+          signed={summary.openPnl}
           sub={live.stale ? "broker state stale" : "attributed positions"}
         />
         {!view.public && (
@@ -502,18 +469,18 @@ function PortfolioDetail({
                         </div>
                       )}
                     </Cell>
-                    <Cell className="">{money(allocation)}</Cell>
-                    <Cell className="">{pct(weight)}</Cell>
-                    <Cell className="">
-                      {money(child.realizedNet ?? 0)}
+                    <Cell>{money(allocation)}</Cell>
+                    <Cell>{pct(weight)}</Cell>
+                    <Cell>
+                      <Pnl value={child.realizedNet ?? 0} glyphs={false} />
                     </Cell>
-                    <Cell className="">{money(open)}</Cell>
-                    <Cell
-                      className={`font-semibold ${net == null || live.stale ? "text-faint" : net >= 0 ? "text-gain" : "text-loss"}`}
-                    >
-                      {money(net)}
+                    <Cell>
+                      <Pnl value={open} glyphs={false} />
                     </Cell>
-                    <Cell className="">{child.dealCount}</Cell>
+                    <Cell className="font-semibold">
+                      <Pnl value={net} dim={live.stale} />
+                    </Cell>
+                    <Cell>{count(child.dealCount)}</Cell>
                     <Cell className="whitespace-nowrap text-faint">
                       {age(child.lastSeen)}
                     </Cell>
@@ -535,9 +502,9 @@ function PortfolioDetail({
                   <span className="font-semibold text-bright">{a.broker}</span>
                   {a.stale && <div className="text-xs text-warn">stale</div>}
                 </Cell>
-                <Cell className="">{a.currency}</Cell>
-                <Cell className="">{money(a.balance)}</Cell>
-                <Cell className="">{money(a.equity)}</Cell>
+                <Cell>{a.currency}</Cell>
+                <Cell>{money(a.balance)}</Cell>
+                <Cell>{money(a.equity)}</Cell>
               </Row>
             ))}
           </Table>
@@ -674,14 +641,12 @@ export function StrategyDetail({ instanceId, strategyId, onBack }: { instanceId:
           </div>
           {row?.halted && <HaltDetail row={row} />}
           <div className="mt-2 flex items-baseline gap-3" title="net P&L = realized + open (this strategy, on a shared account)">
-            <span className={`text-4xl font-semibold ${heroNet == null || live.stale ? "text-faint" : heroNet >= 0 ? "text-gain" : "text-loss"}`}>
-              {heroNet == null ? "—" : `${heroNet >= 0 ? "+" : "−"}${money(Math.abs(heroNet))}`}
-            </span>
+            <Pnl value={heroNet} dim={live.stale} className="text-3xl font-headline" />
             <ReturnPct net={heroNet} base={capital.amount} dim={live.stale} />
           </div>
           <div className="mt-1 text-[11px] font-semibold uppercase tracking-[0.06em] text-faint">net P&L · this strategy</div>
           <div className={`mt-1 text-xs ${live.stale ? "text-faint" : "text-muted"}`}>
-            realized {money(s?.realizedPnl)} · open {money(openPnl)}
+            realized {signedMoney(s?.realizedPnl)} · open {signedMoney(openPnl)}
           </div>
         </div>
         <div className="-mb-1 w-64">
@@ -743,23 +708,19 @@ export function StrategyDetail({ instanceId, strategyId, onBack }: { instanceId:
         <Stat label="Capital" value={money(capital.amount)} sub={capital.source ?? undefined} />
         <Stat
           label="Realized PnL"
-          value={money(s?.realizedPnl)}
-          tone={s?.realizedPnl == null ? "neutral" : s.realizedPnl >= 0 ? "up" : "down"}
-         
+          signed={s?.realizedPnl}
         />
         <Stat
           label="Sharpe"
           value={num(s?.sharpe)}
           sub={s == null ? undefined : s.sharpe == null && s.ratioDays < MIN_RATIO_DAYS ? `needs ${MIN_RATIO_DAYS} days with closes, has ${s.ratioDays}` : `n=${s.ratioDays} days`}
-         
         />
         <Stat label="Win rate" value={pct(s?.winRate)} sub="round trips, breakeven excluded" />
         <Stat label="Max drawdown" value={pct(s?.maxDrawdownPct)} tone={s?.maxDrawdownPct ? "down" : "neutral"} />
         <Stat
           label="Trades"
-          value={String(s?.tradeCount ?? "—")}
+          value={count(s?.tradeCount)}
           sub={s ? `${s.buyCount} buys · ${s.sellCount} sells · vol ${num(s.volume)}` : undefined}
-         
         />
       </div>
         </Loadable>
@@ -818,7 +779,7 @@ export function StrategyDetail({ instanceId, strategyId, onBack }: { instanceId:
         >
           <Loadable loading={!performance.data && trades.isPending} error={trades.isError} retry={() => { void trades.refetch(); void performance.refetch(); }} what="trades">
           <DataList
-            head={["Time", "Symbol", "Side", "Qty", "Price", "P&L"]}
+            head={["Time (UTC)", "Symbol", "Side", "Qty", "Price", "P&L"]}
             rows={tradeRows.slice(0, tradeCap)}
             keyOf={(t) => t.key}
             onRow={usingDealTrades || view.public ? undefined : (t) => t.raw && setOpenTrade(t.raw)}
@@ -832,9 +793,11 @@ export function StrategyDetail({ instanceId, strategyId, onBack }: { instanceId:
                   <Cell>
                     <SideTag side={t.side} />
                   </Cell>
-                  <Cell className="">{t.qty}</Cell>
+                  <Cell>{quantity(t.qty)}</Cell>
                   <Cell className="whitespace-nowrap text-muted">@ {price(t.price)}</Cell>
-                  <Cell className={`font-semibold ${realizedTone(r)}`}>{r == null ? "—" : `${r > 0 ? "+" : ""}${fixed(r)}`}</Cell>
+                  <Cell className="font-semibold">
+                    <Pnl value={r} glyphs={false} />
+                  </Cell>
                 </>
               );
             }}
@@ -845,15 +808,13 @@ export function StrategyDetail({ instanceId, strategyId, onBack }: { instanceId:
                   <div className="flex items-baseline gap-2">
                     <span className="min-w-0 truncate font-semibold text-bright">{t.symbol}</span>
                     <SideTag side={t.side} />
-                    <span className={`ml-auto shrink-0 text-sm font-semibold ${realizedTone(r)}`}>
-                      {r == null ? "—" : `${r > 0 ? "+" : ""}${fixed(r)}`}
-                    </span>
+                    <Pnl value={r} glyphs={false} className="ml-auto shrink-0 text-sm font-semibold" />
                   </div>
                   <div className="mt-1 flex items-center gap-2 text-xs text-faint">
                     <span className="whitespace-nowrap">
-                      {t.qty} @ {price(t.price)}
+                      {quantity(t.qty)} @ {price(t.price)}
                     </span>
-                    <span className="ml-auto whitespace-nowrap">{tsShort(t.ts)}</span>
+                    <span className="ml-auto whitespace-nowrap">{tsShort(t.ts)} UTC</span>
                   </div>
                 </>
               );
@@ -901,10 +862,4 @@ export function StrategyDetail({ instanceId, strategyId, onBack }: { instanceId:
       )}
     </div>
   );
-}
-
-function realizedTone(v: number | null | undefined): string {
-  if (v == null) return "text-faint";
-  if (v === 0) return "text-muted";
-  return v > 0 ? "text-gain" : "text-loss";
 }

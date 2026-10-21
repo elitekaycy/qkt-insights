@@ -4,7 +4,7 @@ import { useQueries, useQuery } from "@tanstack/react-query";
 import { get, type AccountEquityPoint, type DrawdownPeriod, type EquityPoint, type PerformanceBundle, type StrategyRow } from "../api";
 import { ComparisonChart, EquityChart, UnderwaterChart, type ComparisonSeries } from "../components/EquityChart";
 import { DataList, Card, Cell, Empty, Field, Loadable, Modal, PageHeader, Panel, Pill, Select } from "../components/ui";
-import { duration, human, money, tsDay } from "../format";
+import { days, duration, fixed, human, pctValue, signedMoney, signedPct, tsDay } from "../format";
 
 const PALETTE = ["#c8f74a", "#5cb8ff", "#a78bfa", "#3fe08c", "#fbbf24", "#ff6b6b", "#f472b6", "#22d3ee"];
 
@@ -169,7 +169,7 @@ export default function Equity({ instanceId }: { instanceId: string | null }) {
             what="drawdown periods"
           >
           <DataList
-            head={["Peak", "Trough", "Depth", "Length", "Recovery"]}
+            head={["Peak (UTC)", "Trough (UTC)", "Depth", "Length", "Recovery"]}
             rows={periods}
             keyOf={(p) => String(p.peakTs)}
             onRow={(p) => setOpenDd(p)}
@@ -179,12 +179,12 @@ export default function Equity({ instanceId }: { instanceId: string | null }) {
                 <Cell className="whitespace-nowrap text-muted">{tsDay(p.peakTs).slice(0, 14)}</Cell>
                 <Cell className="whitespace-nowrap text-muted">{tsDay(p.troughTs).slice(0, 14)}</Cell>
                 <Cell className="text-loss">
-                  {money(-p.depth)} <span className="text-faint">({p.depthPct.toFixed(2)}%)</span>
+                  {signedMoney(-p.depth)} <span className="text-faint">({signedPct(-p.depthPct)})</span>
                 </Cell>
-                <Cell className="text-muted">{p.lengthDays.toFixed(1)}d</Cell>
+                <Cell className="text-muted">{days(p.lengthDays)}</Cell>
                 <Cell>
                   {p.recoveryTs != null ? (
-                    <Pill tone="up">recovered {p.recoveryDays!.toFixed(1)}d</Pill>
+                    <Pill tone="up">recovered {days(p.recoveryDays)}</Pill>
                   ) : (
                     <Pill tone="warn">ongoing</Pill>
                   )}
@@ -194,11 +194,11 @@ export default function Equity({ instanceId }: { instanceId: string | null }) {
             card={(p) => (
               <>
                 <div className="flex items-baseline gap-2">
-                  <span className="text-sm font-semibold text-loss">{money(-p.depth)}</span>
-                  <span className="text-xs text-faint">({p.depthPct.toFixed(2)}%)</span>
+                  <span className="text-sm font-semibold text-loss">{signedMoney(-p.depth)}</span>
+                  <span className="text-xs text-faint">({signedPct(-p.depthPct)})</span>
                   <span className="ml-auto shrink-0">
                     {p.recoveryTs != null ? (
-                      <Pill tone="up">recovered {p.recoveryDays!.toFixed(1)}d</Pill>
+                      <Pill tone="up">recovered {days(p.recoveryDays)}</Pill>
                     ) : (
                       <Pill tone="warn">ongoing</Pill>
                     )}
@@ -208,7 +208,7 @@ export default function Equity({ instanceId }: { instanceId: string | null }) {
                   <span className="whitespace-nowrap">
                     {tsDay(p.peakTs).slice(4, 14)} → {tsDay(p.troughTs).slice(4, 14)}
                   </span>
-                  <span className="ml-auto whitespace-nowrap ">{p.lengthDays.toFixed(1)}d</span>
+                  <span className="ml-auto whitespace-nowrap ">{days(p.lengthDays)}</span>
                 </div>
               </>
             )}
@@ -223,17 +223,17 @@ export default function Equity({ instanceId }: { instanceId: string | null }) {
             <Field label="Peak (equity high before the fall)">{human(openDd.peakTs)}</Field>
             <Field label="Trough (deepest point)">{human(openDd.troughTs)}</Field>
             <Field label="Depth">
-              <span className="text-loss">{money(-openDd.depth)}</span>
-              <span className="ml-2 text-xs text-faint">{openDd.depthPct.toFixed(2)}% below the peak</span>
+              <span className="text-loss">{signedMoney(-openDd.depth)}</span>
+              <span className="ml-2 text-xs text-faint">{pctValue(openDd.depthPct)} below the peak</span>
             </Field>
             <Field label="Peak to trough">{duration(openDd.troughTs - openDd.peakTs)}</Field>
             <Field label="Recovered (back at the peak)">
               {openDd.recoveryTs != null ? human(openDd.recoveryTs) : <Pill tone="warn">still ongoing</Pill>}
             </Field>
             <Field label="Time underwater">
-              {openDd.lengthDays.toFixed(1)} days
+              {fixed(openDd.lengthDays, 1)} days
               {openDd.recoveryDays != null && (
-                <span className="ml-2 text-xs text-faint">{openDd.recoveryDays.toFixed(1)}d of that climbing back</span>
+                <span className="ml-2 text-xs text-faint">{days(openDd.recoveryDays)} of that climbing back</span>
               )}
             </Field>
           </div>

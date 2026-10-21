@@ -4,7 +4,7 @@ import { get, type StrategyRow, type ViewBreakdown, type ViewRow, type ViewSumma
 import { ChartCard } from "../components/ChartCard";
 import { ViewsChart } from "../components/ViewsChart";
 import { Card, Cell, DataList, Loadable, LoadMore, PageHeader, Panel, Pill, SearchInput, Select, Stat, TimeCell } from "../components/ui";
-import { tsShort } from "../format";
+import { pct, tsShort } from "../format";
 import { strategyDisplayName } from "../portfolio";
 import { fillDays, linkLabel, withShares } from "../viewership";
 
@@ -59,7 +59,7 @@ function BreakdownPanel({
               <div className="relative flex items-baseline justify-between gap-3 text-sm">
                 <span className={`min-w-0 truncate ${r.key == null ? "text-faint" : "text-body"}`}>{label(r.key)}</span>
                 <span className="shrink-0 text-xs text-muted">
-                  {r.views} · {(r.share * 100).toFixed(r.share < 0.1 ? 1 : 0)}%
+                  {r.views} · {pct(r.share, r.share < 0.1 ? 1 : 0)}
                 </span>
               </div>
             </li>
@@ -203,7 +203,7 @@ export default function Viewership({ instanceId }: { instanceId: string | null }
       >
         <Loadable loading={recent.isPending} error={recent.isError} retry={() => recent.refetch()} what="recent views">
           <DataList
-            head={["Time", "Link", "Page", "Browser", "System", "Device", "Country", "Referrer"]}
+            head={["Time (UTC)", "Link", "Page", "Browser", "System", "Device", "Country", "Referrer"]}
             rows={rows.slice(0, cap)}
             keyOf={(r) => `${r.ts}-${r.visitor}-${r.page}-${r.strategyId ?? ""}`}
             empty={q ? "No views match the search." : "No views yet."}
@@ -227,7 +227,7 @@ export default function Viewership({ instanceId }: { instanceId: string | null }
                 <div className="flex items-baseline gap-2">
                   <span className="min-w-0 truncate font-semibold text-bright">{linkLabel(r.kind, r.subject, names)}</span>
                   <Pill>{PAGE_LABELS[r.page] ?? r.page}</Pill>
-                  <span className="ml-auto shrink-0 text-xs text-faint">{tsShort(r.ts)}</span>
+                  <span className="ml-auto shrink-0 text-xs text-faint">{tsShort(r.ts)} UTC</span>
                 </div>
                 <div className="mt-1 text-xs text-faint">{[r.browser, r.os, r.device, r.country, r.referrer ?? "direct"].filter(Boolean).join(" · ")}</div>
               </>

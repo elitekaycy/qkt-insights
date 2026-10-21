@@ -1,6 +1,6 @@
 import { useEffect, useRef, useState, type ReactNode } from "react";
 import { createPortal } from "react-dom";
-import { money, tsDay, tsShort } from "../format";
+import { DASH, glyph, pnl, signedMoney, signedPct, toneClass, tsDay, tsShort } from "../format";
 
 /*
  * The component kit every page is built from. Pages compose these and never
@@ -213,12 +213,16 @@ const TONE_PILL: Record<Tone, string> = {
 export function Stat({
   label,
   value,
+  signed,
   tone = "neutral",
   sub,
   expand,
 }: {
   label: string;
-  value: ReactNode;
+  /** The figure as text; omit it and pass `signed` for a P&L figure. */
+  value?: ReactNode;
+  /** A signed money figure: rendered "▲ +1,234.50" in the gain or loss tone. */
+  signed?: number | null;
   tone?: Tone;
   sub?: string;
   /** Breakdown shown in a modal, opened by a visible "explain" button (click or tap, never hover-only). */
@@ -229,7 +233,13 @@ export function Stat({
     <>
       <Card className="relative min-w-0 p-4">
         <div className={`truncate text-sm font-medium text-muted ${expand ? "pr-8" : ""}`}>{label}</div>
-        <div className={`mt-1.5 truncate text-xl font-headline ${TONE_TEXT[tone]}`}>{value}</div>
+        {value === undefined ? (
+          <div className="mt-1.5 truncate text-xl font-headline">
+            <Pnl value={signed} />
+          </div>
+        ) : (
+          <div className={`mt-1.5 truncate text-xl font-headline ${TONE_TEXT[tone]}`}>{value}</div>
+        )}
         {sub && <div className="mt-1 text-xs text-muted">{sub}</div>}
         {expand && <ExplainButton label={`Explain ${label}`} onClick={() => setOpen(true)} />}
       </Card>
@@ -376,57 +386,38 @@ export function Pill({ tone = "neutral", children }: { tone?: Tone; children: Re
   );
 }
 
+/** A fractional change as "▲ +1.25%"; colour pairs with the glyph and the sign. */
 export function Delta({ value }: { value: number | null | undefined }) {
-  if (value == null) return <span className="text-faint">—</span>;
-  const up = value >= 0;
+  if (value == null) return <span className="text-faint">{DASH}</span>;
   return (
-    <span className={`text-sm font-semibold ${up ? "text-gain" : "text-loss"}`}>
-      {up ? "▲" : "▼"} {(Math.abs(value) * 100).toFixed(2)}%
+    <span className={`text-sm font-semibold ${toneClass(value * 100)}`}>
+      {glyph(value * 100)} {signedPct(value * 100)}
     </span>
   );
 }
 
 /**
- * Compact P&L line under an allocation figure: arrow, signed dollars, and the
- * return on the allocated capital. e.g. net -2658.7 on base 10000 →
- * "▼ −2,658.70 (−26.6%)". `dim` greys it when the live source is stale.
+ * Signed money with its direction glyph, "▲ +1,234.50" / "▼ −56.00", in the gain or loss tone.
+ * `dim` greys it when the live source is stale. Every P&L figure renders through this.
  */
-export function PnlLine({ net, base, dim }: { net: number | null | undefined; base?: number | null; dim?: boolean }) {
-  if (net == null) return <span className="text-faint">—</span>;
-  const up = net >= 0;
-  const sign = up ? "+" : "−";
-  const pct = base ? ` (${sign}${Math.abs((net / base) * 100).toFixed(1)}%)` : "";
+export function Pnl({ value, dim, className = "", glyphs = true }: { value: number | null | undefined; dim?: boolean; className?: string; glyphs?: boolean }) {
   return (
-    <span className={`text-sm font-semibold ${dim ? "text-faint" : up ? "text-gain" : "text-loss"}`}>
-      {up ? "▲" : "▼"} {sign}
-      {money(Math.abs(net))}
-      {pct}
+    <span className={`whitespace-nowrap ${dim ? "text-faint" : toneClass(value)} ${className}`}>
+      {glyphs ? pnl(value) : signedMoney(value)}
     </span>
   );
 }
 
 /**
- * Just the signed return on base as "▲ 12.3%" — pairs with a P&L dollar headline
- * so the percentage isn't a second copy of the amount. e.g. net -5049.73 on base
- * 10000 → "▼ 50.5%". A null base (no notional) renders a dash.
+ * The signed return on base as "▲ +12.3%", paired with a money headline so the percentage is not a
+ * second copy of the amount. A null base (no notional) renders a dash.
  */
 export function ReturnPct({ net, base, dim }: { net: number | null | undefined; base?: number | null; dim?: boolean }) {
-  if (net == null || !base) return <span className="text-faint">—</span>;
-  const up = net >= 0;
+  if (net == null || !base) return <span className="text-faint">{DASH}</span>;
+  const r = (net / base) * 100;
   return (
-    <span className={`text-sm font-semibold ${dim ? "text-faint" : up ? "text-gain" : "text-loss"}`}>
-      {up ? "▲" : "▼"} {Math.abs((net / base) * 100).toFixed(1)}%
-    </span>
-  );
-}
-
-/** Direction badge for a dollar amount: arrow and tone from the sign. `dim` greys it when the source is stale. */
-export function MoneyDelta({ value, dim }: { value: number | null | undefined; dim?: boolean }) {
-  if (value == null) return <span className="text-faint">—</span>;
-  const up = value >= 0;
-  return (
-    <span className={`text-sm font-semibold ${dim ? "text-faint" : up ? "text-gain" : "text-loss"}`}>
-      {up ? "▲" : "▼"} {money(Math.abs(value))}
+    <span className={`text-sm font-semibold ${dim ? "text-faint" : toneClass(r, 1)}`}>
+      {glyph(r, 1)} {signedPct(r, 1)}
     </span>
   );
 }

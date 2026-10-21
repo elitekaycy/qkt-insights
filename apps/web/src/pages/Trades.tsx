@@ -3,10 +3,10 @@ import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { get, type DealRow, type StrategyRow, type TradeRow } from "../api";
 import { TradeDetail } from "../components/detail";
 import {
-  Card, Cell, DataList, Loadable, LoadMore, PageHeader, Panel, Pill, RangeSelect, rangeStart, SearchInput, Select, SideTag, TimeCell,
+  Card, Cell, DataList, Loadable, LoadMore, PageHeader, Panel, Pill, Pnl, RangeSelect, rangeStart, SearchInput, Select, SideTag, TimeCell,
   type RangeKey,
 } from "../components/ui";
-import { dealNet, fixed, price, tsShort } from "../format";
+import { dealNet, price, quantity, tsShort } from "../format";
 import { realizedLabel, useCloseMap } from "../useCloses";
 import { useLiveStream } from "../useLiveStream";
 import { usePublicPageView, useView } from "../view";
@@ -150,7 +150,7 @@ export default function Trades({ instanceId }: { instanceId: string | null }) {
         {usingDeals ? (
           <>
             <DataList
-              head={["Time", "Strategy", "Symbol", "Side", "Entry", "Qty", "Price", "Net", "Deal"]}
+              head={["Time (UTC)", "Strategy", "Symbol", "Side", "Entry", "Qty", "Price", "Net", "Deal"]}
               rows={shownDeals}
               keyOf={(d) => d.id}
               empty="No deals match"
@@ -165,11 +165,10 @@ export default function Trades({ instanceId }: { instanceId: string | null }) {
                       <SideTag side={d.side} />
                     </Cell>
                     <Cell className="text-muted">{d.entry ?? "—"}</Cell>
-                    <Cell className="">{d.qty ?? "—"}</Cell>
-                    <Cell className="">{price(d.price)}</Cell>
-                    <Cell className={`font-semibold ${n > 0 ? "text-gain" : n < 0 ? "text-loss" : "text-muted"}`}>
-                      {n > 0 ? "+" : ""}
-                      {fixed(n)}
+                    <Cell>{quantity(d.qty)}</Cell>
+                    <Cell>{price(d.price)}</Cell>
+                    <Cell className="font-semibold">
+                      <Pnl value={n} glyphs={false} />
                     </Cell>
                     <Cell className="font-mono text-xs text-faint">{d.dealTicket}</Cell>
                   </>
@@ -182,15 +181,12 @@ export default function Trades({ instanceId }: { instanceId: string | null }) {
                     <div className="flex items-baseline gap-2">
                       <span className="min-w-0 truncate font-semibold text-bright">{d.symbol ?? "—"}</span>
                       <SideTag side={d.side} />
-                      <span className={`ml-auto shrink-0 text-sm font-semibold ${n > 0 ? "text-gain" : n < 0 ? "text-loss" : "text-muted"}`}>
-                        {n > 0 ? "+" : ""}
-                        {fixed(n)}
-                      </span>
+                      <Pnl value={n} glyphs={false} className="ml-auto shrink-0 text-sm font-semibold" />
                     </div>
                     <div className="mt-1 flex items-center gap-2 text-xs text-faint">
                       <span className="min-w-0 truncate">{d.strategyId ?? "unattributed"}</span>
                       <span className="ml-auto shrink-0 whitespace-nowrap ">
-                        {d.qty ?? "—"} @ {price(d.price)} · {tsShort(d.ts)}
+                        {quantity(d.qty)} @ {price(d.price)} · {tsShort(d.ts)} UTC
                       </span>
                     </div>
                   </>
@@ -202,7 +198,7 @@ export default function Trades({ instanceId }: { instanceId: string | null }) {
         ) : (
           <>
             <DataList
-              head={["Time", "Strategy", "Symbol", "Side", "Qty", "Price", "P&L", "Order"]}
+              head={["Time (UTC)", "Strategy", "Symbol", "Side", "Qty", "Price", "P&L", "Order"]}
               rows={shown}
               keyOf={(t) => t.id}
               onRow={view.public ? undefined : (t) => setOpen(t)}
@@ -217,9 +213,9 @@ export default function Trades({ instanceId }: { instanceId: string | null }) {
                     <Cell>
                       <SideTag side={t.payload.side} />
                     </Cell>
-                    <Cell className="">{t.payload.qty}</Cell>
-                    <Cell className="">{price(t.payload.price)}</Cell>
-                    <Cell className={`${r.className}`}>{r.text}</Cell>
+                    <Cell>{quantity(t.payload.qty)}</Cell>
+                    <Cell>{price(t.payload.price)}</Cell>
+                    <Cell className={r.className}>{r.text}</Cell>
                     <Cell className="font-mono text-xs text-faint">{t.payload.orderId}</Cell>
                   </>
                 );
@@ -236,7 +232,7 @@ export default function Trades({ instanceId }: { instanceId: string | null }) {
                     <div className="mt-1 flex items-center gap-2 text-xs text-faint">
                       <span className="min-w-0 truncate">{t.strategyId ?? "unattributed"}</span>
                       <span className="ml-auto shrink-0 whitespace-nowrap ">
-                        {t.payload.qty} @ {price(t.payload.price)} · {tsShort(t.ts)}
+                        {quantity(t.payload.qty)} @ {price(t.payload.price)} · {tsShort(t.ts)} UTC
                       </span>
                     </div>
                   </>

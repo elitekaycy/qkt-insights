@@ -3,8 +3,8 @@ import { get, type AccountDrawdownRow, type AccountRiskRow, type AccountSummary 
 import { AccountSummary } from "../components/AccountSummary";
 import type { ComparisonSeries } from "../components/EquityChart";
 import { OverviewDashboard } from "../components/OverviewDashboard";
-import { Card, Cell, DataList, FlashValue, LiveDot, Loadable, PageHeader, Panel, Pill, SideTag, Stat } from "../components/ui";
-import { duration, fixed, money, num, price } from "../format";
+import { Card, Cell, DataList, FlashValue, LiveDot, Loadable, PageHeader, Panel, Pill, Pnl, SideTag, Stat } from "../components/ui";
+import { DASH, duration, human, money, pctValue, pnl, polarity, price, quantity, signedMoney } from "../format";
 import { strategyDisplayName } from "../portfolio";
 import { useLiveState } from "../useLiveState";
 import { useLiveStream } from "../useLiveStream";
@@ -149,14 +149,14 @@ export default function Overview({
               <Stat label="Equity" value={<FlashValue value={a.equity}>{money(a.equity)}</FlashValue>} />
               <Stat
                 label="Open P&L"
-                value={<FlashValue value={a.openProfit}>{money(a.openProfit)}</FlashValue>}
-                tone={a.openProfit == null ? "neutral" : a.openProfit > 0 ? "up" : a.openProfit < 0 ? "down" : "neutral"}
+                value={<FlashValue value={a.openProfit}>{pnl(a.openProfit)}</FlashValue>}
+                tone={toneOf(a.openProfit)}
                
               />
               {!view.public && (
                 <Stat
                   label="Margin level"
-                  value={a.marginLevel == null ? "—" : `${num(a.marginLevel)}%`}
+                  value={pctValue(a.marginLevel)}
                   sub={a.margin != null ? `margin ${money(a.margin)}` : undefined}
                  
                 />
@@ -171,14 +171,14 @@ export default function Overview({
                   <>
                     <Stat
                       label="DD from peak"
-                      value={cur == null ? "\u2014" : `${num(cur)}%`}
+                      value={pctValue(cur)}
                       sub={dd?.peakEquity != null ? `peak ${money(dd.peakEquity)}` : undefined}
                       tone={cur == null ? "neutral" : cur > 5 ? "down" : cur > 0.005 ? "neutral" : "up"}
                      
                     />
                     <Stat
                       label="Max DD"
-                      value={max == null ? "\u2014" : `${num(max)}%`}
+                      value={pctValue(max)}
                       sub="whole retained history"
                       tone={max != null && max > 5 ? "down" : "neutral"}
                      
@@ -213,20 +213,20 @@ export default function Overview({
                   <Cell>
                     <SideTag side={p.side} />
                   </Cell>
-                  <Cell className="">{p.qty}</Cell>
+                  <Cell>{quantity(p.qty)}</Cell>
                   <Cell className="whitespace-nowrap text-muted">@ {price(p.entryPrice)}</Cell>
-                  <Cell className="">{price(p.currentPrice)}</Cell>
+                  <Cell>{price(p.currentPrice)}</Cell>
                   <Cell className="text-muted">
-                    <span title={p.openedAt ? new Date(p.openedAt).toISOString() : undefined}>
+                    <span title={p.openedAt ? `opened ${human(p.openedAt)}` : undefined}>
                       {p.openedAt ? duration(Date.now() - p.openedAt) : "—"}
                     </span>
                   </Cell>
-                  <Cell className={`font-semibold ${profitTone(p.profit)}`}>
+                  <Cell className="font-semibold">
                     <FlashValue value={p.profit}>
-                      {p.profit == null ? "—" : `${p.profit > 0 ? "+" : ""}${fixed(p.profit)}`}
+                      <Pnl value={p.profit} glyphs={false} />
                     </FlashValue>
                   </Cell>
-                  <Cell className="text-muted">{p.swap ?? "—"}</Cell>
+                  <Cell className="text-muted">{signedMoney(p.swap)}</Cell>
                   <Cell>
                     {p.strategyId ? (
                       <span title={p.strategyId}>{nameByStrategy.get(p.strategyId) ?? p.strategyId}</span>
@@ -241,9 +241,9 @@ export default function Overview({
                   <div className="flex items-baseline gap-2">
                     <span className="min-w-0 truncate font-semibold text-bright">{p.symbol}</span>
                     <SideTag side={p.side} />
-                    <span className={`ml-auto shrink-0 text-sm font-semibold ${profitTone(p.profit)}`}>
+                    <span className="ml-auto shrink-0 text-sm font-semibold">
                       <FlashValue value={p.profit}>
-                        {p.profit == null ? "—" : `${p.profit > 0 ? "+" : ""}${fixed(p.profit)}`}
+                        <Pnl value={p.profit} glyphs={false} />
                       </FlashValue>
                     </span>
                   </div>
@@ -252,7 +252,7 @@ export default function Overview({
                       {p.strategyId ? nameByStrategy.get(p.strategyId) ?? p.strategyId : "unattributed"}
                     </span>
                     <span className="ml-auto shrink-0 whitespace-nowrap ">
-                      {p.qty} @ {price(p.entryPrice)} · {p.openedAt ? duration(Date.now() - p.openedAt) : "—"}
+                      {quantity(p.qty)} @ {price(p.entryPrice)} · {p.openedAt ? duration(Date.now() - p.openedAt) : DASH}
                     </span>
                   </div>
                 </>
@@ -307,9 +307,7 @@ function PublicOpenPositions({ summary, loading }: { summary: { count: number; u
     <Card className="flex flex-wrap items-baseline gap-x-6 gap-y-1 px-5 py-4">
       <span className="text-[11px] font-semibold uppercase tracking-[0.06em] text-muted">Open positions</span>
       <span className="text-xl font-semibold text-bright">{loading ? "…" : count}</span>
-      <span className={`text-xl font-semibold ${profitTone(unrealized)}`}>
-        {unrealized == null ? "—" : `${unrealized > 0 ? "+" : ""}${money(unrealized)}`}
-      </span>
+      <Pnl value={unrealized} className="text-xl font-headline" />
       <span className="text-xs text-faint">
         unrealized · details stay private until each position closes
       </span>
@@ -317,8 +315,7 @@ function PublicOpenPositions({ summary, loading }: { summary: { count: number; u
   );
 }
 
-function profitTone(v: number | null | undefined): string {
-  if (v == null) return "text-faint";
-  if (v === 0) return "text-muted";
-  return v > 0 ? "text-gain" : "text-loss";
+function toneOf(v: number | null | undefined): "up" | "down" | "neutral" {
+  const p = polarity(v);
+  return p === "gain" ? "up" : p === "loss" ? "down" : "neutral";
 }

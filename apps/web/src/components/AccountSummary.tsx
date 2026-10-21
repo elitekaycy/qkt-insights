@@ -1,8 +1,8 @@
 import { useState } from "react";
 import type { AccountRiskRow, AccountSummary as AccountSummaryData } from "../api";
-import { fixed, money, num, pct } from "../format";
+import { count, money, pct, pctValue } from "../format";
 import { CalendarView } from "./Calendar";
-import { Cell, Empty, Panel, Row, Select, Stat, Table } from "./ui";
+import { Cell, Empty, Panel, Pnl, Row, Select, Stat, Table } from "./ui";
 
 /** A closed position's direction, folding broker BUY/SELL and long/short labels to one axis. */
 function normalizedSide(side: string): "LONG" | "SHORT" {
@@ -66,7 +66,7 @@ export function AccountSummary({
   const ddRows = risk.filter((r) => r.drawdown.used != null);
   const accountDD = ddRows.length > 0 ? ddRows.reduce((a, r) => a + r.drawdown.used!, 0) : null;
   const ddSub = ddRows.length === 1
-    ? `${ddRows[0]!.basis === "static" ? "below start" : "from peak"} ${money(ddRows[0]!.drawdown.reference)} · ${fixed(ddRows[0]!.drawdown.usedPct ?? 0, 2)}%`
+    ? `${ddRows[0]!.basis === "static" ? "below start" : "from peak"} ${money(ddRows[0]!.drawdown.reference)} · ${pctValue(ddRows[0]!.drawdown.usedPct ?? 0)}`
     : ddRows.length > 1 ? `${ddRows.length} accounts, each on its basis` : "no account history yet";
   const bases = new Map(summary.monthBases.map((b) => [b.period, b]));
   const baseLabel = summary.monthBases.some((b) => b.source === "account equity") ? "account equity at month start" : "account start balance";
@@ -74,8 +74,6 @@ export function AccountSummary({
   const buckets = split === "instrument" ? summary.byInstrument : summary.byStrategy;
   const label = (key: string | null) => split === "instrument" ? key ?? "—" : key == null ? "Unattributed" : strategyName(key);
 
-  const sign = (v: number): "up" | "down" | "neutral" => (v > 0 ? "up" : v < 0 ? "down" : "neutral");
-  const dash = (v: number | null, fmt: (n: number) => string) => (v == null ? "—" : fmt(v));
 
   return (
     <section className="mt-8">
@@ -84,18 +82,18 @@ export function AccountSummary({
         <span className="text-xs text-faint">every close on the account, retired strategies and unattributed deals included · realized</span>
       </div>
       <div className="mt-3 grid grid-cols-2 gap-4 sm:grid-cols-3 lg:grid-cols-4 xl:grid-cols-6">
-        <Stat label="Net P&L" value={money(netTotal)} tone={sign(netTotal)} />
-        <Stat label="Gross P&L" value={dash(gross, money)} sub="before commission and swap" tone={gross == null ? "neutral" : sign(gross)} />
-        <Stat label="Commission" value={dash(commission, (n) => money(-Math.abs(n)))} tone={commission ? "down" : "neutral"} />
-        <Stat label="Swap" value={dash(swap, money)} tone={swap == null ? "neutral" : sign(swap)} />
+        <Stat label="Net P&L" signed={netTotal} />
+        <Stat label="Gross P&L" signed={gross} sub="before commission and swap" />
+        <Stat label="Commission" signed={commission == null ? null : -Math.abs(commission)} />
+        <Stat label="Swap" signed={swap} />
         <Stat label="Win rate" value={pct(winRate)} sub={`${wins}W / ${losses}L · breakeven excluded`} />
-        <Stat label="Expectancy" value={dash(expectancy, (n) => money(n))} sub="per trade" tone={expectancy == null ? "neutral" : sign(expectancy)} />
-        <Stat label="Trades" value={num(tradeCount, 0)} sub={`${longs} long · ${shorts} short`} />
-        <Stat label="Trading days" value={num(tradingDays, 0)} sub="days with closes (UTC)" />
-        <Stat label={ddRows.length === 1 && ddRows[0]!.basis === "static" ? "Account DD · static" : "Account DD · from peak"} value={dash(accountDD, (n) => money(-n))} sub={ddSub} tone={accountDD ? "down" : "neutral"} />
-        <Stat label="Worst day" value={money(worstDay)} tone={sign(worstDay)} />
-        <Stat label="This week" value={money(weekPnl)} tone={sign(weekPnl)} />
-        <Stat label="Worst week" value={money(worstWeek)} tone={sign(worstWeek)} />
+        <Stat label="Expectancy" signed={expectancy} sub="per trade" />
+        <Stat label="Trades" value={count(tradeCount)} sub={`${longs} long · ${shorts} short`} />
+        <Stat label="Trading days" value={count(tradingDays)} sub="days with closes (UTC)" />
+        <Stat label={ddRows.length === 1 && ddRows[0]!.basis === "static" ? "Account DD · static" : "Account DD · from peak"} signed={accountDD == null ? null : -accountDD} sub={ddSub} />
+        <Stat label="Worst day" signed={worstDay} sub="UTC day" />
+        <Stat label="This week" signed={weekPnl} sub="ISO week, UTC" />
+        <Stat label="Worst week" signed={worstWeek} />
       </div>
 
       <div className="mt-4 grid grid-cols-1 gap-4 lg:grid-cols-3">
@@ -118,8 +116,10 @@ export function AccountSummary({
                   <Cell className="font-semibold text-bright">
                     <span title={s.venues?.join(", ")}>{label(s.key)}</span>
                   </Cell>
-                  <Cell className="text-body">{s.trades}</Cell>
-                  <Cell className={`${s.net > 0 ? "text-gain" : s.net < 0 ? "text-loss" : "text-muted"}`}>{money(s.net)}</Cell>
+                  <Cell className="text-body">{count(s.trades)}</Cell>
+                  <Cell>
+                    <Pnl value={s.net} glyphs={false} />
+                  </Cell>
                 </Row>
               ))}
               {buckets.length === 0 && <Empty colSpan={3}>No closed trades yet.</Empty>}

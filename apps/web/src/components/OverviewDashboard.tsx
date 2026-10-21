@@ -1,10 +1,10 @@
 import type { ReactNode } from "react";
 import type { AccountRiskRow, ClosedTradeRow, DayNet, ExcursionStats } from "../api";
-import { compact, duration, fixed, money } from "../format";
+import { compact, count, DASH, duration, fixed, money, pctValue, quantity, ratio, signedMoney } from "../format";
 import { ChartCard } from "./ChartCard";
 import { chartColors, EChart, qktChartAxis, qktChartGrid, qktChartTooltip, qktInsideZoom, type QktChartOption } from "./EChart";
 import { ComparisonChart, type ComparisonSeries } from "./EquityChart";
-import { Card } from "./ui";
+import { Card, Pnl } from "./ui";
 
 export type DashboardWidgetId = "pnl" | "outcomes" | "risk" | "behavior" | "direction" | "equity" | "excursions";
 type WidgetSize = "medium" | "large";
@@ -133,13 +133,13 @@ function RiskWidget({ data }: { data: OverviewDashboardData }) {
       <WidgetHeader title="Risk budget" description="Consumption of each account's loss and drawdown limits; limits belong to the account, never summed per strategy." />
       {data.risk.length === 0 && <WidgetEmpty>Account limits appear with the first broker account rollup.</WidgetEmpty>}
       {data.risk.map((r) => (
-        <div key={r.account} className="grid gap-5 border-b border-line/70 p-5 sm:grid-cols-2">
+        <div key={r.account} className="grid gap-5 border-b border-line p-4 sm:grid-cols-2">
           {data.risk.length > 1 && <div className="text-[11px] font-semibold uppercase tracking-[0.06em] text-muted sm:col-span-2">{r.label}</div>}
           <Budget
             label={`Daily loss · ${r.dailyLoss.includesFloating ? "incl. floating" : "realized"}`}
             used={r.dailyLoss.used}
             cap={r.dailyLoss.cap}
-            detail={`day from ${String(r.dailyLoss.resetHour).padStart(2, "0")}:00 ${r.dailyLoss.timezone} · realized ${money(r.dailyLoss.realizedToday)}`}
+            detail={`day from ${String(r.dailyLoss.resetHour).padStart(2, "0")}:00 ${r.dailyLoss.timezone} · realized ${signedMoney(r.dailyLoss.realizedToday)}`}
           />
           <Budget
             label={`Account drawdown · ${r.basis === "static" ? "static" : "from peak"}`}
@@ -152,8 +152,8 @@ function RiskWidget({ data }: { data: OverviewDashboardData }) {
           </div>
         </div>
       ))}
-      <div className="grid grid-cols-2 gap-px bg-line/70">
-        <Metric label="Open P&L" value={money(data.accountOpenPnl)} tone={(data.accountOpenPnl ?? 0) < 0 ? "down" : "up"} />
+      <div className="grid grid-cols-2 gap-px bg-line">
+        <Metric label="Open P&L" value={<Pnl value={data.accountOpenPnl} />} />
         <Metric label={one?.startBalanceSource === "first recorded balance" ? "Account capital · first balance" : "Account capital · start balance"} value={money(capital)} />
       </div>
     </Card>
@@ -164,9 +164,9 @@ function Budget({ label, used, cap, detail }: { label: string; used: number | nu
   const pct = used != null && cap != null && cap > 0 ? (used / cap) * 100 : null;
   return (
     <div>
-      <div className="flex items-baseline justify-between gap-3"><span className="text-xs font-semibold text-body">{label}</span><span className="text-xs text-muted">{used == null ? "—" : money(used)} / {cap == null ? "no cap" : money(cap)}</span></div>
+      <div className="flex items-baseline justify-between gap-3"><span className="text-xs font-semibold text-body">{label}</span><span className="text-xs text-muted">{money(used)} / {cap == null ? "no cap" : money(cap)}</span></div>
       <div className="mt-2 h-2 overflow-hidden rounded-full bg-raised"><div className={`h-full rounded-full ${pct != null && pct >= 80 ? "bg-loss-fill" : pct != null && pct >= 55 ? "bg-warn" : "bg-info"}`} style={{ width: `${Math.min(100, pct ?? 0)}%` }} /></div>
-      <div className="mt-1.5 text-[11px] text-faint">{pct == null ? detail : `${pct.toFixed(1)}% used · ${detail}`}</div>
+      <div className="mt-1.5 text-[11px] text-faint">{pct == null ? detail : `${pctValue(pct, 1)} used · ${detail}`}</div>
     </div>
   );
 }
@@ -185,11 +185,11 @@ function BehaviorWidget({ closes, sumWins, sumLosses }: { closes: ClosedTradeRow
   return (
     <Card className="h-full overflow-hidden">
       <WidgetHeader title="Trading behavior" description="Compact context for pace, streaks, and payoff." />
-      <div className="grid grid-cols-2 gap-px bg-line/70">
-        <Metric label="Current streak" value={streak === 0 ? "—" : `${Math.abs(streak)} ${streak > 0 ? "wins" : "losses"}`} tone={streak > 0 ? "up" : streak < 0 ? "down" : undefined} />
-        <Metric label="Average hold" value={held.length > 0 ? duration(held.reduce((a, x) => a + x, 0) / held.length) : "—"} />
-        <Metric label="Profit factor" value={pf == null ? "—" : pf === Infinity ? "∞" : pf.toFixed(2)} tone={pf != null && pf >= 1 ? "up" : "down"} />
-        <Metric label="Expectancy" value={closes.length > 0 ? money(closes.reduce((a, x) => a + x.realized, 0) / closes.length) : "—"} />
+      <div className="grid grid-cols-2 gap-px bg-line">
+        <Metric label="Current streak" value={streak === 0 ? DASH : `${Math.abs(streak)} ${streak > 0 ? "wins" : "losses"}`} tone={streak > 0 ? "up" : streak < 0 ? "down" : undefined} />
+        <Metric label="Average hold" value={held.length > 0 ? duration(held.reduce((a, x) => a + x, 0) / held.length) : DASH} />
+        <Metric label="Profit factor" value={ratio(pf)} tone={pf == null ? undefined : pf >= 1 ? "up" : "down"} />
+        <Metric label="Expectancy" value={<Pnl value={closes.length > 0 ? closes.reduce((a, x) => a + x.realized, 0) / closes.length : null} />} />
       </div>
     </Card>
   );
@@ -200,17 +200,32 @@ function DirectionWidget({ closes }: { closes: ClosedTradeRow[] }) {
     const matches = closes.filter((x) => normalizedSide(x.side) === side);
     return { side, n: matches.length, net: matches.reduce((a, x) => a + x.realized, 0), qty: matches.reduce((a, x) => a + x.qty, 0) };
   });
-  const extent = Math.max(...rows.map((x) => Math.abs(x.net)), 1);
+  const extent = Math.max(...rows.map((x) => Math.abs(x.net)), 1e-9);
   return (
     <Card className="h-full overflow-hidden">
-      <WidgetHeader title="Long and short performance" description="Direction contribution with trade count and average size." />
-      <div className="grid gap-5 p-5">
-        {rows.map((row) => (
-          <div key={row.side}>
-            <div className="flex items-baseline gap-3"><span className="w-12 text-xs font-semibold text-body">{row.side}</span><span className={`text-lg font-semibold ${row.net >= 0 ? "text-gain" : "text-loss"}`}>{money(row.net)}</span><span className="ml-auto text-xs text-faint">n={row.n} · avg qty {row.n > 0 ? (row.qty / row.n).toFixed(2) : "—"}</span></div>
-            <div className="mt-2 h-2 rounded-full bg-raised"><div className={`h-full rounded-full ${row.net >= 0 ? "bg-gain-fill" : "bg-loss-fill"}`} style={{ width: `${Math.max(2, (Math.abs(row.net) / extent) * 100)}%` }} /></div>
-          </div>
-        ))}
+      <WidgetHeader title="Long and short performance" description="Net by direction, with trade count and average size; gains grow right, losses left." />
+      <div className="grid gap-3 p-4">
+        {rows.map((row) => {
+          const w = (Math.abs(row.net) / extent) * 50;
+          return (
+            <div key={row.side} className="grid grid-cols-[3.5rem_1fr_auto] items-center gap-3 text-sm">
+              <span className="text-body">{row.side === "LONG" ? "Long" : "Short"}</span>
+              <span className="relative h-2 overflow-hidden rounded bg-raised">
+                <span className="absolute inset-y-[-2px] left-1/2 w-px bg-axis" />
+                <span
+                  className={`absolute inset-y-0 rounded ${row.net >= 0 ? "bg-gain-fill" : "bg-loss-fill"}`}
+                  style={{ left: row.net >= 0 ? "50%" : `${50 - w}%`, width: `${w}%` }}
+                />
+              </span>
+              <span className="whitespace-nowrap text-right">
+                <span className="text-muted">{count(row.n)} · </span>
+                <Pnl value={row.net} className="font-semibold" />
+              </span>
+              <span />
+              <span className="col-span-2 -mt-2 text-xs text-muted">avg size {row.n > 0 ? quantity(row.qty / row.n) : DASH}</span>
+            </div>
+          );
+        })}
       </div>
     </Card>
   );
@@ -256,15 +271,25 @@ function ExcursionWidget({ rows }: { rows: ExcursionStats[] }) {
 }
 
 function WidgetHeader({ title, description }: { title: string; description: string }) {
-  return <div className="border-b border-line/70 px-5 py-3.5"><h3 className="text-[15px] font-semibold text-bright">{title}</h3><p className="mt-0.5 text-xs leading-relaxed text-muted">{description}</p></div>;
+  return (
+    <div className="border-b border-line px-4 py-3">
+      <h3 className="text-sm font-medium text-body">{title}</h3>
+      <p className="mt-0.5 text-xs leading-relaxed text-muted">{description}</p>
+    </div>
+  );
 }
 
 function Metric({ label, value, tone }: { label: string; value: ReactNode; tone?: "up" | "down" }) {
-  return <div className="bg-panel p-4"><div className="text-[11px] font-semibold uppercase tracking-[0.06em] text-muted">{label}</div><div className={`mt-1.5 text-lg font-semibold ${tone === "up" ? "text-gain" : tone === "down" ? "text-loss" : "text-bright"}`}>{value}</div></div>;
+  return (
+    <div className="bg-panel p-4">
+      <div className="text-sm font-medium text-muted">{label}</div>
+      <div className={`mt-1.5 text-lg font-headline ${tone === "up" ? "text-gain" : tone === "down" ? "text-loss" : "text-bright"}`}>{value}</div>
+    </div>
+  );
 }
 
 function WidgetEmpty({ children }: { children: ReactNode }) {
-  return <div className="flex min-h-52 items-center justify-center px-5 text-center text-sm text-faint">{children}</div>;
+  return <div className="flex min-h-52 items-center justify-center px-5 text-center text-sm text-muted">{children}</div>;
 }
 
 function normalizedSide(side: string): "LONG" | "SHORT" {

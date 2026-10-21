@@ -2,7 +2,7 @@ import { Fragment, useRef, useState, type KeyboardEvent, type PointerEvent, type
 import { useQuery } from "@tanstack/react-query";
 import { get, type HealthRow, type LiveAccount, type LiveStateSnapshot, type MonitorSummary, type MonitorsView, type StripBucket } from "../api";
 import { Cell, DataList, Empty, LiveDot, PageHeader, Panel, Pill, Row, Skeleton, Stat, Table, type Tone } from "../components/ui";
-import { age, duration, money, pct, tsDay, tsShort } from "../format";
+import { age, clock, duration, money, pct, signedMoney, tsDay, tsShort } from "../format";
 
 function sinkTone(row: HealthRow): "neutral" | "up" | "down" {
   if (row.insightsSent == null) return "neutral";
@@ -29,12 +29,8 @@ const STATUS_TONE: Record<MonitorSummary["status"], Tone> = { up: "up", down: "d
 
 const BEAT_CLASS: Record<"up" | "down" | "none", string> = { up: "bg-gain-fill", down: "bg-loss-fill", none: "bg-line" };
 
-function clock(ms: number): string {
-  return new Date(ms).toLocaleTimeString("en-GB", { hour: "2-digit", minute: "2-digit" });
-}
-
 function beatLabel(b: StripBucket, spanMs: number): string {
-  const when = `${tsShort(b.ts)}–${clock(b.ts + spanMs)}`;
+  const when = `${tsShort(b.ts)}–${clock(b.ts + spanMs)} UTC`;
   if (b.status == null) return `${when} · no checks`;
   if (b.status === "up") return `${when} · up · ${b.checks} checks`;
   return `${when} · down · ${b.downs} of ${b.checks} checks failed`;
@@ -204,7 +200,7 @@ function Monitors({ view, loading, failed }: { view: MonitorsView | undefined; l
 
       <Panel className="mt-6" title="Incidents" hint="every up/down transition, newest first" scroll="max-h-[24rem]">
         <DataList
-          head={["When", "Monitor", "Status", "Reason"]}
+          head={["When (UTC)", "Monitor", "Status", "Reason"]}
           rows={events}
           keyOf={(e) => `${e.monitor}:${e.ts}`}
           empty="No transitions recorded."
@@ -222,7 +218,7 @@ function Monitors({ view, loading, failed }: { view: MonitorsView | undefined; l
             <div className="flex items-center gap-2">
               <span className="truncate font-semibold text-bright">{e.monitor}</span>
               <Pill tone={STATUS_TONE[e.status]}>{e.status}</Pill>
-              <span className="ml-auto whitespace-nowrap text-xs text-muted">{tsShort(e.ts)}</span>
+              <span className="ml-auto whitespace-nowrap text-xs text-muted">{tsShort(e.ts)} UTC</span>
             </div>
           )}
         />
@@ -297,7 +293,7 @@ function InstanceDetail({ row, accounts }: { row: HealthRow; accounts: LiveAccou
               <Cell className="whitespace-nowrap text-muted">{age(a.lastSeen)}</Cell>
               <Cell className="text-muted">{money(a.balance)}</Cell>
               <Cell className="text-bright">{money(a.equity)}</Cell>
-              <Cell className={`${openTone(a.openProfit)}`}>{money(a.openProfit)}</Cell>
+              <Cell className={openTone(a.openProfit)}>{signedMoney(a.openProfit)}</Cell>
               <Cell className="text-muted">{a.server ?? a.name ?? "—"}</Cell>
             </>
           )}
@@ -317,7 +313,7 @@ function InstanceDetail({ row, accounts }: { row: HealthRow; accounts: LiveAccou
                 </Fact>
                 <div className="min-w-0">
                   <div className="text-[11px] uppercase tracking-[0.06em] text-faint">open p&l</div>
-                  <div className={`truncate ${openTone(a.openProfit)}`}>{money(a.openProfit)}</div>
+                  <div className={`truncate ${openTone(a.openProfit)}`}>{signedMoney(a.openProfit)}</div>
                 </div>
               </div>
             </>

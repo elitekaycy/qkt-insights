@@ -6,7 +6,7 @@ import { LEVEL_TONE, Pill } from "./ui";
  *  short time + level header; wider screens lay everything out on one row. */
 export function LogLine({ log, showStrategy = true }: { log: LogRow; showStrategy?: boolean }) {
   return (
-    <div className="flex flex-wrap items-start gap-x-2 gap-y-1 border-b border-line/50 px-2 py-2 font-mono text-xs last:border-b-0 sm:flex-nowrap sm:py-1.5">
+    <div className="flex flex-wrap items-start gap-x-2 gap-y-1 border-b border-line px-2 py-2 font-mono text-xs last:border-b-0 sm:flex-nowrap sm:py-1.5">
       <span className="whitespace-nowrap text-faint sm:hidden">{tsShort(log.ts)}</span>
       <span className="hidden whitespace-nowrap text-faint sm:inline">{ts(log.ts)}</span>
       <Pill tone={LEVEL_TONE[log.level] ?? "neutral"}>{log.level}</Pill>

@@ -1,5 +1,6 @@
 import { useQueries, useQuery } from "@tanstack/react-query";
 import { get, type ClosedTradeRow, type PerformanceBundle, type StrategyRow } from "./api";
+import { DASH, signedMoney, toneClass } from "./format";
 
 /**
  * Index closed trades by every id a table row might hold: the close row's own
@@ -52,8 +53,6 @@ export function useCloseMap(instanceId: string | null): Map<string, ClosedTradeR
 
 /** Table cell content for a fill's realized result: colored dollars or a muted dash. */
 export function realizedLabel(close: ClosedTradeRow | undefined): { text: string; className: string } {
-  if (!close) return { text: "—", className: "text-faint" };
-  const sign = close.realized > 0 ? "+" : "";
-  const color = close.realized > 0 ? "text-up" : close.realized < 0 ? "text-down" : "text-muted";
-  return { text: `${sign}${close.realized.toFixed(2)}`, className: `font-semibold ${color}` };
+  if (!close) return { text: DASH, className: "text-faint" };
+  return { text: signedMoney(close.realized), className: `font-semibold ${toneClass(close.realized)}` };
 }
