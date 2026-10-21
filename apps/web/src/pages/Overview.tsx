@@ -1,5 +1,5 @@
 import { useQuery } from "@tanstack/react-query";
-import { get, type AccountRiskRow, type AccountSummary, type LivePositionRow, type StrategyRow } from "../api";
+import { get, type AccountRiskRow, type AccountSummary, type InstanceRow, type LivePositionRow, type StrategyRow } from "../api";
 import { groupAccounts } from "../accounts";
 import { AccountStrip } from "../components/HomeAccount";
 import { MonthCalendar, PnlChart } from "../components/HomeCharts";
@@ -8,7 +8,7 @@ import { StrategyTable, type StrategyLine } from "../components/HomeStrategies";
 import { ShareControl } from "../components/ShareControl";
 import { Card, Loadable, PageHeader } from "../components/ui";
 import { day as utcDay } from "../format";
-import { dayBasisLabel, floatingByStrategy, HOME_RANGES, openRisk, riskRowFor, strategyLines, strategyPeriods, type HomeRange } from "../home";
+import { dayBasisLabel, floatingByStrategy, HOME_RANGES, noAccountMessage, openRisk, riskRowFor, strategyLines, strategyPeriods, type HomeRange } from "../home";
 import { strategyDisplayName } from "../portfolio";
 import { useSearchParam } from "../router";
 import { useLiveState } from "../useLiveState";
@@ -48,6 +48,13 @@ export default function Home({ instanceId }: { instanceId: string | null }) {
     queryFn: () => get<AccountRiskRow[]>(`/account/risk?instance=${enc}`),
     enabled: !!instanceId,
     refetchInterval: 60_000,
+  });
+  // the same query the shell keeps; Home reads when the instance last reported
+  const instances = useQuery({
+    queryKey: ["instances"],
+    queryFn: () => get<InstanceRow[]>("/instances"),
+    enabled: !view.public,
+    refetchInterval: 30_000,
   });
   const [rawRange, setRange] = useSearchParam("range", "all");
   const range = (HOME_RANGES.find((r) => r.key === rawRange)?.key ?? "all") as HomeRange;
@@ -95,7 +102,7 @@ export default function Home({ instanceId }: { instanceId: string | null }) {
           <Card className="p-6 text-center text-sm text-muted">
             {view.public
               ? `Account figures appear ${view.meta.delayMinutes} minutes behind; none has reached this shared view yet.`
-              : "No account state yet: it arrives with the next state poll from qkt."}
+              : noAccountMessage(instanceId, instances.data?.find((i) => i.id === instanceId)?.lastSeen, now)}
           </Card>
         ) : (
           accountGroups.map(({ account: a, labels }) => {

@@ -242,3 +242,25 @@ function collapseOrders(
   }
   return [...groups.values()];
 }
+
+/**
+ * Each position's strategy as the trade journal knows it. qkt can report a portfolio child's
+ * position under the child's DSL name, which names no strategy of the instance; the position's
+ * own deals carry the strategy the round trips and the strategy page use. A reported strategy the
+ * instance knows is kept.
+ */
+export function journalStrategies<T extends { ticket: string; strategyId?: string | null }>(db: Db, instanceId: string, items: readonly T[]): T[] {
+  if (items.length === 0) return [...items];
+  const known = new Set((statement(db, "SELECT strategy_id id FROM strategies WHERE instance_id=?").all(instanceId) as Array<{ id: string }>).map((r) => r.id));
+  const byDeal = statement(db, "SELECT strategy_id s FROM deals WHERE instance_id=? AND position_ticket=? AND strategy_id IS NOT NULL ORDER BY ts LIMIT 1");
+  return items.map((p) => {
+    if (p.strategyId != null && known.has(p.strategyId)) return p;
+    const row = byDeal.get(instanceId, p.ticket) as { s: string } | undefined;
+    return row && known.has(row.s) ? { ...p, strategyId: row.s } : p;
+  });
+}
+
+/** The snapshot with every position's strategy resolved by journalStrategies. */
+export function withJournalStrategies(db: Db, snapshot: LiveStateSnapshot): LiveStateSnapshot {
+  return { ...snapshot, positions: snapshot.positions.map((g) => ({ ...g, list: journalStrategies(db, g.instanceId, g.list) })) };
+}

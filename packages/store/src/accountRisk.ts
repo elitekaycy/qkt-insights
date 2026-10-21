@@ -196,12 +196,14 @@ function percent(v: unknown): number | null {
 /**
  * Limits from the strategies' qkt risk config. Every strategy on an account carries the whole
  * account's limits, so they are never summed: the strictest of each limit applies, and the start
- * balance only when the strategies agree on it.
+ * balance only when the strategies agree on it. A portfolio child's own starting balance is its
+ * sleeve (its share of the book), so the book's capital stands for the account instead.
  */
 function strategyProfile(db: Db, instanceId: string): AccountLimitProfile | null {
   const rows = db.prepare(
-    "SELECT starting_balance sb, json_extract(metadata, '$.risk') risk FROM strategies WHERE instance_id=? AND metadata IS NOT NULL",
-  ).all(instanceId) as Array<{ sb: number | null; risk: string | null }>;
+    `SELECT starting_balance sb, json_extract(metadata, '$.risk') risk, json_extract(metadata, '$.portfolioCapital') book
+     FROM strategies WHERE instance_id=? AND metadata IS NOT NULL`,
+  ).all(instanceId) as Array<{ sb: number | null; risk: string | null; book: unknown }>;
   const out: AccountLimitProfile = {};
   const starts = new Set<number>();
   let found = false;
@@ -209,7 +211,7 @@ function strategyProfile(db: Db, instanceId: string): AccountLimitProfile | null
   for (const r of rows) {
     if (!r.risk) continue;
     const risk = JSON.parse(r.risk) as Record<string, unknown>;
-    const sb = positive(risk.startingBalance) ?? positive(r.sb);
+    const sb = positive(risk.startingBalance) ?? positive(r.book) ?? positive(r.sb);
     const dailyLoss = positive(risk.maxDailyLoss);
     const dailyLossPct = percent(risk.maxDailyDrawdownPct ?? risk.maxDailyLossPct);
     const maxDrawdownPct = percent(risk.maxDrawdownPct);

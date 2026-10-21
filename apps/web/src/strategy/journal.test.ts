@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 import { rangeStart } from "../components/ui";
-import { chipOf, exitSpan, nearestByTime, pickedSpan, profitFactorText, toggleToken, windowTotals, withCumulative, without } from "./journal";
+import { chipOf, emptyHint, exitSpan, nearestByTime, pickedSpan, profitFactorText, toggleToken, windowTotals, withCumulative, without } from "./journal";
 
 const day = (d: string, n: number, wins: number, losses: number, pnl: number) => ({ day: d, n, wins, losses, pnl });
 
@@ -54,5 +54,14 @@ describe("formats and ranges", () => {
     expect(rangeStart("ytd", now)).toBe(Date.UTC(2026, 0, 1));
     expect(rangeStart("7d", now)).toBe(Date.UTC(2026, 9, 15));
     expect(rangeStart("all", now)).toBe(0);
+  });
+});
+
+describe("empty selection", () => {
+  it("never asks to widen a range that is already everything", () => {
+    expect(emptyHint("", undefined)).toBe("This strategy has not closed a trade yet.");
+    expect(emptyHint("", 0)).toBe("This strategy has not closed a trade yet.");
+    expect(emptyHint("", Date.UTC(2026, 9, 1))).toBe("Widen the range: none closed in it.");
+    expect(emptyHint("side:BUY", undefined)).toBe("Loosen the search above or widen the range.");
   });
 });

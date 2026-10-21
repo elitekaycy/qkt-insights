@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 import type { AccountRiskRow, LivePositionRow } from "./api";
-import { emptyPeriods, limitUse, openRisk, positionRisks, rangeFirstDay, riskRowFor, strategyLines, strategyPeriods } from "./home";
+import { dailyMeasured, drawdownMeasured, emptyPeriods, limitUse, noAccountMessage, openRisk, positionRisks, rangeFirstDay, riskRowFor, strategyLines, strategyPeriods } from "./home";
 
 function position(p: Partial<LivePositionRow> & Pick<LivePositionRow, "ticket">): LivePositionRow {
   return { symbol: "XAUUSD", side: "BUY", qty: 1, entryPrice: 100, ...p };
@@ -41,12 +41,12 @@ describe("limitUse", () => {
   it("raises the peak when live equity is above the stored one", () => {
     const use = limitUse(riskRow(), 10_600);
     expect(use.drawdown.used).toBe(0);
-    expect(use.daily).toEqual({ used: 120, cap: 300, pct: 40 });
+    expect(use.daily).toEqual({ used: 120, cap: 300, pct: 40, reference: 10_000, usedPct: 1.2 });
   });
 
   it("has no percentage without a cap", () => {
     const row = riskRow({ drawdown: { used: 500, usedPct: 4.76, reference: 10_500, cap: null } });
-    expect(limitUse(row, 10_000).drawdown).toEqual({ used: 500, cap: null, pct: null });
+    expect(limitUse(row, 10_000).drawdown).toEqual({ used: 500, cap: null, pct: null, reference: 10_500, usedPct: (500 / 10_500) * 100 });
   });
 });
 
@@ -103,5 +103,45 @@ describe("strategyLines", () => {
     const lines = strategyLines([row("a"), row("b")], periods);
     expect(lines.map((l) => [l.key, l.row?.strategyId ?? null, l.periods.all])).toEqual([["a", "a", 5], ["b", "b", 0], ["gone", null, -2], [null, null, 1]]);
     expect(lines[1]!.periods).toEqual(emptyPeriods("b"));
+  });
+});
+
+describe("loss limits without a cap", () => {
+  const noCaps = riskRow({
+    source: null,
+    drawdown: { used: 26_207.03, usedPct: 0.523, reference: 5_011_010.72, cap: null },
+    peakEquity: 5_011_010.72,
+    dailyLoss: { used: 612.37, cap: null, dayStart: 0, resetHour: 0, timezone: "UTC", includesFloating: false, dayStartBalance: 4_987_042.22, realizedToday: -612.37 },
+  });
+
+  it("still measures the day's loss and the drawdown below the peak", () => {
+    const use = limitUse(noCaps, 4_984_803.69);
+    expect(use.daily).toMatchObject({ used: 612.37, cap: null, pct: null });
+    expect(use.drawdown.used).toBeCloseTo(26_207.03, 2);
+    expect(use.drawdown.usedPct).toBeCloseTo(0.523, 3);
+    expect(dailyMeasured(noCaps, use.daily)).toBe("lost today on closed trades");
+    expect(drawdownMeasured(noCaps, use.drawdown)).toBe("26,207.03 below peak 5,011,010.72");
+  });
+
+  it("says when the day has no loss and equity sits at its reference", () => {
+    const flat = riskRow({ basis: "static", dailyLoss: { ...noCaps.dailyLoss, used: 0, realizedToday: 40 } });
+    const use = limitUse(flat, 10_200);
+    expect(dailyMeasured(flat, use.daily)).toBe("no loss today: closed +40.00");
+    expect(drawdownMeasured(flat, use.drawdown)).toBe("at or above start 10,000.00");
+  });
+
+  it("describes a floating-inclusive day from its day-start balance", () => {
+    const floating = riskRow({ dailyLoss: { ...noCaps.dailyLoss, includesFloating: true, dayStartBalance: 10_000 } });
+    expect(dailyMeasured(floating, limitUse(floating, 9_900).daily)).toBe("from the day-start balance 10,000.00 to equity now");
+  });
+});
+
+describe("noAccountMessage", () => {
+  it("waits for the first poll from a live instance, and names how long a silent one has been quiet", () => {
+    const now = Date.now();
+    expect(noAccountMessage("bench", now - 10_000, now)).toBe("No account state yet: it arrives with the next state poll from qkt.");
+    expect(noAccountMessage("bench", null, now)).toBe("No account state yet: it arrives with the next state poll from qkt.");
+    const quiet = noAccountMessage("bench", now - 3 * 86_400_000, now);
+    expect(quiet).toMatch(/^bench last reported 3d ago \(\d{4}-\d\d-\d\d \d\d:\d\d:\d\d UTC\), so there is no live account state\./);
   });
 });

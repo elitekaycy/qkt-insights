@@ -1,5 +1,5 @@
 import type { AccountRiskRow, LiveAccount, LivePositionRow, StrategyRow } from "./api";
-import { instrumentOf, openPnl } from "./format";
+import { age, instrumentOf, money, openPnl, signedMoney, ts } from "./format";
 import { roundMoney } from "@qkt-insights/contract/money";
 
 /*
@@ -32,6 +32,10 @@ export interface LimitUse {
   cap: number | null;
   /** used / cap in percent; null without a cap. */
   pct: number | null;
+  /** What used is measured from: the day-start balance (daily) or the peak or start balance (drawdown). */
+  reference: number | null;
+  /** used / reference in percent: the measured figure when no cap is set. */
+  usedPct: number | null;
 }
 
 /**
@@ -47,8 +51,47 @@ export function limitUse(row: AccountRiskRow, liveEquity: number | null): { dail
   const dailyUsed = row.dailyLoss.includesFloating
     ? (row.dailyLoss.dayStartBalance != null && equity != null ? Math.max(0, row.dailyLoss.dayStartBalance - equity) : row.dailyLoss.used)
     : Math.max(0, -row.dailyLoss.realizedToday);
-  const use = (used: number | null, cap: number | null): LimitUse => ({ used, cap, pct: used != null && cap != null && cap > 0 ? (used / cap) * 100 : null });
-  return { daily: use(dailyUsed, row.dailyLoss.cap), drawdown: use(ddUsed, row.drawdown.cap) };
+  const use = (used: number | null, cap: number | null, base: number | null): LimitUse => ({
+    used,
+    cap,
+    pct: used != null && cap != null && cap > 0 ? (used / cap) * 100 : null,
+    reference: base,
+    usedPct: used != null && base != null && base > 0 ? (used / base) * 100 : null,
+  });
+  return {
+    daily: use(dailyUsed, row.dailyLoss.cap, row.dailyLoss.dayStartBalance),
+    drawdown: use(ddUsed, row.drawdown.cap, reference ?? row.drawdown.reference),
+  };
+}
+
+/** Live account state is kept in memory; an instance silent this long has none to show until it reports. */
+export const SILENT_AFTER_MS = 5 * 60_000;
+
+/** Home's line when the instance has no live account state: waiting for the first poll, or the instance went quiet. */
+export function noAccountMessage(instanceId: string, lastSeen: number | null | undefined, now: number): string {
+  if (lastSeen != null && now - lastSeen > SILENT_AFTER_MS) {
+    return `${instanceId} last reported ${age(lastSeen)} (${ts(lastSeen)} UTC), so there is no live account state. It returns when the instance reports again; its history stays below.`;
+  }
+  return "No account state yet: it arrives with the next state poll from qkt.";
+}
+
+/** The daily-loss card's line under the figure: what the figure is, in words. */
+export function dailyMeasured(row: Pick<AccountRiskRow, "dailyLoss">, daily: LimitUse): string {
+  if (row.dailyLoss.includesFloating) {
+    return row.dailyLoss.dayStartBalance == null
+      ? "day-start balance not recorded yet"
+      : `from the day-start balance ${money(row.dailyLoss.dayStartBalance)} to equity now`;
+  }
+  if (daily.used != null && daily.used > 0) return "lost today on closed trades";
+  return row.dailyLoss.realizedToday > 0 ? `no loss today: closed ${signedMoney(row.dailyLoss.realizedToday)}` : "no loss today";
+}
+
+/** The drawdown card's line under the figure: how far below which reference equity is. */
+export function drawdownMeasured(row: Pick<AccountRiskRow, "basis">, dd: LimitUse): string {
+  const ref = row.basis === "static" ? "start" : "peak";
+  if (dd.used == null || dd.reference == null) return `no ${ref} balance recorded yet`;
+  if (dd.used === 0) return row.basis === "static" ? `at or above start ${money(dd.reference)}` : `at the peak ${money(dd.reference)}`;
+  return `${money(dd.used)} below ${ref} ${money(dd.reference)}`;
 }
 
 /** When the account's trading day begins, e.g. "day from 00:00 UTC". */

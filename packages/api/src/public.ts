@@ -1,7 +1,7 @@
 import { createHash } from "node:crypto";
 import type { FastifyInstance, FastifyReply, FastifyRequest } from "fastify";
 import {
-  accountDrawdown, accountEquity, accountPerformance, accountRisk, closedTrades, fullyClosedPositions, listDeals, listRoundTrips, listStrategyRoster, listTrades, openPositionsAt, portfolioGroupOf,
+  accountDrawdown, accountEquity, accountPerformance, accountRisk, closedTrades, fullyClosedPositions, journalStrategies, listDeals, listRoundTrips, listStrategyRoster, listTrades, openPositionsAt, portfolioGroupOf,
   roundTripAnalytics, roundTripFacets, roundTripTotals, ROUND_TRIP_SORTS, type RoundTripScope, type RoundTripSort,
   resolveVisibility, strategyEquityCurve, strategyStats, type AccountLimits, type Db, type LiveStateStore, type ShareKind, type ShareRow, type Shares, type StrategyRow, type Views,
 } from "@qkt-insights/store";
@@ -523,7 +523,7 @@ export function registerPublic(app: FastifyInstance, deps: PublicDeps): void {
     params: () => ({}),
     compute: (scope, _p, cutoff) => {
       // Open P&L per strategy, as marked at the cutoff: never live, never per position.
-      const open = openPositionsAt(deps.db, { instanceId: scope.instanceId, at: cutoff }).filter((p) => p.strategyId != null && scope.allowed.has(p.strategyId));
+      const open = journalStrategies(deps.db, scope.instanceId, openPositionsAt(deps.db, { instanceId: scope.instanceId, at: cutoff })).filter((p) => p.strategyId != null && scope.allowed.has(p.strategyId));
       const openByStrategy: Record<string, number> = {};
       // Open P&L includes swap, as the venue's floating P&L does.
       for (const p of open) openByStrategy[p.strategyId!] = (openByStrategy[p.strategyId!] ?? 0) + (p.profit ?? 0) + (p.swap ?? 0);

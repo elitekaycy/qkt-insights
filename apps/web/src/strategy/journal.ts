@@ -9,6 +9,12 @@ import type { TripDay } from "../trades/analytics";
 /** Buckets with fewer round trips than this are drawn faded: too few to read an edge from. */
 export const MIN_SAMPLE = 30;
 
+/** What to do about an empty selection: loosen the search, widen a range, or nothing yet to show. */
+export function emptyHint(q: string, from: number | undefined): string {
+  if (q) return "Loosen the search above or widen the range.";
+  return from != null && from > 0 ? "Widen the range: none closed in it." : "This strategy has not closed a trade yet.";
+}
+
 /** The query with `token` added, or without it when it is already a chip (the second click clears). */
 export function toggleToken(q: string, token: string): string {
   const p = parseQuery(q);

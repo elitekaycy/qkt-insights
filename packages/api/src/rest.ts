@@ -1,5 +1,5 @@
 import type { FastifyInstance } from "fastify";
-import { listInstances, listStrategies, listTrades, searchEvents, equityCurve, instanceHealth, searchLogs, logPage, strategyStats, listDeals, accountEquity, accountDrawdown, accountPerformance, accountRisk, monitorSummaries, listMonitorEvents, type AccountLimits, type Db, type LiveStateStore, type Monitors } from "@qkt-insights/store";
+import { listInstances, listStrategies, listTrades, searchEvents, equityCurve, instanceHealth, searchLogs, logPage, strategyStats, listDeals, accountEquity, accountDrawdown, accountPerformance, accountRisk, monitorSummaries, withJournalStrategies, listMonitorEvents, type AccountLimits, type Db, type LiveStateStore, type Monitors } from "@qkt-insights/store";
 import { UNATTRIBUTED_STRATEGY } from "@qkt-insights/contract/query";
 import { requireSession } from "./auth.js";
 import { TtlCache } from "./cache.js";
@@ -107,7 +107,7 @@ export function registerRest(app: FastifyInstance, deps: RestDeps): void {
     return versioned.send(req, reply, [{ strategy: f }], () => equityCurve(deps.db, f));
   });
 
-  app.get("/live/state", guard, async () => deps.liveState.snapshot(Date.now()));
+  app.get("/live/state", guard, async () => withJournalStrategies(deps.db, deps.liveState.snapshot(Date.now())));
 
   app.get<{ Querystring: Record<string, string> }>("/deals", guard, async (req, reply) => {
     const q = req.query; if (!need(reply, q.instance, "instance")) return;
