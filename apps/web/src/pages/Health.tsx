@@ -4,9 +4,27 @@ import { get, type HealthRow, type LiveAccount, type LiveStateSnapshot, type Mon
 import { Cell, DataList, Empty, LiveDot, PageHeader, Panel, Pill, Row, Skeleton, Stat, Table, type Tone } from "../components/ui";
 import { age, clock, duration, money, pct, signedMoney, tsDay, tsShort } from "../format";
 
+/** Red only for a loss: failed POSTs are retried (from the journal when it is on), so they are not one. */
 function sinkTone(row: HealthRow): Tone {
   if (row.insightsSent == null) return "neutral";
-  return (row.insightsFailed ?? 0) > 0 || (row.insightsDropped ?? 0) > 0 ? "bad" : "ok";
+  if ((row.insightsDropped ?? 0) > 0) return "bad";
+  return (row.insightsFailed ?? 0) > 0 ? "neutral" : "ok";
+}
+
+function sinkLabel(row: HealthRow): string {
+  if (row.insightsSent == null) return "unknown";
+  return `${row.insightsDropped ?? 0} lost · ${row.insightsFailed ?? 0} retries`;
+}
+
+const SINK_TITLE = "lost: envelopes qkt gave up on (dropped). retries: POST attempts that failed since qkt started and were tried again; a retried envelope is not lost";
+
+/** "seq 1234 · 12s ago": the newest envelope's sequence and when that envelope was stamped. */
+function seqLabel(row: HealthRow): string {
+  return row.latestSeq == null ? "—" : `${row.latestSeq}${row.latestSeqTs != null ? ` · ${age(row.latestSeqTs)}` : ""}`;
+}
+
+function strategiesLabel(row: HealthRow): string {
+  return row.retiredStrategies > 0 ? `${row.strategies} (+${row.retiredStrategies} retired)` : String(row.strategies);
 }
 
 function journalLabel(row: HealthRow): string {
@@ -402,16 +420,16 @@ export default function Health() {
                     {acct ? money(acct.equity) : "—"}
                   </Fact>
                   <Fact label="seq" mono>
-                    {r.lastSeq}
+                    {seqLabel(r)}
                   </Fact>
                   <Fact label="strategies" mono>
-                    {r.strategies}
+                    {strategiesLabel(r)}
                   </Fact>
                 </div>
                 <div className="mt-2.5 flex flex-wrap items-center gap-2">
-                  <Pill tone={sinkTone(r)}>
-                    {r.insightsSent == null ? "unknown" : `${r.insightsFailed ?? 0} failed · ${r.insightsDropped ?? 0} dropped`}
-                  </Pill>
+                  <span title={SINK_TITLE}>
+                    <Pill tone={sinkTone(r)}>{sinkLabel(r)}</Pill>
+                  </span>
                   <Pill tone={r.insightsJournalPending == null ? "neutral" : r.insightsJournalPending > 0 ? "warn" : "ok"}>
                     journal {journalLabel(r)}
                   </Pill>
@@ -458,15 +476,19 @@ export default function Health() {
                     <Pill tone={fresh ? "ok" : "neutral"}>{fresh ? "live" : "idle"}</Pill>
                   </Cell>
                   <Cell className="whitespace-nowrap text-muted">{age(r.lastSeen)}</Cell>
-                  <Cell className="text-muted">{r.lastSeq}</Cell>
-                  <Cell className="text-muted">{r.strategies}</Cell>
+                  <Cell className="whitespace-nowrap text-muted">
+                    <span title={r.latestSeqTs != null ? `newest envelope's sequence, stamped ${tsDay(r.latestSeqTs)} UTC` : undefined}>{seqLabel(r)}</span>
+                  </Cell>
+                  <Cell className="text-muted">
+                    <span title={r.retiredStrategies > 0 ? "retired: rows a newer roster or 30 days of silence left behind, not counted as deployed" : undefined}>{strategiesLabel(r)}</span>
+                  </Cell>
                   <Cell className="text-muted">{acct ? (acct.login ? `${acct.broker} · #${acct.login}` : acct.broker) : "—"}</Cell>
                   <Cell className="text-bright">{acct ? money(acct.equity) : "—"}</Cell>
                   <Cell>
                     <span className="flex flex-wrap gap-1.5">
-                      <Pill tone={sinkTone(r)}>
-                        {r.insightsSent == null ? "unknown" : `${r.insightsFailed ?? 0} failed · ${r.insightsDropped ?? 0} dropped`}
-                      </Pill>
+                      <span title={SINK_TITLE}>
+                        <Pill tone={sinkTone(r)}>{sinkLabel(r)}</Pill>
+                      </span>
                       <QuarantinePill row={r} />
                     </span>
                   </Cell>

@@ -106,6 +106,25 @@ describe("queries", () => {
     expect(prod.insightsHealthTs).toBe(1718000003000);
   });
 
+  it("reports the newest envelope's seq of any type, and counts only deployed strategies", () => {
+    const db2 = openDb(":memory:");
+    const e = (id: string, seq: number, ts: number, type: string, payload: Record<string, unknown>, strategyId?: string) =>
+      ({ v: 1, instanceId: "bench", id, seq, ts, type, ...(strategyId ? { strategyId } : {}), payload }) as Envelope;
+    const T = 1790000000000;
+    ingestEvents(db2, "bench", [
+      // An earlier session ran its bus sequence up high; the next session starts again from 1.
+      e("a", 900_000, T, "strategy.started", { strategyId: "s1", startingBalance: 1000 }, "s1"),
+      e("b", 3, T + 60_000, "strategy.started", { strategyId: "s1", startingBalance: 1000 }, "s1"),
+      e("c", 4, T + 120_000, "strategy.started", { strategyId: "manual", startingBalance: 1000 }, "manual"),
+      e("d", 0, T + 180_000, "log", { level: "INFO", logger: "x", message: "seq 0" }),
+      // A replayed straggler from long ago does not move it back.
+      e("f", 2, T + 30_000, "strategy.started", { strategyId: "s2", startingBalance: 1000 }, "s2"),
+    ]);
+    upsertRoster(db2, "bench", ["s1", "s2"], T + 200_000);
+    const h = instanceHealth(db2).find((x) => x.instanceId === "bench")!;
+    expect(h).toMatchObject({ lastSeq: 900_000, latestSeq: 4, latestSeqTs: T + 120_000, strategies: 2, retiredStrategies: 1 });
+  });
+
   it("downsamples a dense equity curve to real bucketed snapshots", () => {
     const T0 = 1718100000000;
     for (let batch = 0; batch < 3; batch++) {

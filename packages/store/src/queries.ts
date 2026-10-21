@@ -26,7 +26,13 @@ export interface StrategyRow { strategyId: string; firstSeen: number; lastSeen: 
 export interface TradeRow { id: string; strategyId: string | null; ts: number; payload: unknown }
 export interface SearchHit { id: string; instanceId: string; type: string; ts: number; payload: unknown }
 export interface EquityPoint { ts: number; equity: number; realized: number; unrealized: number }
-export interface HealthRow { instanceId: string; lastSeen: number; lastSeq: number; strategies: number; insightsSent: number | null; insightsFailed: number | null; insightsDropped: number | null; insightsQueued: number | null; insightsJournalEnabled: number | null; insightsJournalPending: number | null; insightsHealthTs: number | null; quarantined: QuarantineCount[] }
+export interface HealthRow {
+  instanceId: string; lastSeen: number; lastSeq: number;
+  /** The newest envelope's sequence number, of any type that carries one, and that envelope's time; null before one arrives. */
+  latestSeq: number | null; latestSeqTs: number | null;
+  /** Strategies deployed now (the same "active" as the strategy list); retired ones are counted apart. */
+  strategies: number; retiredStrategies: number;
+  insightsSent: number | null; insightsFailed: number | null; insightsDropped: number | null; insightsQueued: number | null; insightsJournalEnabled: number | null; insightsJournalPending: number | null; insightsHealthTs: number | null; quarantined: QuarantineCount[] }
 /** Envelopes held raw for one instance, per type and major; `reason` is the newest one's. */
 export interface QuarantineCount { type: string | null; v: number | null; count: number; lastReceivedAt: number; reason: string }
 
@@ -59,6 +65,17 @@ export function listStrategies(db: Db, instanceId: string, now = Date.now()): Ar
   });
 }
 
+/** 1 when strategy row `s` is deployed now, else 0: see strategyRosterRows. */
+const ACTIVE_STRATEGY = `CASE
+         WHEN s.last_seen < (SELECT MAX(s2.last_seen) FROM strategies s2 WHERE s2.instance_id=s.instance_id) - ${RETIRED_AFTER_MS} THEN 0
+         WHEN NOT EXISTS (SELECT 1 FROM instance_roster ir WHERE ir.instance_id=s.instance_id) THEN 1
+         WHEN EXISTS (
+           SELECT 1 FROM instance_roster ir WHERE ir.instance_id=s.instance_id AND ir.strategy_id=s.strategy_id
+             AND ir.ts >= (SELECT MAX(ts) FROM instance_roster i2 WHERE i2.instance_id=s.instance_id) - ${ROSTER_WINDOW_MS}
+         ) THEN 1
+         ELSE 0
+       END`;
+
 function strategyRosterRows(db: Db, instanceId: string): Array<Omit<StrategyRow, "realizedNet" | "dealCount">> {
   // realizedNet and dealCount come from closedTrades — broker deals when polled, else the engine's
   // trade.closed rows — the same fallback report/contribution use, so a card and its detail page can
@@ -72,17 +89,9 @@ function strategyRosterRows(db: Db, instanceId: string): Array<Omit<StrategyRow,
   const rows = db.prepare(
     `SELECT s.strategy_id strategyId, s.first_seen firstSeen, s.last_seen lastSeen, s.starting_balance startingBalance, s.metadata,
        (SELECT c.capital FROM strategy_capital c WHERE c.strategy_id=s.strategy_id) definedCapital,
-       CASE
-         WHEN s.last_seen < (SELECT MAX(s2.last_seen) FROM strategies s2 WHERE s2.instance_id=s.instance_id) - ? THEN 0
-         WHEN NOT EXISTS (SELECT 1 FROM instance_roster ir WHERE ir.instance_id=s.instance_id) THEN 1
-         WHEN EXISTS (
-           SELECT 1 FROM instance_roster ir WHERE ir.instance_id=s.instance_id AND ir.strategy_id=s.strategy_id
-             AND ir.ts >= (SELECT MAX(ts) FROM instance_roster i2 WHERE i2.instance_id=s.instance_id) - ?
-         ) THEN 1
-         ELSE 0
-       END active
+       ${ACTIVE_STRATEGY} active
      FROM strategies s WHERE s.instance_id=? ORDER BY s.strategy_id`,
-  ).all(RETIRED_AFTER_MS, ROSTER_WINDOW_MS, instanceId) as Array<Omit<StrategyRow, "realizedNet" | "dealCount" | "metadata" | "active"> & { metadata: string | null; active: number }>;
+  ).all(instanceId) as Array<Omit<StrategyRow, "realizedNet" | "dealCount" | "metadata" | "active"> & { metadata: string | null; active: number }>;
   return rows.map((r) => ({
     ...r,
     metadata: typeof r.metadata === "string" ? JSON.parse(r.metadata) as Record<string, unknown> : null,
@@ -181,8 +190,9 @@ export function instanceHealth(db: Db): HealthRow[] {
   ).all() as Array<QuarantineCount & { instanceId: string }>;
   for (const { instanceId, ...c } of counts) quarantined.set(instanceId, [...(quarantined.get(instanceId) ?? []), c]);
   const rows = db.prepare(
-    `SELECT i.id instanceId, i.last_seen lastSeen, i.last_seq lastSeq,
-            (SELECT COUNT(*) FROM strategies s WHERE s.instance_id=i.id) strategies,
+    `SELECT i.id instanceId, i.last_seen lastSeen, i.last_seq lastSeq, i.latest_seq latestSeq, i.latest_seq_ts latestSeqTs,
+            (SELECT coalesce(SUM(${ACTIVE_STRATEGY}), 0) FROM strategies s WHERE s.instance_id=i.id) strategies,
+            (SELECT COUNT(*) - coalesce(SUM(${ACTIVE_STRATEGY}), 0) FROM strategies s WHERE s.instance_id=i.id) retiredStrategies,
             json_extract(h.payload, '$.sent') insightsSent,
             json_extract(h.payload, '$.failed') insightsFailed,
             json_extract(h.payload, '$.dropped') insightsDropped,

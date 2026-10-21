@@ -84,14 +84,23 @@ export interface InstanceRow {
   lastSeen: number;
   lastSeq: number;
   heardAt: number | null;
+  silentFrom: number | null;
+  silentTo: number | null;
 }
 export interface HealthRow {
   instanceId: string;
   lastSeen: number;
   lastSeq: number;
+  /** The newest envelope's sequence number (any type that carries one) and that envelope's time. */
+  latestSeq: number | null;
+  latestSeqTs: number | null;
+  /** Deployed now; retiredStrategies are rows a newer roster or a month of silence has left behind. */
   strategies: number;
+  retiredStrategies: number;
   insightsSent: number | null;
+  /** POST attempts that failed since qkt started; each is retried (from the journal when on), so it is not a loss. */
   insightsFailed: number | null;
+  /** Envelopes qkt gave up on: the only loss. */
   insightsDropped: number | null;
   insightsQueued: number | null;
   insightsJournalEnabled: boolean | number | null;

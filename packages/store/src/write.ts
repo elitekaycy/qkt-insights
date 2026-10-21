@@ -53,8 +53,11 @@ const ORDER_STATE: Record<string, string> = {
  * SET expressions read the row as it was before the update.
  */
 const UP_INSTANCE_SQL =
-  `INSERT INTO instances (id, first_seen, last_seen, last_seq, heard_at) VALUES (@id,@ts,@ts,@seq,@heardAt)
+  `INSERT INTO instances (id, first_seen, last_seen, last_seq, heard_at, latest_seq, latest_seq_ts)
+   VALUES (@id,@ts,@ts,@seq,@heardAt, CASE WHEN @seq > 0 THEN @seq END, CASE WHEN @seq > 0 THEN @ts END)
    ON CONFLICT(id) DO UPDATE SET last_seen=max(last_seen,@ts), last_seq=max(last_seq,@seq), heard_at=@heardAt,
+     latest_seq = CASE WHEN @seq > 0 AND @ts >= coalesce(latest_seq_ts, 0) THEN @seq ELSE latest_seq END,
+     latest_seq_ts = CASE WHEN @seq > 0 AND @ts >= coalesce(latest_seq_ts, 0) THEN @ts ELSE latest_seq_ts END,
      silent_from = CASE WHEN @ts - last_seen > ${OUTAGE_AFTER_MS} THEN last_seen + (@heardAt - @ts) ELSE silent_from END,
      silent_to = CASE WHEN @ts - last_seen > ${OUTAGE_AFTER_MS} THEN @heardAt ELSE silent_to END`;
 

@@ -130,8 +130,10 @@ count as not up, and their share is shown), latency or the failure reason, and h
 long it has held its current status. Incidents lists every up/down transition with how
 long each outage lasted, including the ones written after the fact for the time the
 collector itself was down (`insights collector`).
-Below that, runtime status for every reporting instance: last event age, sequence
-position, sink delivery counters, journal backlog, and broker account truth.
+Below that, runtime status for every reporting instance: last event age, the newest
+envelope's sequence number and when it was stamped, deployed strategies (retired roster
+leftovers counted apart), sink delivery (red only for envelopes lost; failed POSTs that
+were retried show as retries), journal backlog, and broker account truth.
 
 ![Health](assets/screenshots/health.png)
 
