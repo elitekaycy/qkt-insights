@@ -1,11 +1,15 @@
 import { realAccounts } from "../accounts";
 import { useQuery } from "@tanstack/react-query";
 import { get, type AccountRiskRow, type AccountSummary, type StrategyRow } from "../api";
-import { StrategySearch, StrategyTable, type StrategyLine } from "../components/HomeStrategies";
-import { Card, Cell, Empty, Loadable, PageHeader, Panel, Pill, Pnl, Popover, ReturnPct, Row, Stat, Table } from "../components/ui";
-import { age, count, money, openPnl, pct } from "../format";
-import { floatingByStrategy, riskRowFor, strategyLines, strategyPeriods } from "../home";
-import { Link, routePath, useRoute } from "../router";
+import { useMemo, useState } from "react";
+import { StrategySearch, type StrategyLine } from "../components/HomeStrategies";
+import { CardGrid, PortfolioGroup, StrategyCard } from "../components/StrategyCards";
+import { Card, Cell, Empty, Loadable, PageHeader, Panel, Pill, Pnl, Popover, Row, Select, Stat, Table } from "../components/ui";
+import { age, count, money, openPnl, pct, ts } from "../format";
+import { emptyPeriods, floatingByStrategy, riskRowFor, strategyLines, strategyPeriods } from "../home";
+import { routePath, useRoute, useSearchParam } from "../router";
+import { asksForRetired, matchesStrategy } from "../strategyFilter";
+import { CARD_SORTS, cardGroups, isFolded, mergeCurves, realizedCurves, sortCards, type CardSort } from "../strategyCards";
 import { useLiveState } from "../useLiveState";
 import { portfolioGroupId, strategyCapital, strategyDisplayName as displayName, summarizePortfolio } from "../portfolio";
 import { ShareControl } from "../components/ShareControl";
@@ -47,9 +51,8 @@ function portfolioAlias(row: StrategyRow): string | null {
 }
 
 /**
- * Every strategy on the instance as the sortable table Home uses (status and halt reason, Today,
- * 7D, MTD, all-time, max drawdown, trades, win rate, last close), one table per portfolio and one
- * for standalone strategies; a row opens the strategy.
+ * Every strategy on the instance as a card, from the same figures as Home's table: a group card per
+ * portfolio with its sleeves beneath, then the standalone strategies; a card opens the strategy.
  */
 export default function Strategies({ instanceId }: { instanceId: string | null }) {
   const view = useView();
@@ -79,6 +82,7 @@ export default function Strategies({ instanceId }: { instanceId: string | null }
     refetchInterval: 60_000,
   });
   const liveState = useLiveState();
+  const [sort, setSort] = useSearchParam("sort", "net");
 
   if (!instanceId) return <Card className="p-8 text-center text-faint">No instance selected.</Card>;
   if (selected) return <StrategyDetail instanceId={instanceId} strategyId={selected} />;
@@ -106,23 +110,25 @@ export default function Strategies({ instanceId }: { instanceId: string | null }
   const floating = view.public
     ? new Map<string | null, number>(Object.entries(liveState.data?.openByStrategy ?? {}))
     : floatingByStrategy(positions);
-  const periods = summary.data ? strategyPeriods(summary.data.closes, { now, dayStart, floating }) : null;
+  const closes = summary.data?.closes ?? [];
+  const periods = summary.data ? strategyPeriods(closes, { now, dayStart, floating }) : null;
   const lines: StrategyLine[] = periods ? strategyLines(rows, periods) : [];
-  const groups = new Map<string, StrategyLine[]>();
-  const standalone: StrategyLine[] = [];
-  for (const l of lines) {
-    const g = l.row ? portfolioGroupId(l.row) : null;
-    if (g) groups.set(g, [...(groups.get(g) ?? []), l]);
-    else standalone.push(l);
-  }
   const halted = rows.filter((r) => r.active && r.halted).length;
   const live = rows.filter((r) => r.active).length;
 
   return (
-    <div className="grid gap-4">
+    <div className="@container grid gap-4">
       <PageHeader
         title="Strategies"
-        sub={`${live} deployed${halted ? ` · ${halted} halted` : ""}${groups.size ? ` · ${groups.size} portfolio${groups.size === 1 ? "" : "s"}` : ""} · realized P&L from every close on the account, Today on the account's trading day${view.public ? `, ${view.meta.delayMinutes} minutes behind` : ""}`}        right={<StrategySearch />}
+        sub={`${live} deployed${halted ? ` · ${halted} halted` : ""} · net is realized from every close on the account plus open P&L${view.public ? `, ${view.meta.delayMinutes} minutes behind` : ""}`}
+        right={
+          <div className="flex w-full items-center gap-2 sm:w-auto">
+            <StrategySearch className="flex-1 sm:flex-none" />
+            <Select aria-label="Sort strategies" title="Order the cards" value={sort} onChange={(e) => setSort(e.target.value)} className="sm:w-36">
+              {CARD_SORTS.map((o) => <option key={o.key} value={o.key}>{o.label}</option>)}
+            </Select>
+          </div>
+        }
       />
       <Loadable
         loading={strategies.isPending || summary.isPending}
@@ -134,43 +140,74 @@ export default function Strategies({ instanceId }: { instanceId: string | null }
         {rows.length === 0 && lines.length === 0 ? (
           <Card className="p-8 text-center text-muted">No strategies yet: they appear with the first strategy.started from qkt.</Card>
         ) : (
-          <>
-            {[...groups.entries()].map(([id, group]) => {
-              const all = group.reduce((a, l) => a + l.periods.all + l.periods.floating, 0);
-              const children = group.flatMap((l) => (l.row ? [l.row] : []));
-              const capital = summarizePortfolio(id, children, new Map(), false).allocatedCapital;
-              return (
-                <StrategyTable
-                  key={id}
-                  origin="Strategies"
-                  lines={group}
-                  now={now}
-                  title={id}
-                  hint="portfolio"
-                  footer="the portfolio's sleeves; realized from their closes, Today adds what they float"
-                  right={
-                    <>
-                      <Pnl value={all} className="text-sm font-semibold" />
-                      <ReturnPct net={all} base={capital} />
-                      <Link to={routePath({ page: "strategies", portfolio: id })} from="Strategies" className="text-xs font-medium text-accent-ink hover:underline">Portfolio →</Link>
-                    </>
-                  }
-                />
-              );
-            })}
-            {standalone.length > 0 && (
-              <StrategyTable
-                origin="Strategies"
-                lines={standalone}
-                now={now}
-                title={groups.size ? "Standalone strategies" : "Strategies"}
-              />
-            )}
-          </>
+          <StrategyCardList lines={lines} closes={closes} now={now} />
         )}
       </Loadable>
     </div>
   );
+}
+
+/** Portfolios first (each with its sleeves beneath), then standalone strategies, filtered by the search and in the chosen order. */
+function StrategyCardList({ lines, closes, now }: { lines: StrategyLine[]; closes: AccountSummary["closes"]; now: number }) {
+  const [find] = useSearchParam("find");
+  const [sortParam] = useSearchParam("sort", "net");
+  const [showAll, setShowAll] = useState(false);
+  const sort = (CARD_SORTS.find((o) => o.key === sortParam)?.key ?? "net") as CardSort;
+  const curves = useMemo(() => realizedCurves(closes, { now }), [closes, now]);
+  const all = showAll || asksForRetired(find);
+  const matched = lines.filter((l) => matchesStrategy(l.row, find));
+  const shown = matched.filter((l) => all || !isFolded(l));
+  const foldedCount = matched.filter(isFolded).length;
+  const { portfolios, standalone } = cardGroups(shown);
+  const orderedPortfolios = sortCards(
+    portfolios.map((g) => ({ key: g.id, row: null, group: g, periods: { ...emptyPeriods(g.id), all: g.net, today: g.today, lastTs: g.lastTs } })),
+    sort,
+  ).map((p) => p.group);
+  const card = (l: StrategyLine, name?: string) => (
+    <StrategyCard key={l.key ?? "(unattributed)"} line={l} curve={curves.get(l.key) ?? []} name={name} origin="Strategies" />
+  );
+
+  return (
+    <div className="grid gap-5">
+      {shown.length === 0 && (
+        <Card className="p-8 text-center text-sm text-muted">
+          {find ? `No strategy matches “${find}”.` : "No strategy has traded yet. Cards appear with the first close or open position."}
+        </Card>
+      )}
+      {orderedPortfolios.map((g) => (
+        <PortfolioGroup
+          key={g.id}
+          group={g}
+          curve={mergeCurves(closes, new Set(g.children.map((c) => c.key)), { now })}
+          to={routePath({ page: "strategies", portfolio: g.id })}
+          origin="Strategies"
+        >
+          <CardGrid>{sortCards(g.children, sort).map((l) => card(l, sleeveName(l, g.id)))}</CardGrid>
+        </PortfolioGroup>
+      ))}
+      {standalone.length > 0 && (
+        <section className="grid gap-2.5">
+          {orderedPortfolios.length > 0 && <h2 className="eyebrow">Standalone strategies</h2>}
+          <CardGrid>{sortCards(standalone, sort).map((l) => card(l))}</CardGrid>
+        </section>
+      )}
+      <div className="flex flex-wrap items-center gap-x-3 gap-y-1 text-[11px] text-faint">
+        <span>as of {ts(now).slice(11, 16)} UTC · cards add up to the account; unattributed = deals no strategy claimed</span>
+        {foldedCount > 0 && !asksForRetired(find) && (
+          <button type="button" onClick={() => setShowAll((s) => !s)} className="text-xs font-medium text-accent-ink hover:underline">
+            {showAll ? "Hide retired and empty" : `Show ${foldedCount} retired or empty`}
+          </button>
+        )}
+      </div>
+    </div>
+  );
+}
+
+/** A sleeve's name inside its portfolio's group: without the portfolio prefix the group already shows. */
+function sleeveName(l: StrategyLine, portfolio: string): string {
+  const name = l.row ? displayName(l.row) : l.key ?? "Unattributed";
+  const prefix = name.indexOf(" / ");
+  return prefix > 0 && name.slice(0, prefix).startsWith(portfolio) ? name.slice(prefix + 3) : name;
 }
 
 /** Engine risk halt on a strategy row: tap or click for the reason, how it ends and the resume command. */
