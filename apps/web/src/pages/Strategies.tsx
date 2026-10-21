@@ -1,19 +1,22 @@
-import { useState } from "react";
+import { useCallback, useMemo, useState } from "react";
 import { useQuery } from "@tanstack/react-query";
-import { get, MIN_RATIO_DAYS, type EquityPoint, type LogRow, type PerformanceBundle, type StrategyRow, type StrategyStats, type TradeRow, type TradeView } from "../api";
+import { TRADE_KEYS } from "@qkt-insights/contract/query";
+import { get, MIN_RATIO_DAYS, type EquityPoint, type LogRow, type PerformanceBundle, type StrategyRow, type StrategyStats } from "../api";
 import { CalendarView } from "../components/Calendar";
-import { TradeDetail } from "../components/detail";
 import { EquityChart } from "../components/EquityChart";
 import { EdgeDetailPanels, PerformancePanels, TradeAnalysisPanels } from "../components/Performance";
 import { Sparkline } from "../components/Sparkline";
 import {
-  Card, Cell, DataList, Empty, Field, IconButton, Loadable, LoadMore, Modal, PageHeader, Panel, Pill, Pnl, Popover, RangeSelect, rangeStart, ReturnPct, Row, SearchInput,
-  Segmented, Select, SideTag, Stat, Table, TimeCell, useRangeParam,
+  Card, Cell, Empty, Field, IconButton, Loadable, Modal, PageHeader, Panel, Pill, Pnl, Popover, RangeSelect, rangeStart, ReturnPct, Row,
+  Segmented, Stat, Table, useRangeParam,
 } from "../components/ui";
-import { Link, routePath, STRATEGY_TABS, useRoute, type StrategyTab } from "../router";
+import { Link, routePath, STRATEGY_TABS, useRoute, useSearchParam, type StrategyTab } from "../router";
 import { LogLine } from "../components/LogLine";
-import { age, count, money, num, openPnl, pct, price, quantity, signedMoney, ts, tsShort } from "../format";
-import { buildCloseMap } from "../useCloses";
+import { age, count, money, num, openPnl, pct, signedMoney, ts } from "../format";
+import { QueryBar, TRADE_PRESETS } from "../query/QueryBar";
+import { RoundTripTable } from "../trades/RoundTripTable";
+import { useTripFacets, type RoundTripTotals } from "../trades/data";
+import { TripCount, useSortParams } from "../trades/scope";
 import { useLiveState } from "../useLiveState";
 import { physicalPortfolioId, portfolioGroupId, strategyCapital, strategyDisplayName as displayName, summarizePortfolio } from "../portfolio";
 import { ShareControl } from "../components/ShareControl";
@@ -535,23 +538,13 @@ export function StrategyDetail({ instanceId, strategyId, onBack }: { instanceId:
     queryFn: () => get<EquityPoint[]>(`/equity?${qs}`),
     refetchInterval: 30_000,
   });
-  const trades = useQuery({
-    queryKey: ["trades", instanceId, strategyId],
-    queryFn: () => get<TradeRow[]>(`/trades?${qs}&limit=500`),
-    refetchInterval: 30_000,
-  });
   const logs = useQuery({
     queryKey: ["logs", instanceId, strategyId],
     queryFn: () => get<LogRow[]>(`/logs?${qs}&limit=${RECENT_LOGS}`),
     enabled: !view.public,
     refetchInterval: 30_000,
   });
-  const [tradeCap, setTradeCap] = useState(20);
   const [runtimeOpen, setRuntimeOpen] = useState(false);
-  const [tradeQ, setTradeQ] = useState("");
-  const [tradeSide, setTradeSide] = useState("");
-  const [tradeSort, setTradeSort] = useState<"newest" | "oldest" | "qty" | "price" | "pnl">("newest");
-  const [openTrade, setOpenTrade] = useState<TradeRow | null>(null);
   const { route, navigate } = useRoute();
   const tab: StrategyTab = route.strategy === strategyId ? (route.tab ?? "overview") : "overview";
   const setTab = (t: StrategyTab) => navigate(routePath({ page: "strategies", strategy: strategyId, tab: t }));
@@ -584,25 +577,6 @@ export function StrategyDetail({ instanceId, strategyId, onBack }: { instanceId:
   const capital = row ? strategyCapital(row) : { amount: s?.startingBalance ?? null, source: null };
   const openPnl = live.open.get(strategyId) ?? (live.hasState ? 0 : null);
   const heroNet = s?.realizedPnl == null && openPnl == null ? null : (s?.realizedPnl ?? 0) + (openPnl ?? 0);
-  // Closed trades rebuilt from broker deals (realized P&L built in) are the row
-  // source whenever the strategy has any; engine fills are the paper/backtest fallback.
-  const closes = performance.data?.closes ?? [];
-  const closeByOrder = buildCloseMap(closes);
-  const usingDealTrades = closes.length > 0;
-  const tradeNeedle = tradeQ.trim().toUpperCase();
-  const tradeRows: TradeView[] = (usingDealTrades
-    ? closes.map((c) => ({ key: `${c.orderId ?? "?"}-${c.ts}`, ts: c.ts, symbol: c.symbol, side: c.side, qty: c.qty, price: c.price, realized: c.realized, searchKey: c.orderId ?? "", raw: null }))
-    : (trades.data ?? []).map((t) => ({ key: t.id, ts: t.ts, symbol: t.payload.symbol, side: t.payload.side, qty: t.payload.qty, price: t.payload.price, realized: closeByOrder.get(t.payload.orderId)?.realized ?? null, searchKey: t.payload.orderId, raw: t })))
-    .filter((t) => (!tradeSide || t.side === tradeSide) && (!tradeNeedle || t.symbol.toUpperCase().includes(tradeNeedle) || t.searchKey.toUpperCase().includes(tradeNeedle)))
-    .sort((a, b) => {
-      switch (tradeSort) {
-        case "oldest": return a.ts - b.ts;
-        case "qty": return b.qty - a.qty;
-        case "price": return b.price - a.price;
-        case "pnl": return (b.realized ?? -Infinity) - (a.realized ?? -Infinity);
-        default: return b.ts - a.ts;
-      }
-    });
   const logRows = logs.data ?? [];
   return (
     <div>
@@ -654,7 +628,7 @@ export function StrategyDetail({ instanceId, strategyId, onBack }: { instanceId:
           options={STRATEGY_TABS.map((t) => ({ key: t, label: t[0]!.toUpperCase() + t.slice(1) }))}
         />
         <ShareControl instanceId={instanceId} kind="strategy" subject={strategyId} />
-        {tab !== "overview" && (
+        {tab !== "overview" && tab !== "trades" && (
           <div className="w-full sm:ml-auto sm:w-auto">
             <RangeSelect value={range} onChange={setRange} />
           </div>
@@ -671,6 +645,8 @@ export function StrategyDetail({ instanceId, strategyId, onBack }: { instanceId:
         </div>
       )}
 
+      {tab === "trades" && <StrategyTrades instanceId={instanceId} strategyId={strategyId} />}
+
       {tab === "calendar" && (
         <div className="mt-5">
           <Loadable loading={!performance.data} error={performance.isError} retry={() => performance.refetch()} what="the calendar" lines={6}>
@@ -679,8 +655,7 @@ export function StrategyDetail({ instanceId, strategyId, onBack }: { instanceId:
                 days={performance.data.dailyNets}
                 returnBase={() => capital.amount}
                 baseLabel={capital.source ? `the strategy's ${capital.source}` : "the strategy's capital"}
-                trades={tradeRows}
-                onTrade={view.public ? undefined : setOpenTrade}
+                drill={{ instanceId, strategy: strategyId }}
               />
             )}
           </Loadable>
@@ -728,88 +703,16 @@ export function StrategyDetail({ instanceId, strategyId, onBack }: { instanceId:
 
       {/* items-start: each list sizes to its own rows instead of stretching to its neighbour */}
       <div className="mt-6 grid grid-cols-1 items-start gap-6 2xl:grid-cols-2">
-        <Panel
-         
-          title="Trades"
-          hint={usingDealTrades ? "broker deal closes" : "click a row to inspect"}
-          toolbar={
-            <>
-              <SearchInput
-                value={tradeQ}
-                onChange={(e) => {
-                  setTradeQ(e.target.value);
-                  setTradeCap(20);
-                }}
-                placeholder="search symbol, order id…"
-                className="w-full sm:w-56"
-              />
-              <Select
-                value={tradeSide}
-                onChange={(e) => {
-                  setTradeSide(e.target.value);
-                  setTradeCap(20);
-                }}
-              >
-                <option value="">any side</option>
-                <option value="BUY">BUY</option>
-                <option value="SELL">SELL</option>
-              </Select>
-              <Select value={tradeSort} onChange={(e) => setTradeSort(e.target.value as typeof tradeSort)}>
-                <option value="newest">newest first</option>
-                <option value="oldest">oldest first</option>
-                <option value="qty">biggest qty</option>
-                <option value="price">highest price</option>
-                <option value="pnl">best P&L</option>
-              </Select>
-            </>
-          }
-        >
-          <Loadable loading={!performance.data && trades.isPending} error={trades.isError} retry={() => { void trades.refetch(); void performance.refetch(); }} what="trades">
-          <DataList
-            head={["Time (UTC)", "Symbol", "Side", "Qty", "Price", "P&L"]}
-            rows={tradeRows.slice(0, tradeCap)}
-            keyOf={(t) => t.key}
-            onRow={usingDealTrades || view.public ? undefined : (t) => t.raw && setOpenTrade(t.raw)}
-            empty="No trades yet"
-            cells={(t) => {
-              const r = t.realized;
-              return (
-                <>
-                  <TimeCell ts={t.ts} />
-                  <Cell className="font-semibold text-bright">{t.symbol}</Cell>
-                  <Cell>
-                    <SideTag side={t.side} />
-                  </Cell>
-                  <Cell>{quantity(t.qty)}</Cell>
-                  <Cell className="whitespace-nowrap text-muted">@ {price(t.price)}</Cell>
-                  <Cell className="font-semibold">
-                    <Pnl value={r} glyphs={false} />
-                  </Cell>
-                </>
-              );
-            }}
-            card={(t) => {
-              const r = t.realized;
-              return (
-                <>
-                  <div className="flex items-baseline gap-2">
-                    <span className="min-w-0 truncate font-semibold text-bright">{t.symbol}</span>
-                    <SideTag side={t.side} />
-                    <Pnl value={r} glyphs={false} className="ml-auto shrink-0 text-sm font-semibold" />
-                  </div>
-                  <div className="mt-1 flex items-center gap-2 text-xs text-faint">
-                    <span className="whitespace-nowrap">
-                      {quantity(t.qty)} @ {price(t.price)}
-                    </span>
-                    <span className="ml-auto whitespace-nowrap">{tsShort(t.ts)} UTC</span>
-                  </div>
-                </>
-              );
-            }}
-          />
-          <LoadMore shown={Math.min(tradeCap, tradeRows.length)} total={tradeRows.length} onMore={() => setTradeCap((c) => c + 20)} />
-          </Loadable>
-        </Panel>
+        <Card className="overflow-hidden">
+          <div className="flex flex-wrap items-baseline gap-x-2.5 gap-y-1 border-b border-line px-4 py-3">
+            <h3 className="text-sm font-medium text-body">Latest round trips</h3>
+            <span className="text-xs text-muted">newest first · click one for its timeline</span>
+            <Link to={routePath({ page: "strategies", strategy: strategyId, tab: "trades" })} className="ml-auto text-xs font-medium text-accent-ink hover:underline">
+              All trades and search →
+            </Link>
+          </div>
+          <RoundTripTable scope={{ instanceId, strategy: strategyId }} q="" sort="entry" dir="desc" hide={STRATEGY_HIDDEN} height="22rem" keyboard={false} empty="No round trips yet." />
+        </Card>
 
         {!view.public && (
         <Panel title="Recent logs" hint={`latest ${RECENT_LOGS} · full history on Logs`}>
@@ -825,10 +728,6 @@ export function StrategyDetail({ instanceId, strategyId, onBack }: { instanceId:
         )}
       </div>
         </>
-      )}
-
-      {!view.public && (
-        <TradeDetail trade={openTrade} instanceId={instanceId} onClose={() => setOpenTrade(null)} close={openTrade ? closeByOrder.get(openTrade.payload.orderId) : null} />
       )}
 
       {metadata && !view.public && (
@@ -847,6 +746,53 @@ export function StrategyDetail({ instanceId, strategyId, onBack }: { instanceId:
           </div>
         </Modal>
       )}
+    </div>
+  );
+}
+
+/** A strategy page leaves its own name out of each row. */
+const STRATEGY_HIDDEN = ["strategy"];
+
+/** The strategy's round trips with the query bar: the Trades page, scoped to one strategy. */
+function StrategyTrades({ instanceId, strategyId }: { instanceId: string; strategyId: string }) {
+  const [q, setQ] = useSearchParam("q");
+  const [sort, dir, setSort] = useSortParams();
+  const [range, setRange] = useRangeParam();
+  const facets = useTripFacets(instanceId, strategyId);
+  const [totals, setTotals] = useState<{ t: RoundTripTotals | null; errors: string[]; loading: boolean }>({ t: null, errors: [], loading: true });
+  const onTotals = useCallback((t: RoundTripTotals | null, query: { errors: string[] } | null, loading: boolean) => {
+    setTotals((cur) => ({ t: t ?? cur.t, errors: query?.errors ?? cur.errors, loading }));
+  }, []);
+  const from = rangeStart(range);
+  const scope = useMemo(() => ({ instanceId, strategy: strategyId, from: from > 0 ? Math.floor(from / 60_000) * 60_000 : undefined }), [instanceId, strategyId, from]);
+  const data = useMemo(
+    () => ({
+      strategies: (facets.data?.strategies ?? []).flatMap((s) => (s.id ? [s.id] : [])),
+      instruments: (facets.data?.instruments ?? []).map((i) => i.name),
+      days: facets.data?.days ?? [],
+      sizes: facets.data?.sizes ?? [],
+    }),
+    [facets.data],
+  );
+  return (
+    <div className="mt-5 grid gap-3">
+      <QueryBar
+        value={q}
+        onChange={(v) => setQ(v)}
+        keys={TRADE_KEYS}
+        data={data}
+        page="Trades"
+        presets={TRADE_PRESETS}
+        errors={totals.errors}
+        placeholder="Search or filter: win, side:short, pnl:<0, held:<1h, ended:stop, exit:2026-10…"
+      />
+      <div className="flex flex-wrap items-center gap-x-3 gap-y-2">
+        <RangeSelect value={range} onChange={setRange} />
+        <TripCount totals={totals.t} loading={totals.loading} />
+      </div>
+      <Card className="overflow-hidden">
+        <RoundTripTable scope={scope} q={q} sort={sort} dir={dir} onSort={setSort} onTotals={onTotals} hide={STRATEGY_HIDDEN} height="calc(100dvh - 22rem)" />
+      </Card>
     </div>
   );
 }

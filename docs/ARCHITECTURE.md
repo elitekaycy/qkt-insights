@@ -5,9 +5,10 @@
 - **Health** — every reporting instance, last-event age, sequence position, sink counters, journal backlog, quarantined envelopes by type, live/idle status.
 - **Uptime** — a heartbeat monitor per daemon and HTTP probes for anything else on the box (the MT5 gateway, with `mt5_status: connected` asserted); 24h strip, uptime %, incident timeline, and a Telegram/webhook alert on every down and recovery. A dead-man ping tells an outside service the collector itself is alive.
 - **Strategies** — per-strategy drill-down against the strategy's own capital: its equity curve (never the shared account), Sharpe, win rate, max drawdown, return, trades, the latest logs, and the deploy's runtime details one click from the name.
-- **Trades** — every fill, filterable by strategy and symbol.
-- **Logs** — engine logs shipped from qkt with level filters, full-text search, and a live tail.
-- **Search** — FTS5 full-text search across all events and logs: symbols, order ids, halt reasons, log text.
+- **Trades** — every round trip (one row per position, entry to exit, P&L after costs), searchable with the query bar,
+  sortable, exported as CSV, each one opening a drawer with its timeline from signal to close.
+- **Logs** — engine logs shipped from qkt, searched with the same query bar (`level:`, `strategy:`, `logger:`, `time:`,
+  free text), and a live tail.
 - **Equity** — all strategies on one normalized comparison chart; drawdown periods shaded on the focused curve.
 - **Edge** — when a strategy makes money: day-of-week × hour P&L heatmap (UTC), weekday/hour bars with per-bucket n and ±SE, rolling Sharpe/win-rate stability, strategy-comparison radar. Buckets under 30 trades render greyed — thin slices are noise, and the UI says so.
 - **Single-admin auth** — username + password from env, hashed with argon2 at startup, signed httpOnly session cookie; ingest guarded by a bearer token.
@@ -84,6 +85,25 @@ a weak `ETag` derived from a version of the rows they read, with `Cache-Control:
 revalidates with `If-None-Match` and gets `304` with no body until those rows change. `/account/equity` returns at
 most 2,000 points by default (the last stored minute of each time bucket), `?points=N` up to 20,000, and
 `?resolution=full` for every minute.
+
+### Round trips and the query language
+
+`/round-trips` serves one row per position from the `round_trips` projection (see
+[operations/projections.md](operations/projections.md)), read through `store/src/tripQueries.ts`, so a read is an index
+range scan, never a rebuild of history. Prices print at the instrument's precision, read from the decimals of its venue
+deals. The query text `q` is parsed by the same code as the
+web bar (`@qkt-insights/contract/query`) and compiled to bound SQL; tokens it cannot read come back in
+`query.errors` while the rest still apply.
+
+| Route | Answers |
+|---|---|
+| `GET /round-trips?instance&q&strategy&from&sort&dir&limit&cursor` | a page (keyset cursor, up to 500 rows) and, on the first page, `totals` of the whole match: matched, total in scope, net, wins, losses, win rate, average, best, worst |
+| `GET /round-trips/facets?instance&strategy` | strategies, instruments, exit days and common sizes, for completions |
+| `GET /round-trips/export?…` | the whole match as CSV, streamed page by page |
+| `GET /round-trips/:ticket?instance` | the trade drawer: legs, timeline with latencies, slippage, MAE/MFE, raw events |
+| `GET /public/:token/round-trips`, `…/facets` | a shared link's closed round trips, without tickets, profiles or stops |
+
+`/logs` also takes `logger` (part of the name), `from` and `to` (ms); `q` text FTS cannot parse is searched as words.
 
 Design notes live in [`specs/`](specs/) and the implementation plans in [`plans/`](plans/).
 

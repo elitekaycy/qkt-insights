@@ -1,54 +1,74 @@
-import { useState } from "react";
-import { useQuery } from "@tanstack/react-query";
+import { useMemo, useState } from "react";
+import { keepPreviousData, useQuery } from "@tanstack/react-query";
+import { LOG_KEYS, parseQuery } from "@qkt-insights/contract/query";
 import { get, type LogRow, type StrategyRow } from "../api";
-import { Card, Empty, Loadable, LoadMore, PageHeader, Panel, RangeSelect, rangeStart, SearchInput, Select, useRangeParam } from "../components/ui";
+import { Card, Empty, Loadable, PageHeader, Panel, RangeSelect, rangeStart, useRangeParam } from "../components/ui";
 import { useSearchParam } from "../router";
 import { LogLine } from "../components/LogLine";
 import { useLiveStream } from "../useLiveStream";
 import { count } from "../format";
+import { LOG_PRESETS, QueryBar } from "../query/QueryBar";
 
-const LEVELS = ["ERROR", "WARN", "INFO", "DEBUG"];
 const LOG_TYPES = ["log"];
+const PAGE = 200;
+const MAX = 1000;
+
+/** Words as an FTS query that matches each literally: `rejected:` is a word, not syntax. */
+function ftsWords(words: string[]): string {
+  return words.map((w) => `"${w.replace(/"/g, '""')}"`).join(" ");
+}
 
 export default function Logs({ instanceId }: { instanceId: string | null }) {
-  const [level, setLevel] = useSearchParam("level");
-  const [strategy, setStrategy] = useSearchParam("strategy");
   const [q, setQ] = useSearchParam("q");
   const [range, setRange] = useRangeParam();
-  const [cap, setCap] = useState(30);
+  const [limit, setLimit] = useState(PAGE);
 
   const strategies = useQuery({
     queryKey: ["strategies", instanceId],
     queryFn: () => get<StrategyRow[]>(`/strategies?instance=${encodeURIComponent(instanceId!)}`),
     enabled: !!instanceId,
   });
+  const names = useMemo(() => (strategies.data ?? []).map((s) => s.strategyId), [strategies.data]);
+  const parsed = useMemo(() => parseQuery(q, { strategies: names }), [q, names]);
+  const f = parsed.filter;
+  const rangeFrom = rangeStart(range);
+  const from = Math.max(rangeFrom > 0 ? Math.floor(rangeFrom / 60_000) * 60_000 : 0, f.time?.from ?? 0) || undefined;
+  const to = f.time?.to;
+
+  const params = useMemo(() => {
+    const p = new URLSearchParams({ instance: instanceId ?? "", limit: String(limit) });
+    if (f.level) p.set("level", f.level);
+    if (f.strategy) p.set("strategy", f.strategy);
+    if (f.logger) p.set("logger", f.logger);
+    if (f.text.length) p.set("q", ftsWords(f.text));
+    if (from) p.set("from", String(from));
+    if (to) p.set("to", String(to));
+    return p.toString();
+  }, [instanceId, limit, f, from, to]);
 
   const logs = useQuery({
-    queryKey: ["logs-page", instanceId, level, strategy, q],
-    queryFn: () => {
-      const p = new URLSearchParams({ instance: instanceId!, limit: "1000" });
-      if (level) p.set("level", level);
-      if (strategy) p.set("strategy", strategy);
-      if (q) p.set("q", q);
-      return get<LogRow[]>(`/logs?${p}`);
-    },
+    queryKey: ["logs-page", params],
+    queryFn: () => get<LogRow[]>(`/logs?${params}`),
     enabled: !!instanceId,
+    placeholderData: keepPreviousData,
     refetchInterval: 30_000,
   });
 
   const live = useLiveStream(instanceId, 100, LOG_TYPES);
-  const liveLogs = live.filter(
-    (e) =>
-      e.type === "log" &&
-      (!strategy || e.strategyId === strategy) &&
-      (!level || e.payload.level === level) &&
-      (!q || String(e.payload.message ?? "").toLowerCase().includes(q.toLowerCase())),
-  );
+  const liveLogs = live.filter((e) => {
+    if (e.type !== "log") return false;
+    const msg = String(e.payload.message ?? "").toLowerCase();
+    return (!f.strategy || e.strategyId === f.strategy)
+      && (!f.level || e.payload.level === f.level)
+      && (!f.logger || String(e.payload.logger ?? "").toLowerCase().includes(f.logger.toLowerCase()))
+      && f.text.every((w) => msg.includes(w.toLowerCase()))
+      && (!from || e.ts >= from) && (!to || e.ts < to);
+  });
 
   if (!instanceId) return <Card className="p-8 text-center text-faint">No instance selected.</Card>;
 
-  const filtered = (logs.data ?? []).filter((l) => l.ts >= rangeStart(range));
-  const shown = filtered.slice(0, cap);
+  const rows = logs.data ?? [];
+  const capped = rows.length >= limit;
 
   return (
     <div>
@@ -57,53 +77,40 @@ export default function Logs({ instanceId }: { instanceId: string | null }) {
         sub={`Engine logs shipped from ${instanceId}; live tail on top, history below. Times UTC.`}
         scope={
           <>
-            <SearchInput
+            <QueryBar
               value={q}
-              onChange={(e) => {
-                setQ(e.target.value);
-                setCap(30);
-              }}
-              placeholder="search log text…"
-              className="w-full sm:max-w-md sm:flex-1"
-            />
-            <Select
-              value={level}
-              onChange={(e) => {
-                setLevel(e.target.value);
-                setCap(30);
-              }}
-            >
-              <option value="">any level</option>
-              {LEVELS.map((l) => (
-                <option key={l} value={l}>
-                  {l}
-                </option>
-              ))}
-            </Select>
-            <Select
-              value={strategy}
-              onChange={(e) => {
-                setStrategy(e.target.value);
-                setCap(30);
-              }}
-            >
-              <option value="">all strategies</option>
-              {(strategies.data ?? []).map((s) => (
-                <option key={s.strategyId} value={s.strategyId}>
-                  {s.strategyId}
-                </option>
-              ))}
-            </Select>
-            <RangeSelect
-              value={range}
               onChange={(v) => {
-                setRange(v);
-                setCap(30);
+                setQ(v);
+                setLimit(PAGE);
               }}
+              keys={LOG_KEYS}
+              data={{ strategies: names }}
+              page="Logs"
+              presets={LOG_PRESETS}
+              placeholder="Search log text or filter: level:error, strategy:, logger:MT5Broker, time:1h…"
             />
-            <span className="ml-auto text-sm text-muted">
-              Showing <b className="font-semibold text-bright">{count(shown.length)}</b> of {count(filtered.length)} lines
-            </span>
+            <div className="flex w-full flex-wrap items-center gap-x-3 gap-y-2">
+              <RangeSelect
+                value={range}
+                onChange={(v) => {
+                  setRange(v);
+                  setLimit(PAGE);
+                }}
+              />
+              <span className={`text-sm text-muted ${logs.isFetching ? "opacity-60" : ""}`} aria-live="polite">
+                {logs.data == null ? (
+                  "Loading…"
+                ) : capped ? (
+                  <>
+                    Showing the newest <b className="font-semibold text-bright">{count(rows.length)}</b> matching lines
+                  </>
+                ) : (
+                  <>
+                    Showing all <b className="font-semibold text-bright">{count(rows.length)}</b> matching lines
+                  </>
+                )}
+              </span>
+            </div>
           </>
         }
       />
@@ -128,20 +135,33 @@ export default function Logs({ instanceId }: { instanceId: string | null }) {
         </Panel>
       )}
 
-      <Panel
-        className="mt-5"
-       
-        title="History"
-        scroll="max-h-[34rem]"
-      >
+      <Panel className="mt-5" title="History" hint="newest first" scroll="max-h-[calc(100dvh-20rem)]">
         <Loadable loading={logs.isPending} error={logs.isError} retry={() => logs.refetch()} what="log history">
-        <div className="p-2">
-          {shown.map((l) => (
-            <LogLine key={l.id} log={l} />
-          ))}
-          {shown.length === 0 && <Empty>No logs match</Empty>}
-        </div>
-        <LoadMore shown={shown.length} total={filtered.length} onMore={() => setCap((c) => c + 30)} />
+          <div className={`p-2 ${logs.isPlaceholderData ? "opacity-60" : ""}`}>
+            {rows.map((l) => (
+              <LogLine key={l.id} log={l} />
+            ))}
+            {rows.length === 0 && (
+              <Empty>
+                <b className="font-semibold text-body">No log lines match.</b> Loosen the query above.
+              </Empty>
+            )}
+          </div>
+          {capped && (
+            <div className="flex items-center justify-center gap-3 border-t border-line p-3 text-xs text-muted">
+              {limit < MAX ? (
+                <button
+                  type="button"
+                  onClick={() => setLimit((n) => Math.min(MAX, n + PAGE))}
+                  className="h-7 rounded-md border border-ctl bg-raised px-3 text-xs font-medium text-bright transition hover:bg-well"
+                >
+                  Load {PAGE} more
+                </button>
+              ) : (
+                <span>The newest {count(MAX)} matches are shown: narrow the query (time:, level:, logger:) to reach older lines.</span>
+              )}
+            </div>
+          )}
         </Loadable>
       </Panel>
     </div>
@@ -151,4 +171,3 @@ export default function Logs({ instanceId }: { instanceId: string | null }) {
 function PulseDot() {
   return <span className="live-dot inline-block h-2 w-2 rounded-full bg-gain-fill" />;
 }
-

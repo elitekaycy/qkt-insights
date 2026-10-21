@@ -33,8 +33,18 @@ describe("routes", () => {
   });
 
   it("carries the instance and range to the next page, never page filters", () => {
-    expect(withScope("/edge", "?i=qkt-quant-live&range=30d&q=XAUUSD")).toBe("/edge?i=qkt-quant-live&range=30d");
+    expect(withScope("/edge", "?i=qkt-quant-live&range=30d&q=XAUUSD&trade=1")).toBe("/edge?i=qkt-quant-live&range=30d");
     expect(withScope("/t?range=7d", "?i=a&range=30d")).toBe("/t?range=7d&i=a");
+  });
+
+  it("carries the search only between the pages with the query bar", () => {
+    const from = "?i=a&q=side%3Ashort+pnl%3A%3C0&trade=9";
+    expect(withScope("/t", from)).toBe("/t?i=a&q=side%3Ashort+pnl%3A%3C0");
+    expect(withScope("/s/gold/trades", from)).toBe("/s/gold/trades?i=a&q=side%3Ashort+pnl%3A%3C0");
+    expect(withScope("/calendar", from)).toBe("/calendar?i=a&q=side%3Ashort+pnl%3A%3C0");
+    expect(withScope("/log", from)).toBe("/log?i=a&q=side%3Ashort+pnl%3A%3C0");
+    expect(withScope("/", from)).toBe("/?i=a");
+    expect(withScope("/t?q=win", from)).toBe("/t?q=win&i=a");
     expect(withScope("/", "")).toBe("/");
   });
 

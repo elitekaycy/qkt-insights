@@ -276,6 +276,26 @@ describe("public links", () => {
     }
   });
 
+  it("lists round trips of public strategies closed by the cutoff, without tickets, profiles or stops", async () => {
+    await share("strategy", "secret", "private");
+    const token = (await share("overview", "", "public")).overview.token!;
+    const res = await pub(token, "/round-trips?q=side:long");
+    expect(res.statusCode).toBe(200);
+    const body = res.json() as { rows: Array<Record<string, unknown>>; nextCursor: null; totals: { matched: number; net: number }; query: { canonical: string } };
+    // pos-after closed after the cutoff and pos-secret belongs to a private strategy
+    expect(body.rows).toHaveLength(1);
+    expect(body.rows[0]).toMatchObject({ strategyId: "gold", symbol: "GBPUSD", pnl: 25, broker: null, stopPrice: null, entryOrderId: null });
+    expect(body.rows[0]!.id).toMatch(/^[0-9a-f]{16}$/);
+    expect(body).toMatchObject({ nextCursor: null, totals: { matched: 1, net: 25 }, query: { canonical: "side:long" } });
+    // a ticket is not searchable on a shared link
+    expect(((await pub(token, "/round-trips?q=pos")).json() as { rows: unknown[] }).rows).toEqual([]);
+    expectNoSecrets(res.body);
+    const facets = await pub(token, "/round-trips/facets");
+    expect(facets.json()).toMatchObject({ strategies: [{ id: "gold", n: 1 }], instruments: [{ name: "GBPUSD", n: 1 }] });
+    expectNoSecrets(facets.body);
+    expect((await pub(token, "/round-trips?strategy=secret")).statusCode).toBe(404);
+  });
+
   it("shows account state without identity, and open positions only as a count and total marked at the cutoff", async () => {
     await share("strategy", "secret", "private");
     const token = (await share("overview", "", "public")).overview.token!;

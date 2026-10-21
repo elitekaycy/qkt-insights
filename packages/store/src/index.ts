@@ -16,3 +16,5 @@ export * from "./statements.js";
 export * from "./versions.js";
 export * from "./projections.js";
 export { storedRoundTrips, type RoundTripRow } from "./roundTrips.js";
+export * from "./tripQueries.js";
+export * from "./logSearch.js";

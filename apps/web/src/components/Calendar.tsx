@@ -1,7 +1,9 @@
 import { useMemo, useState } from "react";
-import type { DayNet, TradeRow, TradeView } from "../api";
-import { compact, compactPnl, count, DASH, day as utcDay, human, monthName, pct, pnl, price, quantity, signedMoney, signedPct, ts } from "../format";
-import { Card, Cell, Empty, Field, IconButton, Modal, Pnl, Row, SideTag, Table } from "./ui";
+import type { DayNet } from "../api";
+import { compact, compactPnl, count, DASH, day as utcDay, human, monthName, pct, pnl, signedMoney, signedPct } from "../format";
+import { Card, Cell, Empty, Field, IconButton, Modal, Pnl, Row, Table } from "./ui";
+import { Link, PAGE_PATHS, routePath, useSearchParam } from "../router";
+import { RoundTripTable } from "../trades/RoundTripTable";
 
 /*
  * The journal calendar over daily nets: a Monday-first month grid with a week column, cells
@@ -39,24 +41,28 @@ export function CalendarView({
   days,
   returnBase,
   baseLabel = "starting capital",
-  trades = [],
-  onTrade,
+  drill,
 }: {
   days: DayNet[];
   /** Capital a month's (and its days') return is measured against; null hides the return. */
   returnBase: (month: string) => number | null;
   /** What the base is, e.g. "account equity at month start". */
   baseLabel?: string;
-  /** Closed trades / fills for the day-detail modal; pass what the page already fetched. */
-  trades?: TradeView[];
-  onTrade?: (raw: TradeRow) => void;
+  /** Where a day's round trips come from: the instance, and the strategy on a strategy page. */
+  drill?: { instanceId: string; strategy?: string };
 }) {
   const byDay = useMemo(() => new Map(days.map((d) => [d.day, d])), [days]);
   const months = useMemo(() => [...new Set(days.map((d) => monthKey(d.day)))].sort(), [days]);
   const today = utcDay(Date.now());
   const [picked, setMonth] = useState<string | null>(null);
   const month = picked && months.includes(picked) ? picked : (months[months.length - 1] ?? monthKey(today));
-  const [openDay, setOpenDay] = useState<string | null>(null);
+  const [openDay, setDay] = useState<string | null>(null);
+  const [trade, setTrade] = useSearchParam("trade");
+  // closing the day closes a trade opened from it
+  const setOpenDay = (d: string | null) => {
+    if (d == null && trade) setTrade("");
+    setDay(d);
+  };
   const [openMonth, setOpenMonth] = useState<string | null>(null);
 
   const monthly = useMemo(() => {
@@ -108,7 +114,6 @@ export function CalendarView({
   const monthlyMaxAbs = Math.max(0, ...monthly.map(([, v]) => Math.abs(v.net)));
 
   const dayInfo = openDay ? byDay.get(openDay) : null;
-  const dayFills = openDay ? trades.filter((t) => utcDay(t.ts) === openDay) : [];
   const openMonthDays = openMonth ? days.filter((d) => monthKey(d.day) === openMonth).sort((a, b) => (a.day < b.day ? -1 : 1)) : [];
   const openMonthNet = openMonthDays.reduce((a, d) => a + d.net, 0);
   const bestDay = openMonthDays.reduce<DayNet | null>((a, d) => (a == null || d.net > a.net ? d : a), null);
@@ -119,7 +124,7 @@ export function CalendarView({
       <Card className="p-4">
         <div className="flex flex-wrap items-center gap-2 text-sm">
           <span className="font-medium text-body">P&L calendar</span>
-          <span className="ml-auto text-xs text-muted">by close day (UTC) · click a day for its trades</span>
+          <span className="ml-auto text-xs text-muted">by close day (UTC){drill ? " · click a day for its trades" : ""}</span>
         </div>
         <div className="mt-3 flex flex-wrap items-center gap-x-3 gap-y-2">
           <IconButton label="Previous month" disabled={idx <= 0} onClick={() => idx > 0 && setMonth(months[idx - 1]!)} d="M15 18l-6-6 6-6" />
@@ -266,7 +271,7 @@ export function CalendarView({
           onClose={() => setOpenDay(null)}
           title={human(Date.parse(`${openDay}T12:00:00Z`)).split("·")[0]!.trim()}
           hint={`UTC day · ${dayInfo.trades} closed trade${dayInfo.trades === 1 ? "" : "s"}`}
-          width="min(94vw, 760px)"
+          width={drill ? "min(96vw, 1040px)" : "min(94vw, 760px)"}
         >
           <div className="grid grid-cols-1 gap-3 p-4 sm:grid-cols-2">
             <Field label="Day net P&L">
@@ -274,31 +279,7 @@ export function CalendarView({
             </Field>
             <Field label={`Return on ${baseLabel}`}>{pctOf(dayInfo.net, monthKey(openDay))}</Field>
           </div>
-          <div className="eyebrow px-4 pb-1">Trades that day {onTrade && dayFills.some((t) => t.raw) ? "· click one to inspect" : ""}</div>
-          <Table head={["Time (UTC)", "Symbol", "Side", "Qty", "Price", "P&L"]}>
-            {dayFills.map((t) => {
-              const raw = t.raw;
-              return (
-                <Row key={t.key} onClick={onTrade && raw ? () => onTrade(raw) : undefined}>
-                  <Cell className="whitespace-nowrap text-muted">{ts(t.ts).slice(11)}</Cell>
-                  <Cell className="font-semibold text-bright">{t.symbol}</Cell>
-                  <Cell>
-                    <SideTag side={t.side} />
-                  </Cell>
-                  <Cell>{quantity(t.qty)}</Cell>
-                  <Cell className="text-muted">@ {price(t.price)}</Cell>
-                  <Cell>
-                    <Pnl value={t.realized} glyphs={false} />
-                  </Cell>
-                </Row>
-              );
-            })}
-            {dayFills.length === 0 && (
-              <Empty colSpan={6}>
-                {trades.length === 0 ? "This view shows daily totals only; open a strategy's calendar for its trades." : "No trades loaded for this day."}
-              </Empty>
-            )}
-          </Table>
+          {drill && <DayTrades day={openDay} drill={drill} />}
         </Modal>
       )}
 
@@ -353,6 +334,34 @@ export function CalendarView({
           </Table>
         </Modal>
       )}
+    </div>
+  );
+}
+
+/**
+ * The round trips that closed on one UTC day, from the same endpoint and query language as the
+ * Trades page (`exit:<day>`): a row opens the trade drawer over this dialog, and the link opens
+ * Trades (or the strategy's trades) filtered to the day.
+ */
+function DayTrades({ day, drill }: { day: string; drill: { instanceId: string; strategy?: string } }) {
+  const [, setTrade] = useSearchParam("trade");
+  const q = `exit:${day}`;
+  const to = drill.strategy ? routePath({ page: "strategies", strategy: drill.strategy, tab: "trades" }) : PAGE_PATHS.trades;
+  const hide = drill.strategy ? ["id", "size", "r", "strategy"] : ["id", "size", "r"];
+  return (
+    <div className="border-t border-line">
+      <div className="flex items-center gap-2 px-4 py-2.5">
+        <span className="eyebrow">Round trips closed that day</span>
+        <span className="hidden text-xs text-faint sm:inline">· click one for its timeline</span>
+        <Link
+          to={`${to}?q=${encodeURIComponent(q)}`}
+          onClick={() => setTrade("")}
+          className="ml-auto text-xs font-medium text-accent-ink hover:underline"
+        >
+          Open in Trades →
+        </Link>
+      </div>
+      <RoundTripTable scope={{ instanceId: drill.instanceId, strategy: drill.strategy }} q={q} sort="exit" dir="asc" hide={hide} height="min(46dvh, 24rem)" />
     </div>
   );
 }
