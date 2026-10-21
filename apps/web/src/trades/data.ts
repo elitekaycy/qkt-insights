@@ -30,6 +30,8 @@ export interface RoundTrip {
   ended: "stop" | "tp" | "signal" | "venue" | "manual" | null;
   legs: number;
   entryOrderId: string | null;
+  /** "deal": a venue position; "ledger": one engine close of an instance without broker deals (paper). */
+  source: "deal" | "ledger";
   /** Decimals the venue quotes this instrument with. */
   priceDigits: number;
 }

@@ -127,7 +127,7 @@ export function publicRoundTrip(r: TripRow) {
   return {
     id: opaqueId(r.id), broker: null, strategyId: r.strategyId, symbol: publicSymbol(r.symbol), instrument: r.instrument,
     side: r.side, status: r.status, entryTs: r.entryTs, entryPrice: r.entryPrice, exitTs: r.exitTs, exitPrice: r.exitPrice, qty: r.qty,
-    pnl: r.pnl, holdMs: r.holdMs, stopPrice: null, targetPrice: null, risk: null, r: r.r, ended: r.ended, legs: r.legs, entryOrderId: null, priceDigits: r.priceDigits,
+    pnl: r.pnl, holdMs: r.holdMs, stopPrice: null, targetPrice: null, risk: null, r: r.r, ended: r.ended, legs: r.legs, entryOrderId: null, source: r.source, priceDigits: r.priceDigits,
   };
 }
 

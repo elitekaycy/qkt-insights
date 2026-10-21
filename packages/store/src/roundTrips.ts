@@ -20,6 +20,8 @@ export interface RoundTripRow {
   realized: number; gross: number; commission: number; swap: number; fee: number; legs: number;
   entryOrderId: string | null; entryOrderTicket: string | null; stopPrice: number | null; targetPrice: number | null;
   ended: "stop" | "tp" | "so" | "manual" | "signal" | null; holdMs: number | null; open: boolean;
+  /** "deal": a venue position from its deals; "ledger": one engine close of an instance without deals. */
+  source: "deal" | "ledger";
 }
 
 function instrument(symbol: string | null): string {
@@ -102,15 +104,43 @@ export function recomputeRoundTrip(db: Db, instanceId: string, position: string)
     ended: open || last == null ? null : endedBy(db, instanceId, position, last, prior?.ended ?? null),
     holdMs: !open && entryTs != null && exitTs != null ? exitTs - entryTs : null,
     open,
+    source: "deal",
   };
   statement(db,
     `INSERT INTO round_trips (instance_id, position_ticket, broker, strategy_id, instrument, symbol, side, entry_ts, entry_price,
        exit_ts, exit_price, qty, realized, gross, commission, swap, fee, legs, entry_order_id, entry_order_ticket, stop_price,
-       target_price, ended, hold_ms, open)
+       target_price, ended, hold_ms, open, source)
      VALUES (@instanceId, @positionTicket, @broker, @strategyId, @instrument, @symbol, @side, @entryTs, @entryPrice,
        @exitTs, @exitPrice, @qty, @realized, @gross, @commission, @swap, @fee, @legs, @entryOrderId, @entryOrderTicket, @stopPrice,
-       @targetPrice, @ended, @holdMs, @open)`,
+       @targetPrice, @ended, @holdMs, @open, @source)`,
   ).run({ ...row, open: row.open ? 1 : 0 });
+}
+
+/** Whether the instance has stored a broker deal: its round trips are then its venue positions only. */
+export function hasDeals(db: Db, instanceId: string): boolean {
+  return statement(db, "SELECT 1 FROM deals INDEXED BY idx_deals_order WHERE instance_id=? LIMIT 1").get(instanceId) != null;
+}
+
+/**
+ * Rewrites the round trip of one engine close (trade_closes id) for an instance that has no broker
+ * deals, such as a paper engine: the close is the whole story the instance has. `side` on the close
+ * is the closing fill's, so the position ran the other way. No entry price, stop or cost split is
+ * known; realized is the engine's net after its costs.
+ */
+export function recomputeLedgerTrip(db: Db, instanceId: string, closeId: string): void {
+  statement(db, "DELETE FROM round_trips WHERE instance_id=? AND position_ticket=? AND source='ledger'").run(instanceId, closeId);
+  if (hasDeals(db, instanceId)) return;
+  const c = statement(db,
+    "SELECT strategy_id strategyId, symbol, side, qty, price, realized, entry_ts entryTs, ts FROM trade_closes WHERE instance_id=? AND id=?",
+  ).get(instanceId, closeId) as { strategyId: string | null; symbol: string; side: string; qty: number; price: number; realized: number; entryTs: number | null; ts: number } | undefined;
+  if (!c) return;
+  statement(db,
+    `INSERT INTO round_trips (instance_id, position_ticket, broker, strategy_id, instrument, symbol, side, entry_ts, entry_price,
+       exit_ts, exit_price, qty, realized, gross, commission, swap, fee, legs, entry_order_id, entry_order_ticket, stop_price,
+       target_price, ended, hold_ms, open, source)
+     VALUES (?, ?, NULL, ?, ?, ?, ?, ?, NULL, ?, ?, ?, ?, ?, 0, 0, 0, 1, NULL, NULL, NULL, NULL, NULL, ?, 0, 'ledger')`,
+  ).run(instanceId, closeId, c.strategyId, instrument(c.symbol), c.symbol, c.side === "BUY" ? "short" : "long", c.entryTs,
+    c.ts, c.price, c.qty, c.realized, c.realized, c.entryTs != null ? c.ts - c.entryTs : null);
 }
 
 /**
@@ -159,7 +189,7 @@ export function storedRoundTrips(db: Db, f: { instanceId: string; strategyId?: s
     `SELECT instance_id instanceId, position_ticket positionTicket, broker, strategy_id strategyId, instrument, symbol, side,
        entry_ts entryTs, entry_price entryPrice, exit_ts exitTs, exit_price exitPrice, qty, realized, gross, commission, swap, fee,
        legs, entry_order_id entryOrderId, entry_order_ticket entryOrderTicket, stop_price stopPrice, target_price targetPrice,
-       ended, hold_ms holdMs, open
+       ended, hold_ms holdMs, open, source
      FROM round_trips WHERE instance_id=@instanceId ${f.strategyId != null ? "AND strategy_id=@strategyId" : ""}
      ORDER BY exit_ts DESC, position_ticket DESC`,
   ).all({ instanceId: f.instanceId, strategyId: f.strategyId }) as Array<Omit<RoundTripRow, "open"> & { open: number }>;

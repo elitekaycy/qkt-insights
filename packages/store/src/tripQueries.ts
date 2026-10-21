@@ -42,6 +42,8 @@ export interface TripRow {
   ended: TripEnded | null;
   legs: number;
   entryOrderId: string | null;
+  /** "deal": a venue position; "ledger": one engine close of an instance without broker deals (paper). */
+  source: "deal" | "ledger";
   /** Decimals the venue quotes this instrument with: every price of the row prints at it. */
   priceDigits: number;
 }
@@ -69,7 +71,7 @@ const COLUMNS = `t.position_ticket id, t.broker, t.strategy_id strategyId, coale
   t.side, CASE WHEN t.open = 1 THEN 'open' ELSE 'closed' END status, t.entry_ts entryTs, t.entry_price entryPrice,
   CASE WHEN t.open = 1 THEN NULL ELSE t.exit_ts END exitTs, CASE WHEN t.open = 1 THEN NULL ELSE t.exit_price END exitPrice,
   coalesce(t.qty, 0) qty, ${PNL} pnl, t.hold_ms holdMs, t.stop_price stopPrice, t.target_price targetPrice, ${RISK} risk, ${R} r,
-  ${ENDED} ended, t.legs, t.entry_order_id entryOrderId`;
+  ${ENDED} ended, t.legs, t.entry_order_id entryOrderId, t.source`;
 
 type StoredTrip = Omit<TripRow, "priceDigits">;
 

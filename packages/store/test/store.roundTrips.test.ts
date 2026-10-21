@@ -1,5 +1,5 @@
 import { describe, it, expect } from "vitest";
-import { openDb, ingestEvents, storedRoundTrips, rebuildProjection, refreshProjections, type Db } from "../src/index.js";
+import { openDb, ingestEvents, storedRoundTrips, rebuildProjection, refreshProjections, listRoundTrips, type Db } from "../src/index.js";
 import type { Envelope } from "@qkt-insights/contract";
 
 const M = 60_000;
@@ -150,6 +150,31 @@ describe("round_trips projection", () => {
     // The bot close lands after the deal: its event marks the position again.
     ingestEvents(db, I, [event("bot.close", T0 + 10 * M + 500, { symbol: "XAUUSD", ticket: "B", ok: "true" }, undefined)]);
     expect(["A", "B", "C", "D"].map((p) => trip(db, p)?.ended)).toEqual(["signal", "manual", "so", null]);
+  });
+
+  it("lists an instance's engine closes as its round trips while it has no broker deals", () => {
+    const db = seeded();
+    const closed = (orderId: string, ts: number, side: "BUY" | "SELL", realized: number, entryTs?: number) =>
+      ({ ...event("trade.closed", ts, { orderId, symbol: "PAPER:XAUUSD", side, qty: 0.5, price: 4010, realized, ...(entryTs != null ? { entryTs } : {}), ts }), id: `tc-${orderId}-${ts}` } as Envelope);
+    ingestEvents(db, I, [closed("ORD-1", T0 + 10 * M, "SELL", 12.5, T0), closed("ORD-2", T0 + 20 * M, "BUY", -4)]);
+    const page = listRoundTrips(db, { instanceId: I, sort: "exit" });
+    expect(page.rows.map((r) => ({ id: r.id, side: r.side, pnl: r.pnl, holdMs: r.holdMs, source: r.source, status: r.status, instrument: r.instrument }))).toEqual([
+      { id: "tc-ORD-2-" + (T0 + 20 * M), side: "short", pnl: -4, holdMs: null, source: "ledger", status: "closed", instrument: "XAUUSD" },
+      { id: "tc-ORD-1-" + (T0 + 10 * M), side: "long", pnl: 12.5, holdMs: 10 * M, source: "ledger", status: "closed", instrument: "XAUUSD" },
+    ]);
+    expect(trip(db, `tc-ORD-1-${T0 + 10 * M}`)).toMatchObject({ entryTs: T0, exitTs: T0 + 10 * M, exitPrice: 4010, entryPrice: null, strategyId: S, gross: 12.5, legs: 1 });
+
+    const maintained = db.prepare("SELECT * FROM round_trips ORDER BY position_ticket").all();
+    rebuildProjection(db, "closed_trades", { force: true, batch: 1 });
+    expect(db.prepare("SELECT * FROM round_trips ORDER BY position_ticket").all()).toEqual(maintained);
+
+    // Once the instance stores a broker deal, its round trips are its venue positions only.
+    ingestEvents(db, I, [deal({ ticket: "1", entry: "IN", side: "BUY", ts: T0 + 30 * M, qty: 1, price: 4000 })]);
+    expect(storedRoundTrips(db, { instanceId: I }).map((r) => [r.positionTicket, r.source])).toEqual([["P1", "deal"]]);
+    ingestEvents(db, I, [closed("ORD-3", T0 + 40 * M, "SELL", 3)]);
+    expect(storedRoundTrips(db, { instanceId: I }).map((r) => r.source)).toEqual(["deal"]);
+    rebuildProjection(db, "closed_trades", { force: true });
+    expect(storedRoundTrips(db, { instanceId: I }).map((r) => r.source)).toEqual(["deal"]);
   });
 
   it("rebuilds to the rows ingest maintained", () => {
