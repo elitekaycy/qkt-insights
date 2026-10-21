@@ -4,8 +4,9 @@ import { get, type DealRow, type StrategyRow, type TradeRow } from "../api";
 import { TradeDetail } from "../components/detail";
 import {
   Card, Cell, DataList, Loadable, LoadMore, PageHeader, Panel, Pill, Pnl, RangeSelect, rangeStart, SearchInput, Select, SideTag, TimeCell,
-  type RangeKey,
+  useRangeParam,
 } from "../components/ui";
+import { useSearchParam } from "../router";
 import { dealNet, price, quantity, tsShort } from "../format";
 import { realizedLabel, useCloseMap } from "../useCloses";
 import { useLiveStream } from "../useLiveStream";
@@ -19,9 +20,9 @@ const UNATTRIBUTED = "(unattributed)";
 export default function Trades({ instanceId }: { instanceId: string | null }) {
   usePublicPageView("trades");
   const view = useView();
-  const [strategy, setStrategy] = useState("");
-  const [q, setQ] = useState("");
-  const [range, setRange] = useState<RangeKey>("all");
+  const [strategy, setStrategy] = useSearchParam("strategy");
+  const [q, setQ] = useSearchParam("q");
+  const [range, setRange] = useRangeParam();
   const [cap, setCap] = useState(30);
   const [open, setOpen] = useState<TradeRow | null>(null);
   const closeMap = useCloseMap(instanceId);

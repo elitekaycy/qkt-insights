@@ -1,5 +1,6 @@
 import { useEffect, useRef, useState, type ReactNode } from "react";
 import { createPortal } from "react-dom";
+import { useSearchParam } from "../router";
 import { DASH, glyph, pnl, signedMoney, signedPct, toneClass, tsDay, tsShort } from "../format";
 
 /*
@@ -585,6 +586,13 @@ export const RANGES = [
   { key: "all", label: "All time", ms: Infinity },
 ] as const;
 export type RangeKey = (typeof RANGES)[number]["key"];
+
+/** The page's date range, held in the URL as `range` so links and reloads keep it. */
+export function useRangeParam(): [RangeKey, (v: RangeKey) => void] {
+  const [raw, set] = useSearchParam("range", "all");
+  const key = (RANGES.find((r) => r.key === raw)?.key ?? "all") as RangeKey;
+  return [key, (v) => set(v)];
+}
 
 export function rangeStart(key: RangeKey): number {
   const r = RANGES.find((x) => x.key === key)!;

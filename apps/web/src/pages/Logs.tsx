@@ -1,7 +1,8 @@
 import { useState } from "react";
 import { useQuery } from "@tanstack/react-query";
 import { get, type LogRow, type StrategyRow } from "../api";
-import { Card, Empty, Loadable, LoadMore, PageHeader, Panel, RangeSelect, rangeStart, SearchInput, Select, type RangeKey } from "../components/ui";
+import { Card, Empty, Loadable, LoadMore, PageHeader, Panel, RangeSelect, rangeStart, SearchInput, Select, useRangeParam } from "../components/ui";
+import { useSearchParam } from "../router";
 import { LogLine } from "../components/LogLine";
 import { useLiveStream } from "../useLiveStream";
 
@@ -9,10 +10,10 @@ const LEVELS = ["ERROR", "WARN", "INFO", "DEBUG"];
 const LOG_TYPES = ["log"];
 
 export default function Logs({ instanceId }: { instanceId: string | null }) {
-  const [level, setLevel] = useState("");
-  const [strategy, setStrategy] = useState("");
-  const [q, setQ] = useState("");
-  const [range, setRange] = useState<RangeKey>("all");
+  const [level, setLevel] = useSearchParam("level");
+  const [strategy, setStrategy] = useSearchParam("strategy");
+  const [q, setQ] = useSearchParam("q");
+  const [range, setRange] = useRangeParam();
   const [cap, setCap] = useState(30);
 
   const strategies = useQuery({

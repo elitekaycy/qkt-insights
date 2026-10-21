@@ -18,12 +18,7 @@ const PALETTE = chartColors.series;
 // event inspection belongs on Logs/Search so payloads cannot stretch the layout.
 const FEED_TYPES = ["state.account", "state.positions"];
 
-export default function Overview({
-  instanceId,
-}: {
-  instanceId: string | null;
-  onOpenStrategy: (strategyId: string) => void;
-}) {
+export default function Overview({ instanceId }: { instanceId: string | null }) {
   const view = useView();
   usePublicPageView("overview");
   const strategies = useQuery({

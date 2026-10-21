@@ -7,9 +7,10 @@ import { EquityChart } from "../components/EquityChart";
 import { EdgeDetailPanels, PerformancePanels, TradeAnalysisPanels } from "../components/Performance";
 import { Sparkline } from "../components/Sparkline";
 import {
-  Card, Cell, DataList, Empty, Field, IconButton, Loadable, LoadMore, Modal, PageHeader, Panel, Pill, Pnl, Popover, RangeSelect, rangeStart, ReturnPct, Row, SearchInput, Select, SideTag, Stat, Table, TimeCell,
-  type RangeKey,
+  Card, Cell, DataList, Empty, Field, IconButton, Loadable, LoadMore, Modal, PageHeader, Panel, Pill, Pnl, Popover, RangeSelect, rangeStart, ReturnPct, Row, SearchInput,
+  Segmented, Select, SideTag, Stat, Table, TimeCell, useRangeParam,
 } from "../components/ui";
+import { Link, routePath, STRATEGY_TABS, useRoute, type StrategyTab } from "../router";
 import { LogLine } from "../components/LogLine";
 import { age, count, money, num, openPnl, pct, price, quantity, signedMoney, ts, tsShort } from "../format";
 import { buildCloseMap } from "../useCloses";
@@ -64,18 +65,13 @@ function portfolioAlias(row: StrategyRow): string | null {
   return metaString(row.metadata, "portfolioAlias");
 }
 
-export default function Strategies({
-  instanceId,
-  focus = null,
-  onClearFocus,
-}: {
-  instanceId: string | null;
-  focus?: string | null;
-  onClearFocus?: () => void;
-}) {
+export default function Strategies({ instanceId }: { instanceId: string | null }) {
   const view = useView();
-  const [selected, setSelected] = useState<string | null>(focus);
-  const [selectedPortfolio, setSelectedPortfolio] = useState<string | null>(null);
+  const { route, navigate } = useRoute();
+  const selected = route.strategy ?? null;
+  const selectedPortfolio = route.portfolio ?? null;
+  const openStrategy = (id: string) => navigate(routePath({ page: "strategies", strategy: id }));
+  const toList = () => navigate(routePath({ page: "strategies" }));
   usePublicPageView(selected || selectedPortfolio ? null : "strategies");
   const [showRetired, setShowRetired] = useState(false);
 
@@ -93,10 +89,7 @@ export default function Strategies({
       <StrategyDetail
         instanceId={instanceId}
         strategyId={selected}
-        onBack={() => {
-          setSelected(null);
-          onClearFocus?.();
-        }}
+        onBack={toList}
       />
     );
 
@@ -124,11 +117,8 @@ export default function Strategies({
         instanceId={instanceId}
         portfolioId={selectedPortfolio}
         children={portfolio}
-        onBack={() => setSelectedPortfolio(null)}
-        onSelectChild={(strategyId) => {
-          setSelectedPortfolio(null);
-          setSelected(strategyId);
-        }}
+        onBack={toList}
+        onSelectChild={openStrategy}
       />
     );
   }
@@ -178,15 +168,8 @@ export default function Strategies({
                   live.hasState,
                 );
                 return (
-                  <button
-                    key={id}
-                    onClick={() => setSelectedPortfolio(id)}
-                    className="group text-left"
-                  >
-                    <Card
-                      className="flex h-full flex-col justify-between p-5 transition group-hover:border-accent/50 group-hover:bg-raised"
-                     
-                    >
+                  <Link key={id} to={routePath({ page: "strategies", portfolio: id })} className="group block text-left">
+                    <Card className="flex h-full flex-col justify-between p-4 transition group-hover:border-line-strong">
                       <div className="flex items-start justify-between gap-3">
                         <span className="min-w-0 truncate font-semibold text-bright">
                           {id}
@@ -219,7 +202,7 @@ export default function Strategies({
                         />
                       </div>
                     </Card>
-                  </button>
+                  </Link>
                 );
               })}
             </div>
@@ -247,7 +230,7 @@ export default function Strategies({
                     open={open}
                     liveStale={live.stale}
                    
-                    onClick={() => setSelected(s.strategyId)}
+                    to={routePath({ page: "strategies", strategy: s.strategyId })}
                   />
                 );
               })}
@@ -276,7 +259,7 @@ export default function Strategies({
                     open={open}
                     liveStale={live.stale}
                    
-                    onClick={() => setSelected(s.strategyId)}
+                    to={routePath({ page: "strategies", strategy: s.strategyId })}
                   />
                 );
               })}
@@ -292,16 +275,17 @@ function StrategyCard({
   row: s,
   net,
   liveStale,
-  onClick,
+  to,
 }: {
   row: StrategyRow;
   net: number | null;
   open: number | null;
   liveStale: boolean;
-  onClick: () => void;
+  /** Where the card leads: the strategy's page. */
+  to: string;
 }) {
   return (
-    <button onClick={onClick} className="group text-left">
+    <Link to={to} className="group block text-left">
       <Card className="flex h-full flex-col justify-between p-4 transition group-hover:border-line-strong">
         <div className="flex items-start justify-between gap-3">
           <span className="min-w-0 truncate font-semibold text-bright" title={s.strategyId}>
@@ -320,7 +304,7 @@ function StrategyCard({
           <ReturnPct net={net} base={strategyCapital(s).amount} dim={liveStale} />
         </div>
       </Card>
-    </button>
+    </Link>
   );
 }
 
@@ -517,16 +501,22 @@ function PortfolioDetail({
 
 /** A shared portfolio link: the portfolio page, with its public children one click away. */
 export function SharedPortfolio({ instanceId, portfolioId: id }: { instanceId: string; portfolioId: string }) {
-  const [selected, setSelected] = useState<string | null>(null);
+  const { route, navigate } = useRoute();
+  const selected = route.strategy ?? null;
   const strategies = useQuery({
     queryKey: ["strategies", instanceId],
     queryFn: () => get<StrategyRow[]>(`/strategies?instance=${encodeURIComponent(instanceId)}`),
     refetchInterval: 30_000,
   });
-  if (selected) return <StrategyDetail instanceId={instanceId} strategyId={selected} onBack={() => setSelected(null)} />;
+  if (selected) return <StrategyDetail instanceId={instanceId} strategyId={selected} onBack={() => navigate("/")} />;
   return (
     <Loadable loading={strategies.isPending} error={strategies.isError} retry={() => strategies.refetch()} what="the portfolio">
-      <PortfolioDetail instanceId={instanceId} portfolioId={id} children={strategies.data ?? []} onSelectChild={setSelected} />
+      <PortfolioDetail
+        instanceId={instanceId}
+        portfolioId={id}
+        children={strategies.data ?? []}
+        onSelectChild={(child) => navigate(routePath({ page: "strategies", strategy: child }))}
+      />
     </Loadable>
   );
 }
@@ -562,8 +552,10 @@ export function StrategyDetail({ instanceId, strategyId, onBack }: { instanceId:
   const [tradeSide, setTradeSide] = useState("");
   const [tradeSort, setTradeSort] = useState<"newest" | "oldest" | "qty" | "price" | "pnl">("newest");
   const [openTrade, setOpenTrade] = useState<TradeRow | null>(null);
-  const [tab, setTab] = useState<"overview" | "performance" | "calendar">("overview");
-  const [range, setRange] = useState<RangeKey>("all");
+  const { route, navigate } = useRoute();
+  const tab: StrategyTab = route.strategy === strategyId ? (route.tab ?? "overview") : "overview";
+  const setTab = (t: StrategyTab) => navigate(routePath({ page: "strategies", strategy: strategyId, tab: t }));
+  const [range, setRange] = useRangeParam();
 
   const performance = useQuery({
     queryKey: ["performance", instanceId, strategyId, range],
@@ -655,17 +647,12 @@ export function StrategyDetail({ instanceId, strategyId, onBack }: { instanceId:
       </div>
 
       <div className="mt-5 flex flex-wrap items-center gap-2">
-        {(["overview", "performance", "calendar"] as const).map((t) => (
-          <button
-            key={t}
-            onClick={() => setTab(t)}
-            className={`h-9 rounded-lg px-4 text-sm font-semibold capitalize transition ${
-              tab === t ? "bg-accent text-on-accent" : "border border-line bg-raised text-muted hover:border-line-strong hover:text-body"
-            }`}
-          >
-            {t}
-          </button>
-        ))}
+        <Segmented
+          label="Strategy sections"
+          value={tab}
+          onChange={setTab}
+          options={STRATEGY_TABS.map((t) => ({ key: t, label: t[0]!.toUpperCase() + t.slice(1) }))}
+        />
         <ShareControl instanceId={instanceId} kind="strategy" subject={strategyId} />
         {tab !== "overview" && (
           <div className="w-full sm:ml-auto sm:w-auto">

@@ -15,6 +15,7 @@ const Equity = lazy(() => import("./pages/Equity"));
 const Edge = lazy(() => import("./pages/Edge").then((m) => ({ default: m.Edge })));
 import { useBrand } from "./useBrand";
 import { ViewProvider } from "./view";
+import { useRoute } from "./router";
 
 type SharedPage = Extract<Page, "overview" | "equity" | "strategies" | "edge" | "trades">;
 
@@ -121,12 +122,12 @@ export default function PublicApp() {
 }
 
 function SharedOverview({ meta, brand }: { meta: PublicMeta; brand: string | null }) {
-  const [page, setPage] = useState<SharedPage>("overview");
-  const [focus, setFocus] = useState<string | null>(null);
+  const { route, navigate } = useRoute();
+  const page: SharedPage = route.page === "strategies" ? "strategies" : route.page === "risk" ? "equity" : route.page === "edge" ? "edge" : route.page === "trades" ? "trades" : "overview";
   const [drawer, setDrawer] = useState(false);
   const [collapsed, setCollapsed] = useState(false);
   const goto = (p: SharedPage) => {
-    setPage(p);
+    navigate({ overview: "/", equity: "/risk", strategies: "/s", edge: "/edge", trades: "/t" }[p]);
     setDrawer(false);
   };
 
@@ -204,16 +205,10 @@ function SharedOverview({ meta, brand }: { meta: PublicMeta; brand: string | nul
         <div className="mx-auto max-w-[1500px] px-4 py-5 sm:px-6 lg:px-8 lg:py-7">
           <Suspense fallback={<PageFallback />}>
           {page === "overview" && (
-            <Overview
-              instanceId={meta.instanceId}
-              onOpenStrategy={(id) => {
-                setFocus(id);
-                setPage("strategies");
-              }}
-            />
+            <Overview instanceId={meta.instanceId} />
           )}
           {page === "equity" && <Equity instanceId={meta.instanceId} />}
-          {page === "strategies" && <Strategies key={focus ?? "all"} instanceId={meta.instanceId} focus={focus} onClearFocus={() => setFocus(null)} />}
+          {page === "strategies" && <Strategies instanceId={meta.instanceId} />}
           {page === "edge" && <Edge instanceId={meta.instanceId} />}
           {page === "trades" && <Trades instanceId={meta.instanceId} />}
           </Suspense>

@@ -4,9 +4,9 @@ import { useQueries, useQuery } from "@tanstack/react-query";
 import { get, type PerformanceBundle, type PerformanceReport, type StrategyRow } from "../api";
 import { DowHourHeatmap, HonestBucketBars, MIN_N, RollingChart, StrategyRadar } from "../components/EdgeCharts";
 import {
-  Empty, Loadable, PageHeader, Panel, RangeSelect, rangeStart, Select,
-  type RangeKey,
+  Empty, Loadable, PageHeader, Panel, RangeSelect, rangeStart, Select, useRangeParam,
 } from "../components/ui";
+import { useSearchParam } from "../router";
 
 /*
  * The Edge page: WHEN is this account good — day-of-week × hour heatmap,
@@ -26,9 +26,9 @@ export function Edge({ instanceId }: { instanceId: string | null }) {
     refetchInterval: 30000,
   });
   const list = strategies.data ?? [];
-  const [chosen, setChosen] = useState<string>("");
+  const [chosen, setChosen] = useSearchParam("strategy");
   const strategyId = chosen || list[0]?.strategyId || "";
-  const [range, setRange] = useState<RangeKey>("all");
+  const [range, setRange] = useRangeParam();
   const [window, setWindow] = useState<(typeof WINDOWS)[number]>(30);
 
   const qs = instanceId && strategyId

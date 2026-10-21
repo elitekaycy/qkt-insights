@@ -1,6 +1,7 @@
 import { chartColors } from "../components/EChart";
 import { useState } from "react";
 import { usePublicPageView } from "../view";
+import { useSearchParam } from "../router";
 import { useQueries, useQuery } from "@tanstack/react-query";
 import { get, type AccountEquityPoint, type DrawdownPeriod, type EquityPoint, type PerformanceBundle, type StrategyRow } from "../api";
 import { ComparisonChart, EquityChart, UnderwaterChart, type ComparisonSeries } from "../components/EquityChart";
@@ -35,7 +36,7 @@ export default function Equity({ instanceId }: { instanceId: string | null }) {
     })),
   });
 
-  const [ddStrategy, setDdStrategy] = useState("");
+  const [ddStrategy, setDdStrategy] = useSearchParam("strategy");
   const [openDd, setOpenDd] = useState<DrawdownPeriod | null>(null);
   const focusId = ddStrategy || ids[0] || "";
   const focusIdx = ids.indexOf(focusId);

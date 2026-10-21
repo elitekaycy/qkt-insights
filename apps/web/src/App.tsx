@@ -19,6 +19,34 @@ import { InstallApp } from "./components/InstallApp";
 import { Drawer } from "./components/Drawer";
 import { useBrand } from "./useBrand";
 import { ICONS, Mark, NavIcon, ThemeToggle, type Page } from "./components/chrome";
+import { useRoute, useSearchParam, type Route } from "./router";
+
+/** Where each sidebar entry leads. */
+const PAGE_ROUTES: Record<Page, string> = {
+  overview: "/",
+  equity: "/risk",
+  strategies: "/s",
+  edge: "/edge",
+  trades: "/t",
+  logs: "/log",
+  health: "/status",
+  search: "/find",
+  viewership: "/settings/viewership",
+};
+
+function pageOf(route: Route): Page {
+  switch (route.page) {
+    case "home":
+    case "calendar":
+      return "overview";
+    case "risk":
+      return "equity";
+    case "settings":
+      return "viewership";
+    default:
+      return route.page;
+  }
+}
 import { usePullToRefresh } from "./hooks/usePullToRefresh";
 import { useResumeRefresh } from "./hooks/useResumeRefresh";
 
@@ -88,9 +116,9 @@ function Splash({ brand, status, busy, onRetry }: { brand: string | null; status
 
 export default function App() {
   const queryClient = useQueryClient();
-  const [page, setPage] = useState<Page>("overview");
-  const [instance, setInstance] = useState<string | null>(null);
-  const [focusStrategy, setFocusStrategy] = useState<string | null>(null);
+  const { route, navigate } = useRoute();
+  const [instance, setInstance] = useSearchParam("i");
+  const page = pageOf(route);
   const [collapsed, setCollapsed] = useState(false);
   const [drawer, setDrawer] = useState(false);
   // "signed out" is a decision, not a server round-trip: the sign-in screen shows at
@@ -128,12 +156,12 @@ export default function App() {
   }
 
   const list = instances.data ?? [];
-  const selected = instance ?? list[0]?.id ?? null;
+  const selected = (instance && list.some((i) => i.id === instance) ? instance : list[0]?.id) ?? null;
   const selectedRow = list.find((i) => i.id === selected);
   const live = selectedRow != null && Date.now() - selectedRow.lastSeen < 30_000;
 
   const goto = (p: Page) => {
-    setPage(p);
+    navigate(PAGE_ROUTES[p]);
     setDrawer(false);
   };
 
@@ -183,7 +211,7 @@ export default function App() {
             <Select
               className="mt-2.5 h-10 w-full border-line-strong bg-panel text-[15px]"
               value={selected ?? ""}
-              onChange={(e) => setInstance(e.target.value)}
+              onChange={(e) => setInstance(e.target.value, { push: true })}
             >
               {list.length === 0 && <option value="">no instances yet</option>}
               {list.map((i) => (
@@ -274,17 +302,11 @@ export default function App() {
     <div className="mx-auto max-w-[1500px] px-4 py-5 sm:px-6 lg:px-8 lg:py-7">
       <Suspense fallback={<PageFallback />}>
       {page === "overview" && (
-        <Overview
-          instanceId={selected}
-          onOpenStrategy={(id) => {
-            setFocusStrategy(id);
-            setPage("strategies");
-          }}
-        />
+        <Overview instanceId={selected} />
       )}
       {page === "health" && <Health />}
       {page === "strategies" && (
-        <Strategies key={focusStrategy ?? "all"} instanceId={selected} focus={focusStrategy} onClearFocus={() => setFocusStrategy(null)} />
+        <Strategies instanceId={selected} />
       )}
       {page === "edge" && <Edge instanceId={selected} />}
       {page === "trades" && <Trades instanceId={selected} />}

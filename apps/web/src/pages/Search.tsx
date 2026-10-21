@@ -3,10 +3,11 @@ import { useQuery } from "@tanstack/react-query";
 import { get, type LogRow, type SearchHit } from "../api";
 import { Button, Card, Empty, LEVEL_TONE, Loadable, PageHeader, Panel, Pill, SearchInput } from "../components/ui";
 import { ts } from "../format";
+import { useSearchParam } from "../router";
 
 export default function Search({ instanceId }: { instanceId: string | null }) {
-  const [input, setInput] = useState("");
-  const [q, setQ] = useState("");
+  const [q, setQ] = useSearchParam("q");
+  const [input, setInput] = useState(q);
 
   const events = useQuery({
     queryKey: ["search-events", instanceId, q],
@@ -33,7 +34,7 @@ export default function Search({ instanceId }: { instanceId: string | null }) {
        
         onSubmit={(e) => {
           e.preventDefault();
-          setQ(input.trim());
+          setQ(input.trim(), { push: true });
         }}
       >
         <SearchInput
@@ -55,7 +56,7 @@ export default function Search({ instanceId }: { instanceId: string | null }) {
             <div className="p-2">
               {eventHits.map((h) => (
                 <div key={h.id} className="border-b border-line/50 px-2 py-2 font-mono text-xs last:border-b-0">
-                  <span className="text-faint">{ts(h.ts)}</span> <span className="text-info">{h.type}</span>{" "}
+                  <span className="text-faint">{ts(h.ts)} UTC</span> <span className="text-info">{h.type}</span>{" "}
                   <span className="break-all text-body">{JSON.stringify(h.payload)}</span>
                 </div>
               ))}
