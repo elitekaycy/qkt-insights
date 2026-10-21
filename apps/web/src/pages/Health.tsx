@@ -2,11 +2,11 @@ import { Fragment, useRef, useState, type KeyboardEvent, type PointerEvent, type
 import { useQuery } from "@tanstack/react-query";
 import { get, type HealthRow, type LiveAccount, type LiveStateSnapshot, type MonitorSummary, type MonitorsView, type StripBucket } from "../api";
 import { Cell, DataList, Empty, LiveDot, PageHeader, Panel, Pill, Row, Skeleton, Stat, Table, type Tone } from "../components/ui";
-import { age, duration, money, pct, tsDay, tsShort } from "../format";
+import { age, clock, duration, money, pct, signedMoney, tsDay, tsShort } from "../format";
 
-function sinkTone(row: HealthRow): "neutral" | "up" | "down" {
+function sinkTone(row: HealthRow): Tone {
   if (row.insightsSent == null) return "neutral";
-  return (row.insightsFailed ?? 0) > 0 || (row.insightsDropped ?? 0) > 0 ? "down" : "up";
+  return (row.insightsFailed ?? 0) > 0 || (row.insightsDropped ?? 0) > 0 ? "bad" : "ok";
 }
 
 function journalLabel(row: HealthRow): string {
@@ -25,16 +25,12 @@ function QuarantinePill({ row }: { row: HealthRow }) {
   return n > 0 ? <Pill tone="warn">{n} quarantined</Pill> : null;
 }
 
-const STATUS_TONE: Record<MonitorSummary["status"], Tone> = { up: "up", down: "down", pending: "neutral" };
+const STATUS_TONE: Record<MonitorSummary["status"], Tone> = { up: "ok", down: "bad", pending: "neutral" };
 
-const BEAT_CLASS: Record<"up" | "down" | "none", string> = { up: "bg-up", down: "bg-down", none: "bg-line" };
-
-function clock(ms: number): string {
-  return new Date(ms).toLocaleTimeString("en-GB", { hour: "2-digit", minute: "2-digit" });
-}
+const BEAT_CLASS: Record<"up" | "down" | "none", string> = { up: "bg-ok", down: "bg-danger", none: "bg-well" };
 
 function beatLabel(b: StripBucket, spanMs: number): string {
-  const when = `${tsShort(b.ts)}–${clock(b.ts + spanMs)}`;
+  const when = `${tsShort(b.ts)}–${clock(b.ts + spanMs)} UTC`;
   if (b.status == null) return `${when} · no checks`;
   if (b.status === "up") return `${when} · up · ${b.checks} checks`;
   return `${when} · down · ${b.downs} of ${b.checks} checks failed`;
@@ -98,7 +94,7 @@ function UptimeStrip({ strip, name }: { strip: StripBucket[]; name: string }) {
       </div>
       <div className="mt-1 flex items-baseline justify-between gap-2 text-[11px] text-faint">
         <span className="shrink-0">24h ago</span>
-        <span aria-live="polite" className={`min-w-0 truncate font-mono ${picked?.status === "down" ? "text-down" : "text-muted"}`}>
+        <span aria-live="polite" className={`min-w-0 truncate ${picked?.status === "down" ? "text-loss" : "text-muted"}`}>
           {picked ? beatLabel(picked, spanMs) : ""}
         </span>
         <span className="shrink-0">now</span>
@@ -109,7 +105,7 @@ function UptimeStrip({ strip, name }: { strip: StripBucket[]; name: string }) {
 
 function uptimeTone(v: number | null): string {
   if (v == null) return "text-faint";
-  return v >= 0.999 ? "text-up" : v >= 0.99 ? "text-bright" : v >= 0.95 ? "text-warn" : "text-down";
+  return v >= 0.999 ? "text-ok" : v >= 0.99 ? "text-bright" : v >= 0.95 ? "text-warn" : "text-loss";
 }
 
 function sinceLabel(m: MonitorSummary): string {
@@ -133,8 +129,8 @@ function MonitorRow({ m }: { m: MonitorSummary }) {
           </div>
         </div>
         <div className="shrink-0 text-right">
-          <div className={`font-mono text-lg font-semibold leading-tight ${uptimeTone(m.uptime24h)}`}>{pct(m.uptime24h)}</div>
-          <div className="text-[11px] uppercase tracking-[0.1em] text-faint">24h</div>
+          <div className={`text-lg font-semibold leading-tight ${uptimeTone(m.uptime24h)}`}>{pct(m.uptime24h)}</div>
+          <div className="text-[11px] uppercase tracking-[0.06em] text-faint">24h</div>
         </div>
       </div>
       <div className="mt-2.5 sm:pl-5">
@@ -142,14 +138,14 @@ function MonitorRow({ m }: { m: MonitorSummary }) {
       </div>
       <div className="mt-1.5 flex flex-wrap gap-x-4 gap-y-1 text-xs text-muted sm:pl-5">
         <span>
-          30d <span className={`font-mono ${uptimeTone(m.uptime30d)}`}>{pct(m.uptime30d)}</span>
+          30d <span className={`${uptimeTone(m.uptime30d)}`}>{pct(m.uptime30d)}</span>
         </span>
         {m.status === "down" ? (
-          <span className="text-down">{m.detail ?? "check failed"}</span>
+          <span className="text-loss">{m.detail ?? "check failed"}</span>
         ) : (
           m.latencyMs != null && (
             <span>
-              <span className="font-mono text-bright">{m.latencyMs}</span> ms
+              <span className="text-bright">{m.latencyMs}</span> ms
             </span>
           )
         )}
@@ -169,10 +165,10 @@ function FleetStats({ monitors, rows, accounts }: { monitors: MonitorSummary[]; 
   const down = monitors.filter((m) => m.status === "down");
   return (
     <div className="mt-6 grid grid-cols-2 gap-3 xl:grid-cols-4">
-      <Stat label="daemons up" value={`${daemonsUp} / ${daemons.length}`} tone={daemons.length > 0 && daemonsUp === daemons.length ? "up" : daemonsUp < daemons.length ? "down" : "neutral"} sub="qkt instances with a live heartbeat" stagger={1} />
-      <Stat label="strategies" value={strategies} sub="deployed across all daemons" stagger={2} />
-      <Stat label="broker accounts" value={`${accountsLive} / ${accounts.length}`} tone={accounts.length > 0 && accountsLive === accounts.length ? "up" : accountsLive < accounts.length ? "down" : "neutral"} sub="polled within 30s" stagger={3} />
-      <Stat label="monitors down" value={down.length} tone={down.length > 0 ? "down" : "up"} sub={down.length > 0 ? down.map((m) => m.name).join(", ") : "everything is answering"} stagger={4} />
+      <Stat label="daemons up" value={`${daemonsUp} / ${daemons.length}`} tone={daemons.length > 0 && daemonsUp === daemons.length ? "ok" : daemonsUp < daemons.length ? "bad" : "neutral"} sub="qkt instances with a live heartbeat" />
+      <Stat label="strategies" value={strategies} sub="deployed across all daemons" />
+      <Stat label="broker accounts" value={`${accountsLive} / ${accounts.length}`} tone={accounts.length > 0 && accountsLive === accounts.length ? "ok" : accountsLive < accounts.length ? "bad" : "neutral"} sub="polled within 30s" />
+      <Stat label="monitors down" value={down.length} tone={down.length > 0 ? "bad" : "ok"} sub={down.length > 0 ? down.map((m) => m.name).join(", ") : "everything is answering"} />
     </div>
   );
 }
@@ -184,12 +180,12 @@ function Monitors({ view, loading, failed }: { view: MonitorsView | undefined; l
     <>
       <Panel
         className="mt-6"
-        stagger={1}
+       
         title="Uptime"
         hint="checked every 30s · down after 3 straight failures · each beat is 30 min, red if any check failed, grey when nothing was checking"
       >
         {loading && <Skeleton lines={3} className="p-4" />}
-        {failed && !view && <div className="px-4 py-10 text-center text-sm text-down">Could not load monitors from the collector. Retrying.</div>}
+        {failed && !view && <div className="px-4 py-10 text-center text-sm text-loss">Could not load monitors from the collector. Retrying.</div>}
         <ul className="divide-y divide-line/60">
           {!loading && !failed && monitors.length === 0 && (
             <li className="px-4 py-10 text-center text-sm text-faint">
@@ -202,15 +198,15 @@ function Monitors({ view, loading, failed }: { view: MonitorsView | undefined; l
         </ul>
       </Panel>
 
-      <Panel className="mt-6" stagger={2} title="Incidents" hint="every up/down transition, newest first" scroll="max-h-[24rem]">
+      <Panel className="mt-6" title="Incidents" hint="every up/down transition, newest first" scroll="max-h-[24rem]">
         <DataList
-          head={["When", "Monitor", "Status", "Reason"]}
+          head={["When (UTC)", "Monitor", "Status", "Reason"]}
           rows={events}
           keyOf={(e) => `${e.monitor}:${e.ts}`}
           empty="No transitions recorded."
           cells={(e) => (
             <>
-              <Cell className="whitespace-nowrap font-mono text-muted">{tsDay(e.ts)}</Cell>
+              <Cell className="whitespace-nowrap text-muted">{tsDay(e.ts)}</Cell>
               <Cell className="font-semibold text-bright">{e.monitor}</Cell>
               <Cell>
                 <Pill tone={STATUS_TONE[e.status]}>{e.status}</Pill>
@@ -222,7 +218,7 @@ function Monitors({ view, loading, failed }: { view: MonitorsView | undefined; l
             <div className="flex items-center gap-2">
               <span className="truncate font-semibold text-bright">{e.monitor}</span>
               <Pill tone={STATUS_TONE[e.status]}>{e.status}</Pill>
-              <span className="ml-auto whitespace-nowrap font-mono text-xs text-muted">{tsShort(e.ts)}</span>
+              <span className="ml-auto whitespace-nowrap text-xs text-muted">{tsShort(e.ts)} UTC</span>
             </div>
           )}
         />
@@ -239,7 +235,7 @@ function accountSummary(accounts: LiveAccount[]): LiveAccount | null {
 function Fact({ label, children, mono }: { label: string; children: ReactNode; mono?: boolean }) {
   return (
     <div className="min-w-0">
-      <div className="text-[11px] uppercase tracking-[0.1em] text-faint">{label}</div>
+      <div className="text-[11px] uppercase tracking-[0.06em] text-faint">{label}</div>
       <div className={`truncate ${mono ? "font-mono" : ""} text-bright`}>{children}</div>
     </div>
   );
@@ -250,7 +246,7 @@ function InstanceDetail({ row, accounts }: { row: HealthRow; accounts: LiveAccou
   return (
     <div className="grid gap-4 xl:grid-cols-[1.2fr_2fr]">
       <div className="rounded-lg border border-line bg-panel p-4">
-        <div className="text-[11px] font-bold uppercase tracking-[0.12em] text-muted">Collector delivery</div>
+        <div className="text-[11px] font-semibold uppercase tracking-[0.06em] text-muted">Collector delivery</div>
         <div className="mt-3 grid grid-cols-2 gap-3 text-sm">
           <Fact label="sent" mono>
             {row.insightsSent ?? "—"}
@@ -266,7 +262,7 @@ function InstanceDetail({ row, accounts }: { row: HealthRow; accounts: LiveAccou
           </Fact>
         </div>
         <div className="mt-3 text-sm">
-          <div className="text-[11px] uppercase tracking-[0.1em] text-faint">quarantined</div>
+          <div className="text-[11px] uppercase tracking-[0.06em] text-faint">quarantined</div>
           {row.quarantined.length === 0 ? (
             <div className="text-muted">none</div>
           ) : (
@@ -292,12 +288,12 @@ function InstanceDetail({ row, accounts }: { row: HealthRow; accounts: LiveAccou
             <>
               <Cell className="font-semibold text-bright">{a.login ? `${a.broker} · #${a.login}` : a.broker}</Cell>
               <Cell>
-                <Pill tone={a.stale ? "neutral" : "up"}>{a.stale ? "stale" : "live"}</Pill>
+                <Pill tone={a.stale ? "neutral" : "ok"}>{a.stale ? "stale" : "live"}</Pill>
               </Cell>
               <Cell className="whitespace-nowrap text-muted">{age(a.lastSeen)}</Cell>
-              <Cell className="font-mono text-muted">{money(a.balance)}</Cell>
-              <Cell className="font-mono text-bright">{money(a.equity)}</Cell>
-              <Cell className={`font-mono ${openTone(a.openProfit)}`}>{money(a.openProfit)}</Cell>
+              <Cell className="text-muted">{money(a.balance)}</Cell>
+              <Cell className="text-bright">{money(a.equity)}</Cell>
+              <Cell className={openTone(a.openProfit)}>{signedMoney(a.openProfit)}</Cell>
               <Cell className="text-muted">{a.server ?? a.name ?? "—"}</Cell>
             </>
           )}
@@ -305,7 +301,7 @@ function InstanceDetail({ row, accounts }: { row: HealthRow; accounts: LiveAccou
             <>
               <div className="flex items-center gap-2">
                 <span className="truncate font-semibold text-bright">{a.login ? `${a.broker} · #${a.login}` : a.broker}</span>
-                <Pill tone={a.stale ? "neutral" : "up"}>{a.stale ? "stale" : "live"}</Pill>
+                <Pill tone={a.stale ? "neutral" : "ok"}>{a.stale ? "stale" : "live"}</Pill>
                 <span className="ml-auto whitespace-nowrap text-xs text-muted">{age(a.lastSeen)}</span>
               </div>
               <div className="mt-2 grid grid-cols-3 gap-3 text-sm">
@@ -316,8 +312,8 @@ function InstanceDetail({ row, accounts }: { row: HealthRow; accounts: LiveAccou
                   {money(a.equity)}
                 </Fact>
                 <div className="min-w-0">
-                  <div className="text-[11px] uppercase tracking-[0.1em] text-faint">open p&l</div>
-                  <div className={`truncate font-mono ${openTone(a.openProfit)}`}>{money(a.openProfit)}</div>
+                  <div className="text-[11px] uppercase tracking-[0.06em] text-faint">open p&l</div>
+                  <div className={`truncate ${openTone(a.openProfit)}`}>{signedMoney(a.openProfit)}</div>
                 </div>
               </div>
             </>
@@ -330,7 +326,7 @@ function InstanceDetail({ row, accounts }: { row: HealthRow; accounts: LiveAccou
 
 function openTone(v: number | null | undefined): string {
   if (v == null || v === 0) return "text-muted";
-  return v > 0 ? "text-up" : "text-down";
+  return v > 0 ? "text-gain" : "text-loss";
 }
 
 export default function Health() {
@@ -362,7 +358,7 @@ export default function Health() {
 
       <Monitors view={monitors.data} loading={monitors.isLoading} failed={monitors.isError} />
 
-      <Panel className="mt-6" stagger={3} title="Runtime health" hint="live = recent qkt envelope or broker account poll within 30s" scroll="max-h-[72vh]">
+      <Panel className="mt-6" title="Runtime health" hint="live = recent qkt envelope or broker account poll within 30s" scroll="max-h-[72vh]">
         <ul className="divide-y divide-line/60 sm:hidden">
           {rows.length === 0 && (
             <li className="px-4 py-10 text-center text-sm text-faint">No instances reporting yet — enable the insights block on a qkt instance.</li>
@@ -377,7 +373,7 @@ export default function Health() {
                 <div className="flex items-center gap-2.5">
                   <LiveDot on={fresh} />
                   <span className="truncate font-semibold text-bright">{r.instanceId}</span>
-                  <Pill tone={fresh ? "up" : "neutral"}>{fresh ? "live" : "idle"}</Pill>
+                  <Pill tone={fresh ? "ok" : "neutral"}>{fresh ? "live" : "idle"}</Pill>
                   <span className="ml-auto whitespace-nowrap text-xs text-muted">{age(r.lastSeen)}</span>
                 </div>
                 <div className="mt-2 grid grid-cols-2 gap-x-4 gap-y-1.5 text-sm">
@@ -396,7 +392,7 @@ export default function Health() {
                   <Pill tone={sinkTone(r)}>
                     {r.insightsSent == null ? "unknown" : `${r.insightsFailed ?? 0} failed · ${r.insightsDropped ?? 0} dropped`}
                   </Pill>
-                  <Pill tone={r.insightsJournalPending == null ? "neutral" : r.insightsJournalPending > 0 ? "warn" : "up"}>
+                  <Pill tone={r.insightsJournalPending == null ? "neutral" : r.insightsJournalPending > 0 ? "warn" : "ok"}>
                     journal {journalLabel(r)}
                   </Pill>
                   <QuarantinePill row={r} />
@@ -439,13 +435,13 @@ export default function Health() {
                     </span>
                   </Cell>
                   <Cell>
-                    <Pill tone={fresh ? "up" : "neutral"}>{fresh ? "live" : "idle"}</Pill>
+                    <Pill tone={fresh ? "ok" : "neutral"}>{fresh ? "live" : "idle"}</Pill>
                   </Cell>
                   <Cell className="whitespace-nowrap text-muted">{age(r.lastSeen)}</Cell>
-                  <Cell className="font-mono text-muted">{r.lastSeq}</Cell>
-                  <Cell className="font-mono text-muted">{r.strategies}</Cell>
+                  <Cell className="text-muted">{r.lastSeq}</Cell>
+                  <Cell className="text-muted">{r.strategies}</Cell>
                   <Cell className="text-muted">{acct ? (acct.login ? `${acct.broker} · #${acct.login}` : acct.broker) : "—"}</Cell>
-                  <Cell className="font-mono text-bright">{acct ? money(acct.equity) : "—"}</Cell>
+                  <Cell className="text-bright">{acct ? money(acct.equity) : "—"}</Cell>
                   <Cell>
                     <span className="flex flex-wrap gap-1.5">
                       <Pill tone={sinkTone(r)}>
@@ -455,7 +451,7 @@ export default function Health() {
                     </span>
                   </Cell>
                   <Cell>
-                    <Pill tone={r.insightsJournalPending == null ? "neutral" : r.insightsJournalPending > 0 ? "warn" : "up"}>
+                    <Pill tone={r.insightsJournalPending == null ? "neutral" : r.insightsJournalPending > 0 ? "warn" : "ok"}>
                       {journalLabel(r)}
                     </Pill>
                   </Cell>

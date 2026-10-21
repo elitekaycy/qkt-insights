@@ -1,9 +1,9 @@
 import { useState, type ReactNode } from "react";
 import { MIN_RATIO_DAYS, type ClosedTradeRow, type DayNet, type PerformanceBundle, type PerformanceReport } from "../api";
-import { duration, fixed, instrumentOf, money, num, price, tsShort, winPct } from "../format";
-import { EChart, qktChartAxis, qktChartGrid, qktChartTooltip, qktInsideZoom, type QktChartOption } from "./EChart";
+import { compact, count, DASH, days, duration, instrumentOf, MINUS, money, num, pctValue, pnl, polarity, price, quantity, ratio, signedMoney, tsShort, winPct } from "../format";
+import { chartColors, EChart, qktChartAxis, qktChartGrid, qktChartTooltip, qktLegend, qktXAxis, tipHtml, type QktChartOption } from "./EChart";
 import { BucketBoxplot, ContributionBars, CostStack } from "./EdgeCharts";
-import { Cell, DataList, Empty, Panel, Pill, Row, Select, Stat, Table, TimeCell, type Tone } from "./ui";
+import { Cell, DataList, Empty, Panel, Pill, Pnl, Popover, Row, Select, Stat, Table, TimeCell, type Tone } from "./ui";
 
 /*
  * The performance tab of a strategy: profitability, risk, and streak panels fed
@@ -12,15 +12,12 @@ import { Cell, DataList, Empty, Panel, Pill, Row, Select, Stat, Table, TimeCell,
  */
 
 function pf(v: PerformanceReport["profitFactor"]): string {
-  if (v == null) return "—";
-  if (v === "inf") return "∞";
-  return v.toFixed(2);
+  return ratio(v === "inf" ? Infinity : v);
 }
 
 /** Percent values that arrive already scaled to 0–100. */
 function pcts(v: number | null | undefined, digits = 1): string {
-  if (v == null) return "—";
-  return `${fixed(v, digits)}%`;
+  return pctValue(v, digits);
 }
 
 function toneOf(v: number | null | undefined): Tone {
@@ -31,12 +28,10 @@ function toneOf(v: number | null | undefined): Tone {
 export function Approx({ on }: { on: boolean }) {
   if (!on) return null;
   return (
-    <span
-      className="ml-auto cursor-help text-xs text-faint"
-      title="Approximate: derived from realized-P&L changes between equity snapshots. Becomes exact once this instance runs a qkt version that publishes trade.closed events."
-    >
-      ≈ approximate
-    </span>
+    <Popover label="Why this is approximate" align="right" trigger={<span className="text-xs text-muted underline decoration-dotted underline-offset-2">≈ approximate</span>}>
+      Approximate: derived from realized-P&L changes between equity snapshots. Becomes exact once this instance runs a qkt
+      version that publishes trade.closed events.
+    </Popover>
   );
 }
 
@@ -44,20 +39,11 @@ function outcomeLabel(realized: number): string {
   return realized > 0 ? "WIN" : realized < 0 ? "LOSS" : "FLAT";
 }
 
-function realizedClass(realized: number | null | undefined): string {
-  if (realized == null) return "text-faint";
-  return realized > 0 ? "text-up" : realized < 0 ? "text-down" : "text-muted";
-}
-
-function signedMoney(realized: number): string {
-  return `${realized > 0 ? "+" : ""}${money(realized)}`;
-}
-
 function CostFact({ label, className = "", children }: { label: string; className?: string; children: ReactNode }) {
   return (
     <div className="min-w-0">
-      <dt className="text-[10px] font-bold uppercase tracking-[0.12em] text-faint">{label}</dt>
-      <dd className={`truncate font-mono text-sm ${className}`}>{children}</dd>
+      <dt className="eyebrow">{label}</dt>
+      <dd className={`truncate text-sm ${className}`}>{children}</dd>
     </div>
   );
 }
@@ -78,10 +64,10 @@ function CloseList({ rows, hint }: { rows: ClosedTradeRow[]; hint?: string }) {
   }
   return (
     <div>
-      {hint && <div className="pb-1.5 text-[11px] font-semibold uppercase tracking-[0.12em] text-muted">{hint}</div>}
+      {hint && <div className="pb-1.5 text-[11px] font-semibold uppercase tracking-[0.06em] text-muted">{hint}</div>}
       <div className="max-h-72 overflow-auto rounded-lg border border-line">
         <DataList
-          head={["Closed", "Symbol", "Outcome", "Qty", "Exit px", "P&L", "Held"]}
+          head={["Closed (UTC)", "Symbol", "Outcome", "Qty", "Exit px", "P&L", "Held"]}
           rows={rows}
           keyOf={(c) => `${c.ts}-${c.orderId ?? c.symbol}-${c.realized}`}
           empty="No closed trades"
@@ -92,10 +78,12 @@ function CloseList({ rows, hint }: { rows: ClosedTradeRow[]; hint?: string }) {
               <Cell>
                 <Pill tone={outcomeTone(c.realized)}>{outcomeLabel(c.realized)}</Pill>
               </Cell>
-              <Cell className="font-mono">{c.qty}</Cell>
-              <Cell className="whitespace-nowrap font-mono text-muted">@ {price(c.price)}</Cell>
-              <Cell className={`font-mono font-semibold ${realizedClass(c.realized)}`}>{signedMoney(c.realized)}</Cell>
-              <Cell className="font-mono text-muted">{c.entryTs != null ? duration(c.ts - c.entryTs) : "—"}</Cell>
+              <Cell>{quantity(c.qty)}</Cell>
+              <Cell className="whitespace-nowrap text-muted">@ {price(c.price)}</Cell>
+              <Cell className="font-semibold">
+                <Pnl value={c.realized} glyphs={false} />
+              </Cell>
+              <Cell className="text-muted">{c.entryTs != null ? duration(c.ts - c.entryTs) : "—"}</Cell>
             </>
           )}
           card={(c) => (
@@ -103,14 +91,14 @@ function CloseList({ rows, hint }: { rows: ClosedTradeRow[]; hint?: string }) {
               <div className="flex items-baseline gap-2">
                 <span className="min-w-0 truncate font-semibold text-bright">{c.symbol}</span>
                 <Pill tone={outcomeTone(c.realized)}>{outcomeLabel(c.realized)}</Pill>
-                <span className={`ml-auto shrink-0 font-mono text-sm font-semibold ${realizedClass(c.realized)}`}>{signedMoney(c.realized)}</span>
+                <Pnl value={c.realized} glyphs={false} className="ml-auto shrink-0 text-sm font-semibold" />
               </div>
-              <div className="mt-1 flex items-center gap-2 font-mono text-xs text-faint">
+              <div className="mt-1 flex items-center gap-2 text-xs text-faint">
                 <span className="whitespace-nowrap">
-                  {c.qty} @ {price(c.price)}
+                  {quantity(c.qty)} @ {price(c.price)}
                   {c.entryTs != null && ` · held ${duration(c.ts - c.entryTs)}`}
                 </span>
-                <span className="ml-auto whitespace-nowrap">{tsShort(c.ts)}</span>
+                <span className="ml-auto whitespace-nowrap">{tsShort(c.ts)} UTC</span>
               </div>
             </>
           )}
@@ -125,17 +113,16 @@ function DayList({ rows, hint }: { rows: DayNet[]; hint?: string }) {
   if (rows.length === 0) return <p className="text-sm text-faint">No trading days in this range yet.</p>;
   return (
     <div>
-      {hint && <div className="pb-1.5 text-[11px] font-semibold uppercase tracking-[0.12em] text-muted">{hint}</div>}
+      {hint && <div className="pb-1.5 text-[11px] font-semibold uppercase tracking-[0.06em] text-muted">{hint}</div>}
       <div className="max-h-72 overflow-auto rounded-lg border border-line">
-        <Table head={["Day", "Net", "Fills"]}>
+        <Table head={["Day (UTC)", "Net", "Closes"]}>
           {rows.map((d) => (
             <Row key={d.day}>
-              <Cell className="font-mono text-muted">{d.day}</Cell>
-              <Cell className={`font-mono font-semibold ${d.net > 0 ? "text-up" : d.net < 0 ? "text-down" : "text-muted"}`}>
-                {d.net > 0 ? "+" : ""}
-                {money(d.net)}
+              <Cell className="text-muted">{d.day}</Cell>
+              <Cell className="font-semibold">
+                <Pnl value={d.net} glyphs={false} />
               </Cell>
-              <Cell className="font-mono text-muted">{d.trades}</Cell>
+              <Cell className="text-muted">{d.trades}</Cell>
             </Row>
           ))}
         </Table>
@@ -176,6 +163,7 @@ function currentRun(chron: ClosedTradeRow[]): ClosedTradeRow[] {
 function MStat({
   label,
   value,
+  signed,
   tone,
   sub,
   explain,
@@ -183,7 +171,9 @@ function MStat({
   detail,
 }: {
   label: string;
-  value: string;
+  value?: string;
+  /** A signed money figure, rendered with its glyph in the gain or loss tone. */
+  signed?: number | null;
   tone?: Tone;
   sub?: string;
   /** What the metric is, in plain language. */
@@ -196,6 +186,7 @@ function MStat({
     <Stat
       label={label}
       value={value}
+      signed={signed}
       tone={tone}
       sub={sub}
       expand={{
@@ -203,11 +194,11 @@ function MStat({
         content: (
           <div className="grid gap-3 p-4 sm:p-5">
             <div className="rounded-lg border border-line bg-raised px-4 py-3">
-              <div className="text-[10px] font-bold uppercase tracking-[0.14em] text-muted">Current value</div>
-              <div className={`mt-1 font-mono text-2xl font-semibold ${tone === "up" ? "text-up" : tone === "down" ? "text-down" : "text-bright"}`}>
-                {value}
+              <div className="eyebrow">Current value</div>
+              <div className={`mt-1 text-2xl font-headline ${tone === "up" ? "text-gain" : tone === "down" ? "text-loss" : "text-bright"}`}>
+                {value === undefined ? <Pnl value={signed} /> : value}
               </div>
-              {sub && <div className="mt-0.5 text-xs text-faint">{sub}</div>}
+              {sub && <div className="mt-0.5 text-xs text-muted">{sub}</div>}
             </div>
             <p className="text-sm leading-relaxed text-body">{explain}</p>
             {reading && <p className="text-sm leading-relaxed text-muted">{reading}</p>}
@@ -224,7 +215,7 @@ export function PerformancePanels({ bundle }: { bundle: PerformanceBundle }) {
   const noTrades = r.wins + r.losses === 0;
   if (noTrades) {
     return (
-      <Panel title="Performance" stagger={0}>
+      <Panel title="Performance">
         <Empty>No closed trades in this range yet.</Empty>
       </Panel>
     );
@@ -255,7 +246,7 @@ export function PerformancePanels({ bundle }: { bundle: PerformanceBundle }) {
 
   return (
     <div className="grid gap-5">
-      <Panel title="Profitability" stagger={0} right={<Approx on={r.approximate} />}>
+      <Panel title="Profitability" right={<Approx on={r.approximate} />}>
         <div className="grid grid-cols-2 gap-3 p-4 md:grid-cols-4">
           <MStat
             label="Profit factor"
@@ -267,10 +258,9 @@ export function PerformancePanels({ bundle }: { bundle: PerformanceBundle }) {
           />
           <MStat
             label="Expectancy"
-            value={money(r.expectancy)}
-            tone={toneOf(r.expectancy)}
+            signed={r.expectancy}
             sub="avg P&L per trade"
-            explain={`The average result of one trade: total net (${money(r.totalNet)}) spread over ${r.wins + r.losses} closed trades.`}
+            explain={`The average result of one trade: total net (${signedMoney(r.totalNet)}) spread over ${r.wins + r.losses} closed trades.`}
             reading="Positive means each trade is worth taking on average. Multiply by your expected trade count to project P&L."
             detail={<CloseList rows={closes} hint="the trades averaged into this number" />}
           />
@@ -292,18 +282,16 @@ export function PerformancePanels({ bundle }: { bundle: PerformanceBundle }) {
           />
           <MStat
             label="Avg win"
-            value={money(r.avgWin)}
-            tone="up"
+            signed={r.avgWin}
             explain="The mean P&L of winning trades only."
-            reading={`Compare with the avg loss (${r.avgLoss == null ? "—" : money(-r.avgLoss)}): you want wins at least as large as losses unless the win rate is high.`}
+            reading={`Compare with the avg loss (${r.avgLoss == null ? DASH : signedMoney(-r.avgLoss)}): you want wins at least as large as losses unless the win rate is high.`}
             detail={<CloseList rows={winRows} hint={`all ${winRows.length} winning trades`} />}
           />
           <MStat
             label="Avg loss"
-            value={r.avgLoss == null ? "—" : money(-r.avgLoss)}
-            tone={r.avgLoss == null ? "neutral" : "down"}
+            signed={r.avgLoss == null ? null : -r.avgLoss}
             explain="The mean P&L of losing trades only."
-            reading={`If a single recent loss is much bigger than this average (largest: ${r.largestLoss == null ? "—" : money(-r.largestLoss)}), risk control slipped on that trade.`}
+            reading={`If a single recent loss is much bigger than this average (largest: ${r.largestLoss == null ? DASH : signedMoney(-r.largestLoss)}), risk control slipped on that trade.`}
             detail={<CloseList rows={lossRows} hint={`all ${lossRows.length} losing trades`} />}
           />
           <MStat
@@ -315,60 +303,55 @@ export function PerformancePanels({ bundle }: { bundle: PerformanceBundle }) {
           />
           <MStat
             label="Total net"
-            value={money(r.totalNet)}
-            tone={toneOf(r.totalNet)}
+            signed={r.totalNet}
             explain={`All closed-trade P&L in this range summed: ${money(r.grossProfit)} of winning trades minus ${money(r.grossLoss)} of losing trades.`}
             reading="This is realized result only — open positions aren't counted until they close."
             detail={<CloseList rows={closes} hint="every closed trade summed into this" />}
           />
           <MStat
             label="Sum of wins"
-            value={money(r.grossProfit)}
-            tone="up"
+            signed={r.grossProfit}
             explain="The net P&L (after commission and swap) of winning trades only, before subtracting any losses. Gross, before costs, is in Cost of trading."
             detail={<CloseList rows={winRows} hint={`the ${winRows.length} winning trades`} />}
           />
           <MStat
             label="Sum of losses"
-            value={money(-r.grossLoss)}
-            tone={r.grossLoss > 0 ? "down" : "neutral"}
+            signed={-r.grossLoss}
             explain="The net P&L (after commission and swap) of losing trades only."
             reading="Sum of wins minus sum of losses gives the total net; their ratio is the profit factor."
             detail={<CloseList rows={lossRows} hint={`the ${lossRows.length} losing trades`} />}
           />
           <MStat
             label="Largest win"
-            value={money(r.largestWin)}
-            tone="up"
+            signed={r.largestWin}
             explain="The single best closed trade in this range."
             reading={`If this dwarfs the average win (${money(r.avgWin)}), the headline numbers may lean on one lucky trade.`}
             detail={<CloseList rows={topWins} hint="biggest wins, largest first" />}
           />
           <MStat
             label="Largest loss"
-            value={r.largestLoss == null ? "—" : money(-r.largestLoss)}
-            tone={r.largestLoss == null ? "neutral" : "down"}
+            signed={r.largestLoss == null ? null : -r.largestLoss}
             explain="The single worst closed trade in this range."
-            reading={`Compare with the average loss (${r.avgLoss == null ? "—" : money(-r.avgLoss)}) — a big gap points to a stop that didn't hold or sizing that spiked.`}
+            reading={`Compare with the average loss (${r.avgLoss == null ? DASH : signedMoney(-r.avgLoss)}) — a big gap points to a stop that didn't hold or sizing that spiked.`}
             detail={<CloseList rows={topLosses} hint="biggest losses, worst first" />}
           />
         </div>
       </Panel>
 
-      <Panel title="Risk" stagger={1} right={<Approx on={r.approximate} />}>
+      <Panel title="Risk" right={<Approx on={r.approximate} />}>
         <div className="grid grid-cols-2 gap-3 p-4 md:grid-cols-4">
           <MStat
             label="Max drawdown"
             value={pcts(r.maxDrawdownPct)}
             tone={r.maxDrawdownPct ? "down" : "neutral"}
-            sub={r.maxDrawdownAbs != null ? money(-r.maxDrawdownAbs) : undefined}
+            sub={r.maxDrawdownAbs != null ? signedMoney(-r.maxDrawdownAbs) : undefined}
             explain="The deepest peak-to-trough fall in equity — the worst losing stretch an investor would have sat through."
             reading="The Equity page lists every drawdown period with peak, trough, and recovery dates."
-            detail={<CloseList rows={inWorstPeriod} hint={worstPeriod ? `trades during the deepest drawdown (${money(-worstPeriod.depth)})` : undefined} />}
+            detail={<CloseList rows={inWorstPeriod} hint={worstPeriod ? `trades during the deepest drawdown (${signedMoney(-worstPeriod.depth)})` : undefined} />}
           />
           <MStat
             label="DD duration"
-            value={r.drawdownDurationDays == null ? "—" : `${r.drawdownDurationDays.toFixed(1)}d`}
+            value={days(r.drawdownDurationDays)}
             sub="longest underwater"
             explain="The longest time equity stayed below a previous high before making a new one."
             reading="Long durations hurt even when shallow — capital is locked in recovery instead of compounding."
@@ -378,7 +361,7 @@ export function PerformancePanels({ bundle }: { bundle: PerformanceBundle }) {
             label="Recovery factor"
             value={num(r.recoveryFactor)}
             sub="net / max DD"
-            explain={`Total net (${money(r.totalNet)}) divided by the deepest drawdown — profit earned per unit of worst-case pain.`}
+            explain={`Total net (${signedMoney(r.totalNet)}) divided by the deepest drawdown — profit earned per unit of worst-case pain.`}
             reading="Higher is better; above 2–3 means the strategy makes meaningfully more than its worst stumble."
             detail={<DayList rows={bundle.dailyNets} hint="the daily nets behind net and drawdown" />}
           />
@@ -408,16 +391,14 @@ export function PerformancePanels({ bundle }: { bundle: PerformanceBundle }) {
           />
           <MStat
             label="Best day"
-            value={money(r.bestDay)}
-            tone="up"
+            signed={r.bestDay}
             explain="The most profitable single UTC trading day in this range."
-            reading={`The average day makes ${money(r.avgDayPnl)} — if the best day towers over that, results are concentrated.`}
+            reading={`The average day makes ${signedMoney(r.avgDayPnl)} — if the best day towers over that, results are concentrated.`}
             detail={<CloseList rows={bestDayRows} hint="the trades that made the best day" />}
           />
           <MStat
             label="Worst day"
-            value={money(r.worstDay)}
-            tone={r.worstDay != null && r.worstDay < 0 ? "down" : "neutral"}
+            signed={r.worstDay}
             explain="The most damaging single UTC trading day in this range."
             reading="A worst day far beyond the average suggests a session where risk limits failed — find it in the calendar."
             detail={<CloseList rows={worstDayRows} hint="the trades that made the worst day" />}
@@ -425,11 +406,11 @@ export function PerformancePanels({ bundle }: { bundle: PerformanceBundle }) {
         </div>
       </Panel>
 
-      <Panel title="Streaks" stagger={2} right={<Approx on={r.approximate} />}>
+      <Panel title="Streaks" right={<Approx on={r.approximate} />}>
         <div className="grid grid-cols-2 gap-3 p-4 md:grid-cols-4">
           <MStat
             label="Current streak"
-            value={r.currentStreak === 0 ? "—" : `${r.currentStreak > 0 ? "+" : ""}${r.currentStreak}`}
+            value={r.currentStreak === 0 ? DASH : `${r.currentStreak > 0 ? "+" : MINUS}${Math.abs(r.currentStreak)}`}
             tone={streakTone}
             sub={r.currentStreak <= -3 ? "tilt risk — slow down" : r.currentStreak > 0 ? "winning run" : r.currentStreak < 0 ? "losing run" : undefined}
             explain="Consecutive wins (positive) or losses (negative) ending at the latest closed trade."
@@ -454,15 +435,15 @@ export function PerformancePanels({ bundle }: { bundle: PerformanceBundle }) {
           <MStat
             label="Profitable days"
             value={`${r.profitableDays}/${r.daysTraded}`}
-            sub={`avg day ${money(r.avgDayPnl)}`}
+            sub={`avg day ${signedMoney(r.avgDayPnl)}`}
             explain={`Out of ${r.daysTraded} UTC days with at least one fill, ${r.profitableDays} ended positive.`}
             reading="Day-level consistency matters for compounding — the calendar tab paints every one of these days."
-            detail={<DayList rows={bundle.dailyNets} hint="every traded day, profitable ones in green" />}
+            detail={<DayList rows={bundle.dailyNets} hint="every traded day, profitable ones in blue" />}
           />
         </div>
         {bundle.postLoss.length > 0 && (
           <div className="border-t border-line">
-            <div className="px-4 pt-3 text-[11px] font-semibold uppercase tracking-[0.12em] text-muted">
+            <div className="px-4 pt-3 text-[11px] font-semibold uppercase tracking-[0.06em] text-muted">
               After N consecutive losses, the next trade…
             </div>
             <DataList
@@ -472,23 +453,25 @@ export function PerformancePanels({ bundle }: { bundle: PerformanceBundle }) {
               empty="No losing streaks yet"
               cells={(p) => (
                 <>
-                  <Cell className="font-mono">{p.n}</Cell>
-                  <Cell className="font-mono text-muted">{p.sample}</Cell>
+                  <Cell>{p.n}</Cell>
+                  <Cell className="text-muted">{p.sample}</Cell>
                   <Cell>
-                    <Pill tone={p.nextWinRate >= 50 ? "up" : "down"}>{p.nextWinRate.toFixed(0)}%</Pill>
+                    <Pill tone={p.nextWinRate >= 50 ? "up" : "down"}>{winPct(p.nextWinRate)}</Pill>
                   </Cell>
-                  <Cell className={`font-mono ${p.nextAvg >= 0 ? "text-up" : "text-down"}`}>{money(p.nextAvg)}</Cell>
+                  <Cell>
+                    <Pnl value={p.nextAvg} glyphs={false} />
+                  </Cell>
                 </>
               )}
               card={(p) => (
                 <div className="flex items-center gap-2">
                   <span className="text-sm text-body">
-                    after <span className="font-mono font-semibold text-bright">{p.n}</span> {p.n === 1 ? "loss" : "losses"}
+                    after <span className="font-semibold text-bright">{p.n}</span> {p.n === 1 ? "loss" : "losses"}
                   </span>
                   <span className="text-xs text-faint">· seen {p.sample}×</span>
                   <span className="ml-auto flex shrink-0 items-center gap-2">
-                    <Pill tone={p.nextWinRate >= 50 ? "up" : "down"}>{p.nextWinRate.toFixed(0)}% win</Pill>
-                    <span className={`font-mono text-sm ${p.nextAvg >= 0 ? "text-up" : "text-down"}`}>{money(p.nextAvg)}</span>
+                    <Pill tone={p.nextWinRate >= 50 ? "up" : "down"}>{winPct(p.nextWinRate)} win</Pill>
+                    <Pnl value={p.nextAvg} glyphs={false} className="text-sm" />
                   </span>
                 </div>
               )}
@@ -542,7 +525,7 @@ function dimKey(c: ClosedTradeRow, dim: TradeDimension): string {
   if (dim === "symbol") return instrumentOf(c.symbol);
   if (dim === "hour") return String(d.getUTCHours()).padStart(2, "0");
   if (dim === "weekday") return WEEKDAYS[(d.getUTCDay() + 6) % 7]!;
-  if (dim === "lot") return c.qty.toFixed(2);
+  if (dim === "lot") return quantity(c.qty);
   return holdBucket(c);
 }
 
@@ -638,13 +621,19 @@ function TradeAnalysis({ bundle }: { bundle: PerformanceBundle }) {
   const best = [...filtered].sort((a, b) => b.realized - a.realized).slice(0, 5);
   const worst = [...filtered].sort((a, b) => a.realized - b.realized).slice(0, 5);
   const curveOption: QktChartOption = {
-    backgroundColor: "transparent",
-    color: ["#f2f4f6", "#3fe08c", "#5cb8ff"],
-    grid: qktChartGrid,
-    tooltip: { ...qktChartTooltip(), trigger: "axis" },
-    dataZoom: qktInsideZoom(),
-    legend: { top: 0, right: 0, textStyle: { color: "#79828c", fontFamily: "Archivo, system-ui, sans-serif" } },
-    xAxis: { type: "time", ...qktChartAxis },
+    color: [chartColors.series[0], chartColors.series[1], chartColors.series[2]],
+    grid: { ...qktChartGrid, top: 30 },
+    tooltip: {
+      ...qktChartTooltip(),
+      formatter: (params: unknown) => {
+        const rows = params as { seriesName: string; value: [number, number] }[];
+        const first = rows[0];
+        if (!first) return "";
+        return tipHtml(`${tsShort(first.value[0])} UTC`, null, rows.map((r) => [r.seriesName, signedMoney(r.value[1])]));
+      },
+    },
+    legend: qktLegend(),
+    xAxis: { type: "time", ...qktXAxis },
     yAxis: { type: "value", splitNumber: 4, ...qktChartAxis },
     series: [
       { name: "total", type: "line", showSymbol: false, smooth: false, data: curve.map((r) => [r.ts, r.total]) },
@@ -653,11 +642,9 @@ function TradeAnalysis({ bundle }: { bundle: PerformanceBundle }) {
     ],
   };
   const groupedOption: QktChartOption = {
-    backgroundColor: "transparent",
     grid: qktChartGrid,
     tooltip: { ...qktChartTooltip(), trigger: "axis" },
-    dataZoom: groups.length > 12 ? qktInsideZoom() : undefined,
-    xAxis: { type: "category", data: groups.map((g) => g.key), ...qktChartAxis },
+    xAxis: { type: "category", data: groups.map((g) => g.key), ...qktXAxis },
     yAxis: { type: "value", splitNumber: 4, ...qktChartAxis },
     series: [
       {
@@ -667,23 +654,27 @@ function TradeAnalysis({ bundle }: { bundle: PerformanceBundle }) {
           const value = metricValue(g, metric);
           return {
             value,
-            itemStyle: { color: metric === "trades" ? "#5cb8ff" : (value ?? 0) >= 0 ? "#3fe08c" : "#ff6b6b" },
+            itemStyle: { color: metric === "trades" ? chartColors.primary : (value ?? 0) >= 0 ? chartColors.gain : chartColors.loss },
           };
         }),
       },
     ],
   };
   const distributionOption: QktChartOption = {
-    backgroundColor: "transparent",
     grid: qktChartGrid,
     tooltip: { ...qktChartTooltip(), trigger: "axis" },
-    xAxis: { type: "category", data: dist.map((d) => money(d.midpoint)), ...qktChartAxis },
-    yAxis: { type: "value", splitNumber: 4, ...qktChartAxis },
-    series: [{ name: "trades", type: "bar", data: dist.map((d) => d.count), itemStyle: { color: "#c8f74a", opacity: 0.8 } }],
+    xAxis: { type: "category", data: dist.map((d) => compact(d.midpoint)), ...qktXAxis },
+    yAxis: { type: "value", splitNumber: 4, minInterval: 1, ...qktChartAxis },
+    series: [
+      {
+        name: "trades",
+        type: "bar",
+        data: dist.map((d) => ({ value: d.count, itemStyle: { color: d.midpoint >= 0 ? chartColors.gain : chartColors.loss, borderRadius: [3, 3, 0, 0] } })),
+      },
+    ],
   };
   const scatterOption: QktChartOption = {
-    backgroundColor: "transparent",
-    grid: qktChartGrid,
+    grid: { ...qktChartGrid, bottom: 40 },
     tooltip: {
       ...qktChartTooltip(),
       trigger: "item",
@@ -691,10 +682,14 @@ function TradeAnalysis({ bundle }: { bundle: PerformanceBundle }) {
         const p = params as { data?: [number, number, string, string, number, number] };
         const d = p.data;
         if (!d) return "";
-        return `${d[2]}<br/>${d[3]} · ${d[4]} lots<br/>held ${d[0].toFixed(1)}m<br/>P&L ${money(d[1])}`;
+        return tipHtml(`${d[2]} · ${d[3]}`, { text: pnl(d[1]), tone: polarity(d[1]) }, [
+          ["Size", quantity(d[4])],
+          ["Held", duration(d[0] * 60_000)],
+          ["Closed", `${tsShort(d[5])} UTC`],
+        ]);
       },
     },
-    xAxis: { type: "value", name: "hold min", splitNumber: 4, ...qktChartAxis },
+    xAxis: { type: "value", name: "held (minutes)", nameLocation: "middle", nameGap: 26, splitNumber: 4, ...qktChartAxis },
     yAxis: { type: "value", name: "P&L", splitNumber: 4, ...qktChartAxis },
     series: [
       {
@@ -706,7 +701,7 @@ function TradeAnalysis({ bundle }: { bundle: PerformanceBundle }) {
         },
         data: scatter.map((r) => ({
           value: [r.holdMin ?? 0, r.pnl, r.symbol, r.side, r.qty, r.ts],
-          itemStyle: { color: r.pnl >= 0 ? "#3fe08c" : "#ff6b6b" },
+          itemStyle: { color: r.pnl >= 0 ? chartColors.gain : chartColors.loss, opacity: 0.85 },
         })),
       },
     ],
@@ -716,7 +711,7 @@ function TradeAnalysis({ bundle }: { bundle: PerformanceBundle }) {
     <Panel
       title="Trade analysis"
       hint="closed trades"
-      stagger={3}
+     
       toolbar={
         <div className="flex flex-wrap items-end gap-2">
           <FilterField label="Side">
@@ -755,16 +750,16 @@ function TradeAnalysis({ bundle }: { bundle: PerformanceBundle }) {
       {filtered.length === 0 ? <Empty>No closed trades match these filters.</Empty> : (
         <div className="grid gap-5 p-4">
           <div className="grid grid-cols-2 gap-3 md:grid-cols-5">
-            <Stat label="Net" value={money(total)} tone={total >= 0 ? "up" : "down"} />
+            <Stat label="Net" signed={total} />
             <Stat label="Trades" value={String(filtered.length)} />
-            <Stat label="Wins" value={String(wins)} tone="up" />
-            <Stat label="Losses" value={String(losses)} tone={losses > 0 ? "down" : "neutral"} />
-            <Stat label="Avg" value={money(total / filtered.length)} tone={total / filtered.length >= 0 ? "up" : "down"} />
+            <Stat label="Wins" value={count(wins)} />
+            <Stat label="Losses" value={count(losses)} />
+            <Stat label="Avg" signed={total / filtered.length} />
           </div>
 
-          <div className="rounded-lg border border-line bg-ink/35 px-4 py-3 text-sm text-muted">
+          <div className="rounded-lg border border-line bg-raised px-3 py-2 text-sm text-muted">
             Use the controls above to ask: which side, symbol, hour, lot, or holding-time bucket is actually carrying the edge?
-            Hold Shift and use the mouse wheel over a chart to zoom; drag to pan.
+            Click a chart (or hold Ctrl/⌘) to zoom with the wheel; drag to pan.
           </div>
 
           <div className="grid gap-5 xl:grid-cols-2">
@@ -800,7 +795,7 @@ function TradeAnalysis({ bundle }: { bundle: PerformanceBundle }) {
 function RankedTrades({ title, rows }: { title: string; rows: ClosedTradeRow[] }) {
   return (
     <div className="rounded-lg border border-line bg-ink/25">
-      <div className="px-4 pt-3 text-[11px] font-bold uppercase tracking-[0.12em] text-muted">{title}</div>
+      <div className="px-4 pt-3 text-[11px] font-semibold uppercase tracking-[0.06em] text-muted">{title}</div>
       <DataList
         head={["Closed", "Symbol", "Side", "Qty", "P&L"]}
         rows={rows}
@@ -811,22 +806,24 @@ function RankedTrades({ title, rows }: { title: string; rows: ClosedTradeRow[] }
             <TimeCell ts={c.ts} />
             <Cell className="font-semibold text-bright">{c.symbol}</Cell>
             <Cell>
-              <Pill tone={sideKey(c.side) === "long" ? "up" : "info"}>{sideKey(c.side)}</Pill>
+              <Pill>{sideKey(c.side)}</Pill>
             </Cell>
-            <Cell className="font-mono">{c.qty}</Cell>
-            <Cell className={`font-mono ${realizedClass(c.realized)}`}>{signedMoney(c.realized)}</Cell>
+            <Cell>{quantity(c.qty)}</Cell>
+            <Cell>
+              <Pnl value={c.realized} glyphs={false} />
+            </Cell>
           </>
         )}
         card={(c) => (
           <>
             <div className="flex items-baseline gap-2">
               <span className="min-w-0 truncate font-semibold text-bright">{c.symbol}</span>
-              <Pill tone={sideKey(c.side) === "long" ? "up" : "info"}>{sideKey(c.side)}</Pill>
-              <span className={`ml-auto shrink-0 font-mono text-sm font-semibold ${realizedClass(c.realized)}`}>{signedMoney(c.realized)}</span>
+              <Pill>{sideKey(c.side)}</Pill>
+              <Pnl value={c.realized} glyphs={false} className="ml-auto shrink-0 text-sm font-semibold" />
             </div>
-            <div className="mt-1 flex items-center gap-2 font-mono text-xs text-faint">
-              <span>{c.qty} lots</span>
-              <span className="ml-auto whitespace-nowrap">{tsShort(c.ts)}</span>
+            <div className="mt-1 flex items-center gap-2 text-xs text-faint">
+              <span>{quantity(c.qty)} lots</span>
+              <span className="ml-auto whitespace-nowrap">{tsShort(c.ts)} UTC</span>
             </div>
           </>
         )}
@@ -838,7 +835,7 @@ function RankedTrades({ title, rows }: { title: string; rows: ClosedTradeRow[] }
 function FilterField({ label, children }: { label: string; children: ReactNode }) {
   return (
     <label className="grid gap-1">
-      <span className="text-[10px] font-bold uppercase tracking-[0.12em] text-faint">{label}</span>
+      <span className="text-[10px] font-semibold uppercase tracking-[0.06em] text-faint">{label}</span>
       {children}
     </label>
   );
@@ -848,7 +845,7 @@ function ChartShell({ title, hint, children }: { title: string; hint: string; ch
   return (
     <div className="rounded-lg border border-line bg-raised/45 p-3 shadow-inner shadow-black/10">
       <div className="flex flex-wrap items-baseline justify-between gap-2 pb-2">
-        <div className="text-[11px] font-bold uppercase tracking-[0.12em] text-body">{title}</div>
+        <div className="text-[11px] font-semibold uppercase tracking-[0.06em] text-body">{title}</div>
         <div className="text-xs text-faint">{hint}</div>
       </div>
       {children}
@@ -886,7 +883,7 @@ export function EdgeDetailPanels({ bundle }: { bundle: PerformanceBundle }) {
   return (
     <div className="grid gap-5">
       <div className="grid gap-5 xl:grid-cols-2">
-        <Panel title="Cost of trading" hint="gross (before commission and swap) vs commission vs swap, per UTC month" stagger={4}>
+        <Panel title="Cost of trading" hint="gross (before commission and swap) vs commission vs swap, per UTC month">
           {costs && costs.byMonth.length > 0 ? (
             <div className="grid gap-3 p-3">
               <CostStack costs={costs} />
@@ -895,20 +892,20 @@ export function EdgeDetailPanels({ bundle }: { bundle: PerformanceBundle }) {
                   <Table head={["", "Gross", "Commission", "Swap", "Fee", "Net"]}>
                     <Row>
                       <Cell className="text-muted">total</Cell>
-                      <Cell className="font-mono text-up">{money(costs.total.grossProfit)}</Cell>
-                      <Cell className="font-mono text-down">{money(costs.total.commission)}</Cell>
-                      <Cell className={`font-mono ${costs.total.swap < 0 ? "text-down" : "text-muted"}`}>{money(costs.total.swap)}</Cell>
-                      <Cell className={`font-mono ${costs.total.fee < 0 ? "text-down" : "text-muted"}`}>{money(costs.total.fee)}</Cell>
-                      <Cell className={`font-mono font-semibold ${costs.total.net >= 0 ? "text-up" : "text-down"}`}>{money(costs.total.net)}</Cell>
+                      <Cell><Pnl value={costs.total.grossProfit} glyphs={false} /></Cell>
+                      <Cell><Pnl value={costs.total.commission} glyphs={false} /></Cell>
+                      <Cell><Pnl value={costs.total.swap} glyphs={false} /></Cell>
+                      <Cell><Pnl value={costs.total.fee} glyphs={false} /></Cell>
+                      <Cell className="font-semibold"><Pnl value={costs.total.net} /></Cell>
                     </Row>
                   </Table>
                 </div>
                 <dl className="grid grid-cols-3 gap-x-3 gap-y-2.5 px-4 py-3 sm:hidden">
-                  <CostFact label="gross" className="text-up">{money(costs.total.grossProfit)}</CostFact>
-                  <CostFact label="commission" className="text-down">{money(costs.total.commission)}</CostFact>
-                  <CostFact label="swap" className={costs.total.swap < 0 ? "text-down" : "text-muted"}>{money(costs.total.swap)}</CostFact>
-                  <CostFact label="fee" className={costs.total.fee < 0 ? "text-down" : "text-muted"}>{money(costs.total.fee)}</CostFact>
-                  <CostFact label="net" className={`font-semibold ${costs.total.net >= 0 ? "text-up" : "text-down"}`}>{money(costs.total.net)}</CostFact>
+                  <CostFact label="gross"><Pnl value={costs.total.grossProfit} glyphs={false} /></CostFact>
+                  <CostFact label="commission"><Pnl value={costs.total.commission} glyphs={false} /></CostFact>
+                  <CostFact label="swap"><Pnl value={costs.total.swap} glyphs={false} /></CostFact>
+                  <CostFact label="fee"><Pnl value={costs.total.fee} glyphs={false} /></CostFact>
+                  <CostFact label="net" className="font-semibold"><Pnl value={costs.total.net} /></CostFact>
                 </dl>
               </div>
             </div>
@@ -916,7 +913,7 @@ export function EdgeDetailPanels({ bundle }: { bundle: PerformanceBundle }) {
             <Empty>Cost split needs broker deals — paper instances carry realized P&L without a commission/swap breakdown.</Empty>
           )}
         </Panel>
-        <Panel title="Where the money comes from" hint="net contribution by instrument (broker-profile symbols folded) · n labels · expectancy in tooltip" stagger={5}>
+        <Panel title="Where the money comes from" hint="net contribution by instrument (broker-profile symbols folded) · n labels · expectancy in tooltip">
           {contribution && contribution.bySymbol.length > 0 ? (
             <div className="grid gap-3 p-3">
               <ContributionBars ranking={contribution} />
@@ -929,23 +926,23 @@ export function EdgeDetailPanels({ bundle }: { bundle: PerformanceBundle }) {
                   cells={(r) => (
                     <>
                       <Cell className="font-semibold text-bright"><span title={r.venues?.join(", ")}>{r.key}</span></Cell>
-                      <Cell className={`font-mono ${r.net >= 0 ? "text-up" : "text-down"}`}>{money(r.net)}</Cell>
-                      <Cell className="font-mono text-muted">{r.trades}</Cell>
-                      <Cell className="font-mono text-muted">{winPct(r.winRate)}</Cell>
-                      <Cell className={`font-mono ${r.expectancy >= 0 ? "text-up" : "text-down"}`}>{money(r.expectancy)}</Cell>
+                      <Cell><Pnl value={r.net} /></Cell>
+                      <Cell className="text-muted">{r.trades}</Cell>
+                      <Cell className="text-muted">{winPct(r.winRate)}</Cell>
+                      <Cell><Pnl value={r.expectancy} glyphs={false} /></Cell>
                     </>
                   )}
                   card={(r) => (
                     <>
                       <div className="flex items-baseline gap-2">
                         <span className="min-w-0 truncate font-semibold text-bright">{r.key}</span>
-                        <span className={`ml-auto shrink-0 font-mono text-sm font-semibold ${r.net >= 0 ? "text-up" : "text-down"}`}>{money(r.net)}</span>
+                        <Pnl value={r.net} className="ml-auto shrink-0 text-sm font-semibold" />
                       </div>
-                      <div className="mt-1 flex items-center gap-2 font-mono text-xs text-faint">
+                      <div className="mt-1 flex items-center gap-2 text-xs text-faint">
                         <span>
                           {r.trades} trades · {winPct(r.winRate)} win
                         </span>
-                        <span className={`ml-auto whitespace-nowrap ${r.expectancy >= 0 ? "text-up" : "text-down"}`}>{money(r.expectancy)} / trade</span>
+                        <span className="ml-auto whitespace-nowrap"><Pnl value={r.expectancy} glyphs={false} /> / trade</span>
                       </div>
                     </>
                   )}
@@ -958,7 +955,7 @@ export function EdgeDetailPanels({ bundle }: { bundle: PerformanceBundle }) {
         </Panel>
       </div>
       {boxGroups.length > 0 && (
-        <Panel title="P&L dispersion by weekday" hint="box = quartiles, whiskers = min/max · UTC close day · grey under n=30" stagger={6}>
+        <Panel title="P&L dispersion by weekday" hint="box = quartiles, whiskers = min/max · UTC close day · grey under n=30">
           <div className="p-3"><BucketBoxplot groups={boxGroups} /></div>
         </Panel>
       )}

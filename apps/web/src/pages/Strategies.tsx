@@ -7,11 +7,12 @@ import { EquityChart } from "../components/EquityChart";
 import { EdgeDetailPanels, PerformancePanels, TradeAnalysisPanels } from "../components/Performance";
 import { Sparkline } from "../components/Sparkline";
 import {
-  Card, Cell, DataList, Empty, Field, IconButton, Loadable, LoadMore, Modal, PageHeader, Panel, Pill, RangeSelect, rangeStart, ReturnPct, Row, SearchInput, Select, SideTag, Stat, Table, TimeCell,
-  type RangeKey,
+  Card, Cell, DataList, Empty, Field, IconButton, Loadable, LoadMore, Modal, PageHeader, Panel, Pill, Pnl, Popover, RangeSelect, rangeStart, ReturnPct, Row, SearchInput,
+  Segmented, Select, SideTag, Stat, Table, TimeCell, useRangeParam,
 } from "../components/ui";
+import { Link, routePath, STRATEGY_TABS, useRoute, type StrategyTab } from "../router";
 import { LogLine } from "../components/LogLine";
-import { age, fixed, money, num, openPnl, pct, price, ts, tsShort } from "../format";
+import { age, count, money, num, openPnl, pct, price, quantity, signedMoney, ts, tsShort } from "../format";
 import { buildCloseMap } from "../useCloses";
 import { useLiveState } from "../useLiveState";
 import { physicalPortfolioId, portfolioGroupId, strategyCapital, strategyDisplayName as displayName, summarizePortfolio } from "../portfolio";
@@ -64,18 +65,13 @@ function portfolioAlias(row: StrategyRow): string | null {
   return metaString(row.metadata, "portfolioAlias");
 }
 
-export default function Strategies({
-  instanceId,
-  focus = null,
-  onClearFocus,
-}: {
-  instanceId: string | null;
-  focus?: string | null;
-  onClearFocus?: () => void;
-}) {
+export default function Strategies({ instanceId }: { instanceId: string | null }) {
   const view = useView();
-  const [selected, setSelected] = useState<string | null>(focus);
-  const [selectedPortfolio, setSelectedPortfolio] = useState<string | null>(null);
+  const { route, navigate } = useRoute();
+  const selected = route.strategy ?? null;
+  const selectedPortfolio = route.portfolio ?? null;
+  const openStrategy = (id: string) => navigate(routePath({ page: "strategies", strategy: id }));
+  const toList = () => navigate(routePath({ page: "strategies" }));
   usePublicPageView(selected || selectedPortfolio ? null : "strategies");
   const [showRetired, setShowRetired] = useState(false);
 
@@ -93,10 +89,7 @@ export default function Strategies({
       <StrategyDetail
         instanceId={instanceId}
         strategyId={selected}
-        onBack={() => {
-          setSelected(null);
-          onClearFocus?.();
-        }}
+        onBack={toList}
       />
     );
 
@@ -124,11 +117,8 @@ export default function Strategies({
         instanceId={instanceId}
         portfolioId={selectedPortfolio}
         children={portfolio}
-        onBack={() => setSelectedPortfolio(null)}
-        onSelectChild={(strategyId) => {
-          setSelectedPortfolio(null);
-          setSelected(strategyId);
-        }}
+        onBack={toList}
+        onSelectChild={openStrategy}
       />
     );
   }
@@ -164,11 +154,11 @@ export default function Strategies({
         )}
         {portfolioEntries.length > 0 && (
           <section className="mt-6">
-            <h3 className="text-xs font-bold uppercase tracking-[0.1em] text-muted">
+            <h3 className="text-xs font-semibold uppercase tracking-[0.06em] text-muted">
               Portfolios
             </h3>
             <div className="mt-3 grid grid-cols-1 gap-4 md:grid-cols-2 xl:grid-cols-3">
-              {portfolioEntries.map(([id, children], i) => {
+              {portfolioEntries.map(([id, children]) => {
                 const physicalIds = new Set(children.map(physicalPortfolioId).filter((value): value is string => value != null));
                 const haltedCount = children.filter((child) => child.halted).length;
                 const summary = summarizePortfolio(
@@ -178,17 +168,10 @@ export default function Strategies({
                   live.hasState,
                 );
                 return (
-                  <button
-                    key={id}
-                    onClick={() => setSelectedPortfolio(id)}
-                    className="group text-left"
-                  >
-                    <Card
-                      className="flex h-full flex-col justify-between p-5 transition group-hover:border-accent/50 group-hover:bg-raised"
-                      stagger={i}
-                    >
+                  <Link key={id} to={routePath({ page: "strategies", portfolio: id })} className="group block text-left">
+                    <Card className="flex h-full flex-col justify-between p-4 transition group-hover:border-line-strong">
                       <div className="flex items-start justify-between gap-3">
-                        <span className="min-w-0 truncate font-bold text-bright">
+                        <span className="min-w-0 truncate font-semibold text-bright">
                           {id}
                         </span>
                         <span className="shrink-0 text-xs text-faint">
@@ -211,19 +194,7 @@ export default function Strategies({
                         className="mt-4 flex items-baseline gap-3"
                         title="realized + open P&L attributed to this portfolio's sleeves — not the shared broker account equity"
                       >
-                        <span
-                          className={`font-mono text-2xl font-semibold ${
-                            summary.netPnl == null || live.stale
-                              ? "text-faint"
-                              : summary.netPnl > 0
-                                ? "text-up"
-                                : summary.netPnl < 0
-                                  ? "text-down"
-                                  : "text-bright"
-                          }`}
-                        >
-                          {money(summary.netPnl)}
-                        </span>
+                        <Pnl value={summary.netPnl} dim={live.stale} className="text-xl font-headline" />
                         <ReturnPct
                           net={summary.netPnl}
                           base={summary.allocatedCapital}
@@ -231,7 +202,7 @@ export default function Strategies({
                         />
                       </div>
                     </Card>
-                  </button>
+                  </Link>
                 );
               })}
             </div>
@@ -239,11 +210,11 @@ export default function Strategies({
         )}
         {standalone.length > 0 && (
           <section className="mt-7">
-            <h3 className="text-xs font-bold uppercase tracking-[0.1em] text-muted">
+            <h3 className="text-xs font-semibold uppercase tracking-[0.06em] text-muted">
               Standalone strategies
             </h3>
             <div className="mt-3 grid grid-cols-1 gap-4 md:grid-cols-2 xl:grid-cols-3">
-              {standalone.map((s, i) => {
+              {standalone.map((s) => {
                 const realized = s.realizedNet;
                 const open =
                   live.open.get(s.strategyId) ?? (live.hasState ? 0 : null);
@@ -258,8 +229,8 @@ export default function Strategies({
                     net={net}
                     open={open}
                     liveStale={live.stale}
-                    stagger={i}
-                    onClick={() => setSelected(s.strategyId)}
+                   
+                    to={routePath({ page: "strategies", strategy: s.strategyId })}
                   />
                 );
               })}
@@ -268,11 +239,11 @@ export default function Strategies({
         )}
         {childRows.length > 0 && (
           <section className="mt-7">
-            <h3 className="text-xs font-bold uppercase tracking-[0.1em] text-muted">
+            <h3 className="text-xs font-semibold uppercase tracking-[0.06em] text-muted">
               Portfolio child strategies
             </h3>
             <div className="mt-3 grid grid-cols-1 gap-4 md:grid-cols-2 xl:grid-cols-3">
-              {childRows.map((s, i) => {
+              {childRows.map((s) => {
                 const realized = s.realizedNet;
                 const open =
                   live.open.get(s.strategyId) ?? (live.hasState ? 0 : null);
@@ -287,8 +258,8 @@ export default function Strategies({
                     net={net}
                     open={open}
                     liveStale={live.stale}
-                    stagger={i}
-                    onClick={() => setSelected(s.strategyId)}
+                   
+                    to={routePath({ page: "strategies", strategy: s.strategyId })}
                   />
                 );
               })}
@@ -304,24 +275,20 @@ function StrategyCard({
   row: s,
   net,
   liveStale,
-  stagger,
-  onClick,
+  to,
 }: {
   row: StrategyRow;
   net: number | null;
   open: number | null;
   liveStale: boolean;
-  stagger: number;
-  onClick: () => void;
+  /** Where the card leads: the strategy's page. */
+  to: string;
 }) {
   return (
-    <button onClick={onClick} className="group text-left">
-      <Card
-        className="flex h-full flex-col justify-between p-5 transition group-hover:border-accent/50 group-hover:bg-raised"
-        stagger={stagger}
-      >
+    <Link to={to} className="group block text-left">
+      <Card className="flex h-full flex-col justify-between p-4 transition group-hover:border-line-strong">
         <div className="flex items-start justify-between gap-3">
-          <span className="min-w-0 truncate font-bold text-bright" title={s.strategyId}>
+          <span className="min-w-0 truncate font-semibold text-bright" title={s.strategyId}>
             {displayName(s)}
           </span>
           <span className="flex shrink-0 items-center gap-2">
@@ -333,28 +300,22 @@ function StrategyCard({
           className="mt-4 flex items-baseline gap-3"
           title="net P&L = realized + open (this strategy, on a shared account)"
         >
-          <span
-            className={`font-mono text-2xl font-semibold ${net == null || liveStale ? "text-faint" : net >= 0 ? "text-up" : "text-down"}`}
-          >
-            {net == null
-              ? "—"
-              : `${net >= 0 ? "+" : "−"}${money(Math.abs(net))}`}
-          </span>
+          <Pnl value={net} dim={liveStale} className="text-xl font-headline" />
           <ReturnPct net={net} base={strategyCapital(s).amount} dim={liveStale} />
         </div>
       </Card>
-    </button>
+    </Link>
   );
 }
 
-/** Engine risk halt on a strategy row: the reason, how it ends and the resume command are in the tooltip. */
+/** Engine risk halt on a strategy row: tap or click for the reason, how it ends and the resume command. */
 function HaltBadge({ row }: { row: StrategyRow }) {
   const summary = haltSummary(row);
   if (!summary) return null;
   return (
-    <span title={summary} aria-label={summary}>
-      <Pill tone="warn">halted</Pill>
-    </span>
+    <Popover label="Why this strategy is halted" align="right" trigger={<Pill tone="warn">halted</Pill>}>
+      {summary}
+    </Popover>
   );
 }
 
@@ -399,7 +360,7 @@ function PortfolioDetail({
       {onBack && (
         <button
           onClick={onBack}
-          className="rise text-sm text-muted transition hover:text-body"
+          className="text-sm text-muted transition hover:text-body"
         >
           ← strategies
         </button>
@@ -422,32 +383,17 @@ function PortfolioDetail({
         />
         <Stat
           label="Net P&L"
-          value={money(summary.netPnl)}
-          tone={
-            summary.netPnl == null
-              ? "neutral"
-              : summary.netPnl >= 0
-                ? "up"
-                : "down"
-          }
+          signed={summary.netPnl}
           sub="realized + open"
         />
         <Stat
           label="Realized"
-          value={money(summary.realizedPnl)}
-          tone={summary.realizedPnl >= 0 ? "up" : "down"}
+          signed={summary.realizedPnl}
           sub="closed child deals"
         />
         <Stat
           label="Open"
-          value={money(summary.openPnl)}
-          tone={
-            summary.openPnl == null
-              ? "neutral"
-              : summary.openPnl >= 0
-                ? "up"
-                : "down"
-          }
+          signed={summary.openPnl}
           sub={live.stale ? "broker state stale" : "attributed positions"}
         />
         {!view.public && (
@@ -507,18 +453,18 @@ function PortfolioDetail({
                         </div>
                       )}
                     </Cell>
-                    <Cell className="font-mono">{money(allocation)}</Cell>
-                    <Cell className="font-mono">{pct(weight)}</Cell>
-                    <Cell className="font-mono">
-                      {money(child.realizedNet ?? 0)}
+                    <Cell>{money(allocation)}</Cell>
+                    <Cell>{pct(weight)}</Cell>
+                    <Cell>
+                      <Pnl value={child.realizedNet ?? 0} glyphs={false} />
                     </Cell>
-                    <Cell className="font-mono">{money(open)}</Cell>
-                    <Cell
-                      className={`font-mono font-semibold ${net == null || live.stale ? "text-faint" : net >= 0 ? "text-up" : "text-down"}`}
-                    >
-                      {money(net)}
+                    <Cell>
+                      <Pnl value={open} glyphs={false} />
                     </Cell>
-                    <Cell className="font-mono">{child.dealCount}</Cell>
+                    <Cell className="font-semibold">
+                      <Pnl value={net} dim={live.stale} />
+                    </Cell>
+                    <Cell>{count(child.dealCount)}</Cell>
                     <Cell className="whitespace-nowrap text-faint">
                       {age(child.lastSeen)}
                     </Cell>
@@ -540,9 +486,9 @@ function PortfolioDetail({
                   <span className="font-semibold text-bright">{a.broker}</span>
                   {a.stale && <div className="text-xs text-warn">stale</div>}
                 </Cell>
-                <Cell className="font-mono">{a.currency}</Cell>
-                <Cell className="font-mono">{money(a.balance)}</Cell>
-                <Cell className="font-mono">{money(a.equity)}</Cell>
+                <Cell>{a.currency}</Cell>
+                <Cell>{money(a.balance)}</Cell>
+                <Cell>{money(a.equity)}</Cell>
               </Row>
             ))}
           </Table>
@@ -555,16 +501,22 @@ function PortfolioDetail({
 
 /** A shared portfolio link: the portfolio page, with its public children one click away. */
 export function SharedPortfolio({ instanceId, portfolioId: id }: { instanceId: string; portfolioId: string }) {
-  const [selected, setSelected] = useState<string | null>(null);
+  const { route, navigate } = useRoute();
+  const selected = route.strategy ?? null;
   const strategies = useQuery({
     queryKey: ["strategies", instanceId],
     queryFn: () => get<StrategyRow[]>(`/strategies?instance=${encodeURIComponent(instanceId)}`),
     refetchInterval: 30_000,
   });
-  if (selected) return <StrategyDetail instanceId={instanceId} strategyId={selected} onBack={() => setSelected(null)} />;
+  if (selected) return <StrategyDetail instanceId={instanceId} strategyId={selected} onBack={() => navigate("/")} />;
   return (
     <Loadable loading={strategies.isPending} error={strategies.isError} retry={() => strategies.refetch()} what="the portfolio">
-      <PortfolioDetail instanceId={instanceId} portfolioId={id} children={strategies.data ?? []} onSelectChild={setSelected} />
+      <PortfolioDetail
+        instanceId={instanceId}
+        portfolioId={id}
+        children={strategies.data ?? []}
+        onSelectChild={(child) => navigate(routePath({ page: "strategies", strategy: child }))}
+      />
     </Loadable>
   );
 }
@@ -600,8 +552,10 @@ export function StrategyDetail({ instanceId, strategyId, onBack }: { instanceId:
   const [tradeSide, setTradeSide] = useState("");
   const [tradeSort, setTradeSort] = useState<"newest" | "oldest" | "qty" | "price" | "pnl">("newest");
   const [openTrade, setOpenTrade] = useState<TradeRow | null>(null);
-  const [tab, setTab] = useState<"overview" | "performance" | "calendar">("overview");
-  const [range, setRange] = useState<RangeKey>("all");
+  const { route, navigate } = useRoute();
+  const tab: StrategyTab = route.strategy === strategyId ? (route.tab ?? "overview") : "overview";
+  const setTab = (t: StrategyTab) => navigate(routePath({ page: "strategies", strategy: strategyId, tab: t }));
+  const [range, setRange] = useRangeParam();
 
   const performance = useQuery({
     queryKey: ["performance", instanceId, strategyId, range],
@@ -653,14 +607,14 @@ export function StrategyDetail({ instanceId, strategyId, onBack }: { instanceId:
   return (
     <div>
       {onBack && (
-        <button onClick={onBack} className="rise text-sm text-muted transition hover:text-body">
+        <button onClick={onBack} className="text-sm text-muted transition hover:text-body">
           ← strategies
         </button>
       )}
       <div className="mt-2 flex flex-wrap items-end justify-between gap-4">
-        <div className="rise">
+        <div className="">
           <div className="flex items-center gap-2">
-            <h2 className="min-w-0 truncate text-2xl font-extrabold tracking-tight text-bright" title={strategyId}>{row ? displayName(row) : strategyId}</h2>
+            <h2 className="min-w-0 truncate text-2xl font-headline tracking-tight text-bright" title={strategyId}>{row ? displayName(row) : strategyId}</h2>
             {metadata && !view.public && (
               <IconButton label="runtime details" onClick={() => setRuntimeOpen(true)} d="M15 3h6v6M9 21H3v-6M21 3l-7 7M3 21l7-7" />
             )}
@@ -679,33 +633,26 @@ export function StrategyDetail({ instanceId, strategyId, onBack }: { instanceId:
           </div>
           {row?.halted && <HaltDetail row={row} />}
           <div className="mt-2 flex items-baseline gap-3" title="net P&L = realized + open (this strategy, on a shared account)">
-            <span className={`font-mono text-4xl font-bold ${heroNet == null || live.stale ? "text-faint" : heroNet >= 0 ? "text-up" : "text-down"}`}>
-              {heroNet == null ? "—" : `${heroNet >= 0 ? "+" : "−"}${money(Math.abs(heroNet))}`}
-            </span>
+            <Pnl value={heroNet} dim={live.stale} className="text-3xl font-headline" />
             <ReturnPct net={heroNet} base={capital.amount} dim={live.stale} />
           </div>
-          <div className="mt-1 text-[11px] font-semibold uppercase tracking-[0.08em] text-faint">net P&L · this strategy</div>
+          <div className="mt-1 text-[11px] font-semibold uppercase tracking-[0.06em] text-faint">net P&L · this strategy</div>
           <div className={`mt-1 text-xs ${live.stale ? "text-faint" : "text-muted"}`}>
-            realized {money(s?.realizedPnl)} · open {money(openPnl)}
+            realized {signedMoney(s?.realizedPnl)} · open {signedMoney(openPnl)}
           </div>
         </div>
-        <div className="rise -mb-1 w-64">
+        <div className="-mb-1 w-64">
           <Sparkline points={equity.data ?? []} height={56} />
         </div>
       </div>
 
-      <div className="rise mt-5 flex flex-wrap items-center gap-2">
-        {(["overview", "performance", "calendar"] as const).map((t) => (
-          <button
-            key={t}
-            onClick={() => setTab(t)}
-            className={`h-9 rounded-lg px-4 text-sm font-semibold capitalize transition ${
-              tab === t ? "bg-accent text-ink" : "border border-line bg-raised text-muted hover:border-line-strong hover:text-body"
-            }`}
-          >
-            {t}
-          </button>
-        ))}
+      <div className="mt-5 flex flex-wrap items-center gap-2">
+        <Segmented
+          label="Strategy sections"
+          value={tab}
+          onChange={setTab}
+          options={STRATEGY_TABS.map((t) => ({ key: t, label: t[0]!.toUpperCase() + t.slice(1) }))}
+        />
         <ShareControl instanceId={instanceId} kind="strategy" subject={strategyId} />
         {tab !== "overview" && (
           <div className="w-full sm:ml-auto sm:w-auto">
@@ -745,26 +692,22 @@ export function StrategyDetail({ instanceId, strategyId, onBack }: { instanceId:
       <div className="mt-5">
         <Loadable loading={stats.isPending} error={stats.isError} retry={() => stats.refetch()} what="strategy stats" lines={2}>
       <div className="grid grid-cols-2 gap-3 md:grid-cols-3 xl:grid-cols-6">
-        <Stat label="Capital" value={money(capital.amount)} sub={capital.source ?? undefined} stagger={0} />
+        <Stat label="Capital" value={money(capital.amount)} sub={capital.source ?? undefined} />
         <Stat
           label="Realized PnL"
-          value={money(s?.realizedPnl)}
-          tone={s?.realizedPnl == null ? "neutral" : s.realizedPnl >= 0 ? "up" : "down"}
-          stagger={1}
+          signed={s?.realizedPnl}
         />
         <Stat
           label="Sharpe"
           value={num(s?.sharpe)}
           sub={s == null ? undefined : s.sharpe == null && s.ratioDays < MIN_RATIO_DAYS ? `needs ${MIN_RATIO_DAYS} days with closes, has ${s.ratioDays}` : `n=${s.ratioDays} days`}
-          stagger={2}
         />
-        <Stat label="Win rate" value={pct(s?.winRate)} sub="round trips, breakeven excluded" stagger={3} />
-        <Stat label="Max drawdown" value={pct(s?.maxDrawdownPct)} tone={s?.maxDrawdownPct ? "down" : "neutral"} stagger={4} />
+        <Stat label="Win rate" value={pct(s?.winRate)} sub="round trips, breakeven excluded" />
+        <Stat label="Max drawdown" value={pct(s?.maxDrawdownPct)} tone={s?.maxDrawdownPct ? "down" : "neutral"} />
         <Stat
           label="Trades"
-          value={String(s?.tradeCount ?? "—")}
+          value={count(s?.tradeCount)}
           sub={s ? `${s.buyCount} buys · ${s.sellCount} sells · vol ${num(s.volume)}` : undefined}
-          stagger={5}
         />
       </div>
         </Loadable>
@@ -772,7 +715,7 @@ export function StrategyDetail({ instanceId, strategyId, onBack }: { instanceId:
 
       <Panel
         className="mt-6"
-        stagger={2}
+       
         title="Equity"
         hint="this strategy's capital plus its own P&L — not the shared account equity"
       >
@@ -786,7 +729,7 @@ export function StrategyDetail({ instanceId, strategyId, onBack }: { instanceId:
       {/* items-start: each list sizes to its own rows instead of stretching to its neighbour */}
       <div className="mt-6 grid grid-cols-1 items-start gap-6 2xl:grid-cols-2">
         <Panel
-          stagger={3}
+         
           title="Trades"
           hint={usingDealTrades ? "broker deal closes" : "click a row to inspect"}
           toolbar={
@@ -823,7 +766,7 @@ export function StrategyDetail({ instanceId, strategyId, onBack }: { instanceId:
         >
           <Loadable loading={!performance.data && trades.isPending} error={trades.isError} retry={() => { void trades.refetch(); void performance.refetch(); }} what="trades">
           <DataList
-            head={["Time", "Symbol", "Side", "Qty", "Price", "P&L"]}
+            head={["Time (UTC)", "Symbol", "Side", "Qty", "Price", "P&L"]}
             rows={tradeRows.slice(0, tradeCap)}
             keyOf={(t) => t.key}
             onRow={usingDealTrades || view.public ? undefined : (t) => t.raw && setOpenTrade(t.raw)}
@@ -837,9 +780,11 @@ export function StrategyDetail({ instanceId, strategyId, onBack }: { instanceId:
                   <Cell>
                     <SideTag side={t.side} />
                   </Cell>
-                  <Cell className="font-mono">{t.qty}</Cell>
-                  <Cell className="whitespace-nowrap font-mono text-muted">@ {price(t.price)}</Cell>
-                  <Cell className={`font-mono font-semibold ${realizedTone(r)}`}>{r == null ? "—" : `${r > 0 ? "+" : ""}${fixed(r)}`}</Cell>
+                  <Cell>{quantity(t.qty)}</Cell>
+                  <Cell className="whitespace-nowrap text-muted">@ {price(t.price)}</Cell>
+                  <Cell className="font-semibold">
+                    <Pnl value={r} glyphs={false} />
+                  </Cell>
                 </>
               );
             }}
@@ -850,15 +795,13 @@ export function StrategyDetail({ instanceId, strategyId, onBack }: { instanceId:
                   <div className="flex items-baseline gap-2">
                     <span className="min-w-0 truncate font-semibold text-bright">{t.symbol}</span>
                     <SideTag side={t.side} />
-                    <span className={`ml-auto shrink-0 font-mono text-sm font-semibold ${realizedTone(r)}`}>
-                      {r == null ? "—" : `${r > 0 ? "+" : ""}${fixed(r)}`}
-                    </span>
+                    <Pnl value={r} glyphs={false} className="ml-auto shrink-0 text-sm font-semibold" />
                   </div>
-                  <div className="mt-1 flex items-center gap-2 font-mono text-xs text-faint">
+                  <div className="mt-1 flex items-center gap-2 text-xs text-faint">
                     <span className="whitespace-nowrap">
-                      {t.qty} @ {price(t.price)}
+                      {quantity(t.qty)} @ {price(t.price)}
                     </span>
-                    <span className="ml-auto whitespace-nowrap">{tsShort(t.ts)}</span>
+                    <span className="ml-auto whitespace-nowrap">{tsShort(t.ts)} UTC</span>
                   </div>
                 </>
               );
@@ -869,7 +812,7 @@ export function StrategyDetail({ instanceId, strategyId, onBack }: { instanceId:
         </Panel>
 
         {!view.public && (
-        <Panel stagger={4} title="Recent logs" hint={`latest ${RECENT_LOGS} · full history on Logs`}>
+        <Panel title="Recent logs" hint={`latest ${RECENT_LOGS} · full history on Logs`}>
           <Loadable loading={logs.isPending} error={logs.isError} retry={() => logs.refetch()} what="logs">
           <div className="p-2">
             {logRows.map((l) => (
@@ -906,10 +849,4 @@ export function StrategyDetail({ instanceId, strategyId, onBack }: { instanceId:
       )}
     </div>
   );
-}
-
-function realizedTone(v: number | null | undefined): string {
-  if (v == null) return "text-faint";
-  if (v === 0) return "text-muted";
-  return v > 0 ? "text-up" : "text-down";
 }

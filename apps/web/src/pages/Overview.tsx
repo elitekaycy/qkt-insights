@@ -1,28 +1,20 @@
 import { useQueries, useQuery } from "@tanstack/react-query";
-import { get, type AccountDrawdownRow, type AccountRiskRow, type AccountSummary as AccountSummaryData, type EquityPoint, type PerformanceBundle, type StrategyRow } from "../api";
+import { get, type AccountDrawdownRow, type AccountRiskRow, type AccountSummary as AccountSummaryData, type PerformanceBundle, type StrategyRow } from "../api";
 import { AccountSummary } from "../components/AccountSummary";
-import type { ComparisonSeries } from "../components/EquityChart";
 import { OverviewDashboard } from "../components/OverviewDashboard";
-import { Card, Cell, DataList, FlashValue, LiveDot, Loadable, PageHeader, Panel, Pill, SideTag, Stat } from "../components/ui";
-import { duration, fixed, money, num, price } from "../format";
+import { Card, Cell, DataList, FlashValue, LiveDot, Loadable, PageHeader, Panel, Pill, Pnl, SideTag, Stat } from "../components/ui";
+import { DASH, duration, human, money, pctValue, pnl, polarity, price, quantity, signedMoney } from "../format";
 import { strategyDisplayName } from "../portfolio";
 import { useLiveState } from "../useLiveState";
 import { useLiveStream } from "../useLiveStream";
 import { ShareControl } from "../components/ShareControl";
 import { usePublicPageView, useView } from "../view";
 
-const PALETTE = ["#c8f74a", "#5cb8ff", "#a78bfa", "#3fe08c", "#fbbf24", "#ff6b6b", "#f472b6", "#22d3ee"];
-
 // Overview only needs broker state pushes for live account/position truth; raw
 // event inspection belongs on Logs/Search so payloads cannot stretch the layout.
 const FEED_TYPES = ["state.account", "state.positions"];
 
-export default function Overview({
-  instanceId,
-}: {
-  instanceId: string | null;
-  onOpenStrategy: (strategyId: string) => void;
-}) {
+export default function Overview({ instanceId }: { instanceId: string | null }) {
   const view = useView();
   usePublicPageView("overview");
   const strategies = useQuery({
@@ -37,14 +29,6 @@ export default function Overview({
   const rows = (strategies.data ?? []).filter((s) => s.active);
   const ids = rows.map((s) => s.strategyId);
 
-  const curves = useQueries({
-    queries: ids.map((id) => ({
-      queryKey: ["equity", instanceId, id],
-      queryFn: () =>
-        get<EquityPoint[]>(`/equity?instance=${encodeURIComponent(instanceId!)}&strategy=${encodeURIComponent(id)}`),
-      refetchInterval: 30_000,
-    })),
-  });
   const live = useLiveStream(instanceId, 40, FEED_TYPES);
   const liveState = useLiveState(live);
   // Account totals come from every close on the account, not the sum of the active roster:
@@ -91,34 +75,22 @@ export default function Overview({
   const brokerPositions = (liveState.data?.positions ?? []).filter((p) => p.instanceId === instanceId);
   const nameByStrategy = new Map((strategies.data ?? []).map((r) => [r.strategyId, strategyDisplayName(r)]));
 
-  // Live truth: account figures summed across brokers, open P&L attributed per strategy.
-  const accountEquity = accounts.length > 0 ? accounts.reduce((a, x) => a + x.equity, 0) : null;
+  // Live truth: open P&L summed across the instance's broker accounts.
   const accountOpenPnl = accounts.length > 0 ? accounts.reduce((a, x) => a + (x.openProfit ?? 0), 0) : null;
   const excursions = perf.flatMap((q) => q.data?.excursions ? [q.data.excursions] : []);
 
-  const series: ComparisonSeries[] = ids
-    .map((id, i) => {
-      const pts = curves[i]?.data ?? [];
-      const base = pts[0]?.equity;
-      return {
-        strategyId: id,
-        color: PALETTE[i % PALETTE.length]!,
-        points: base ? pts.map((p) => ({ ts: p.ts, pct: (p.equity / base - 1) * 100 })) : [],
-      };
-    })
-    .filter((s) => s.points.length > 0);
 
   return (
     <div>
       <PageHeader
-        title="Overview"
+        title="Home"
         sub={view.public ? `${instanceId} · public view, figures ${view.meta.delayMinutes} minutes behind` : `Everything ${instanceId} is doing, right now.`}
         right={<ShareControl instanceId={instanceId} kind="overview" />}
       />
 
       <div className="mt-6">
-        <div className="rise flex items-baseline justify-between" style={{ "--stagger": 0 } as React.CSSProperties}>
-          <h3 className="text-sm font-bold uppercase tracking-[0.08em] text-body">Account</h3>
+        <div className="flex items-baseline justify-between">
+          <h3 className="text-sm font-semibold uppercase tracking-[0.06em] text-body">Account</h3>
           <span className="text-xs text-faint">broker-reported, whole account</span>
         </div>
         <Loadable
@@ -129,8 +101,10 @@ export default function Overview({
           lines={2}
         >
         {accounts.length === 0 && (
-          <Card className="mt-3 p-8 text-center text-faint" stagger={0}>
-            No broker account state yet — waiting for the state poller.
+          <Card className="mt-3 p-8 text-center text-faint">
+            {view.public
+              ? `Account figures appear ${view.meta.delayMinutes} minutes behind; none has reached this shared view yet.`
+              : "No broker account state yet: waiting for the state poller."}
           </Card>
         )}
         {accounts.map((a) => (
@@ -145,20 +119,20 @@ export default function Overview({
               {a.stale && <Pill>stale {Math.max(0, Math.floor((Date.now() - a.lastSeen) / 1000))}s</Pill>}
             </div>
             <div className="mt-3 grid grid-cols-2 gap-4 sm:grid-cols-3 lg:grid-cols-6">
-              <Stat label="Balance" value={money(a.balance)} sub={a.currency} stagger={0} />
-              <Stat label="Equity" value={<FlashValue value={a.equity}>{money(a.equity)}</FlashValue>} stagger={0} />
+              <Stat label="Balance" value={money(a.balance)} sub={a.currency} />
+              <Stat label="Equity" value={<FlashValue value={a.equity}>{money(a.equity)}</FlashValue>} />
               <Stat
                 label="Open P&L"
-                value={<FlashValue value={a.openProfit}>{money(a.openProfit)}</FlashValue>}
-                tone={a.openProfit == null ? "neutral" : a.openProfit > 0 ? "up" : a.openProfit < 0 ? "down" : "neutral"}
-                stagger={1}
+                value={<FlashValue value={a.openProfit}>{pnl(a.openProfit)}</FlashValue>}
+                tone={toneOf(a.openProfit)}
+               
               />
               {!view.public && (
                 <Stat
                   label="Margin level"
-                  value={a.marginLevel == null ? "—" : `${num(a.marginLevel)}%`}
+                  value={pctValue(a.marginLevel)}
                   sub={a.margin != null ? `margin ${money(a.margin)}` : undefined}
-                  stagger={1}
+                 
                 />
               )}
               {(() => {
@@ -171,17 +145,17 @@ export default function Overview({
                   <>
                     <Stat
                       label="DD from peak"
-                      value={cur == null ? "\u2014" : `${num(cur)}%`}
+                      value={pctValue(cur)}
                       sub={dd?.peakEquity != null ? `peak ${money(dd.peakEquity)}` : undefined}
                       tone={cur == null ? "neutral" : cur > 5 ? "down" : cur > 0.005 ? "neutral" : "up"}
-                      stagger={2}
+                     
                     />
                     <Stat
                       label="Max DD"
-                      value={max == null ? "\u2014" : `${num(max)}%`}
+                      value={pctValue(max)}
                       sub="whole retained history"
                       tone={max != null && max > 5 ? "down" : "neutral"}
-                      stagger={2}
+                     
                     />
                   </>
                 );
@@ -194,7 +168,7 @@ export default function Overview({
           {view.public ? (
             <PublicOpenPositions summary={liveState.data?.openPositions ?? null} loading={liveState.isPending} />
           ) : (
-          <Panel stagger={1} title="Open positions" hint="live broker tickets, broker-valued" scroll="max-h-[22rem]">
+          <Panel title="Open positions" hint="live broker tickets, broker-valued" scroll="max-h-[22rem]">
             <Loadable
               loading={liveState.isPending}
               error={liveState.isError}
@@ -213,20 +187,20 @@ export default function Overview({
                   <Cell>
                     <SideTag side={p.side} />
                   </Cell>
-                  <Cell className="font-mono">{p.qty}</Cell>
-                  <Cell className="whitespace-nowrap font-mono text-muted">@ {price(p.entryPrice)}</Cell>
-                  <Cell className="font-mono">{price(p.currentPrice)}</Cell>
+                  <Cell>{quantity(p.qty)}</Cell>
+                  <Cell className="whitespace-nowrap text-muted">@ {price(p.entryPrice)}</Cell>
+                  <Cell>{price(p.currentPrice)}</Cell>
                   <Cell className="text-muted">
-                    <span title={p.openedAt ? new Date(p.openedAt).toISOString() : undefined}>
+                    <span title={p.openedAt ? `opened ${human(p.openedAt)}` : undefined}>
                       {p.openedAt ? duration(Date.now() - p.openedAt) : "—"}
                     </span>
                   </Cell>
-                  <Cell className={`font-mono font-semibold ${profitTone(p.profit)}`}>
+                  <Cell className="font-semibold">
                     <FlashValue value={p.profit}>
-                      {p.profit == null ? "—" : `${p.profit > 0 ? "+" : ""}${fixed(p.profit)}`}
+                      <Pnl value={p.profit} glyphs={false} />
                     </FlashValue>
                   </Cell>
-                  <Cell className="font-mono text-muted">{p.swap ?? "—"}</Cell>
+                  <Cell className="text-muted">{signedMoney(p.swap)}</Cell>
                   <Cell>
                     {p.strategyId ? (
                       <span title={p.strategyId}>{nameByStrategy.get(p.strategyId) ?? p.strategyId}</span>
@@ -241,9 +215,9 @@ export default function Overview({
                   <div className="flex items-baseline gap-2">
                     <span className="min-w-0 truncate font-semibold text-bright">{p.symbol}</span>
                     <SideTag side={p.side} />
-                    <span className={`ml-auto shrink-0 font-mono text-sm font-semibold ${profitTone(p.profit)}`}>
+                    <span className="ml-auto shrink-0 text-sm font-semibold">
                       <FlashValue value={p.profit}>
-                        {p.profit == null ? "—" : `${p.profit > 0 ? "+" : ""}${fixed(p.profit)}`}
+                        <Pnl value={p.profit} glyphs={false} />
                       </FlashValue>
                     </span>
                   </div>
@@ -251,8 +225,8 @@ export default function Overview({
                     <span className="min-w-0 truncate">
                       {p.strategyId ? nameByStrategy.get(p.strategyId) ?? p.strategyId : "unattributed"}
                     </span>
-                    <span className="ml-auto shrink-0 whitespace-nowrap font-mono">
-                      {p.qty} @ {price(p.entryPrice)} · {p.openedAt ? duration(Date.now() - p.openedAt) : "—"}
+                    <span className="ml-auto shrink-0 whitespace-nowrap ">
+                      {quantity(p.qty)} @ {price(p.entryPrice)} · {p.openedAt ? duration(Date.now() - p.openedAt) : DASH}
                     </span>
                   </div>
                 </>
@@ -265,9 +239,9 @@ export default function Overview({
       </div>
 
       <Loadable
-        loading={summary.isPending || (rows.length > 0 && (perf.some((query) => query.isPending) || curves.some((query) => query.isPending)))}
-        error={summary.isError || perf.some((query) => query.isError) || curves.some((query) => query.isError)}
-        retry={() => { void Promise.all([summary, ...perf, ...curves].map((query) => query.refetch())); }}
+        loading={summary.isPending || (rows.length > 0 && perf.some((query) => query.isPending))}
+        error={summary.isError || perf.some((query) => query.isError)}
+        retry={() => { void Promise.all([summary, ...perf].map((query) => query.refetch())); }}
         what="overview analysis"
         lines={8}
       >
@@ -285,8 +259,6 @@ export default function Overview({
             sumWins: summary.data.sumWins,
             sumLosses: summary.data.sumLosses,
             excursions,
-            series,
-            accountEquity,
             accountOpenPnl,
             risk: risk.data ?? [],
           }}
@@ -304,12 +276,10 @@ function PublicOpenPositions({ summary, loading }: { summary: { count: number; u
   const count = summary?.count ?? 0;
   const unrealized = summary?.unrealized ?? null;
   return (
-    <Card className="flex flex-wrap items-baseline gap-x-6 gap-y-1 px-5 py-4" stagger={1}>
-      <span className="text-[11px] font-semibold uppercase tracking-[0.12em] text-muted">Open positions</span>
-      <span className="font-mono text-xl font-semibold text-bright">{loading ? "…" : count}</span>
-      <span className={`font-mono text-xl font-semibold ${profitTone(unrealized)}`}>
-        {unrealized == null ? "—" : `${unrealized > 0 ? "+" : ""}${money(unrealized)}`}
-      </span>
+    <Card className="flex flex-wrap items-baseline gap-x-6 gap-y-1 px-5 py-4">
+      <span className="text-[11px] font-semibold uppercase tracking-[0.06em] text-muted">Open positions</span>
+      <span className="text-xl font-semibold text-bright">{loading ? "…" : count}</span>
+      <Pnl value={unrealized} className="text-xl font-headline" />
       <span className="text-xs text-faint">
         unrealized · details stay private until each position closes
       </span>
@@ -317,8 +287,7 @@ function PublicOpenPositions({ summary, loading }: { summary: { count: number; u
   );
 }
 
-function profitTone(v: number | null | undefined): string {
-  if (v == null) return "text-faint";
-  if (v === 0) return "text-muted";
-  return v > 0 ? "text-up" : "text-down";
+function toneOf(v: number | null | undefined): "up" | "down" | "neutral" {
+  const p = polarity(v);
+  return p === "gain" ? "up" : p === "loss" ? "down" : "neutral";
 }

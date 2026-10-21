@@ -65,7 +65,7 @@ export function ShareControl({ instanceId, kind, subject = "" }: { instanceId: s
   return (
     <div className="flex items-center gap-1.5">
       {state.views > 0 && (
-        <span className="px-1 font-mono text-xs text-muted" title="views of this link in the last 90 days, details on Viewership">
+        <span className="px-1 text-xs text-muted" title="views of this link in the last 90 days, details on Viewership">
           {state.views} {state.views === 1 ? "view" : "views"}
         </span>
       )}
@@ -75,7 +75,7 @@ export function ShareControl({ instanceId, kind, subject = "" }: { instanceId: s
         onClick={() => toggle.mutate(state.effective ? "private" : "public")}
         aria-pressed={state.effective}
         title={`${state.effective ? "Public" : "Private"} (${origin}). Click to make this ${what} ${state.effective ? "private" : "public"}.`}
-        className={`${BUTTON} ${state.effective ? "border-accent/50 bg-accent/10 text-accent" : "border-line bg-raised text-muted hover:border-line-strong hover:text-body"}`}
+        className={`${BUTTON} ${state.effective ? "border-accent/50 bg-accent/10 text-accent-ink" : "border-line bg-raised text-muted hover:border-line-strong hover:text-body"}`}
       >
         <Icon d={state.effective ? EYE : EYE_OFF} />
         {state.effective ? "Public" : "Private"}
@@ -99,7 +99,7 @@ export function ShareControl({ instanceId, kind, subject = "" }: { instanceId: s
             onClick={() => void copy()}
             title="Copy the public link"
             aria-label="copy public link"
-            className={`${BUTTON} border-line bg-raised ${copied ? "text-up" : "text-muted hover:border-line-strong hover:text-body"}`}
+            className={`${BUTTON} border-line bg-raised ${copied ? "text-gain" : "text-muted hover:border-line-strong hover:text-body"}`}
           >
             <Icon d={copied ? CHECK : COPY} />
             {copied && "Copied"}

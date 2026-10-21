@@ -1,20 +1,24 @@
 # Screens
 
-A tour of every page in the dashboard. Screenshots are from a live instance; the
-account number, broker name, and account holder on **Overview** and **Health** are
+A tour of every page in the dashboard. The left rail (a bottom tab bar on phones) holds
+Home, Strategies, Trades, Calendar, Equity & risk, Edge, Logs and Health, with Settings at the
+bottom. Every page, strategy, tab, instance, date range and filter is in the URL, so links,
+Back and reload work; shared links nest their pages under `/p/<token>/`. Dark is the default
+theme; a light theme is one click away and remembered per device. All times are UTC. Screenshots are from a live instance; the
+account number, broker name, and account holder on **Home** and **Health** are
 placeholders — everything else (balance, positions, strategies, trades, logs) is real.
 
-## Overview
+## Home
 
 Everything the selected instance is doing right now: account snapshot, open
 positions, account performance (net P&L, win rate, expectancy, drawdown), a
-trading calendar, monthly returns, and a full performance dashboard —
-daily/cumulative P&L, strategy equity, trade excursion, outcomes, risk budget,
-long/short performance and trading behavior. Instance status lives on Health.
+trading calendar, monthly returns, daily/cumulative P&L, trade excursion, risk
+budget, long/short performance and trading behavior. Strategy equity lives on
+Equity & risk; instance status lives on Health.
 
 ![Overview](assets/screenshots/overview.png)
 
-## Equity
+## Equity & risk
 
 Broker account equity over time, per-strategy equity normalized to % change,
 underwater curve, and drawdown periods.
@@ -25,7 +29,7 @@ underwater curve, and drawdown periods.
 
 Every standalone and portfolio strategy on the instance, with live P&L and return.
 A strategy the engine has halted (`risk.halted` with no later `risk.resumed`) carries a
-`halted` badge; hovering it gives the reason, when it tripped and how it clears, and the
+`halted` badge; clicking or tapping it gives the reason, when it tripped and how it clears, and the
 strategy page spells it out, with `qkt resume <name>` for a persistent halt.
 A session-level halt covers the strategies its session runs (`sessionStrategies`, qkt#1244);
 from older engines, which do not name them, it covers every strategy of the instance.
@@ -33,6 +37,12 @@ A session start sends each strategy's own halt state (`risk.snapshot`, qkt v0.52
 replaces whatever the earlier halt events implied for the strategy.
 
 ![Strategies](assets/screenshots/strategies.png)
+
+## Calendar
+
+The account's P&L calendar: Monday-first weeks with a week column, each day shaded by its
+size, today marked in progress, and monthly returns on the account's base. Click a day or a
+month for its breakdown.
 
 ## Edge
 
@@ -67,9 +77,9 @@ position, sink delivery counters, journal backlog, and broker account truth.
 
 ![Health](assets/screenshots/health.png)
 
-## Search
+## Settings
 
-Full-text search across every event and log line — symbols, order ids, halt
-reasons, log text.
+Sharing (public or private per overview, portfolio and strategy, with copy and rotate),
+Viewership of shared links, the theme, installing the app, and signing out.
 
-![Search](assets/screenshots/search.png)
+Old `/find` links (the retired Search page) open Logs.

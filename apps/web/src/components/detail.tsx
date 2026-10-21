@@ -1,7 +1,7 @@
 import { useQuery } from "@tanstack/react-query";
 import { get, type ClosedTradeRow, type EquityPoint, type OrderRow, type TradeRow } from "../api";
-import { duration, human, money, price, ts } from "../format";
-import { Delta, Field, Modal, Pill, SideTag, STATE_TONE } from "./ui";
+import { DASH, duration, human, money, price, ts } from "../format";
+import { Delta, Field, Modal, Pill, Pnl, SideTag, STATE_TONE } from "./ui";
 
 /** Realized dollar result of the close matching this order, with the win/loss verdict. */
 function OutcomeFields({ close }: { close: ClosedTradeRow | null | undefined }) {
@@ -9,17 +9,14 @@ function OutcomeFields({ close }: { close: ClosedTradeRow | null | undefined }) 
     <Field label="Realized P&L" wide>
       {close ? (
         <span className="flex items-center gap-2.5">
-          <span className={close.realized > 0 ? "text-up" : close.realized < 0 ? "text-down" : "text-muted"}>
-            {close.realized > 0 ? "+" : ""}
-            {money(close.realized)}
-          </span>
+          <Pnl value={close.realized} />
           <Pill tone={close.realized > 0 ? "up" : close.realized < 0 ? "down" : "neutral"}>
             {close.realized > 0 ? "WIN" : close.realized < 0 ? "LOSS" : "FLAT"}
           </Pill>
           {close.entryTs != null && <span className="text-xs text-faint">held {duration(close.ts - close.entryTs)}</span>}
         </span>
       ) : (
-        <span className="text-faint">— position not closed yet, or this qkt version doesn't report trade.closed</span>
+        <span className="text-faint">{DASH} position not closed yet, or this qkt version doesn't report trade.closed</span>
       )}
     </Field>
   );
@@ -57,11 +54,11 @@ function EquityFields({ instanceId, strategyId, at }: { instanceId: string; stra
     <>
       <Field label="Equity before">
         {before ? `${money(before.equity)}` : "—"}
-        {before && <span className="ml-2 text-xs text-faint">at {ts(before.ts).slice(11)}</span>}
+        {before && <span className="ml-2 text-xs text-faint">at {ts(before.ts).slice(11)} UTC</span>}
       </Field>
       <Field label="Equity after">
         {after ? `${money(after.equity)}` : "—"}
-        {after && <span className="ml-2 text-xs text-faint">at {ts(after.ts).slice(11)}</span>}
+        {after && <span className="ml-2 text-xs text-faint">at {ts(after.ts).slice(11)} UTC</span>}
       </Field>
       <Field label="Equity move across it" wide>
         <Delta value={change} />

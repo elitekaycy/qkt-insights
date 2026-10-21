@@ -39,11 +39,16 @@ export default defineConfig({
   ],
   build: {
     outDir: "../../dist/web",
+    // the charts chunk (ECharts core + the six chart types used) is ~630 kB raw, ~210 kB gzip,
+    // and loads only with a chart page; the shell and vendor chunks stay far below this
+    chunkSizeWarningLimit: 700,
     emptyOutDir: true,
     rollupOptions: {
       output: {
         manualChunks(id) {
           if (id.includes("node_modules/react") || id.includes("node_modules/@tanstack")) return "vendor";
+          // every chart page shares one charts chunk instead of each carrying a copy
+          if (id.includes("node_modules/echarts") || id.includes("node_modules/zrender")) return "charts";
         },
       },
     },

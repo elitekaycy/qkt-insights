@@ -1,18 +1,20 @@
 import { useState } from "react";
 import { useQuery } from "@tanstack/react-query";
 import { get, type LogRow, type StrategyRow } from "../api";
-import { Card, Empty, Loadable, LoadMore, PageHeader, Panel, RangeSelect, rangeStart, SearchInput, Select, type RangeKey } from "../components/ui";
+import { Card, Empty, Loadable, LoadMore, PageHeader, Panel, RangeSelect, rangeStart, SearchInput, Select, useRangeParam } from "../components/ui";
+import { useSearchParam } from "../router";
 import { LogLine } from "../components/LogLine";
 import { useLiveStream } from "../useLiveStream";
+import { count } from "../format";
 
 const LEVELS = ["ERROR", "WARN", "INFO", "DEBUG"];
 const LOG_TYPES = ["log"];
 
 export default function Logs({ instanceId }: { instanceId: string | null }) {
-  const [level, setLevel] = useState("");
-  const [strategy, setStrategy] = useState("");
-  const [q, setQ] = useState("");
-  const [range, setRange] = useState<RangeKey>("all");
+  const [level, setLevel] = useSearchParam("level");
+  const [strategy, setStrategy] = useSearchParam("strategy");
+  const [q, setQ] = useSearchParam("q");
+  const [range, setRange] = useRangeParam();
   const [cap, setCap] = useState(30);
 
   const strategies = useQuery({
@@ -50,34 +52,10 @@ export default function Logs({ instanceId }: { instanceId: string | null }) {
 
   return (
     <div>
-      <PageHeader title="Logs" sub={`Engine logs shipped from ${instanceId}; live tail on top, history below.`} />
-
-      {liveLogs.length > 0 && (
-        <Panel className="mt-5 border-up/30" stagger={0} title="Live" right={<PulseDot />} scroll="max-h-[20rem]">
-          <div className="p-2">
-            {liveLogs.slice(0, 20).map((e) => (
-              <LogLine
-                key={`${e.instanceId}-${e.id}`}
-                log={{
-                  id: e.id,
-                  strategyId: e.strategyId ?? null,
-                  level: String(e.payload.level) as LogRow["level"],
-                  logger: String(e.payload.logger ?? ""),
-                  message: String(e.payload.message ?? ""),
-                  ts: e.ts,
-                }}
-              />
-            ))}
-          </div>
-        </Panel>
-      )}
-
-      <Panel
-        className="mt-5"
-        stagger={1}
-        title="History"
-        scroll="max-h-[34rem]"
-        toolbar={
+      <PageHeader
+        title="Logs"
+        sub={`Engine logs shipped from ${instanceId}; live tail on top, history below. Times UTC.`}
+        scope={
           <>
             <SearchInput
               value={q}
@@ -86,7 +64,7 @@ export default function Logs({ instanceId }: { instanceId: string | null }) {
                 setCap(30);
               }}
               placeholder="search log text…"
-              className="w-full sm:w-72"
+              className="w-full sm:max-w-md sm:flex-1"
             />
             <Select
               value={level}
@@ -123,8 +101,38 @@ export default function Logs({ instanceId }: { instanceId: string | null }) {
                 setCap(30);
               }}
             />
+            <span className="ml-auto text-sm text-muted">
+              Showing <b className="font-semibold text-bright">{count(shown.length)}</b> of {count(filtered.length)} lines
+            </span>
           </>
         }
+      />
+
+      {liveLogs.length > 0 && (
+        <Panel className="mt-5 border-gain-fill/30" title="Live" right={<PulseDot />} scroll="max-h-[20rem]">
+          <div className="p-2">
+            {liveLogs.slice(0, 20).map((e) => (
+              <LogLine
+                key={`${e.instanceId}-${e.id}`}
+                log={{
+                  id: e.id,
+                  strategyId: e.strategyId ?? null,
+                  level: String(e.payload.level) as LogRow["level"],
+                  logger: String(e.payload.logger ?? ""),
+                  message: String(e.payload.message ?? ""),
+                  ts: e.ts,
+                }}
+              />
+            ))}
+          </div>
+        </Panel>
+      )}
+
+      <Panel
+        className="mt-5"
+       
+        title="History"
+        scroll="max-h-[34rem]"
       >
         <Loadable loading={logs.isPending} error={logs.isError} retry={() => logs.refetch()} what="log history">
         <div className="p-2">
@@ -141,6 +149,6 @@ export default function Logs({ instanceId }: { instanceId: string | null }) {
 }
 
 function PulseDot() {
-  return <span className="live-dot inline-block h-2 w-2 rounded-full bg-up" />;
+  return <span className="live-dot inline-block h-2 w-2 rounded-full bg-gain-fill" />;
 }
 

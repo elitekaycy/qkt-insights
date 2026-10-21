@@ -1,35 +1,138 @@
 @import "tailwindcss";
 
 /*
- * Design tokens. Every color, font, and radius the app uses lives here —
- * change a value once and the whole UI follows.
+ * Design tokens. Every colour, font, size and radius the app uses lives here.
+ * Two hand-tuned themes (dark is the default), not an automatic inversion: the
+ * values are the qkt-backtester journal's (packages/web/src/theme.css), copied
+ * rather than shared so insights carries no release coupling to the studio.
+ * `static` emits every token, including ones only charts read from JS. Utilities
+ * read the `--color-*` variables at runtime, so swapping the values
+ * under [data-theme="light"] restyles the whole UI without a rebuild.
  */
-@theme {
-  --font-sans: "Archivo", system-ui, sans-serif;
-  --font-mono: "JetBrains Mono", ui-monospace, monospace;
+@theme static {
+  --font-sans: "Inter", system-ui, -apple-system, "Segoe UI", Roboto, sans-serif;
+  --font-mono: "JetBrains Mono", ui-monospace, "SF Mono", Menlo, Consolas, monospace;
 
-  /* surfaces, darkest to lightest */
-  --color-ink: #0a0c0e;
-  --color-panel: #121518;
-  --color-raised: #191d21;
-  --color-line: #22272d;
-  --color-line-strong: #2f363e;
+  /* type scale: 11 / 12 / 13 (body) / 15 / 20 / 24 / 28 */
+  --text-xs: 0.75rem;
+  --text-xs--line-height: 1rem;
+  --text-sm: 0.8125rem;
+  --text-sm--line-height: 1.45;
+  --text-base: 0.9375rem;
+  --text-base--line-height: 1.45;
+  --text-lg: 0.9375rem;
+  --text-lg--line-height: 1.4;
+  --text-xl: 1.25rem;
+  --text-xl--line-height: 1.2;
+  --text-2xl: 1.5rem;
+  --text-2xl--line-height: 1.1;
+  --text-3xl: 1.75rem;
+  --text-3xl--line-height: 1.1;
+  --text-4xl: 1.75rem;
+  --text-4xl--line-height: 1.1;
 
-  /* text */
-  --color-bright: #f2f4f6;
-  --color-body: #c4cad1;
-  --color-muted: #79828c;
-  --color-faint: #4d545c;
+  /* surfaces: page, side rail, card, well (card-2), raised well (card-3) */
+  --color-ink: #1b1c20;
+  --color-side: #17181b;
+  --color-panel: #202126;
+  --color-raised: #282a30;
+  --color-well: #30323a;
+  /* hairlines and the 3:1 control border (WCAG 1.4.11) */
+  --color-line: rgba(255, 255, 255, 0.08);
+  --color-line-strong: rgba(255, 255, 255, 0.16);
+  --color-ctl: #6e707b;
 
-  /* signal */
-  --color-accent: #c8f74a;
-  --color-accent-dim: #98c426;
-  --color-up: #3fe08c;
-  --color-down: #ff6b6b;
-  --color-warn: #fbbf24;
-  --color-info: #5cb8ff;
+  /* text, strongest to faintest */
+  --color-bright: #ececef;
+  --color-body: #aeb0b9;
+  --color-muted: #9a9ca7;
+  --color-faint: #7b7d89;
 
-  --radius-card: 1rem;
+  /* one action colour: fill, hover, text, selection */
+  --color-accent: #2a6fd0;
+  --color-accent-hi: #4b8fe6;
+  --color-accent-ink: #86b9f7;
+  --color-accent-soft: rgba(75, 143, 230, 0.16);
+  --color-on-accent: #ffffff;
+
+  /* money: gains blue, losses red; `-fill` for bars/areas, the plain name for text */
+  --color-gain: #86b9f7;
+  --color-gain-fill: #4b8fe6;
+  --color-loss: #f39a9a;
+  --color-loss-fill: #e66767;
+
+  /* status, never P&L */
+  --color-ok: #3ec76c;
+  --color-warn: #f0b429;
+  --color-danger: #ef5b5b;
+  --color-info: #6da7ec;
+
+  /* interaction layers */
+  --color-hover: rgba(255, 255, 255, 0.06);
+  --color-press: rgba(255, 255, 255, 0.1);
+  --color-scrim: rgba(6, 7, 9, 0.55);
+
+  /* charts: gridlines, axis + crosshair, categorical series */
+  --color-grid: rgba(255, 255, 255, 0.06);
+  --color-axis: rgba(255, 255, 255, 0.16);
+  --color-s1: #4b8fe6;
+  --color-s2: #d95926;
+  --color-s3: #199e70;
+  --color-s4: #c98500;
+  --color-s5: #d55181;
+
+  /* the insights logo keeps its own colours in both themes */
+  --color-brand: #c8f74a;
+  --color-brand-violet: #a78bfa;
+
+  /* radii 6 / 8 / 12 */
+  --radius-sm: 6px;
+  --radius-md: 6px;
+  --radius-lg: 8px;
+  --radius-xl: 12px;
+  --radius-card: 12px;
+
+  --shadow-pop: 0 10px 30px rgba(0, 0, 0, 0.45), 0 0 0 1px var(--color-line-strong);
+  --ease-out: cubic-bezier(0.2, 0, 0, 1);
+}
+
+:root[data-theme="light"] {
+  --color-ink: #ffffff;
+  --color-side: #fbfbfc;
+  --color-panel: #ffffff;
+  --color-raised: #f4f5f8;
+  --color-well: #eaecf1;
+  --color-line: rgba(15, 23, 42, 0.09);
+  --color-line-strong: rgba(15, 23, 42, 0.18);
+  --color-ctl: #858896;
+  --color-bright: #14151a;
+  --color-body: #4a4d58;
+  --color-muted: #5f6270;
+  --color-faint: #7f8290;
+  --color-accent: #2a6fd0;
+  --color-accent-hi: #1f5fbb;
+  --color-accent-ink: #1f5fbb;
+  --color-accent-soft: rgba(42, 111, 208, 0.1);
+  --color-on-accent: #ffffff;
+  --color-gain: #1c5cab;
+  --color-gain-fill: #2a78d6;
+  --color-loss: #b8302f;
+  --color-loss-fill: #e34948;
+  --color-ok: #12783a;
+  --color-warn: #8a5f00;
+  --color-danger: #c93030;
+  --color-info: #1f5fbb;
+  --color-hover: rgba(15, 23, 42, 0.05);
+  --color-press: rgba(15, 23, 42, 0.09);
+  --color-scrim: rgba(20, 24, 33, 0.35);
+  --color-grid: rgba(15, 23, 42, 0.07);
+  --color-axis: rgba(15, 23, 42, 0.18);
+  --color-s1: #2a78d6;
+  --color-s2: #eb6834;
+  --color-s3: #1baf7a;
+  --color-s4: #eda100;
+  --color-s5: #e87ba4;
+  --shadow-pop: 0 12px 32px rgba(15, 23, 42, 0.16), 0 0 0 1px var(--color-line-strong);
 }
 
 html {
@@ -38,10 +141,19 @@ html {
   /* iOS inflates text in landscape unless told not to */
   -webkit-text-size-adjust: 100%;
 }
+html[data-theme="light"] {
+  color-scheme: light;
+}
 
 body {
+  background: var(--color-ink);
+  color: var(--color-bright);
   font-family: var(--font-sans);
+  font-size: var(--text-sm);
+  line-height: 1.45;
+  font-feature-settings: "cv11", "ss03";
   -webkit-font-smoothing: antialiased;
+  text-rendering: optimizeLegibility;
   /* no grey flash on tap, no double-tap zoom delay, no rubber-band chaining
      into the browser's pull-to-refresh while scrolling a panel */
   -webkit-tap-highlight-color: transparent;
@@ -57,6 +169,15 @@ th,
 [role="button"] {
   -webkit-user-select: none;
   user-select: none;
+}
+
+:focus {
+  outline: none;
+}
+:focus-visible {
+  outline: 2px solid var(--color-accent-hi);
+  outline-offset: 2px;
+  border-radius: var(--radius-sm);
 }
 
 @media (pointer: coarse) {
@@ -81,26 +202,37 @@ th,
   }
 }
 
-/* numbers line up everywhere by default */
+/* numbers line up everywhere: tabular figures on every digit */
 * {
   font-variant-numeric: tabular-nums;
 }
 
 ::selection {
-  background: var(--color-accent);
-  color: var(--color-ink);
+  background: var(--color-accent-soft);
 }
 
+/* scrollbars: thin, quiet, still grabbable */
+* {
+  scrollbar-width: thin;
+  scrollbar-color: var(--color-well) transparent;
+}
 *::-webkit-scrollbar {
   width: 10px;
   height: 10px;
 }
 *::-webkit-scrollbar-thumb {
-  background: var(--color-line-strong);
-  border-radius: 5px;
-  border: 2px solid var(--color-ink);
+  background: var(--color-well);
+  border-radius: 8px;
+  border: 2px solid transparent;
+  background-clip: padding-box;
 }
-*::-webkit-scrollbar-track {
+*::-webkit-scrollbar-thumb:hover {
+  background: var(--color-faint);
+  border: 2px solid transparent;
+  background-clip: padding-box;
+}
+*::-webkit-scrollbar-track,
+*::-webkit-scrollbar-corner {
   background: transparent;
 }
 
@@ -125,26 +257,32 @@ th,
   padding-left: env(safe-area-inset-left);
 }
 
-/* one-shot page entrance: panels rise and fade in, staggered via --stagger */
-@keyframes rise {
-  from {
-    opacity: 0;
-    transform: translateY(8px);
-  }
-  to {
-    opacity: 1;
-    transform: translateY(0);
-  }
+/* headline numbers and titles: the journal's 650 weight */
+.font-headline {
+  font-weight: 650;
+  letter-spacing: -0.01em;
 }
-.rise {
-  animation: rise 0.45s cubic-bezier(0.22, 1, 0.36, 1) both;
-  animation-delay: calc(var(--stagger, 0) * 60ms);
+
+/* the "qkt·insights" wordmark keeps its own typeface and weight: it is part of the logo */
+.wordmark {
+  font-family: "Archivo", var(--font-sans);
+  font-weight: 800;
+  letter-spacing: -0.025em;
+}
+
+/* eyebrow label: table headers, small section labels */
+.eyebrow {
+  font-size: 11px;
+  font-weight: 600;
+  text-transform: uppercase;
+  letter-spacing: 0.06em;
+  color: var(--color-muted);
 }
 
 /* one-shot background flash when a live value ticks to a new number */
 @keyframes value-flash {
   from {
-    background: color-mix(in srgb, var(--color-accent) 25%, transparent);
+    background: var(--color-accent-soft);
   }
   to {
     background: transparent;
@@ -173,10 +311,10 @@ th,
   }
 }
 .drawer-panel {
-  animation: drawer-in 0.26s cubic-bezier(0.32, 0.72, 0, 1) both;
+  animation: drawer-in 0.24s var(--ease-out) both;
 }
 .drawer-scrim {
-  animation: scrim-in 0.26s ease-out both;
+  animation: scrim-in 0.2s ease-out both;
 }
 
 /* modal as a phone bottom sheet: rises from the bottom edge */
@@ -188,30 +326,28 @@ th,
     transform: translateY(0);
   }
 }
+@keyframes pop-in {
+  from {
+    opacity: 0;
+    transform: translateY(-4px) scale(0.985);
+  }
+}
 .sheet-in {
-  animation: sheet-in 0.28s cubic-bezier(0.32, 0.72, 0, 1) both;
+  animation: sheet-in 0.26s var(--ease-out) both;
 }
 @media (min-width: 640px) {
   .sheet-in {
-    animation: rise 0.45s cubic-bezier(0.22, 1, 0.36, 1) both;
+    animation: pop-in 0.2s var(--ease-out) both;
   }
 }
-
-@media (prefers-reduced-motion: reduce) {
-  .rise,
-  .sheet-in,
-  .drawer-panel,
-  .drawer-scrim,
-  .live-dot,
-  .value-flash {
-    animation: none;
-  }
+.pop-in {
+  animation: pop-in 0.2s var(--ease-out) both;
 }
 
 @keyframes pulse-dot {
   0%,
   100% {
-    box-shadow: 0 0 0 0 color-mix(in srgb, var(--color-up) 50%, transparent);
+    box-shadow: 0 0 0 0 color-mix(in srgb, var(--color-ok) 50%, transparent);
   }
   50% {
     box-shadow: 0 0 0 5px transparent;
@@ -219,4 +355,18 @@ th,
 }
 .live-dot {
   animation: pulse-dot 2s ease-out infinite;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  *,
+  *::before,
+  *::after {
+    animation-duration: 0.001ms !important;
+    transition-duration: 0.001ms !important;
+  }
+}
+@media (forced-colors: active) {
+  :focus-visible {
+    outline: 2px solid Highlight;
+  }
 }

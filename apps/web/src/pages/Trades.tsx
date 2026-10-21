@@ -3,10 +3,11 @@ import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { get, type DealRow, type StrategyRow, type TradeRow } from "../api";
 import { TradeDetail } from "../components/detail";
 import {
-  Card, Cell, DataList, Loadable, LoadMore, PageHeader, Panel, Pill, RangeSelect, rangeStart, SearchInput, Select, SideTag, TimeCell,
-  type RangeKey,
+  Card, Cell, DataList, Loadable, LoadMore, PageHeader, Panel, Pill, Pnl, RangeSelect, rangeStart, SearchInput, Select, SideTag, TimeCell,
+  useRangeParam,
 } from "../components/ui";
-import { dealNet, fixed, price, tsShort } from "../format";
+import { useSearchParam } from "../router";
+import { count, dealNet, price, quantity, tsShort } from "../format";
 import { realizedLabel, useCloseMap } from "../useCloses";
 import { useLiveStream } from "../useLiveStream";
 import { usePublicPageView, useView } from "../view";
@@ -19,9 +20,9 @@ const UNATTRIBUTED = "(unattributed)";
 export default function Trades({ instanceId }: { instanceId: string | null }) {
   usePublicPageView("trades");
   const view = useView();
-  const [strategy, setStrategy] = useState("");
-  const [q, setQ] = useState("");
-  const [range, setRange] = useState<RangeKey>("all");
+  const [strategy, setStrategy] = useSearchParam("strategy");
+  const [q, setQ] = useSearchParam("q");
+  const [range, setRange] = useRangeParam();
   const [cap, setCap] = useState(30);
   const [open, setOpen] = useState<TradeRow | null>(null);
   const closeMap = useCloseMap(instanceId);
@@ -95,14 +96,7 @@ export default function Trades({ instanceId }: { instanceId: string | null }) {
             ? `Broker deal history for ${instanceId} — every executed in/out leg as the venue recorded it.`
             : `Every fill recorded for ${instanceId}. Click a row for the full story.`
         }
-      />
-      <Panel
-        className="mt-5"
-        stagger={1}
-        title={usingDeals ? "Deals" : "Fills"}
-        hint={usingDeals ? "source: broker deals" : "source: engine fills"}
-        scroll="max-h-[calc(100vh-15rem)]"
-        toolbar={
+        scope={
           <>
             <SearchInput
               value={q}
@@ -111,7 +105,7 @@ export default function Trades({ instanceId }: { instanceId: string | null }) {
                 setCap(30);
               }}
               placeholder={usingDeals ? "search symbol, deal ticket, strategy…" : "search symbol, order id, strategy…"}
-              className="w-full sm:w-72"
+              className="w-full sm:max-w-md sm:flex-1"
             />
             <Select
               value={strategy}
@@ -135,8 +129,19 @@ export default function Trades({ instanceId }: { instanceId: string | null }) {
                 setCap(30);
               }}
             />
+            <span className="ml-auto text-sm text-muted">
+              Showing <b className="font-semibold text-bright">{count(usingDeals ? shownDeals.length : shown.length)}</b> of{" "}
+              {count(usingDeals ? filteredDeals.length : filtered.length)} {usingDeals ? "deals" : "fills"}
+            </span>
           </>
         }
+      />
+      <Panel
+        className="mt-5"
+       
+        title={usingDeals ? "Deals" : "Fills"}
+        hint={usingDeals ? "source: broker deals" : "source: engine fills"}
+        scroll="max-h-[calc(100vh-15rem)]"
       >
         <Loadable
           loading={trades.isPending || deals.isPending}
@@ -150,7 +155,7 @@ export default function Trades({ instanceId }: { instanceId: string | null }) {
         {usingDeals ? (
           <>
             <DataList
-              head={["Time", "Strategy", "Symbol", "Side", "Entry", "Qty", "Price", "Net", "Deal"]}
+              head={["Time (UTC)", "Strategy", "Symbol", "Side", "Entry", "Qty", "Price", "Net", "Deal"]}
               rows={shownDeals}
               keyOf={(d) => d.id}
               empty="No deals match"
@@ -164,12 +169,11 @@ export default function Trades({ instanceId }: { instanceId: string | null }) {
                     <Cell>
                       <SideTag side={d.side} />
                     </Cell>
-                    <Cell className="font-mono text-muted">{d.entry ?? "—"}</Cell>
-                    <Cell className="font-mono">{d.qty ?? "—"}</Cell>
-                    <Cell className="font-mono">{price(d.price)}</Cell>
-                    <Cell className={`font-mono font-semibold ${n > 0 ? "text-up" : n < 0 ? "text-down" : "text-muted"}`}>
-                      {n > 0 ? "+" : ""}
-                      {fixed(n)}
+                    <Cell className="text-muted">{d.entry ?? "—"}</Cell>
+                    <Cell>{quantity(d.qty)}</Cell>
+                    <Cell>{price(d.price)}</Cell>
+                    <Cell className="font-semibold">
+                      <Pnl value={n} glyphs={false} />
                     </Cell>
                     <Cell className="font-mono text-xs text-faint">{d.dealTicket}</Cell>
                   </>
@@ -182,15 +186,12 @@ export default function Trades({ instanceId }: { instanceId: string | null }) {
                     <div className="flex items-baseline gap-2">
                       <span className="min-w-0 truncate font-semibold text-bright">{d.symbol ?? "—"}</span>
                       <SideTag side={d.side} />
-                      <span className={`ml-auto shrink-0 font-mono text-sm font-semibold ${n > 0 ? "text-up" : n < 0 ? "text-down" : "text-muted"}`}>
-                        {n > 0 ? "+" : ""}
-                        {fixed(n)}
-                      </span>
+                      <Pnl value={n} glyphs={false} className="ml-auto shrink-0 text-sm font-semibold" />
                     </div>
                     <div className="mt-1 flex items-center gap-2 text-xs text-faint">
                       <span className="min-w-0 truncate">{d.strategyId ?? "unattributed"}</span>
-                      <span className="ml-auto shrink-0 whitespace-nowrap font-mono">
-                        {d.qty ?? "—"} @ {price(d.price)} · {tsShort(d.ts)}
+                      <span className="ml-auto shrink-0 whitespace-nowrap ">
+                        {quantity(d.qty)} @ {price(d.price)} · {tsShort(d.ts)} UTC
                       </span>
                     </div>
                   </>
@@ -202,7 +203,7 @@ export default function Trades({ instanceId }: { instanceId: string | null }) {
         ) : (
           <>
             <DataList
-              head={["Time", "Strategy", "Symbol", "Side", "Qty", "Price", "P&L", "Order"]}
+              head={["Time (UTC)", "Strategy", "Symbol", "Side", "Qty", "Price", "P&L", "Order"]}
               rows={shown}
               keyOf={(t) => t.id}
               onRow={view.public ? undefined : (t) => setOpen(t)}
@@ -217,9 +218,9 @@ export default function Trades({ instanceId }: { instanceId: string | null }) {
                     <Cell>
                       <SideTag side={t.payload.side} />
                     </Cell>
-                    <Cell className="font-mono">{t.payload.qty}</Cell>
-                    <Cell className="font-mono">{price(t.payload.price)}</Cell>
-                    <Cell className={`font-mono ${r.className}`}>{r.text}</Cell>
+                    <Cell>{quantity(t.payload.qty)}</Cell>
+                    <Cell>{price(t.payload.price)}</Cell>
+                    <Cell className={r.className}>{r.text}</Cell>
                     <Cell className="font-mono text-xs text-faint">{t.payload.orderId}</Cell>
                   </>
                 );
@@ -231,12 +232,12 @@ export default function Trades({ instanceId }: { instanceId: string | null }) {
                     <div className="flex items-baseline gap-2">
                       <span className="min-w-0 truncate font-semibold text-bright">{t.payload.symbol}</span>
                       <SideTag side={t.payload.side} />
-                      <span className={`ml-auto shrink-0 font-mono text-sm font-semibold ${r.className}`}>{r.text}</span>
+                      <span className={`ml-auto shrink-0 text-sm font-semibold ${r.className}`}>{r.text}</span>
                     </div>
                     <div className="mt-1 flex items-center gap-2 text-xs text-faint">
                       <span className="min-w-0 truncate">{t.strategyId ?? "unattributed"}</span>
-                      <span className="ml-auto shrink-0 whitespace-nowrap font-mono">
-                        {t.payload.qty} @ {price(t.payload.price)} · {tsShort(t.ts)}
+                      <span className="ml-auto shrink-0 whitespace-nowrap ">
+                        {quantity(t.payload.qty)} @ {price(t.payload.price)} · {tsShort(t.ts)} UTC
                       </span>
                     </div>
                   </>
