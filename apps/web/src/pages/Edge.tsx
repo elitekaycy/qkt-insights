@@ -112,7 +112,7 @@ export function Edge({ instanceId }: { instanceId: string | null }) {
       >
         <Loadable loading={perf.isPending} error={perf.isError} retry={() => perf.refetch()} what="rolling stats" lines={4}>
           {b?.rolling && b.rolling.length > 1
-            ? <div className="p-3"><RollingChart points={b.rolling} /></div>
+            ? <div className="p-3"><RollingChart points={b.rolling} window={window} /></div>
             : <Empty>Not enough daily history for a rolling view yet.</Empty>}
         </Loadable>
       </Panel>

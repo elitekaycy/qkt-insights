@@ -4,8 +4,9 @@ import { age, count, DASH, money, pct, ts } from "../format";
 import { haltSummary } from "../halt";
 import type { StrategyPeriods } from "../home";
 import { strategyDisplayName } from "../portfolio";
+import { asksForRetired, matchesStrategy } from "../strategyFilter";
 import { Link, useRoute, useSearchParam } from "../router";
-import { Card, LiveDot, Pill, Pnl, Popover } from "./ui";
+import { Card, Pnl, Popover, RowChevron } from "./ui";
 
 /*
  * The strategy table: one row per strategy with Today, 7D, MTD and all-time P&L, its deepest
@@ -40,65 +41,66 @@ function sortValue(l: StrategyLine, key: SortKey): number | string {
   return v ?? -Infinity;
 }
 
-function Status({ row, isPublic }: { row: StrategyRow | null; isPublic: boolean }) {
-  if (!row) return <Pill>unattributed</Pill>;
+/**
+ * Status at the row's end, quietly: nothing while running; "Halted" (the reason on hover or tap)
+ * or "Retired" in muted text otherwise. The name itself is muted for both.
+ */
+function RowState({ row }: { row: StrategyRow | null }) {
+  if (!row) return null;
   const halt = haltSummary(row);
   if (halt) {
     return (
-      <Popover label="Why this strategy is halted" trigger={<Pill tone="warn">halted</Pill>}>
+      <Popover label="Why this strategy is halted" align="right" trigger={<span className="inline-flex items-center gap-1.5 text-xs text-muted hover:text-body"><span className="h-1.5 w-1.5 rounded-full bg-warn" aria-hidden />Halted</span>}>
         {halt}
       </Popover>
     );
   }
-  if (!row.active) return <Pill>retired</Pill>;
-  // shared links carry no live risk state, so they claim nothing about it
-  return isPublic ? null : <span className="inline-flex items-center gap-1.5 text-[11px] text-muted"><LiveDot on /> running</span>;
+  return row.active ? null : <span className="text-xs text-faint">Retired</span>;
 }
 
-/** The halt's reason and age under the name, so it reads without a click; the badge holds the rest. */
-function HaltLine({ row }: { row: StrategyRow | null }) {
-  if (!row?.halted) return null;
-  return (
-    <div className="truncate text-[11px] text-warn" title={haltSummary(row) ?? undefined}>
-      {row.haltReason ?? "no reason given"}
-      {row.haltedAt != null && <span className="text-muted"> · {row.haltedBefore ? "at least " : ""}{age(row.haltedAt)}</span>}
-    </div>
-  );
-}
+const quiet = (row: StrategyRow | null) => row != null && (!row.active || haltSummary(row) != null);
+
 
 export function StrategyTable({
   lines,
   now,
-  isPublic,
   title = "Strategies",
-  hint = "click a row to open the strategy · times UTC",
+  hint,
   right,
   footer = "the rows add up to the account; unattributed = deals no strategy claimed",
+  search = false,
+  origin,
 }: {
   lines: StrategyLine[];
   now: number;
-  isPublic: boolean;
   title?: string;
   hint?: string;
   /** Extra header content at the right edge, e.g. a group's total. */
   right?: ReactNode;
   footer?: string;
+  /** Draws the search box in the header; the search (`find` in the URL) applies either way. */
+  search?: boolean;
+  /** The page the table is on, for the strategy page's way back. */
+  origin: string;
 }) {
   const { navigate } = useRoute();
   const [sortParam, setSort] = useSearchParam("sort", "today");
   const [showAll, setShowAll] = useState(false);
+  const [find] = useSearchParam("find");
   const desc = !sortParam.startsWith("+");
   const key = (COLUMNS.find((c) => c.key === sortParam.replace(/^\+/, ""))?.key ?? "today") as SortKey;
 
   const hidden = (l: StrategyLine) => l.row != null && (!l.row.active || (l.periods.trades === 0 && l.periods.floating === 0));
-  const shown = lines.filter((l) => showAll || !hidden(l)).sort((a, b) => {
+  const all = showAll || asksForRetired(find);
+  const matched = lines.filter((l) => matchesStrategy(l.row, find));
+  const shown = matched.filter((l) => all || !hidden(l)).sort((a, b) => {
     const x = sortValue(a, key), y = sortValue(b, key);
     const c = x < y ? -1 : x > y ? 1 : 0;
     // names read A to Z by default, figures largest first
     return key === "name" ? (desc ? c : -c) : desc ? -c : c;
   });
-  const hiddenCount = lines.filter(hidden).length;
-  const open = (l: StrategyLine) => (l.key ? navigate(`/s/${encodeURIComponent(l.key)}`) : undefined);
+  const hiddenCount = matched.filter(hidden).length;
+  const open = (l: StrategyLine) => (l.key ? navigate(`/s/${encodeURIComponent(l.key)}`, { from: origin }) : undefined);
   const toggleSort = (k: SortKey) => setSort(k === key ? (desc ? `+${k}` : k) : k);
 
   const cell = (l: StrategyLine, k: SortKey) => {
@@ -119,18 +121,21 @@ export function StrategyTable({
 
   return (
     <Card className="overflow-hidden">
-      <div className="flex flex-wrap items-center gap-x-2.5 gap-y-1 border-b border-line px-4 py-3">
+      <div className="flex flex-wrap items-center gap-x-2.5 gap-y-2 border-b border-line px-4 py-3">
         <h2 className="text-sm font-medium text-body">{title}</h2>
-        <span className="text-xs text-muted">{hint}</span>
+        {hint && <span className="text-xs text-muted">{hint}</span>}
         {right && <span className="ml-auto flex items-center gap-2">{right}</span>}
-        {hiddenCount > 0 && (
-          <button type="button" onClick={() => setShowAll((s) => !s)} className={`${right ? "" : "ml-auto"} text-xs font-medium text-accent-ink hover:underline`}>
+        {search && <StrategySearch className={right ? "" : "ml-auto"} />}
+        {hiddenCount > 0 && !asksForRetired(find) && (
+          <button type="button" onClick={() => setShowAll((s) => !s)} className={`${right || search ? "" : "ml-auto"} text-xs font-medium text-accent-ink hover:underline`}>
             {showAll ? "Hide retired and empty" : `Show ${hiddenCount} retired or empty`}
           </button>
         )}
       </div>
       {shown.length === 0 ? (
-        <div className="px-4 py-6 text-center text-sm text-muted">No strategy has traded yet. Rows appear with the first close or open position.</div>
+        <div className="px-4 py-6 text-center text-sm text-muted">
+          {find ? `No strategy matches “${find}”.` : "No strategy has traded yet. Rows appear with the first close or open position."}
+        </div>
       ) : (
         <div className="@container">
           <div className="hidden @3xl:block">
@@ -145,6 +150,7 @@ export function StrategyTable({
                       </button>
                     </th>
                   ))}
+                  <th className="w-24 px-3 py-2" aria-label="Status" />
                 </tr>
               </thead>
               <tbody>
@@ -152,26 +158,27 @@ export function StrategyTable({
                   <tr
                     key={l.key ?? "(unattributed)"}
                     onClick={l.key ? () => open(l) : undefined}
-                    className={`border-b border-line text-bright last:border-b-0 hover:bg-hover ${l.key ? "cursor-pointer" : ""} ${l.row && !l.row.active ? "text-muted" : ""}`}
+                    onKeyDown={l.key ? (e) => { if (e.key === "Enter") open(l); } : undefined}
+                    tabIndex={l.key ? 0 : undefined}
+                    aria-label={l.key ? `Open ${name(l)}` : undefined}
+                    className={`group border-b border-line last:border-b-0 ${l.key ? "cursor-pointer transition-colors hover:bg-hover focus-visible:bg-hover focus-visible:outline-2 focus-visible:-outline-offset-2 focus-visible:outline-accent-hi" : ""}`}
                   >
-                    <td className="max-w-[22rem] px-3 py-2">
-                      <div className="flex min-w-0 items-center gap-2">
-                        {l.key ? (
-                          <Link to={`/s/${encodeURIComponent(l.key)}`} onClick={(e) => e.stopPropagation()} className="truncate font-semibold hover:underline" title={l.key}>
-                            {name(l)}
-                          </Link>
-                        ) : (
-                          <span className="font-semibold text-muted" title="closes and positions no strategy claimed">Unattributed</span>
-                        )}
-                        {l.key && <Status row={l.row} isPublic={isPublic} />}
-                      </div>
-                      <HaltLine row={l.row} />
+                    <td className="max-w-[22rem] px-3 py-2.5">
+                      <span className={`block truncate font-medium ${l.key == null || quiet(l.row) ? "text-muted" : "text-bright"}`} title={l.key ?? "closes and positions no strategy claimed"}>
+                        {name(l)}
+                      </span>
                     </td>
                     {COLUMNS.slice(1).map((c) => (
-                      <td key={c.key} className={`whitespace-nowrap px-3 py-2 text-right ${c.key === "trades" || c.key === "winRate" || c.key === "lastTs" ? "text-body" : ""}`}>
+                      <td key={c.key} className={`whitespace-nowrap px-3 py-2.5 text-right ${c.key === "trades" || c.key === "winRate" || c.key === "lastTs" ? "text-body" : ""}`}>
                         {cell(l, c.key)}
                       </td>
                     ))}
+                    <td className="px-3 py-2.5" onClick={(e) => e.stopPropagation()}>
+                      <span className="flex items-center justify-end gap-2">
+                        <RowState row={l.row} />
+                        {l.key && <RowChevron />}
+                      </span>
+                    </td>
                   </tr>
                 ))}
               </tbody>
@@ -182,12 +189,12 @@ export function StrategyTable({
               const body = (
                 <>
                   <div className="flex items-center gap-2">
-                    <span className="min-w-0 truncate font-semibold text-bright">{name(l)}</span>
-                    {l.key && <Status row={l.row} isPublic={isPublic} />}
+                    <span className={`min-w-0 truncate font-medium ${l.key == null || quiet(l.row) ? "text-muted" : "text-bright"}`}>{name(l)}</span>
+                    <RowState row={l.row} />
                     <span className="ml-auto shrink-0 text-xs text-muted">Today</span>
                     <span className="shrink-0 font-semibold">{cell(l, "today")}</span>
+                    {l.key && <RowChevron className="-mr-1" />}
                   </div>
-                  <HaltLine row={l.row} />
                   <div className="mt-1.5 grid grid-cols-4 gap-x-2 text-xs tabular-nums">
                     <Mini k="7D">{cell(l, "d7")}</Mini>
                     <Mini k="MTD">{cell(l, "mtd")}</Mini>
@@ -202,7 +209,7 @@ export function StrategyTable({
               return (
                 <li key={l.key ?? "(unattributed)"}>
                   {l.key ? (
-                    <Link to={`/s/${encodeURIComponent(l.key)}`} className="block px-4 py-3 transition hover:bg-hover active:bg-press">{body}</Link>
+                    <Link to={`/s/${encodeURIComponent(l.key)}`} from={origin} className="group block px-4 py-3 transition hover:bg-hover active:bg-press">{body}</Link>
                   ) : (
                     <div className="px-4 py-3">{body}</div>
                   )}
@@ -216,6 +223,29 @@ export function StrategyTable({
         as of {ts(now).slice(11, 16)} UTC · {footer}
       </div>
     </Card>
+  );
+}
+
+/** The strategies search: free words match the name, `status:` and `symbol:` narrow it. */
+export function StrategySearch({ className = "" }: { className?: string }) {
+  const [find, setFind] = useSearchParam("find");
+  return (
+    <label className={`relative flex h-8 w-full min-w-0 items-center sm:w-64 ${className}`}>
+      <span className="sr-only">Filter strategies</span>
+      <svg viewBox="0 0 24 24" className="pointer-events-none absolute left-2.5 h-3.5 w-3.5 text-muted" fill="none" stroke="currentColor" strokeWidth="1.75" strokeLinecap="round" aria-hidden>
+        <path d="M11 19a8 8 0 1 0 0-16 8 8 0 0 0 0 16zM21 21l-4.35-4.35" />
+      </svg>
+      <input
+        type="search"
+        value={find}
+        onChange={(e) => setFind(e.target.value)}
+        placeholder="Filter strategies"
+        title="Words match the name; status:running, status:halted, status:retired and symbol:xau narrow it"
+        spellCheck={false}
+        autoComplete="off"
+        className="h-8 w-full rounded-lg border border-ctl bg-panel pl-8 pr-2 text-sm text-bright placeholder:text-muted focus:border-accent-hi focus:outline-none focus:ring-3 focus:ring-accent-soft"
+      />
+    </label>
   );
 }
 

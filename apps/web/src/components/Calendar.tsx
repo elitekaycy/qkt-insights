@@ -1,6 +1,6 @@
 import { useEffect, useMemo, useState } from "react";
 import type { DayNet } from "../api";
-import { compact, compactPnl, count, DASH, day as utcDay, human, monthName, pct, pnl, signedMoney, signedPct } from "../format";
+import { compact, compactPnl, count, DASH, day as utcDay, human, monthName, pct, pnl, shortDay, signedMoney, signedPct } from "../format";
 import { Card, Cell, Empty, Field, IconButton, Modal, Pnl, Row, Table } from "./ui";
 import { Link, PAGE_PATHS, routePath, useSearchParam } from "../router";
 import { RoundTripTable } from "../trades/RoundTripTable";
@@ -65,12 +65,21 @@ export function CalendarView({
   const byDay = useMemo(() => new Map(days.map((d) => [d.day, d])), [days]);
   const months = useMemo(() => [...new Set(days.map((d) => monthKey(d.day)))].sort(), [days]);
   const today = utcDay(Date.now());
-  const [picked, setMonth] = useState<string | null>(wantedMonth);
+  // the month and the open day live in the URL, so a drill-down's way back lands on them again
+  const [urlMonth, setUrlMonth] = useSearchParam("month");
+  const [picked, setPicked] = useState<string | null>(wantedMonth);
   useEffect(() => {
-    if (wantedMonth) setMonth(wantedMonth);
+    if (wantedMonth) setPicked(wantedMonth);
   }, [wantedMonth]);
-  const month = picked && months.includes(picked) ? picked : (months[months.length - 1] ?? monthKey(today));
-  const [openDay, setDay] = useState<string | null>(null);
+  const setMonth = (m: string) => {
+    setPicked(null);
+    setUrlMonth(m);
+  };
+  const shownMonth = picked ?? (urlMonth || null);
+  const month = shownMonth && months.includes(shownMonth) ? shownMonth : (months[months.length - 1] ?? monthKey(today));
+  const [dayParam, setDayParam] = useSearchParam("day");
+  const openDay = dayParam || null;
+  const setDay = (d: string | null) => setDayParam(d ?? "", { push: d != null });
   const [trade, setTrade] = useSearchParam("trade");
   // closing the day closes a trade opened from it
   const setOpenDay = (d: string | null) => {
@@ -138,7 +147,7 @@ export function CalendarView({
       <Card className="p-4">
         <div className="flex flex-wrap items-center gap-2 text-sm">
           <span className="font-medium text-body">P&L calendar</span>
-          <span className="ml-auto text-xs text-muted">by close day (UTC){drill || onDay ? " · click a day for its trades" : ""}</span>
+          <span className="ml-auto text-xs text-muted">by close day</span>
         </div>
         <div className="mt-3 flex flex-wrap items-center gap-x-3 gap-y-2">
           <IconButton label="Previous month" disabled={idx <= 0} onClick={() => idx > 0 && setMonth(months[idx - 1]!)} d="M15 18l-6-6 6-6" />
@@ -253,7 +262,7 @@ export function CalendarView({
           <h3 className="text-sm font-medium text-body">Monthly returns</h3>
           <span className="text-xs text-muted">
             YTD {pnl(ytd)}
-            {hasBase ? ` · return on ${baseLabel}` : ""} · click a month
+            {hasBase ? ` · return on ${baseLabel}` : ""}
           </span>
         </div>
         <div className="max-h-[30rem] overflow-auto">
@@ -329,7 +338,7 @@ export function CalendarView({
               {openMonthDays.length ? pct(openMonthDays.filter((d) => d.net > 0).length / openMonthDays.length, 0) : DASH}
             </Field>
           </div>
-          <div className="eyebrow px-4 pb-1">Day by day · click to open</div>
+          <div className="eyebrow px-4 pb-1">Day by day</div>
           <Table head={["Day (UTC)", "Net", "Trades"]}>
             {openMonthDays.map((d) => (
               <Row
@@ -367,9 +376,9 @@ function DayTrades({ day, drill }: { day: string; drill: { instanceId: string; s
     <div className="border-t border-line">
       <div className="flex items-center gap-2 px-4 py-2.5">
         <span className="eyebrow">Round trips closed that day</span>
-        <span className="hidden text-xs text-faint sm:inline">· click one for its timeline</span>
         <Link
           to={`${to}?q=${encodeURIComponent(q)}`}
+          from={`Calendar · ${shortDay(day)}`}
           onClick={() => setTrade("")}
           className="ml-auto text-xs font-medium text-accent-ink hover:underline"
         >

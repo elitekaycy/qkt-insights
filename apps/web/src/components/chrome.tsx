@@ -100,6 +100,29 @@ export function ThemeToggle({ iconsOnly = false, className = "" }: { iconsOnly?:
   );
 }
 
+const RAIL_KEY = "qkt-insights-rail-collapsed";
+
+/** The rail's collapsed state, remembered per viewer; storage failures only lose the memory. */
+function useRailCollapsed(): [boolean, () => void] {
+  const [collapsed, setCollapsed] = useState(() => {
+    try {
+      return localStorage.getItem(RAIL_KEY) === "1";
+    } catch {
+      return false;
+    }
+  });
+  const toggle = () =>
+    setCollapsed((c) => {
+      try {
+        localStorage.setItem(RAIL_KEY, c ? "0" : "1");
+      } catch {
+        // private mode or blocked storage: the choice lasts for this page only
+      }
+      return !c;
+    });
+  return [collapsed, toggle];
+}
+
 export interface NavItem {
   key: PageKey;
   label: string;
@@ -167,7 +190,7 @@ export function Shell({
   children: ReactNode;
 }) {
   const { route } = useRoute();
-  const [collapsed, setCollapsed] = useState(false);
+  const [collapsed, toggleCollapsed] = useRailCollapsed();
   const [more, setMore] = useState(false);
   const all = settings ? [...nav, settings] : nav;
   const current = all.find((n) => n.key === route.page);
@@ -192,6 +215,16 @@ export function Shell({
         <div className={`flex h-14 shrink-0 items-center ${collapsed ? "justify-center" : "px-4"}`}>
           <Wordmark brand={brand} iconsOnly={collapsed} />
         </div>
+        {/* sits on the rail's border line, level with the logo */}
+        <button
+          type="button"
+          onClick={toggleCollapsed}
+          aria-label={collapsed ? "Expand the sidebar" : "Collapse the sidebar"}
+          title={collapsed ? "Expand the sidebar" : "Collapse the sidebar"}
+          className="absolute -right-3 top-4 z-10 inline-flex h-6 w-6 items-center justify-center rounded-full border border-line-strong bg-side text-muted shadow-sm transition hover:bg-raised hover:text-bright"
+        >
+          <NavIcon d={collapsed ? ICONS.expand : ICONS.collapse} className="!h-3.5 !w-3.5" />
+        </button>
         {scope && <div className={`shrink-0 pb-2 ${collapsed ? "px-2" : "px-3"}`}>{scope(collapsed)}</div>}
         <nav className={`flex min-h-0 flex-1 flex-col gap-0.5 overflow-y-auto py-2 ${collapsed ? "px-2" : "px-3"}`}>
           {nav.map((n) => (
@@ -201,16 +234,6 @@ export function Shell({
         <div className={`flex shrink-0 flex-col gap-0.5 border-t border-line py-2 ${collapsed ? "px-2" : "px-3"}`}>
           {settings && <RailLink item={settings} iconsOnly={collapsed} />}
           <ThemeToggle iconsOnly={collapsed} />
-          <button
-            type="button"
-            onClick={() => setCollapsed((c) => !c)}
-            aria-label={collapsed ? "Expand the sidebar" : "Collapse the sidebar"}
-            title={collapsed ? "Expand the sidebar" : "Collapse the sidebar"}
-            className={`flex h-9 items-center gap-3 rounded-lg px-3 text-sm font-medium text-body transition hover:bg-hover hover:text-bright ${collapsed ? "justify-center px-0" : ""}`}
-          >
-            <NavIcon d={collapsed ? ICONS.expand : ICONS.collapse} big className="text-muted" />
-            {!collapsed && "Collapse"}
-          </button>
         </div>
         {footer && <div className={`shrink-0 border-t border-line py-2 ${collapsed ? "px-2" : "px-4"}`}>{footer(collapsed)}</div>}
       </aside>

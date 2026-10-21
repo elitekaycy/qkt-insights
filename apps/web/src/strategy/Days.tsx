@@ -37,7 +37,7 @@ function Empty({ q }: { q: string }) {
 function PickedTrades({ scope, q, title, n }: { scope: SectionProps["scope"]; q: string; title: string; n: number }) {
   // as tall as its rows (a header plus 36px each), up to half the screen
   return (
-    <Widget icon={ICON.streak} title={title} hint="click a row for its timeline · click it again above to clear" pad={false}>
+    <Widget icon={ICON.streak} title={title} pad={false}>
       <RoundTripTable scope={scope} q={q} sort="exit" dir="asc" hide={["strategy"]} height={`min(50dvh, ${Math.max(2, n) * 36 + 44}px)`} />
     </Widget>
   );
@@ -97,7 +97,7 @@ export function DailySection({ scope, q, toggle, base, busy }: SectionProps) {
   const rows = [...days].reverse();
   return (
     <div className="grid gap-4">
-      <Widget icon={ICON.bars} title="Daily P&L" hint={`${count(days.length)} trading days · click a bar to filter · click the chart, then scroll to zoom`} busy={busy}>
+      <Widget icon={ICON.bars} title="Daily P&L" hint={`${count(days.length)} trading days`} busy={busy}>
         <EChart option={option} height={260} label="Realized P&L per UTC exit day" onAxisClick={(x) => { const d = days[Math.round(x)]; if (d) toggle(`exit:${d.day}`); }} onZoom={setZoom} />
         {shown && (
           <div className="mt-2 flex flex-wrap items-baseline gap-x-4 gap-y-1 border-t border-line pt-3 text-sm tabular-nums" aria-live="polite">
@@ -109,7 +109,7 @@ export function DailySection({ scope, q, toggle, base, busy }: SectionProps) {
           </div>
         )}
       </Widget>
-      <Widget icon={ICON.calendar} title="Days" hint="click a row to filter · newest first" pad={false} busy={busy}>
+      <Widget icon={ICON.calendar} title="Days" hint="newest first" pad={false} busy={busy}>
         <div className="max-h-[26rem] overflow-auto">
           <table className="w-full text-sm tabular-nums">
             <thead className="sticky top-0 bg-panel">
@@ -173,10 +173,10 @@ export function MonthlySection({ scope, q, toggle, base, busy, capital, goTab }:
   if (months.length === 0) return <Empty q={q} />;
   return (
     <div className="grid gap-4">
-      <Widget icon={ICON.bars} title="Monthly P&L" hint="click a month to filter" busy={busy}>
+      <Widget icon={ICON.bars} title="Monthly P&L" busy={busy}>
         <EChart option={option} height={240} label="Realized P&L per UTC exit month" zoom={months.length > 24} onAxisClick={(x) => { const m = months[Math.round(x)]; if (m) toggle(`exit:${m.day}`); }} />
       </Widget>
-      <Widget icon={ICON.calendar} title="By month" hint="click a row to filter" pad={false} busy={busy}>
+      <Widget icon={ICON.calendar} title="By month" pad={false} busy={busy}>
         <div className="max-h-[26rem] overflow-auto">
           <table className="w-full text-sm tabular-nums">
             <thead className="sticky top-0 bg-panel">
@@ -213,7 +213,7 @@ function YearHeat({ months, onMonth }: { months: readonly TripDay[]; onMonth: (m
   const years = [...new Set(months.map((m) => m.day.slice(0, 4)))].sort().reverse();
   const maxAbs = Math.max(0, ...months.map((m) => Math.abs(m.pnl)));
   return (
-    <Widget icon={ICON.calendar} title="Year × month" hint="values printed · click a month to open it in the calendar">
+    <Widget icon={ICON.calendar} title="Year × month">
       <div className="overflow-x-auto">
         <table className="w-full min-w-[640px] table-fixed border-separate border-spacing-1 text-[11px] tabular-nums">
           <thead>

@@ -1,6 +1,6 @@
 import { useEffect, useRef, useState, type ReactNode } from "react";
 import { createPortal } from "react-dom";
-import { useSearchParam } from "../router";
+import { useOrigin, useSearchParam } from "../router";
 import { DASH, glyph, pnl, signedMoney, signedPct, toneClass, tsDay, tsShort } from "../format";
 
 /*
@@ -24,12 +24,38 @@ export function Card({ children, className = "" }: { children: ReactNode; classN
  * the live count ("Showing k of n") and page controls on the right. It takes the full width so the
  * box can grow; the header keeps the same rhythm with or without it.
  */
+/**
+ * "‹ Calendar · Oct 7": the way back to where a drill-down began, exactly as it was left (page,
+ * month, tab, range, query, scroll). Nothing on a direct visit.
+ */
+export function OriginBack({ className = "", iconOnly = false }: { className?: string; iconOnly?: boolean }) {
+  const origin = useOrigin();
+  if (!origin) return null;
+  return (
+    <button
+      type="button"
+      onClick={origin.back}
+      title={`Back to ${origin.label}`}
+      aria-label={`Back to ${origin.label}`}
+      className={`inline-flex h-7 min-w-0 max-w-full shrink-0 items-center gap-1 rounded-md border border-line bg-raised text-xs ${iconOnly ? "w-7 justify-center" : "pl-1.5 pr-2"} font-medium text-body transition hover:border-line-strong hover:text-bright ${className}`}
+    >
+      <svg viewBox="0 0 24 24" className="h-3.5 w-3.5 shrink-0" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" aria-hidden>
+        <path d="M15 18l-6-6 6-6" />
+      </svg>
+      {!iconOnly && <span className="truncate">{origin.label}</span>}
+    </button>
+  );
+}
+
 export function PageHeader({ title, sub, right, scope }: { title: string; sub?: string; right?: ReactNode; scope?: ReactNode }) {
   return (
     <header>
       <div className="flex flex-wrap items-center justify-between gap-3">
         <div className="min-w-0">
-          <h1 className="text-xl font-headline text-bright">{title}</h1>
+          <div className="flex min-w-0 items-center gap-2.5">
+            <OriginBack />
+            <h1 className="min-w-0 truncate text-xl font-headline text-bright">{title}</h1>
+          </div>
           {sub && <p className="mt-0.5 text-sm text-muted">{sub}</p>}
         </div>
         {right}
@@ -156,7 +182,7 @@ export function Panel({
         {/* header lays out by the panel's own width: in a half-width column the title and the
             expand button share the first line and the toolbar takes a full line under them */}
         <div className="flex flex-wrap items-center gap-2 border-b border-line px-4 py-3">
-          <div className="flex min-w-0 flex-1 basis-[60%] flex-col items-start gap-0.5 @3xl:basis-auto @3xl:flex-row @3xl:items-baseline @3xl:gap-2.5">
+          <div className="flex min-w-0 flex-1 basis-[60%] flex-col items-start gap-0.5 @3xl:basis-0 @3xl:flex-row @3xl:items-baseline @3xl:gap-2.5">
             <h3 className="shrink-0 text-sm font-medium text-body">{title}</h3>
             {hint && <span className="text-xs text-muted">{hint}</span>}
           </div>
@@ -197,7 +223,7 @@ export function IconButton({ label, onClick, d, disabled }: { label: string; onC
   );
 }
 
-/** up/down colour money (gain blue, loss red); ok/bad colour status (green, red), never P&L. */
+/** up/down colour money (gain green, loss red); ok/bad colour status (green, red), never P&L. */
 export type Tone = "neutral" | "up" | "down" | "ok" | "bad" | "warn" | "info" | "accent";
 
 const TONE_TEXT: Record<Tone, string> = {
@@ -210,6 +236,8 @@ const TONE_TEXT: Record<Tone, string> = {
   info: "text-info",
   accent: "text-accent-ink",
 };
+
+const STATUS_DOT: Partial<Record<Tone, string>> = { ok: "bg-ok", bad: "bg-danger", warn: "bg-warn" };
 
 const TONE_PILL: Record<Tone, string> = {
   neutral: "border-line bg-raised text-body",
@@ -250,7 +278,11 @@ export function Stat({
             <Pnl value={signed} />
           </div>
         ) : (
-          <div className={`mt-1.5 truncate text-xl font-headline ${TONE_TEXT[tone]}`}>{value}</div>
+          // status tones read as a dot beside a plain figure, never as a coloured number that could pass for P&L
+          <div className={`mt-1.5 flex items-center gap-2 truncate text-xl font-headline ${STATUS_DOT[tone] ? "text-bright" : TONE_TEXT[tone]}`}>
+            {STATUS_DOT[tone] && <span className={`inline-block h-2 w-2 shrink-0 rounded-full ${STATUS_DOT[tone]}`} aria-hidden />}
+            {value}
+          </div>
         )}
         {sub && <div className="mt-1 text-xs text-muted">{sub}</div>}
         {expand && <ExplainButton label={`Explain ${label}`} onClick={() => setOpen(true)} />}
@@ -367,11 +399,14 @@ export function Segmented<T extends string>({
   options,
   onChange,
   label,
+  dense = false,
 }: {
   value: T;
   options: readonly { key: T; label: string }[];
   onChange: (v: T) => void;
   label: string;
+  /** Narrower buttons on phones, for a control that shares its row. */
+  dense?: boolean;
 }) {
   return (
     <div role="tablist" aria-label={label} className="inline-flex max-w-full gap-0.5 overflow-x-auto rounded-lg border border-line bg-raised p-0.5">
@@ -382,7 +417,7 @@ export function Segmented<T extends string>({
           role="tab"
           aria-selected={value === o.key}
           onClick={() => onChange(o.key)}
-          className={`h-7 shrink-0 whitespace-nowrap rounded-md px-3 text-sm font-medium transition ${
+          className={`h-7 shrink-0 whitespace-nowrap rounded-md font-medium transition ${dense ? "px-1.5 text-xs sm:px-3 sm:text-sm" : "px-3 text-sm"} ${
             value === o.key ? "bg-well text-bright" : "text-body hover:bg-hover hover:text-bright"
           }`}
         >
@@ -489,13 +524,21 @@ export function Table({ head, children }: { head?: string[]; children: ReactNode
   );
 }
 
-export function Row({ children, onClick }: { children: ReactNode; onClick?: () => void }) {
+/**
+ * A table row; with `onClick` the whole row is the control: pointer, Enter, a visible focus ring,
+ * and with `chevron` the fade-in "opens" cue in a last cell (give the table an empty last header).
+ */
+export function Row({ children, onClick, chevron = false, label }: { children: ReactNode; onClick?: () => void; chevron?: boolean; label?: string }) {
   return (
     <tr
       onClick={onClick}
-      className={`border-b border-line text-bright transition-colors last:border-b-0 hover:bg-hover ${onClick ? "cursor-pointer" : ""}`}
+      onKeyDown={onClick ? (e) => { if (e.key === "Enter" && e.target === e.currentTarget) onClick(); } : undefined}
+      tabIndex={onClick ? 0 : undefined}
+      aria-label={label}
+      className={`group border-b border-line text-bright transition-colors last:border-b-0 hover:bg-hover ${onClick ? "cursor-pointer focus-visible:bg-hover focus-visible:outline-2 focus-visible:-outline-offset-2 focus-visible:outline-accent-hi" : ""}`}
     >
       {children}
+      {chevron && <td className="w-8 pr-2"><RowChevron /></td>}
     </tr>
   );
 }
@@ -629,6 +672,22 @@ export function rangeStart(key: RangeKey, now = Date.now()): number {
     case "ytd": return Date.UTC(d.getUTCFullYear(), 0, 1);
     case "all": return 0;
   }
+}
+
+const RANGE_CHIP_KEYS: RangeKey[] = ["today", "7d", "mtd", "ytd", "all"];
+
+/** The date range as chips (Today, 7D, MTD, YTD, All); a range set elsewhere (24h, 30D) gets its own chip. */
+export function RangeChips({ value, onChange, dense = false }: { value: RangeKey; onChange: (v: RangeKey) => void; dense?: boolean }) {
+  const keys = RANGE_CHIP_KEYS.includes(value) ? RANGE_CHIP_KEYS : [...RANGE_CHIP_KEYS.slice(0, -1), value, "all" as const];
+  return (
+    <Segmented
+      label="Date range"
+      value={value}
+      onChange={onChange}
+      dense={dense}
+      options={keys.map((k) => ({ key: k, label: RANGES.find((r) => r.key === k)!.short }))}
+    />
+  );
 }
 
 export function RangeSelect({ value, onChange }: { value: RangeKey; onChange: (v: RangeKey) => void }) {
@@ -784,5 +843,74 @@ export function PageFallback() {
         ))}
       </div>
     </div>
+  );
+}
+
+/** The row's "this opens" cue: fades in on hover and focus, always faint on touch screens. */
+export function RowChevron({ className = "" }: { className?: string }) {
+  return (
+    <svg
+      viewBox="0 0 24 24"
+      className={`h-4 w-4 shrink-0 text-faint opacity-0 transition-opacity group-hover:opacity-100 group-focus-visible:opacity-100 group-focus-within:opacity-100 [@media(hover:none)]:opacity-60 ${className}`}
+      fill="none"
+      stroke="currentColor"
+      strokeWidth="1.75"
+      strokeLinecap="round"
+      strokeLinejoin="round"
+      aria-hidden
+    >
+      <path d="M9 18l6-6-6-6" />
+    </svg>
+  );
+}
+
+/** The clock, re-read every `everyMs` so "updated 4s ago" keeps ticking. */
+export function useNow(everyMs = 1000): number {
+  const [now, setNow] = useState(() => Date.now());
+  useEffect(() => {
+    const id = window.setInterval(() => setNow(Date.now()), everyMs);
+    return () => window.clearInterval(id);
+  }, [everyMs]);
+  return now;
+}
+
+/**
+ * Whether broker state is live, said outright: a pulsing dot and a ticking "updated 4s ago", or an
+ * amber "stale · last update 12m ago" badge. Values stay readable either way.
+ */
+export function Freshness({ at, stale, className = "" }: { at: number; stale: boolean; className?: string }) {
+  const now = useNow();
+  const ago = ageSince(at, now);
+  if (stale) {
+    return (
+      <span className={`inline-flex items-center gap-1.5 rounded-full border border-warn/45 bg-warn/10 px-2 py-0.5 text-[11px] font-medium text-warn ${className}`} role="status">
+        <span className="inline-block h-1.5 w-1.5 rounded-full bg-warn" aria-hidden />
+        stale · last update {ago}
+      </span>
+    );
+  }
+  return (
+    <span className={`inline-flex items-center gap-1.5 text-[11px] text-muted ${className}`} title={`last broker update ${new Date(at).toISOString().slice(11, 19)} UTC`}>
+      <LiveDot on />
+      updated {ago}
+    </span>
+  );
+}
+
+function ageSince(at: number, now: number): string {
+  const s = Math.max(0, Math.floor((now - at) / 1000));
+  if (s < 60) return `${s}s ago`;
+  if (s < 3600) return `${Math.floor(s / 60)}m ago`;
+  if (s < 86400) return `${Math.floor(s / 3600)}h ago`;
+  return `${Math.floor(s / 86400)}d ago`;
+}
+
+/** A status as a coloured dot and a plain word ("● up"): never a coloured figure that reads as P&L. */
+export function StatusWord({ tone, children }: { tone: Tone; children: ReactNode }) {
+  return (
+    <span className="inline-flex items-center gap-1.5 whitespace-nowrap text-xs font-medium text-body">
+      <span className={`inline-block h-1.5 w-1.5 shrink-0 rounded-full ${STATUS_DOT[tone] ?? "bg-faint"}`} aria-hidden />
+      {children}
+    </span>
   );
 }

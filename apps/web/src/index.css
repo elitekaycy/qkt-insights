@@ -55,9 +55,9 @@
   --color-accent-soft: rgba(75, 143, 230, 0.16);
   --color-on-accent: #ffffff;
 
-  /* money: gains blue, losses red; `-fill` for bars/areas, the plain name for text */
-  --color-gain: #86b9f7;
-  --color-gain-fill: #4b8fe6;
+  /* money: gains green, losses red; `-fill` for bars/areas, the plain name for text (AA on every surface) */
+  --color-gain: #5fd38d;
+  --color-gain-fill: #2fb36a;
   --color-loss: #f39a9a;
   --color-loss-fill: #e66767;
 
@@ -114,8 +114,8 @@
   --color-accent-ink: #1f5fbb;
   --color-accent-soft: rgba(42, 111, 208, 0.1);
   --color-on-accent: #ffffff;
-  --color-gain: #1c5cab;
-  --color-gain-fill: #2a78d6;
+  --color-gain: #0f7a3a;
+  --color-gain-fill: #1f9d55;
   --color-loss: #b8302f;
   --color-loss-fill: #e34948;
   --color-ok: #12783a;

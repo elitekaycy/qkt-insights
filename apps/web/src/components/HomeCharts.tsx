@@ -1,6 +1,6 @@
 import { useState } from "react";
 import type { DayNet } from "../api";
-import { compact, count, day as utcDay, monthName, pnl, polarity, signedMoney } from "../format";
+import { compact, count, day as utcDay, monthName, pnl, polarity, shortDay, signedMoney } from "../format";
 import { HOME_RANGES, rangeFirstDay, type HomeRange } from "../home";
 import { Link, useRoute } from "../router";
 import { ChartCard } from "./ChartCard";
@@ -142,7 +142,7 @@ export function MonthCalendar({ days, now }: { days: DayNet[]; now: number }) {
               disabled={!d}
               aria-label={label}
               title={d ? `${label} · open these trades` : label}
-              onClick={() => navigate(`/t?q=${encodeURIComponent(`exit:${c.day}`)}`)}
+              onClick={() => navigate(`/t?q=${encodeURIComponent(`exit:${c.day}`)}`, { from: `Home · ${shortDay(c.day)}` })}
               className={`flex h-11 min-w-0 flex-col justify-between rounded-md border px-1 py-0.5 text-left transition ${isToday ? "border-dashed border-accent-hi" : "border-transparent"} ${d ? "hover:border-line-strong" : "cursor-default"}`}
               style={{ background: d ? shade(d.net, maxAbs) : "var(--color-raised)" }}
             >
@@ -153,7 +153,7 @@ export function MonthCalendar({ days, now }: { days: DayNet[]; now: number }) {
         })}
       </div>
       <div className="flex items-center justify-between border-t border-line px-4 py-2 text-[11px] text-faint">
-        <span>UTC close days · click a day for its trades</span>
+        <span>by close day</span>
         <Link to="/calendar" className="font-medium text-accent-ink hover:underline">Full calendar</Link>
       </div>
     </Card>

@@ -61,7 +61,7 @@ export function pnl(v: number | null | undefined, digits = 2): string {
   return g ? `${g} ${signedMoney(v, digits)}` : signedMoney(v, digits);
 }
 
-/** Text-colour class for a signed figure: gains blue, losses red, flat muted. */
+/** Text-colour class for a signed figure: gains green, losses red, flat muted. */
 export function toneClass(v: number | null | undefined, digits = 2): string {
   if (missing(v)) return "text-faint";
   const p = polarity(v, digits);
@@ -177,6 +177,13 @@ export function tsShort(ms: number): string {
 /** "2026-06-11" (UTC day). */
 export function day(ms: number): string {
   return new Date(ms).toISOString().slice(0, 10);
+}
+
+/** "Oct 7" for a "YYYY-MM-DD" day, "Oct 2026" for a "YYYY-MM" month: a drill-down's origin label. */
+export function shortDay(key: string): string {
+  const [y, m, d] = key.split("-").map(Number);
+  const mon = MONTHS[(m ?? 1) - 1];
+  return d == null ? `${mon} ${y}` : `${mon} ${d}`;
 }
 
 /** "13:26" (UTC). */

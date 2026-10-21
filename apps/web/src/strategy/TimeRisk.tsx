@@ -75,14 +75,14 @@ export function TimeRiskSection({ q, toggle, a, busy, openTrade }: SectionProps)
   const thin = `faded: under ${MIN_SAMPLE} trades`;
   return (
     <div className="grid items-start gap-4 md:grid-cols-2">
-      <Widget icon={ICON.side} title="Long vs short" hint="click to filter" busy={busy}>
+      <Widget icon={ICON.side} title="Long vs short" busy={busy}>
         <SignedBars rows={bucketRows(a.side, q, "side", toggle)} />
         <div className="mt-2">
           <StatRow label="Long win rate">{winPct(winRate(long))}</StatRow>
           <StatRow label="Short win rate">{winPct(winRate(short))}</StatRow>
         </div>
       </Widget>
-      <Widget icon={ICON.flag} title="How trades ended" hint="click to filter" busy={busy}
+      <Widget icon={ICON.flag} title="How trades ended" busy={busy}
         explain="From the venue's close comment and the engine's events: the stop or target filled, the strategy's own exit rule, the venue (a stop-out), or a close by hand.">
         {a.ended.length > 0 ? (
           <SignedBars labelWidth="5.5rem" rows={bucketRows(a.ended, q, "ended", toggle)} />
@@ -90,14 +90,14 @@ export function TimeRiskSection({ q, toggle, a, busy, openTrade }: SectionProps)
           <p className="py-4 text-sm text-muted">No close reason recorded for these trades: older engines and paper fills do not say.</p>
         )}
       </Widget>
-      <Widget icon={ICON.hourglass} title="Held for" hint="click to filter" busy={busy}>
+      <Widget icon={ICON.hourglass} title="Held for" busy={busy}>
         <SignedBars rows={bucketRows(a.hold, q, "held", toggle)} />
         <p className="mt-2 text-[11px] text-muted">Buckets include their lower bound: 1–4h holds 1h but not 4h.</p>
       </Widget>
-      <Widget icon={ICON.clock} title="By entry weekday (UTC)" hint={`click to filter · ${thin}`} busy={busy}>
+      <Widget icon={ICON.clock} title="By entry weekday (UTC)" hint={thin} busy={busy}>
         <SignedBars rows={bucketRows(a.weekday, q, "weekday", toggle, true)} />
       </Widget>
-      <Widget icon={ICON.clock} title="By entry hour (UTC)" hint={`click a bar to filter · ${thin}`} className="md:col-span-2" busy={busy}>
+      <Widget icon={ICON.clock} title="By entry hour (UTC)" hint={thin} className="md:col-span-2" busy={busy}>
         <EChart option={hourOption} height={220} zoom={false} label="Realized P&L by UTC entry hour" onAxisClick={(x) => { const b = hours[Math.round(x)]; if (b && b.n > 0) toggle(b.filter); }} />
       </Widget>
       <Widget icon={ICON.shield} title="Risk" busy={busy}
@@ -108,7 +108,7 @@ export function TimeRiskSection({ q, toggle, a, busy, openTrade }: SectionProps)
         <StatRow label="Payoff ratio">{num(a.payoff)}</StatRow>
         <StatRow label="Average hold">{a.avgHoldMs == null ? DASH : duration(a.avgHoldMs)}</StatRow>
       </Widget>
-      <Widget icon={ICON.streak} title="Streaks and extremes" hint={openTrade ? "click a trade to open it" : undefined} busy={busy}
+      <Widget icon={ICON.streak} title="Streaks and extremes" busy={busy}
         explain="Runs of consecutive wins or losses in exit order (breakeven trades break neither). The table reads how the next trade went after a run of losses, as seen in these trades.">
         <StatRow label="Current streak">
           <span className={toneClass(a.streaks.current)}>{a.streaks.current === 0 ? DASH : `${a.streaks.current > 0 ? `${a.streaks.current} won` : `${-a.streaks.current} lost`} in a row`}</span>

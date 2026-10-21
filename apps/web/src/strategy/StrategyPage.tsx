@@ -1,11 +1,12 @@
-import { useMemo, type ReactNode } from "react";
+import { useMemo, useRef, useState, type ReactNode } from "react";
+import { flushSync } from "react-dom";
 import { useQuery } from "@tanstack/react-query";
-import { TRADE_KEYS } from "@qkt-insights/contract/query";
+import { parseQuery, TRADE_KEYS } from "@qkt-insights/contract/query";
 import { get, type LogRow, type StrategyRow, type StrategyStats } from "../api";
 import { LogLine } from "../components/LogLine";
 import { ShareControl } from "../components/ShareControl";
-import { Card, LiveDot, Loadable, Pill, Popover, rangeStart, ReturnPct, Segmented, useRangeParam, type RangeKey } from "../components/ui";
-import { age, DASH, money, openPnl, signedMoney } from "../format";
+import { Card, LiveDot, Loadable, OriginBack, Pill, Popover, RangeChips, rangeStart, ReturnPct, Segmented, useRangeParam } from "../components/ui";
+import { age, DASH, glyph, money, openPnl, signedMoney, toneClass } from "../format";
 import { haltClearing, haltSince, resumeCommand } from "../halt";
 import { strategyCapital, strategyDisplayName } from "../portfolio";
 import { QueryBar, TRADE_PRESETS } from "../query/QueryBar";
@@ -45,9 +46,6 @@ const TAB_HINT: Record<StrategyTab, string> = {
   time: "When it wins, how trades end, and how much it risks",
   logs: "What the engine said about this strategy",
 };
-
-const RANGE_CHIPS: RangeKey[] = ["today", "7d", "mtd", "ytd", "all"];
-const RANGE_SHORT: Record<RangeKey, string> = { today: "Today", "24h": "24h", "7d": "7D", mtd: "MTD", "30d": "30D", ytd: "YTD", all: "All" };
 
 /** A strategy page leaves its own name out of each row. */
 const STRATEGY_HIDDEN = ["strategy"];
@@ -91,7 +89,7 @@ export interface SectionProps {
   goTab: (tab: StrategyTab, q?: string) => void;
 }
 
-export function StrategyDetail({ instanceId, strategyId, onBack }: { instanceId: string; strategyId: string; onBack?: () => void }) {
+export function StrategyDetail({ instanceId, strategyId }: { instanceId: string; strategyId: string }) {
   const view = useView();
   usePublicPageView("strategy", strategyId);
   const { route, navigate } = useRoute();
@@ -133,8 +131,10 @@ export function StrategyDetail({ instanceId, strategyId, onBack }: { instanceId:
 
   const goTab = (t: StrategyTab, nextQ?: string) => {
     const path = routePath({ page: "strategies", strategy: strategyId, tab: t });
-    navigate(nextQ === undefined ? path : `${path}${nextQ ? `?q=${encodeURIComponent(nextQ)}` : ""}`);
+    // a figure that opens another section is a drill-down: its way back is this section
+    navigate(nextQ === undefined ? path : `${path}${nextQ ? `?q=${encodeURIComponent(nextQ)}` : ""}`, { from: TAB_LABEL[tab] });
   };
+  const switchTab = (t: StrategyTab) => navigate(routePath({ page: "strategies", strategy: strategyId, tab: t }));
   const toggle = (token: string) => setQ(toggleToken(q, token), { push: true });
   const a = analytics.data;
   const totals: RoundTripTotals | null = a
@@ -148,7 +148,17 @@ export function StrategyDetail({ instanceId, strategyId, onBack }: { instanceId:
     }),
     [facets.data],
   );
-  const chips = RANGE_CHIPS.includes(range) ? RANGE_CHIPS : [...RANGE_CHIPS.slice(0, -1), range, "all" as const];
+  const filterCount = useMemo(() => parseQuery(q, { instruments: suggestData.instruments }).chips.length, [q, suggestData.instruments]);
+  // phones: the header folds to one line and the query bar to a search button until tapped
+  const [details, setDetails] = useState(false);
+  const [searchOpen, setSearchOpen] = useState(false);
+  const searchBox = useRef<HTMLDivElement>(null);
+  const openSearch = () => {
+    if (searchOpen) return setSearchOpen(false);
+    // rendered before focusing, inside the tap, so a phone raises its keyboard
+    flushSync(() => setSearchOpen(true));
+    searchBox.current?.querySelector("input")?.focus();
+  };
 
   const props: SectionProps = {
     instanceId, strategyId, scope, q, toggle, a, base: base.data ?? (baseQ === q ? a : undefined),
@@ -160,19 +170,33 @@ export function StrategyDetail({ instanceId, strategyId, onBack }: { instanceId:
   return (
     <div className="grid gap-4">
       <div>
-        {onBack && (
-          <button type="button" onClick={onBack} className="text-sm text-muted transition hover:text-body">
-            ← Strategies
+        <div className="flex min-w-0 items-center gap-1.5 sm:hidden">
+          <OriginBack iconOnly />
+          <h1 className="min-w-0 truncate text-base font-headline text-bright" title={strategyId}>{row ? strategyDisplayName(row) : strategyId}</h1>
+          <Status row={row} isPublic={view.public} compact />
+          <span className={`ml-auto shrink-0 text-sm font-semibold tabular-nums ${toneClass(net)}`}>
+            {net == null ? DASH : `${glyph(net)} ${signedMoney(net)}`}
+          </span>
+          <button
+            type="button"
+            aria-label={details ? "Hide strategy details" : "Show strategy details"}
+            aria-expanded={details}
+            onClick={() => setDetails((d) => !d)}
+            className="inline-flex h-8 w-7 shrink-0 items-center justify-center rounded-md text-muted transition hover:text-body"
+          >
+            <Icon d={details ? "M18 15l-6-6-6 6" : "M6 9l6 6 6-6"} className="h-4 w-4" />
           </button>
-        )}
+        </div>
         {row?.halted && <HaltBanner row={row} />}
-        <header className="mt-2 flex flex-wrap items-start justify-between gap-x-6 gap-y-3">
+        <header className={`${details ? "mt-2 flex" : "hidden"} sm:mt-0 flex-wrap items-start justify-between gap-x-6 gap-y-3 sm:flex`}>
           <div className="min-w-0">
             <div className="flex flex-wrap items-center gap-2">
-              <h1 className="min-w-0 truncate text-xl font-headline text-bright" title={strategyId}>{row ? strategyDisplayName(row) : strategyId}</h1>
-              <Status row={row} isPublic={view.public} />
+              {/* phones show the name, status and net in the one-line header above */}
+              <OriginBack className="max-sm:hidden" />
+              <h1 className="min-w-0 truncate text-xl font-headline text-bright max-sm:hidden" title={strategyId}>{row ? strategyDisplayName(row) : strategyId}</h1>
+              <span className="contents max-sm:hidden"><Status row={row} isPublic={view.public} /></span>
               {metaString(row?.metadata, "portfolioId") ? (
-                <Link to={routePath({ page: "strategies", portfolio: metaString(row?.metadata, "portfolioId")!.replace(/_\d+$/u, "") })} className="hover:opacity-80">
+                <Link to={routePath({ page: "strategies", portfolio: metaString(row?.metadata, "portfolioId")!.replace(/_\d+$/u, "") })} from={strategyId} className="hover:opacity-80">
                   <Pill tone="info">in {metaString(row?.metadata, "portfolioName") ?? metaString(row?.metadata, "portfolioId")}</Pill>
                 </Link>
               ) : (
@@ -180,14 +204,14 @@ export function StrategyDetail({ instanceId, strategyId, onBack }: { instanceId:
               )}
             </div>
             <div className="mt-2 flex flex-wrap items-baseline gap-x-3 gap-y-1">
-              <BigPnl value={net} className={open.stale ? "!text-faint" : ""} />
-              <ReturnPct net={net} base={capital.amount} dim={open.stale} />
+              <BigPnl value={net} className="max-sm:hidden" />
+              <ReturnPct net={net} base={capital.amount} />
               <span className="text-sm text-muted">{capitalLabel}</span>
             </div>
             <div className="mt-1 text-xs text-muted">
               Net since the first trade: realized {signedMoney(realized)} + open {open.pnl == null ? DASH : signedMoney(open.pnl)}
               {open.positions > 0 && ` on ${open.positions} position${open.positions === 1 ? "" : "s"}`}
-              {open.stale && " · broker state stale"}
+              {open.stale && <span className="ml-1.5 font-medium text-warn">· open P&L from stale broker state</span>}
             </div>
           </div>
           <div className="flex flex-wrap items-center gap-2">
@@ -197,11 +221,26 @@ export function StrategyDetail({ instanceId, strategyId, onBack }: { instanceId:
         </header>
       </div>
 
-      <nav className="-mx-1 overflow-x-auto px-1">
+      <nav aria-label="Strategy sections" className="-mx-4 flex gap-1.5 overflow-x-auto px-4 sm:hidden">
+        {STRATEGY_TABS.filter((t) => !(view.public && t === "logs")).map((t) => (
+          <button
+            key={t}
+            type="button"
+            aria-current={tab === t ? "page" : undefined}
+            onClick={() => switchTab(t)}
+            className={`h-7 shrink-0 whitespace-nowrap rounded-full border px-3 text-[13px] font-medium transition ${
+              tab === t ? "border-accent-hi/50 bg-accent-soft text-bright" : "border-line bg-raised text-body"
+            }`}
+          >
+            {TAB_LABEL[t]}
+          </button>
+        ))}
+      </nav>
+      <nav className="-mx-1 hidden overflow-x-auto px-1 sm:block">
         <Segmented
           label="Strategy sections"
           value={tab}
-          onChange={(t) => goTab(t)}
+          onChange={(t) => switchTab(t)}
           options={STRATEGY_TABS.filter((t) => !(view.public && t === "logs")).map((t) => ({ key: t, label: TAB_LABEL[t] }))}
         />
       </nav>
@@ -213,29 +252,40 @@ export function StrategyDetail({ instanceId, strategyId, onBack }: { instanceId:
 
       {tab !== "logs" && (
         <div className="grid gap-2 border-b border-line pb-3">
-          <QueryBar
-            value={q}
-            onChange={(v) => setQ(v)}
-            keys={TRADE_KEYS}
-            data={suggestData}
-            page="this strategy"
-            presets={TRADE_PRESETS}
-            errors={a?.query.errors ?? []}
-            placeholder="Search or filter: win, side:short, pnl:<0, held:<1h, ended:stop, weekday:mon, exit:2026-10…"
-          />
-          <div className="flex flex-wrap items-center gap-x-3 gap-y-2">
-            <Segmented label="Date range" value={range} onChange={setRange} options={chips.map((k) => ({ key: k, label: RANGE_SHORT[k] }))} />
-            <TripCount totals={totals} loading={analytics.isFetching} />
-            {tab === "trades" && !view.public && (
-              <a
-                href={`/round-trips/export?${tripParams(scope, q, "entry", "desc")}`}
-                download
-                className="ml-auto inline-flex h-8 items-center gap-1.5 rounded-lg border border-ctl bg-raised px-3 text-sm font-medium text-bright transition hover:bg-well"
-                title="Every round trip the query matches, as CSV"
-              >
-                Export CSV
-              </a>
-            )}
+          {/* phones: a search button with the active filter count, the range chips and the count on one row */}
+          <div className="flex items-center gap-1.5 sm:hidden">
+            <button
+              type="button"
+              aria-label={filterCount ? `Search and filter, ${filterCount} active` : "Search and filter"}
+              aria-expanded={searchOpen}
+              onClick={openSearch}
+              className={`relative inline-flex h-8 w-8 shrink-0 items-center justify-center rounded-lg border transition ${searchOpen ? "border-accent-hi bg-accent-soft text-bright" : "border-ctl bg-raised text-body"}`}
+            >
+              <Icon d="M11 19a8 8 0 1 0 0-16 8 8 0 0 0 0 16zM21 21l-4.35-4.35" className="h-4 w-4" />
+              {filterCount > 0 && (
+                <span className="absolute -right-1.5 -top-1.5 inline-flex h-4 min-w-4 items-center justify-center rounded-full bg-accent px-1 text-[10px] font-semibold text-on-accent">{filterCount}</span>
+              )}
+            </button>
+            <RangeChips value={range} onChange={setRange} dense />
+            <TripCount totals={totals} loading={analytics.isFetching} compactOnPhone />
+          </div>
+          <div ref={searchBox} className={searchOpen ? "" : "hidden sm:block"}>
+            <QueryBar
+              value={q}
+              onChange={(v) => setQ(v)}
+              keys={TRADE_KEYS}
+              data={suggestData}
+              page="this strategy"
+              presets={TRADE_PRESETS}
+              errors={a?.query.errors ?? []}
+              placeholder="Search or filter: win, side:short, pnl:<0, held:<1h, ended:stop, weekday:mon, exit:2026-10…"
+              trailing={
+                <span className="hidden sm:contents">
+                  <RangeChips value={range} onChange={setRange} />
+                  <TripCount totals={totals} loading={analytics.isFetching} />
+                </span>
+              }
+            />
           </div>
         </div>
       )}
@@ -243,7 +293,7 @@ export function StrategyDetail({ instanceId, strategyId, onBack }: { instanceId:
       {tab === "logs" ? (
         <StrategyLogs instanceId={instanceId} strategyId={strategyId} />
       ) : tab === "trades" ? (
-        <StrategyTrades scope={scope} q={q} />
+        <StrategyTrades scope={scope} q={q} exportHref={view.public ? null : `/round-trips/export?${tripParams(scope, q, "entry", "desc")}`} />
       ) : (
         <Loadable loading={loading} error={analytics.isError && !a} retry={() => analytics.refetch()} what="the strategy's trades" lines={8}>
           {tab === "overview" && <OverviewSection {...props} range={range} />}
@@ -261,11 +311,14 @@ export function StrategyDetail({ instanceId, strategyId, onBack }: { instanceId:
 }
 
 /** Status from the engine: halted (with why), retired, or running. */
-function Status({ row, isPublic }: { row: StrategyRow | null; isPublic: boolean }) {
+function Status({ row, isPublic, compact = false }: { row: StrategyRow | null; isPublic: boolean; compact?: boolean }) {
   if (!row) return null;
   if (row.halted) return <Pill tone="warn">halted</Pill>;
   if (!row.active) return <Pill>retired</Pill>;
-  return isPublic ? null : <span className="inline-flex items-center gap-1.5 text-xs text-muted"><LiveDot on /> running</span>;
+  if (isPublic) return null;
+  return compact
+    ? <span className="inline-flex shrink-0" title="running"><LiveDot on /><span className="sr-only">running</span></span>
+    : <span className="inline-flex items-center gap-1.5 text-xs text-muted"><LiveDot on /> running</span>;
 }
 
 /** The halt, at the top of the page where it cannot be missed: why, since when, how it ends. */
@@ -324,13 +377,23 @@ function Runtime({ meta }: { meta: Record<string, unknown> }) {
 }
 
 /** The strategy's round trips for the query on screen: the Trades page, scoped to one strategy. */
-function StrategyTrades({ scope, q }: { scope: TripScope; q: string }) {
+function StrategyTrades({ scope, q, exportHref }: { scope: TripScope; q: string; exportHref: string | null }) {
   const [sort, dir, setSort] = useSortParams();
   return (
     <Card className="overflow-hidden">
       <div className="flex items-baseline gap-2 border-b border-line px-4 py-3">
         <h3 className="text-sm font-medium text-body">Round trips</h3>
-        <span className="hidden text-xs text-muted sm:inline">one row per entry-to-exit · click a row for its timeline · times UTC</span>
+        <span className="hidden text-xs text-muted sm:inline">one row per entry-to-exit</span>
+        {exportHref && (
+          <a
+            href={exportHref}
+            download
+            className="ml-auto inline-flex h-7 items-center rounded-lg border border-ctl bg-raised px-2.5 text-xs font-medium text-bright transition hover:bg-well"
+            title="Every round trip the query matches, as CSV"
+          >
+            Export CSV
+          </a>
+        )}
       </div>
       <RoundTripTable scope={scope} q={q} sort={sort} dir={dir} onSort={setSort} hide={STRATEGY_HIDDEN} height="calc(100dvh - 22rem)" />
     </Card>
@@ -351,7 +414,7 @@ function StrategyLogs({ instanceId, strategyId }: { instanceId: string; strategy
       title={`Latest ${RECENT_LOGS} lines`}
       pad={false}
       hint={
-        <Link to={`${PAGE_PATHS.logs}?q=${encodeURIComponent(`strategy:${strategyId}`)}`} className="font-medium text-accent-ink hover:underline">
+        <Link to={`${PAGE_PATHS.logs}?q=${encodeURIComponent(`strategy:${strategyId}`)}`} from={`${strategyId} · Logs`} className="font-medium text-accent-ink hover:underline">
           Full history and search on Logs →
         </Link>
       }
@@ -362,7 +425,7 @@ function StrategyLogs({ instanceId, strategyId }: { instanceId: string; strategy
           {rows.length === 0 && <div className="px-4 py-8 text-center text-sm text-muted">No log lines from this strategy yet.</div>}
         </div>
         <div className="border-t border-line px-4 py-2 text-[11px] text-muted sm:hidden">
-          <Link to={`${PAGE_PATHS.logs}?q=${encodeURIComponent(`strategy:${strategyId}`)}`} className="font-medium text-accent-ink">Full history on Logs →</Link>
+          <Link to={`${PAGE_PATHS.logs}?q=${encodeURIComponent(`strategy:${strategyId}`)}`} from={`${strategyId} · Logs`} className="font-medium text-accent-ink">Full history on Logs →</Link>
         </div>
       </Loadable>
     </Widget>
