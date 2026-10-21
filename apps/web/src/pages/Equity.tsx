@@ -176,7 +176,7 @@ export default function Equity({ instanceId }: { instanceId: string | null }) {
                 <Cell className="text-muted">{days(p.lengthDays)}</Cell>
                 <Cell>
                   {p.recoveryTs != null ? (
-                    <Pill tone="up">recovered {days(p.recoveryDays)}</Pill>
+                    <Pill tone="ok">recovered {days(p.recoveryDays)}</Pill>
                   ) : (
                     <Pill tone="warn">ongoing</Pill>
                   )}
@@ -190,7 +190,7 @@ export default function Equity({ instanceId }: { instanceId: string | null }) {
                   <span className="text-xs text-faint">({signedPct(-p.depthPct)})</span>
                   <span className="ml-auto shrink-0">
                     {p.recoveryTs != null ? (
-                      <Pill tone="up">recovered {days(p.recoveryDays)}</Pill>
+                      <Pill tone="ok">recovered {days(p.recoveryDays)}</Pill>
                     ) : (
                       <Pill tone="warn">ongoing</Pill>
                     )}

@@ -4,9 +4,9 @@ import { get, type HealthRow, type LiveAccount, type LiveStateSnapshot, type Mon
 import { Cell, DataList, Empty, LiveDot, PageHeader, Panel, Pill, Row, Skeleton, Stat, Table, type Tone } from "../components/ui";
 import { age, clock, duration, money, pct, signedMoney, tsDay, tsShort } from "../format";
 
-function sinkTone(row: HealthRow): "neutral" | "up" | "down" {
+function sinkTone(row: HealthRow): Tone {
   if (row.insightsSent == null) return "neutral";
-  return (row.insightsFailed ?? 0) > 0 || (row.insightsDropped ?? 0) > 0 ? "down" : "up";
+  return (row.insightsFailed ?? 0) > 0 || (row.insightsDropped ?? 0) > 0 ? "bad" : "ok";
 }
 
 function journalLabel(row: HealthRow): string {
@@ -25,9 +25,9 @@ function QuarantinePill({ row }: { row: HealthRow }) {
   return n > 0 ? <Pill tone="warn">{n} quarantined</Pill> : null;
 }
 
-const STATUS_TONE: Record<MonitorSummary["status"], Tone> = { up: "up", down: "down", pending: "neutral" };
+const STATUS_TONE: Record<MonitorSummary["status"], Tone> = { up: "ok", down: "bad", pending: "neutral" };
 
-const BEAT_CLASS: Record<"up" | "down" | "none", string> = { up: "bg-gain-fill", down: "bg-loss-fill", none: "bg-line" };
+const BEAT_CLASS: Record<"up" | "down" | "none", string> = { up: "bg-ok", down: "bg-danger", none: "bg-well" };
 
 function beatLabel(b: StripBucket, spanMs: number): string {
   const when = `${tsShort(b.ts)}–${clock(b.ts + spanMs)} UTC`;
@@ -105,7 +105,7 @@ function UptimeStrip({ strip, name }: { strip: StripBucket[]; name: string }) {
 
 function uptimeTone(v: number | null): string {
   if (v == null) return "text-faint";
-  return v >= 0.999 ? "text-gain" : v >= 0.99 ? "text-bright" : v >= 0.95 ? "text-warn" : "text-loss";
+  return v >= 0.999 ? "text-ok" : v >= 0.99 ? "text-bright" : v >= 0.95 ? "text-warn" : "text-loss";
 }
 
 function sinceLabel(m: MonitorSummary): string {
@@ -165,10 +165,10 @@ function FleetStats({ monitors, rows, accounts }: { monitors: MonitorSummary[]; 
   const down = monitors.filter((m) => m.status === "down");
   return (
     <div className="mt-6 grid grid-cols-2 gap-3 xl:grid-cols-4">
-      <Stat label="daemons up" value={`${daemonsUp} / ${daemons.length}`} tone={daemons.length > 0 && daemonsUp === daemons.length ? "up" : daemonsUp < daemons.length ? "down" : "neutral"} sub="qkt instances with a live heartbeat" />
+      <Stat label="daemons up" value={`${daemonsUp} / ${daemons.length}`} tone={daemons.length > 0 && daemonsUp === daemons.length ? "ok" : daemonsUp < daemons.length ? "bad" : "neutral"} sub="qkt instances with a live heartbeat" />
       <Stat label="strategies" value={strategies} sub="deployed across all daemons" />
-      <Stat label="broker accounts" value={`${accountsLive} / ${accounts.length}`} tone={accounts.length > 0 && accountsLive === accounts.length ? "up" : accountsLive < accounts.length ? "down" : "neutral"} sub="polled within 30s" />
-      <Stat label="monitors down" value={down.length} tone={down.length > 0 ? "down" : "up"} sub={down.length > 0 ? down.map((m) => m.name).join(", ") : "everything is answering"} />
+      <Stat label="broker accounts" value={`${accountsLive} / ${accounts.length}`} tone={accounts.length > 0 && accountsLive === accounts.length ? "ok" : accountsLive < accounts.length ? "bad" : "neutral"} sub="polled within 30s" />
+      <Stat label="monitors down" value={down.length} tone={down.length > 0 ? "bad" : "ok"} sub={down.length > 0 ? down.map((m) => m.name).join(", ") : "everything is answering"} />
     </div>
   );
 }
@@ -288,7 +288,7 @@ function InstanceDetail({ row, accounts }: { row: HealthRow; accounts: LiveAccou
             <>
               <Cell className="font-semibold text-bright">{a.login ? `${a.broker} · #${a.login}` : a.broker}</Cell>
               <Cell>
-                <Pill tone={a.stale ? "neutral" : "up"}>{a.stale ? "stale" : "live"}</Pill>
+                <Pill tone={a.stale ? "neutral" : "ok"}>{a.stale ? "stale" : "live"}</Pill>
               </Cell>
               <Cell className="whitespace-nowrap text-muted">{age(a.lastSeen)}</Cell>
               <Cell className="text-muted">{money(a.balance)}</Cell>
@@ -301,7 +301,7 @@ function InstanceDetail({ row, accounts }: { row: HealthRow; accounts: LiveAccou
             <>
               <div className="flex items-center gap-2">
                 <span className="truncate font-semibold text-bright">{a.login ? `${a.broker} · #${a.login}` : a.broker}</span>
-                <Pill tone={a.stale ? "neutral" : "up"}>{a.stale ? "stale" : "live"}</Pill>
+                <Pill tone={a.stale ? "neutral" : "ok"}>{a.stale ? "stale" : "live"}</Pill>
                 <span className="ml-auto whitespace-nowrap text-xs text-muted">{age(a.lastSeen)}</span>
               </div>
               <div className="mt-2 grid grid-cols-3 gap-3 text-sm">
@@ -373,7 +373,7 @@ export default function Health() {
                 <div className="flex items-center gap-2.5">
                   <LiveDot on={fresh} />
                   <span className="truncate font-semibold text-bright">{r.instanceId}</span>
-                  <Pill tone={fresh ? "up" : "neutral"}>{fresh ? "live" : "idle"}</Pill>
+                  <Pill tone={fresh ? "ok" : "neutral"}>{fresh ? "live" : "idle"}</Pill>
                   <span className="ml-auto whitespace-nowrap text-xs text-muted">{age(r.lastSeen)}</span>
                 </div>
                 <div className="mt-2 grid grid-cols-2 gap-x-4 gap-y-1.5 text-sm">
@@ -392,7 +392,7 @@ export default function Health() {
                   <Pill tone={sinkTone(r)}>
                     {r.insightsSent == null ? "unknown" : `${r.insightsFailed ?? 0} failed · ${r.insightsDropped ?? 0} dropped`}
                   </Pill>
-                  <Pill tone={r.insightsJournalPending == null ? "neutral" : r.insightsJournalPending > 0 ? "warn" : "up"}>
+                  <Pill tone={r.insightsJournalPending == null ? "neutral" : r.insightsJournalPending > 0 ? "warn" : "ok"}>
                     journal {journalLabel(r)}
                   </Pill>
                   <QuarantinePill row={r} />
@@ -435,7 +435,7 @@ export default function Health() {
                     </span>
                   </Cell>
                   <Cell>
-                    <Pill tone={fresh ? "up" : "neutral"}>{fresh ? "live" : "idle"}</Pill>
+                    <Pill tone={fresh ? "ok" : "neutral"}>{fresh ? "live" : "idle"}</Pill>
                   </Cell>
                   <Cell className="whitespace-nowrap text-muted">{age(r.lastSeen)}</Cell>
                   <Cell className="text-muted">{r.lastSeq}</Cell>
@@ -451,7 +451,7 @@ export default function Health() {
                     </span>
                   </Cell>
                   <Cell>
-                    <Pill tone={r.insightsJournalPending == null ? "neutral" : r.insightsJournalPending > 0 ? "warn" : "up"}>
+                    <Pill tone={r.insightsJournalPending == null ? "neutral" : r.insightsJournalPending > 0 ? "warn" : "ok"}>
                       {journalLabel(r)}
                     </Pill>
                   </Cell>

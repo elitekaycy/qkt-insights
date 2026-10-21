@@ -153,25 +153,23 @@ export function Panel({
   return (
     <>
       <Card className={className}>
-        {/* header lays out by the panel's own width: a half-width column stacks the
-            toolbar under the title instead of wrapping its controls one per line */}
-        <div className="flex flex-col gap-2 border-b border-line px-4 py-3 @3xl:flex-row @3xl:items-center">
-          <div className="flex min-w-0 flex-col items-start gap-0.5 @3xl:flex-row @3xl:items-baseline @3xl:gap-2.5">
+        {/* header lays out by the panel's own width: in a half-width column the title and the
+            expand button share the first line and the toolbar takes a full line under them */}
+        <div className="flex flex-wrap items-center gap-2 border-b border-line px-4 py-3">
+          <div className="flex min-w-0 flex-1 basis-[60%] flex-col items-start gap-0.5 @3xl:basis-auto @3xl:flex-row @3xl:items-baseline @3xl:gap-2.5">
             <h3 className="shrink-0 text-sm font-medium text-body">{title}</h3>
             {hint && <span className="text-xs text-muted">{hint}</span>}
           </div>
-          <div className="flex min-w-0 flex-wrap items-center gap-2 @3xl:ml-auto @3xl:shrink-0 @3xl:justify-end">
-            {toolbar}
-            {right}
-            {/* expanding to a near-full-screen modal buys nothing on a phone */}
-            <span className="hidden sm:inline-flex">
-              <IconButton
-                label="expand"
-                onClick={() => setExpanded(true)}
-                d="M15 3h6v6M9 21H3v-6M21 3l-7 7M3 21l7-7"
-              />
-            </span>
-          </div>
+          {(toolbar || right) && (
+            <div className="order-3 flex w-full min-w-0 flex-wrap items-center gap-2 @3xl:order-none @3xl:w-auto @3xl:shrink-0 @3xl:justify-end">
+              {toolbar}
+              {right}
+            </div>
+          )}
+          {/* expanding to a near-full-screen modal buys nothing on a phone */}
+          <span className="order-2 ml-auto hidden sm:inline-flex @3xl:order-none @3xl:ml-0">
+            <IconButton label="expand" onClick={() => setExpanded(true)} d="M15 3h6v6M9 21H3v-6M21 3l-7 7M3 21l7-7" />
+          </span>
         </div>
         {scroll ? <div className={`overflow-auto ${scroll}`}>{children}</div> : children}
       </Card>
@@ -199,12 +197,15 @@ export function IconButton({ label, onClick, d, disabled }: { label: string; onC
   );
 }
 
-export type Tone = "neutral" | "up" | "down" | "warn" | "info" | "accent";
+/** up/down colour money (gain blue, loss red); ok/bad colour status (green, red), never P&L. */
+export type Tone = "neutral" | "up" | "down" | "ok" | "bad" | "warn" | "info" | "accent";
 
 const TONE_TEXT: Record<Tone, string> = {
   neutral: "text-bright",
   up: "text-gain",
   down: "text-loss",
+  ok: "text-ok",
+  bad: "text-danger",
   warn: "text-warn",
   info: "text-info",
   accent: "text-accent-ink",
@@ -214,6 +215,8 @@ const TONE_PILL: Record<Tone, string> = {
   neutral: "border-line bg-raised text-body",
   up: "border-transparent bg-gain-fill/15 text-gain",
   down: "border-transparent bg-loss-fill/15 text-loss",
+  ok: "border-ok/40 bg-transparent text-ok",
+  bad: "border-danger/50 bg-transparent text-loss",
   warn: "border-warn/45 bg-transparent text-warn",
   info: "border-transparent bg-accent-soft text-accent-ink",
   accent: "border-transparent bg-accent-soft text-accent-ink",
@@ -330,6 +333,8 @@ export function Popover({ trigger, label, children, align = "left" }: { trigger:
         aria-label={label}
         aria-expanded={open}
         onClick={(e) => {
+          // the trigger may sit inside a link card: open the popover, do not follow the link
+          e.preventDefault();
           e.stopPropagation();
           setOpen((o) => !o);
         }}
@@ -341,7 +346,10 @@ export function Popover({ trigger, label, children, align = "left" }: { trigger:
         <span
           role="dialog"
           aria-label={label}
-          onClick={(e) => e.stopPropagation()}
+          onClick={(e) => {
+            e.preventDefault();
+            e.stopPropagation();
+          }}
           className={`pop-in absolute top-full z-40 mt-1.5 w-max max-w-[min(20rem,80vw)] rounded-xl border border-line-strong bg-panel p-3 text-left text-xs font-normal normal-case leading-relaxed tracking-normal text-body shadow-pop ${
             align === "right" ? "right-0" : "left-0"
           }`}

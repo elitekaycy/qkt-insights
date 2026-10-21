@@ -102,7 +102,9 @@ export default function Overview({ instanceId }: { instanceId: string | null }) 
         >
         {accounts.length === 0 && (
           <Card className="mt-3 p-8 text-center text-faint">
-            No broker account state yet — waiting for the state poller.
+            {view.public
+              ? `Account figures appear ${view.meta.delayMinutes} minutes behind; none has reached this shared view yet.`
+              : "No broker account state yet: waiting for the state poller."}
           </Card>
         )}
         {accounts.map((a) => (

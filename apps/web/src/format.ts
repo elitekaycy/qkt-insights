@@ -93,7 +93,8 @@ export function compact(v: number): string {
   // would otherwise print the same rounded label on neighbouring ticks
   if (abs >= 1_000) return `${sign}${(abs / 1_000).toFixed(abs >= 100_000 ? 0 : 1)}k`;
   // small ticks keep only the decimals they need: 0, 0.5, 1.25, 12.5
-  const small = abs.toFixed(abs >= 100 ? 0 : abs >= 10 ? 1 : 2).replace(/\.?0+$/, "") || "0";
+  const fixedSmall = abs.toFixed(abs >= 100 ? 0 : abs >= 10 ? 1 : 2);
+  const small = fixedSmall.includes(".") ? fixedSmall.replace(/\.?0+$/, "") || "0" : fixedSmall;
   return small === "0" ? "0" : `${sign}${small}`;
 }
 
