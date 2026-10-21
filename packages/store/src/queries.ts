@@ -7,6 +7,7 @@ import {
 } from "./accountProjection.js";
 import { refreshProjections } from "./projections.js";
 import { statement } from "./statements.js";
+import { searchLogs } from "./logSearch.js";
 import { closedTrades, hasClosingDeals, MIN_RATIO_DAYS, SNAPSHOT_EQUITY, strategyBase, strategyEquityCurve, tradePnls, withAnalyticsScope, type StrategyEquityPoint } from "./analytics.js";
 
 // A strategy stays "active" while its roster bump is within this window of the
@@ -16,17 +17,28 @@ export const ROSTER_WINDOW_MS = 300_000;
 /** A strategy this far behind the instance's newest report is off the active roster. */
 export const RETIRED_AFTER_MS = 30 * 86_400_000;
 
-export interface InstanceRow { id: string; name: string | null; firstSeen: number; lastSeen: number; lastSeq: number; /** Collector clock; null only for rows older than the column. */ heardAt: number | null }
+export interface InstanceRow {
+  id: string; name: string | null; firstSeen: number; lastSeen: number; lastSeq: number;
+  /** Collector clock; null only for rows older than the column. */ heardAt: number | null;
+  /** The latest silence longer than an outage in the instance's own stream, on the collector's clock; null without one. */
+  silentFrom: number | null; silentTo: number | null;
+}
 export interface StrategyRow { strategyId: string; firstSeen: number; lastSeen: number; startingBalance: number | null; /** Operator-declared capital (STRATEGY_CAPITAL); wins over startingBalance as the strategy's base. */ definedCapital: number | null; metadata: Record<string, unknown> | null; realizedNet: number | null; dealCount: number; active: boolean }
 export interface TradeRow { id: string; strategyId: string | null; ts: number; payload: unknown }
 export interface SearchHit { id: string; instanceId: string; type: string; ts: number; payload: unknown }
 export interface EquityPoint { ts: number; equity: number; realized: number; unrealized: number }
-export interface HealthRow { instanceId: string; lastSeen: number; lastSeq: number; strategies: number; insightsSent: number | null; insightsFailed: number | null; insightsDropped: number | null; insightsQueued: number | null; insightsJournalEnabled: number | null; insightsJournalPending: number | null; insightsHealthTs: number | null; quarantined: QuarantineCount[] }
+export interface HealthRow {
+  instanceId: string; lastSeen: number; lastSeq: number;
+  /** The newest envelope's sequence number, of any type that carries one, and that envelope's time; null before one arrives. */
+  latestSeq: number | null; latestSeqTs: number | null;
+  /** Strategies deployed now (the same "active" as the strategy list); retired ones are counted apart. */
+  strategies: number; retiredStrategies: number;
+  insightsSent: number | null; insightsFailed: number | null; insightsDropped: number | null; insightsQueued: number | null; insightsJournalEnabled: number | null; insightsJournalPending: number | null; insightsHealthTs: number | null; quarantined: QuarantineCount[] }
 /** Envelopes held raw for one instance, per type and major; `reason` is the newest one's. */
 export interface QuarantineCount { type: string | null; v: number | null; count: number; lastReceivedAt: number; reason: string }
 
 export function listInstances(db: Db): InstanceRow[] {
-  return db.prepare("SELECT id, name, first_seen firstSeen, last_seen lastSeen, last_seq lastSeq, heard_at heardAt FROM instances ORDER BY id").all() as InstanceRow[];
+  return db.prepare("SELECT id, name, first_seen firstSeen, last_seen lastSeen, last_seq lastSeq, heard_at heardAt, silent_from silentFrom, silent_to silentTo FROM instances ORDER BY id").all() as InstanceRow[];
 }
 
 /** The roster without realized figures: cheap enough for visibility checks that run per request. */
@@ -54,6 +66,17 @@ export function listStrategies(db: Db, instanceId: string, now = Date.now()): Ar
   });
 }
 
+/** 1 when strategy row `s` is deployed now, else 0: see strategyRosterRows. */
+const ACTIVE_STRATEGY = `CASE
+         WHEN s.last_seen < (SELECT MAX(s2.last_seen) FROM strategies s2 WHERE s2.instance_id=s.instance_id) - ${RETIRED_AFTER_MS} THEN 0
+         WHEN NOT EXISTS (SELECT 1 FROM instance_roster ir WHERE ir.instance_id=s.instance_id) THEN 1
+         WHEN EXISTS (
+           SELECT 1 FROM instance_roster ir WHERE ir.instance_id=s.instance_id AND ir.strategy_id=s.strategy_id
+             AND ir.ts >= (SELECT MAX(ts) FROM instance_roster i2 WHERE i2.instance_id=s.instance_id) - ${ROSTER_WINDOW_MS}
+         ) THEN 1
+         ELSE 0
+       END`;
+
 function strategyRosterRows(db: Db, instanceId: string): Array<Omit<StrategyRow, "realizedNet" | "dealCount">> {
   // realizedNet and dealCount come from closedTrades — broker deals when polled, else the engine's
   // trade.closed rows — the same fallback report/contribution use, so a card and its detail page can
@@ -67,17 +90,9 @@ function strategyRosterRows(db: Db, instanceId: string): Array<Omit<StrategyRow,
   const rows = db.prepare(
     `SELECT s.strategy_id strategyId, s.first_seen firstSeen, s.last_seen lastSeen, s.starting_balance startingBalance, s.metadata,
        (SELECT c.capital FROM strategy_capital c WHERE c.strategy_id=s.strategy_id) definedCapital,
-       CASE
-         WHEN s.last_seen < (SELECT MAX(s2.last_seen) FROM strategies s2 WHERE s2.instance_id=s.instance_id) - ? THEN 0
-         WHEN NOT EXISTS (SELECT 1 FROM instance_roster ir WHERE ir.instance_id=s.instance_id) THEN 1
-         WHEN EXISTS (
-           SELECT 1 FROM instance_roster ir WHERE ir.instance_id=s.instance_id AND ir.strategy_id=s.strategy_id
-             AND ir.ts >= (SELECT MAX(ts) FROM instance_roster i2 WHERE i2.instance_id=s.instance_id) - ?
-         ) THEN 1
-         ELSE 0
-       END active
+       ${ACTIVE_STRATEGY} active
      FROM strategies s WHERE s.instance_id=? ORDER BY s.strategy_id`,
-  ).all(RETIRED_AFTER_MS, ROSTER_WINDOW_MS, instanceId) as Array<Omit<StrategyRow, "realizedNet" | "dealCount" | "metadata" | "active"> & { metadata: string | null; active: number }>;
+  ).all(instanceId) as Array<Omit<StrategyRow, "realizedNet" | "dealCount" | "metadata" | "active"> & { metadata: string | null; active: number }>;
   return rows.map((r) => ({
     ...r,
     metadata: typeof r.metadata === "string" ? JSON.parse(r.metadata) as Record<string, unknown> : null,
@@ -176,8 +191,9 @@ export function instanceHealth(db: Db): HealthRow[] {
   ).all() as Array<QuarantineCount & { instanceId: string }>;
   for (const { instanceId, ...c } of counts) quarantined.set(instanceId, [...(quarantined.get(instanceId) ?? []), c]);
   const rows = db.prepare(
-    `SELECT i.id instanceId, i.last_seen lastSeen, i.last_seq lastSeq,
-            (SELECT COUNT(*) FROM strategies s WHERE s.instance_id=i.id) strategies,
+    `SELECT i.id instanceId, i.last_seen lastSeen, i.last_seq lastSeq, i.latest_seq latestSeq, i.latest_seq_ts latestSeqTs,
+            (SELECT coalesce(SUM(${ACTIVE_STRATEGY}), 0) FROM strategies s WHERE s.instance_id=i.id) strategies,
+            (SELECT COUNT(*) - coalesce(SUM(${ACTIVE_STRATEGY}), 0) FROM strategies s WHERE s.instance_id=i.id) retiredStrategies,
             json_extract(h.payload, '$.sent') insightsSent,
             json_extract(h.payload, '$.failed') insightsFailed,
             json_extract(h.payload, '$.dropped') insightsDropped,
@@ -207,9 +223,14 @@ export interface StrategyHalt {
   /** True only when `qkt resume <name>` is the one thing that clears the halt. */
   haltPersistent: boolean | null;
   haltedAt: number | null;
+  /**
+   * True when haltedAt is only a bound: the halt began at or before it. A restart re-asserted the
+   * halt without its time (qkt sends haltedAt null) and no earlier record of it is stored.
+   */
+  haltedBefore: boolean;
 }
 
-interface ActiveHalt { reason: string | null; scope: HaltScope | null; persistent: boolean | null; ts: number }
+interface ActiveHalt { reason: string | null; scope: HaltScope | null; persistent: boolean | null; ts: number; before: boolean }
 
 /**
  * The halts standing on one instance. A strategy's session-level halt (null strategyId) is
@@ -224,7 +245,7 @@ export interface InstanceHalts {
   byStrategy: Map<string, ActiveHalt>;
 }
 
-const NOT_HALTED: StrategyHalt = { halted: false, haltReason: null, haltScope: null, haltPersistent: null, haltedAt: null };
+const NOT_HALTED: StrategyHalt = { halted: false, haltReason: null, haltScope: null, haltPersistent: null, haltedAt: null, haltedBefore: false };
 
 const scopeOf = (v: unknown): HaltScope | null => typeof v === "string" && HALT_SCOPES.has(v) ? v as HaltScope : null;
 
@@ -247,7 +268,10 @@ const scopeOf = (v: unknown): HaltScope | null => typeof v === "string" && HALT_
  * by `haltedAt`, until a later resume covering the strategy (its own, its session's, or an
  * instance-wide one) clears it. This is how a halt the engine restored from disk without
  * re-announcing it becomes visible, and how an instance-wide halt from an older engine stops
- * covering strategies that were never halted.
+ * covering strategies that were never halted. A snapshot without `haltedAt` (a restart restores
+ * the halt but not its time) is timed by the earliest stored halt with the same reason still
+ * standing for the strategy when it arrived; with none, by the snapshot itself, marked `before`
+ * (the halt is at least that old), never as if it began at the restart.
  *
  * Halts that the engine never follows with a resume are dropped as it drops them:
  * - TRANSIENT: the drain step before a session is replaced (resync); the replacement starts
@@ -277,13 +301,18 @@ export function currentHalts(db: Db, instanceId: string, now = Date.now()): Inst
     if (r.kind === "risk.snapshot") {
       const id = r.strategyId!;
       const scope = scopeOf(p.haltScope);
+      const reason = typeof p.haltReason === "string" ? p.haltReason : null;
+      const day = Math.floor(r.ts / DAY_MS);
+      const earlier = [snapshot.get(id), own.get(id), session.has(id) ? session.get(id) : instance]
+        .filter((h): h is ActiveHalt => h != null && h.reason === reason && h.ts <= r.ts && (h.scope !== "DAILY" || Math.floor(h.ts / DAY_MS) === day))
+        .reduce<ActiveHalt | null>((a, h) => (a == null || h.ts < a.ts ? h : a), null);
       own.set(id, null);
       session.set(id, null);
       snapshot.delete(id);
       if (p.halted === true && scope !== "TRANSIENT") snapshot.set(id, {
-        reason: typeof p.haltReason === "string" ? p.haltReason : null, scope,
+        reason, scope,
         persistent: typeof p.haltPersistent === "boolean" ? p.haltPersistent : null,
-        ts: typeof p.haltedAt === "number" ? p.haltedAt : r.ts,
+        ...(typeof p.haltedAt === "number" ? { ts: p.haltedAt, before: false } : earlier ? { ts: earlier.ts, before: earlier.before } : { ts: r.ts, before: true }),
       });
       continue;
     }
@@ -291,7 +320,7 @@ export function currentHalts(db: Db, instanceId: string, now = Date.now()): Inst
     if (r.kind === "risk.halted") {
       const scope = scopeOf(p.scope);
       if (scope === "TRANSIENT" || (p.scope === undefined && r.reason === "operator resync")) continue;
-      halt = { reason: r.reason, scope, persistent: typeof p.persistent === "boolean" ? p.persistent : null, ts: r.ts };
+      halt = { reason: r.reason, scope, persistent: typeof p.persistent === "boolean" ? p.persistent : null, ts: r.ts, before: false };
     }
     const resumed = r.kind === "risk.resumed";
     if (r.strategyId != null) {
@@ -340,7 +369,7 @@ export function strategyHalt(halts: InstanceHalts, strategyId: string): Strategy
   if (candidates.length === 0) return NOT_HALTED;
   const h = candidates.reduce((a, b) =>
     (a.persistent === true) !== (b.persistent === true) ? (a.persistent === true ? a : b) : (b.ts > a.ts ? b : a));
-  return { halted: true, haltReason: h.reason, haltScope: h.scope, haltPersistent: h.persistent, haltedAt: h.ts };
+  return { halted: true, haltReason: h.reason, haltScope: h.scope, haltPersistent: h.persistent, haltedAt: h.ts, haltedBefore: h.before };
 }
 
 /**
@@ -355,26 +384,7 @@ export function ingestAck(db: Db, instanceId: string): { instanceId: string; las
 export interface LogRow { id: string; strategyId: string | null; level: string; logger: string; message: string; ts: number }
 
 export function listLogs(db: Db, f: { instanceId: string; strategyId?: string; level?: string; q?: string; limit: number }): LogRow[] {
-  if (f.q) {
-    const rows = db.prepare(
-      `SELECT l.id, l.strategy_id strategyId, l.level, l.logger, l.message, l.ts
-       FROM logs_fts ft JOIN logs l ON l.rowid = ft.log_rowid
-       WHERE logs_fts MATCH @q AND l.instance_id=@instanceId
-         ${f.strategyId ? "AND l.strategy_id=@strategyId" : ""}
-         ${f.level ? "AND l.level=@level" : ""}
-       ORDER BY l.ts DESC LIMIT @limit`,
-    ).all(f) as LogRow[];
-    return rows;
-  }
-  const cl: string[] = ["instance_id=@instanceId"];
-  if (f.strategyId) cl.push("strategy_id=@strategyId");
-  if (f.level) cl.push("level=@level");
-  // The whole instance reads idx_logs_instance_ts; lines of one millisecond stay in write order.
-  const order = f.strategyId || f.level ? "ts DESC" : "ts DESC, rowid ASC";
-  return db.prepare(
-    `SELECT id, strategy_id strategyId, level, logger, message, ts FROM logs
-     WHERE ${cl.join(" AND ")} ORDER BY ${order} LIMIT @limit`,
-  ).all(f) as LogRow[];
+  return searchLogs(db, f);
 }
 
 export interface DealRow {

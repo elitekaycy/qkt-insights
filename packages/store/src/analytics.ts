@@ -263,12 +263,13 @@ function closingDealExists(db: Db, f: { instanceId: string; strategyId: string; 
  * the closing leg. A position closed in parts yields one row per closing leg,
  * all sharing the same IN. side is the POSITION's direction (the IN side), not
  * the close leg's. realized is the closing leg's profit + commission + swap +
- * fee, PLUS the IN leg's commission/swap/fee charged to the position's FIRST
- * closing leg only. Venues differ: Exness books commission on the close, The5ers
+ * fee, PLUS its share (closed volume over opened volume) of every IN leg's
+ * commission/swap/fee. Venues differ: Exness books commission on the close, The5ers
  * on both legs (2026-08-31..09-04 the entry legs carried -212 of -239 total), and
  * counting only the close leg reported EURUSD RSI fade at +72 when the venue said
- * -113. Charging the IN cost once, on the first close, keeps a partially-closed
- * position from paying it per partial. The rows are the closed_trades projection.
+ * -113. Sharing the IN costs by volume keeps a partially-closed position from
+ * paying them per partial, and charges a scaled-in position for every entry. The
+ * rows are the closed_trades projection.
  */
 export function dealClosedTrades(db: Db, f: AnalyticsFilter): DealClosedTrade[] {
   requireCutoff(f);

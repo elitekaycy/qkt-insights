@@ -5,8 +5,8 @@ import { get, type LogRow, type StrategyRow, type StrategyStats } from "../api";
 import { LogLine } from "../components/LogLine";
 import { ShareControl } from "../components/ShareControl";
 import { Card, LiveDot, Loadable, Pill, Popover, rangeStart, ReturnPct, Segmented, useRangeParam, type RangeKey } from "../components/ui";
-import { age, DASH, money, openPnl, signedMoney, ts } from "../format";
-import { haltClearing, resumeCommand } from "../halt";
+import { age, DASH, money, openPnl, signedMoney } from "../format";
+import { haltClearing, haltSince, resumeCommand } from "../halt";
 import { strategyCapital, strategyDisplayName } from "../portfolio";
 import { QueryBar, TRADE_PRESETS } from "../query/QueryBar";
 import { Link, PAGE_PATHS, routePath, STRATEGY_TABS, useRoute, useSearchParam, type StrategyTab } from "../router";
@@ -279,7 +279,7 @@ function HaltBanner({ row }: { row: StrategyRow }) {
       </span>
       <span className="min-w-0 text-body">
         {row.haltReason ?? "no reason given"}
-        {row.haltedAt != null && <span className="text-muted"> · since {ts(row.haltedAt)} UTC ({age(row.haltedAt)})</span>}
+        {row.haltedAt != null && <span className="text-muted" title={row.haltedBefore ? "re-asserted at a restart; its start is not stored" : undefined}> · {haltSince(row)} ({row.haltedBefore ? "at least " : ""}{age(row.haltedAt)})</span>}
         <span className="text-muted"> · {haltClearing(row)}</span>
       </span>
       {command && <code className="rounded bg-raised px-1.5 py-0.5 font-mono text-xs text-bright">{command}</code>}

@@ -9,20 +9,23 @@ export interface ClosedTradeKey { dealRowid: number; strategyId: string | null; 
 
 /**
  * The closed-trade rows of one position, from its legs in `deals`. Each canonical closing leg is
- * paired with the position's first IN leg (any copy); realized is the closing leg's profit and
- * costs, plus the IN leg's costs on the position's first canonical close only. The arithmetic is
- * SQL so the stored figure is the one the reads always computed.
+ * paired with the position's first IN leg (any copy) for its entry; realized is the closing leg's
+ * profit and costs, plus its share of every canonical IN leg's costs: the costs of all the
+ * position's opening legs times the closed volume over the opened volume (capped at all of it). A
+ * scaled-in position so pays each entry's costs, a partial close pays only its part, and the closes
+ * of a fully closed position add up to the net of all its legs, as its round trip does. One entry
+ * closed at once pays exactly its entry's costs (the share is 1). The arithmetic is SQL so the
+ * stored figure is the one the reads always computed.
  */
 const POSITION_ROWS = (where: string) => `
   SELECT o.rowid deal_rowid, o.instance_id, o.strategy_id, o.position_ticket, o.ts, o.symbol, o.side out_side,
          i.side in_side, o.qty, i.price entry_price, o.price exit_price, i.ts entry_ts,
          o.profit + COALESCE(o.commission,0) + COALESCE(o.swap,0) + COALESCE(o.fee,0)
-           + CASE WHEN o.rowid = (
-               SELECT f.rowid FROM deals f
-               WHERE f.instance_id=o.instance_id AND f.position_ticket=o.position_ticket
-                 AND f.entry IN ${OUT_LEGS} AND f.canonical=1
-               ORDER BY f.ts ASC, f.rowid ASC LIMIT 1)
-             THEN COALESCE(i.commission,0) + COALESCE(i.swap,0) + COALESCE(i.fee,0) ELSE 0 END realized,
+           + COALESCE((
+               SELECT CASE WHEN SUM(e.qty) > 0
+                 THEN SUM(COALESCE(e.commission,0) + COALESCE(e.swap,0) + COALESCE(e.fee,0)) * (MIN(o.qty, SUM(e.qty)) / SUM(e.qty)) END
+               FROM deals e
+               WHERE e.instance_id=o.instance_id AND e.position_ticket=o.position_ticket AND e.entry='IN' AND e.canonical=1), 0) realized,
          i.order_ticket entry_order_ticket, o.order_ticket exit_order_ticket
   FROM deals o
   LEFT JOIN deals i ON i.rowid = (
@@ -106,12 +109,13 @@ export function recomputeTicket(db: Db, instanceId: string, dealTicket: string):
 
 /**
  * The next `limit` position keys after `after` in (instance, position ticket) order, then the legs
- * without a position ticket: the units a rebuild works through in batches. Seeks the position
- * index, so each batch costs O(log n + limit).
+ * without a position ticket, then the engine closes ("l:<id>") of instances without deals: the units
+ * a rebuild works through in batches. Seeks the position index, so each batch costs O(log n + limit).
  */
 export function positionKeysAfter(db: Db, after: { instanceId: string; key: string } | null, limit: number): Array<{ instanceId: string; key: string }> {
   const out: Array<{ instanceId: string; key: string }> = [];
-  if (after == null || after.key.startsWith("p:")) {
+  const stage = after == null ? "p" : after.key.slice(0, 1);
+  if (stage === "p") {
     const rows = statement(db,
       `SELECT DISTINCT instance_id instanceId, position_ticket position FROM deals
        WHERE position_ticket IS NOT NULL AND (instance_id, position_ticket) > (?, ?)
@@ -120,11 +124,21 @@ export function positionKeysAfter(db: Db, after: { instanceId: string; key: stri
     for (const r of rows) out.push({ instanceId: r.instanceId, key: `p:${r.position}` });
     if (out.length === limit) return out;
   }
-  const lastRowid = after?.key.startsWith("d:") ? Number(after.key.slice(2)) : 0;
+  if (stage === "p" || stage === "d") {
+    const lastRowid = stage === "d" ? Number(after!.key.slice(2)) : 0;
+    const rows = statement(db,
+      "SELECT instance_id instanceId, rowid FROM deals WHERE position_ticket IS NULL AND rowid > ? ORDER BY rowid LIMIT ?",
+    ).all(lastRowid, limit - out.length) as Array<{ instanceId: string; rowid: number }>;
+    for (const r of rows) out.push({ instanceId: r.instanceId, key: `d:${r.rowid}` });
+    if (out.length === limit) return out;
+  }
+  const from = stage === "l" ? { instanceId: after!.instanceId, id: after!.key.slice(2) } : { instanceId: "", id: "" };
   const rows = statement(db,
-    "SELECT instance_id instanceId, rowid FROM deals WHERE position_ticket IS NULL AND rowid > ? ORDER BY rowid LIMIT ?",
-  ).all(lastRowid, limit - out.length) as Array<{ instanceId: string; rowid: number }>;
-  for (const r of rows) out.push({ instanceId: r.instanceId, key: `d:${r.rowid}` });
+    `SELECT c.instance_id instanceId, c.id FROM trade_closes c
+     WHERE (c.instance_id, c.id) > (?, ?) AND NOT EXISTS (SELECT 1 FROM deals d INDEXED BY idx_deals_order WHERE d.instance_id=c.instance_id)
+     ORDER BY c.instance_id, c.id LIMIT ?`,
+  ).all(from.instanceId, from.id, limit - out.length) as Array<{ instanceId: string; id: string }>;
+  for (const r of rows) out.push({ instanceId: r.instanceId, key: `l:${r.id}` });
   return out;
 }
 
@@ -143,6 +157,10 @@ export function takeNewDeals(db: Db): void {
     `UPDATE deals SET canonical = NOT EXISTS (
        SELECT 1 FROM deals d WHERE d.instance_id=deals.instance_id AND d.deal_ticket=deals.deal_ticket AND d.rowid<deals.rowid)
      WHERE rowid > ?`,
+  ).run(wm);
+  // An instance's first deals make its venue positions its round trips, in place of its engine closes.
+  statement(db,
+    "DELETE FROM round_trips WHERE source='ledger' AND instance_id IN (SELECT DISTINCT instance_id FROM deals WHERE rowid > ?)",
   ).run(wm);
   statement(db,
     `INSERT INTO projection_dirty (kind, instance_id, key)

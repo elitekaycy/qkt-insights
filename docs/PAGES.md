@@ -47,7 +47,10 @@ DSL version, source, hash, streams). When the engine has halted it (`risk.halted
 halt, `qkt resume <name>`. A session-level halt covers the strategies its session runs
 (`sessionStrategies`, qkt#1244); from older engines, which do not name them, it covers every
 strategy of the instance. A session start sends each strategy's own halt state (`risk.snapshot`,
-qkt v0.52.4); that replaces whatever the earlier halt events implied for the strategy.
+qkt v0.52.4); that replaces whatever the earlier halt events implied for the strategy. qkt sends
+that snapshot without the halt's time, so "since" is the earliest stored halt with the same
+reason; when none survives it reads "before <the first re-assertion>" (`haltedBefore`), never the
+restart.
 
 The sections are in the URL (`/s/<id>`, `/s/<id>/calendar`, `daily`, `monthly`, `trades`, `time`,
 `logs`) and all read one scope: the date range chips (Today, 7D, MTD, YTD, All, as `range`) and the
@@ -116,7 +119,10 @@ MAE/MFE from the position's marks; the venue's deals; and the raw events as copy
 ## Logs
 
 Engine logs shipped from the instance, searched with the same query bar: `level:error`,
-`strategy:`, `logger:MT5Broker`, `time:1h` or `time:2026-10-21`, and free text.
+`strategy:`, `logger:MT5Broker`, `time:1h` or `time:2026-10-21`, and free text (words match
+literally: a hostname, a symbol or a number is never query syntax). Everything runs on the
+server; history pages in as you scroll, so every line in the range is reachable, and "Showing k
+of n" counts the whole match.
 
 ![Logs](assets/screenshots/logs.png)
 
@@ -124,11 +130,16 @@ Engine logs shipped from the instance, searched with the same query bar: `level:
 
 Fleet at a glance, then uptime: one heartbeat monitor per daemon, one market-data
 monitor per daemon when `INSIGHTS_MARKETDATA_MONITOR` is on, and every declared HTTP
-probe, each with a 24h strip (30-minute bars, red on any failed check, grey when
-nothing was checking), uptime over 24h and 30d, latency or the failure reason, and
-how long it has held its current status. Incidents lists every up/down transition.
-Below that, runtime status for every reporting instance: last event age, sequence
-position, sink delivery counters, journal backlog, and broker account truth.
+probe, each with a 24h strip (30-minute bars, red on any failed check or a stored
+outage, grey when nothing was checking), uptime over 24h and 30d (unchecked minutes
+count as not up, and their share is shown), latency or the failure reason, and how
+long it has held its current status. Incidents lists every up/down transition with how
+long each outage lasted, including the ones written after the fact for the time the
+collector itself was down (`insights collector`).
+Below that, runtime status for every reporting instance: last event age, the newest
+envelope's sequence number and when it was stamped, deployed strategies (retired roster
+leftovers counted apart), sink delivery (red only for envelopes lost; failed POSTs that
+were retried show as retries), journal backlog, and broker account truth.
 
 ![Health](assets/screenshots/health.png)
 

@@ -104,7 +104,10 @@ web bar (`@qkt-insights/contract/query`) and compiled to bound SQL; tokens it ca
 | `GET /round-trips/:ticket?instance` | the trade drawer: legs, timeline with latencies, slippage, MAE/MFE, raw events |
 | `GET /public/:token/round-trips`, `…/analytics`, `…/facets` | a shared link's closed round trips and their aggregates, without tickets, profiles or stops |
 
-`/logs` also takes `logger` (part of the name), `from` and `to` (ms); `q` text FTS cannot parse is searched as words.
+`/logs` also takes `logger` (part of the name), `from` and `to` (ms); `q` is words, each matched literally through the FTS
+index (quoted, so `mt5-gateway`, `ICMARKETS:XAUUSD` or `0.1004` are words, not syntax; a trailing `*` is a prefix).
+`GET /logs/page` takes the same filters plus `cursor` and answers `{rows, nextCursor, total}`: newest first by
+(ts, arrival), keyset pages up to 1000 lines, and on the first page the number of lines the whole query matches.
 
 Design notes live in [`specs/`](specs/) and the implementation plans in [`plans/`](plans/).
 

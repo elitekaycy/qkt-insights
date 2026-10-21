@@ -20,6 +20,8 @@ export interface RoundTripRow {
   realized: number; gross: number; commission: number; swap: number; fee: number; legs: number;
   entryOrderId: string | null; entryOrderTicket: string | null; stopPrice: number | null; targetPrice: number | null;
   ended: "stop" | "tp" | "so" | "manual" | "signal" | null; holdMs: number | null; open: boolean;
+  /** "deal": a venue position from its deals; "ledger": one engine close of an instance without deals. */
+  source: "deal" | "ledger";
 }
 
 function instrument(symbol: string | null): string {
@@ -77,13 +79,7 @@ export function recomputeRoundTrip(db: Db, instanceId: string, position: string)
   const exitTs = last?.ts ?? null;
 
   const entryOrderTicket = ins[0]?.orderTicket ?? null;
-  const entryOrderId = entryOrderTicket == null ? null : ((statement(db,
-    "SELECT order_id o FROM orders WHERE instance_id=? AND broker_order_id=? ORDER BY created_ts ASC LIMIT 1",
-  ).get(instanceId, entryOrderTicket) as { o: string } | undefined)?.o ?? null);
-  // An order id repeats across engine restarts, so only the submit near the entry is its own.
-  const submit = entryOrderId != null && entryTs != null
-    ? eventsNear(db, instanceId, "order.submit", entryTs).find((p) => p.orderId === entryOrderId)
-    : undefined;
+  const { orderId: entryOrderId, submit } = openingOrder(db, instanceId, entryOrderTicket, entryTs);
 
   const row: RoundTripRow = {
     instanceId,
@@ -108,15 +104,66 @@ export function recomputeRoundTrip(db: Db, instanceId: string, position: string)
     ended: open || last == null ? null : endedBy(db, instanceId, position, last, prior?.ended ?? null),
     holdMs: !open && entryTs != null && exitTs != null ? exitTs - entryTs : null,
     open,
+    source: "deal",
   };
   statement(db,
     `INSERT INTO round_trips (instance_id, position_ticket, broker, strategy_id, instrument, symbol, side, entry_ts, entry_price,
        exit_ts, exit_price, qty, realized, gross, commission, swap, fee, legs, entry_order_id, entry_order_ticket, stop_price,
-       target_price, ended, hold_ms, open)
+       target_price, ended, hold_ms, open, source)
      VALUES (@instanceId, @positionTicket, @broker, @strategyId, @instrument, @symbol, @side, @entryTs, @entryPrice,
        @exitTs, @exitPrice, @qty, @realized, @gross, @commission, @swap, @fee, @legs, @entryOrderId, @entryOrderTicket, @stopPrice,
-       @targetPrice, @ended, @holdMs, @open)`,
+       @targetPrice, @ended, @holdMs, @open, @source)`,
   ).run({ ...row, open: row.open ? 1 : 0 });
+}
+
+/** Whether the instance has stored a broker deal: its round trips are then its venue positions only. */
+export function hasDeals(db: Db, instanceId: string): boolean {
+  return statement(db, "SELECT 1 FROM deals INDEXED BY idx_deals_order WHERE instance_id=? LIMIT 1").get(instanceId) != null;
+}
+
+/**
+ * Rewrites the round trip of one engine close (trade_closes id) for an instance that has no broker
+ * deals, such as a paper engine: the close is the whole story the instance has. `side` on the close
+ * is the closing fill's, so the position ran the other way. No entry price, stop or cost split is
+ * known; realized is the engine's net after its costs.
+ */
+export function recomputeLedgerTrip(db: Db, instanceId: string, closeId: string): void {
+  statement(db, "DELETE FROM round_trips WHERE instance_id=? AND position_ticket=? AND source='ledger'").run(instanceId, closeId);
+  if (hasDeals(db, instanceId)) return;
+  const c = statement(db,
+    "SELECT strategy_id strategyId, symbol, side, qty, price, realized, entry_ts entryTs, ts FROM trade_closes WHERE instance_id=? AND id=?",
+  ).get(instanceId, closeId) as { strategyId: string | null; symbol: string; side: string; qty: number; price: number; realized: number; entryTs: number | null; ts: number } | undefined;
+  if (!c) return;
+  statement(db,
+    `INSERT INTO round_trips (instance_id, position_ticket, broker, strategy_id, instrument, symbol, side, entry_ts, entry_price,
+       exit_ts, exit_price, qty, realized, gross, commission, swap, fee, legs, entry_order_id, entry_order_ticket, stop_price,
+       target_price, ended, hold_ms, open, source)
+     VALUES (?, ?, NULL, ?, ?, ?, ?, ?, NULL, ?, ?, ?, ?, ?, 0, 0, 0, 1, NULL, NULL, NULL, NULL, NULL, ?, 0, 'ledger')`,
+  ).run(instanceId, closeId, c.strategyId, instrument(c.symbol), c.symbol, c.side === "BUY" ? "short" : "long", c.entryTs,
+    c.ts, c.price, c.qty, c.realized, c.realized, c.entryTs != null ? c.ts - c.entryTs : null);
+}
+
+/**
+ * The engine order that opened the position and its submit. The orders table maps the venue ticket
+ * to the order id; when it does not (the accept never reached that row, or the id belongs to
+ * another run), the `order.accepted` near the entry that carries the ticket names the order. An
+ * order id repeats across engine restarts, so only the submit near the entry is its own.
+ */
+function openingOrder(db: Db, instanceId: string, ticket: string | null, entryTs: number | null): { orderId: string | null; submit: Record<string, unknown> | undefined } {
+  if (ticket == null) return { orderId: null, submit: undefined };
+  const stored = (statement(db,
+    "SELECT order_id o FROM orders WHERE instance_id=? AND broker_order_id=? ORDER BY created_ts ASC LIMIT 1",
+  ).get(instanceId, ticket) as { o: string } | undefined)?.o ?? null;
+  if (entryTs == null) return { orderId: stored, submit: undefined };
+  const submits = eventsNear(db, instanceId, "order.submit", entryTs);
+  const submitOf = (id: string | null) => (id == null ? undefined : submits.find((p) => p.orderId === id));
+  const own = submitOf(stored);
+  if (own) return { orderId: stored, submit: own };
+  const accepted = eventsNear(db, instanceId, "order.accepted", entryTs)
+    .find((p) => p.brokerOrderId != null && String(p.brokerOrderId) === ticket && typeof p.orderId === "string");
+  const acceptedId = (accepted?.orderId as string | undefined) ?? null;
+  const viaAccept = submitOf(acceptedId);
+  return viaAccept ? { orderId: acceptedId, submit: viaAccept } : { orderId: stored ?? acceptedId, submit: undefined };
 }
 
 /**
@@ -142,7 +189,7 @@ export function storedRoundTrips(db: Db, f: { instanceId: string; strategyId?: s
     `SELECT instance_id instanceId, position_ticket positionTicket, broker, strategy_id strategyId, instrument, symbol, side,
        entry_ts entryTs, entry_price entryPrice, exit_ts exitTs, exit_price exitPrice, qty, realized, gross, commission, swap, fee,
        legs, entry_order_id entryOrderId, entry_order_ticket entryOrderTicket, stop_price stopPrice, target_price targetPrice,
-       ended, hold_ms holdMs, open
+       ended, hold_ms holdMs, open, source
      FROM round_trips WHERE instance_id=@instanceId ${f.strategyId != null ? "AND strategy_id=@strategyId" : ""}
      ORDER BY exit_ts DESC, position_ticket DESC`,
   ).all({ instanceId: f.instanceId, strategyId: f.strategyId }) as Array<Omit<RoundTripRow, "open"> & { open: number }>;

@@ -61,7 +61,7 @@ function HaltLine({ row }: { row: StrategyRow | null }) {
   return (
     <div className="truncate text-[11px] text-warn" title={haltSummary(row) ?? undefined}>
       {row.haltReason ?? "no reason given"}
-      {row.haltedAt != null && <span className="text-muted"> · {age(row.haltedAt)}</span>}
+      {row.haltedAt != null && <span className="text-muted"> · {row.haltedBefore ? "at least " : ""}{age(row.haltedAt)}</span>}
     </div>
   );
 }

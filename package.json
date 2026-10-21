@@ -14,7 +14,7 @@
     ]
   },
   "scripts": {
-    "build": "tsc -b && mkdir -p packages/store/dist/migrations && cp packages/store/src/migrations/*.sql packages/store/dist/migrations/",
+    "build": "tsc -b && node scripts/copy-migrations.mjs",
     "build:web": "pnpm --filter @qkt-insights/web build",
     "build:all": "pnpm build && pnpm build:web",
     "test": "vitest run",

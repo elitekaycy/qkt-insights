@@ -84,14 +84,23 @@ export interface InstanceRow {
   lastSeen: number;
   lastSeq: number;
   heardAt: number | null;
+  silentFrom: number | null;
+  silentTo: number | null;
 }
 export interface HealthRow {
   instanceId: string;
   lastSeen: number;
   lastSeq: number;
+  /** The newest envelope's sequence number (any type that carries one) and that envelope's time. */
+  latestSeq: number | null;
+  latestSeqTs: number | null;
+  /** Deployed now; retiredStrategies are rows a newer roster or a month of silence has left behind. */
   strategies: number;
+  retiredStrategies: number;
   insightsSent: number | null;
+  /** POST attempts that failed since qkt started; each is retried (from the journal when on), so it is not a loss. */
   insightsFailed: number | null;
+  /** Envelopes qkt gave up on: the only loss. */
   insightsDropped: number | null;
   insightsQueued: number | null;
   insightsJournalEnabled: boolean | number | null;
@@ -111,7 +120,7 @@ export interface QuarantineCount {
 export type MonitorStatus = "up" | "down" | "pending";
 export interface StripBucket {
   ts: number;
-  /** null = no checks recorded in the bucket (the collector was not running). */
+  /** null = no checks recorded in the bucket (the collector was not running) and no outage known in it. */
   status: "up" | "down" | null;
   checks: number;
   downs: number;
@@ -127,8 +136,12 @@ export interface MonitorSummary {
   detail: string | null;
   failures: number;
   strip: StripBucket[];
+  /** Minutes up over the window's minutes since the monitor's first record; outage minutes are down, unchecked ones not up. */
   uptime24h: number | null;
   uptime30d: number | null;
+  /** Share of those minutes nothing checked and no outage covers (counted against uptime). */
+  unchecked24h: number | null;
+  unchecked30d: number | null;
 }
 export interface MonitorEventRow {
   monitor: string;
@@ -160,6 +173,8 @@ export interface StrategyRow {
   /** True when only `qkt resume <name>` clears the halt; null when unknown. */
   haltPersistent?: boolean | null;
   haltedAt?: number | null;
+  /** True when haltedAt is only a bound (the halt began at or before it): a restart re-asserted it and no earlier record is stored. */
+  haltedBefore?: boolean;
 }
 export interface OrderRow {
   orderId: string;

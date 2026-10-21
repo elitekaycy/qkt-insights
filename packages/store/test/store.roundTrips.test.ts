@@ -1,5 +1,5 @@
 import { describe, it, expect } from "vitest";
-import { openDb, ingestEvents, storedRoundTrips, rebuildProjection, refreshProjections, type Db } from "../src/index.js";
+import { openDb, ingestEvents, storedRoundTrips, rebuildProjection, refreshProjections, listRoundTrips, type Db } from "../src/index.js";
 import type { Envelope } from "@qkt-insights/contract";
 
 const M = 60_000;
@@ -101,6 +101,37 @@ describe("round_trips projection", () => {
     expect(trip(db)).toMatchObject({ entryOrderId: "o-1", entryOrderTicket: "B-77", stopPrice: 3980, targetPrice: 4040 });
   });
 
+  it("finds the opening order from its acceptance when the order id was reused by an earlier run", () => {
+    const db = seeded();
+    const H = 60 * M;
+    ingestEvents(db, I, [
+      // An earlier engine run used the same order id for another ticket; the orders row keeps that ticket.
+      event("order.submit", T0 - 5 * H, { orderId: "o-1", orderType: "Market", symbol: "ICM_S05:XAUUSD", side: "BUY", qty: 1 }),
+      event("order.accepted", T0 - 5 * H + 500, { orderId: "o-1", brokerOrderId: "B-1" }),
+      event("order.submit", T0 - 30_000, { orderId: "o-1", orderType: "Bracket", symbol: "ICM_S05:XAUUSD", side: "BUY", qty: 1, stopLoss: { type: "Fixed", price: 3980 }, takeProfit: 4040 }),
+      event("order.accepted", T0 - 20_000, { orderId: "o-1", brokerOrderId: "B-77" }),
+      // Another order accepted near the entry under a different ticket must not be taken.
+      event("order.submit", T0 - 25_000, { orderId: "o-2", orderType: "Bracket", symbol: "ICM_S05:XAUUSD", side: "BUY", qty: 1, stopLoss: 3900 }),
+      event("order.accepted", T0 - 15_000, { orderId: "o-2", brokerOrderId: "B-78" }),
+      deal({ ticket: "1", entry: "IN", side: "BUY", ts: T0, qty: 1, price: 4000, order: "B-77" }),
+      deal({ ticket: "2", entry: "OUT", side: "SELL", ts: T0 + 10 * M, qty: 1, price: 3980, profit: -20, order: "B-90", comment: "[sl 3980]" }),
+    ]);
+    expect(db.prepare("SELECT broker_order_id b FROM orders WHERE order_id='o-1'").get()).toEqual({ b: "B-1" });
+    expect(trip(db)).toMatchObject({ entryOrderId: "o-1", entryOrderTicket: "B-77", stopPrice: 3980, targetPrice: 4040, ended: "stop" });
+  });
+
+  it("leaves the stop unknown when no acceptance near the entry carries the ticket", () => {
+    const db = seeded();
+    ingestEvents(db, I, [
+      event("order.accepted", T0 - 300 * M, { orderId: "o-3", brokerOrderId: "B-4" }),
+      event("order.submit", T0 - 30_000, { orderId: "o-3", orderType: "Bracket", symbol: "ICM_S05:XAUUSD", side: "BUY", qty: 1, stopLoss: 3980 }),
+      // Accepted with this ticket, but 11 minutes before the entry: outside the window.
+      event("order.accepted", T0 - 11 * M, { orderId: "o-3", brokerOrderId: "B-5" }),
+      deal({ ticket: "1", entry: "IN", side: "BUY", ts: T0, qty: 1, price: 4000, order: "B-5" }),
+    ]);
+    expect(trip(db)).toMatchObject({ entryOrderTicket: "B-5", stopPrice: null });
+  });
+
   it("says a strategy order or a bot close ended it, and nothing when nothing does", () => {
     const db = seeded();
     ingestEvents(db, I, [
@@ -119,6 +150,31 @@ describe("round_trips projection", () => {
     // The bot close lands after the deal: its event marks the position again.
     ingestEvents(db, I, [event("bot.close", T0 + 10 * M + 500, { symbol: "XAUUSD", ticket: "B", ok: "true" }, undefined)]);
     expect(["A", "B", "C", "D"].map((p) => trip(db, p)?.ended)).toEqual(["signal", "manual", "so", null]);
+  });
+
+  it("lists an instance's engine closes as its round trips while it has no broker deals", () => {
+    const db = seeded();
+    const closed = (orderId: string, ts: number, side: "BUY" | "SELL", realized: number, entryTs?: number) =>
+      ({ ...event("trade.closed", ts, { orderId, symbol: "PAPER:XAUUSD", side, qty: 0.5, price: 4010, realized, ...(entryTs != null ? { entryTs } : {}), ts }), id: `tc-${orderId}-${ts}` } as Envelope);
+    ingestEvents(db, I, [closed("ORD-1", T0 + 10 * M, "SELL", 12.5, T0), closed("ORD-2", T0 + 20 * M, "BUY", -4)]);
+    const page = listRoundTrips(db, { instanceId: I, sort: "exit" });
+    expect(page.rows.map((r) => ({ id: r.id, side: r.side, pnl: r.pnl, holdMs: r.holdMs, source: r.source, status: r.status, instrument: r.instrument }))).toEqual([
+      { id: "tc-ORD-2-" + (T0 + 20 * M), side: "short", pnl: -4, holdMs: null, source: "ledger", status: "closed", instrument: "XAUUSD" },
+      { id: "tc-ORD-1-" + (T0 + 10 * M), side: "long", pnl: 12.5, holdMs: 10 * M, source: "ledger", status: "closed", instrument: "XAUUSD" },
+    ]);
+    expect(trip(db, `tc-ORD-1-${T0 + 10 * M}`)).toMatchObject({ entryTs: T0, exitTs: T0 + 10 * M, exitPrice: 4010, entryPrice: null, strategyId: S, gross: 12.5, legs: 1 });
+
+    const maintained = db.prepare("SELECT * FROM round_trips ORDER BY position_ticket").all();
+    rebuildProjection(db, "closed_trades", { force: true, batch: 1 });
+    expect(db.prepare("SELECT * FROM round_trips ORDER BY position_ticket").all()).toEqual(maintained);
+
+    // Once the instance stores a broker deal, its round trips are its venue positions only.
+    ingestEvents(db, I, [deal({ ticket: "1", entry: "IN", side: "BUY", ts: T0 + 30 * M, qty: 1, price: 4000 })]);
+    expect(storedRoundTrips(db, { instanceId: I }).map((r) => [r.positionTicket, r.source])).toEqual([["P1", "deal"]]);
+    ingestEvents(db, I, [closed("ORD-3", T0 + 40 * M, "SELL", 3)]);
+    expect(storedRoundTrips(db, { instanceId: I }).map((r) => r.source)).toEqual(["deal"]);
+    rebuildProjection(db, "closed_trades", { force: true });
+    expect(storedRoundTrips(db, { instanceId: I }).map((r) => r.source)).toEqual(["deal"]);
   });
 
   it("rebuilds to the rows ingest maintained", () => {
