@@ -132,7 +132,7 @@ export interface StrategyPeriods {
   today: number;
   todayRealized: number;
   floating: number;
-  /** Realized over the last 7 x 24 h. */
+  /** Realized today and over the six UTC days before (sevenDayStart). */
   d7: number;
   /** Realized since the UTC month began. */
   mtd: number;
