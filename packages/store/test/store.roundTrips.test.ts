@@ -101,6 +101,37 @@ describe("round_trips projection", () => {
     expect(trip(db)).toMatchObject({ entryOrderId: "o-1", entryOrderTicket: "B-77", stopPrice: 3980, targetPrice: 4040 });
   });
 
+  it("finds the opening order from its acceptance when the order id was reused by an earlier run", () => {
+    const db = seeded();
+    const H = 60 * M;
+    ingestEvents(db, I, [
+      // An earlier engine run used the same order id for another ticket; the orders row keeps that ticket.
+      event("order.submit", T0 - 5 * H, { orderId: "o-1", orderType: "Market", symbol: "ICM_S05:XAUUSD", side: "BUY", qty: 1 }),
+      event("order.accepted", T0 - 5 * H + 500, { orderId: "o-1", brokerOrderId: "B-1" }),
+      event("order.submit", T0 - 30_000, { orderId: "o-1", orderType: "Bracket", symbol: "ICM_S05:XAUUSD", side: "BUY", qty: 1, stopLoss: { type: "Fixed", price: 3980 }, takeProfit: 4040 }),
+      event("order.accepted", T0 - 20_000, { orderId: "o-1", brokerOrderId: "B-77" }),
+      // Another order accepted near the entry under a different ticket must not be taken.
+      event("order.submit", T0 - 25_000, { orderId: "o-2", orderType: "Bracket", symbol: "ICM_S05:XAUUSD", side: "BUY", qty: 1, stopLoss: 3900 }),
+      event("order.accepted", T0 - 15_000, { orderId: "o-2", brokerOrderId: "B-78" }),
+      deal({ ticket: "1", entry: "IN", side: "BUY", ts: T0, qty: 1, price: 4000, order: "B-77" }),
+      deal({ ticket: "2", entry: "OUT", side: "SELL", ts: T0 + 10 * M, qty: 1, price: 3980, profit: -20, order: "B-90", comment: "[sl 3980]" }),
+    ]);
+    expect(db.prepare("SELECT broker_order_id b FROM orders WHERE order_id='o-1'").get()).toEqual({ b: "B-1" });
+    expect(trip(db)).toMatchObject({ entryOrderId: "o-1", entryOrderTicket: "B-77", stopPrice: 3980, targetPrice: 4040, ended: "stop" });
+  });
+
+  it("leaves the stop unknown when no acceptance near the entry carries the ticket", () => {
+    const db = seeded();
+    ingestEvents(db, I, [
+      event("order.accepted", T0 - 300 * M, { orderId: "o-3", brokerOrderId: "B-4" }),
+      event("order.submit", T0 - 30_000, { orderId: "o-3", orderType: "Bracket", symbol: "ICM_S05:XAUUSD", side: "BUY", qty: 1, stopLoss: 3980 }),
+      // Accepted with this ticket, but 11 minutes before the entry: outside the window.
+      event("order.accepted", T0 - 11 * M, { orderId: "o-3", brokerOrderId: "B-5" }),
+      deal({ ticket: "1", entry: "IN", side: "BUY", ts: T0, qty: 1, price: 4000, order: "B-5" }),
+    ]);
+    expect(trip(db)).toMatchObject({ entryOrderTicket: "B-5", stopPrice: null });
+  });
+
   it("says a strategy order or a bot close ended it, and nothing when nothing does", () => {
     const db = seeded();
     ingestEvents(db, I, [

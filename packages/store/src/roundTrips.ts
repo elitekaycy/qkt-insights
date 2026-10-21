@@ -77,13 +77,7 @@ export function recomputeRoundTrip(db: Db, instanceId: string, position: string)
   const exitTs = last?.ts ?? null;
 
   const entryOrderTicket = ins[0]?.orderTicket ?? null;
-  const entryOrderId = entryOrderTicket == null ? null : ((statement(db,
-    "SELECT order_id o FROM orders WHERE instance_id=? AND broker_order_id=? ORDER BY created_ts ASC LIMIT 1",
-  ).get(instanceId, entryOrderTicket) as { o: string } | undefined)?.o ?? null);
-  // An order id repeats across engine restarts, so only the submit near the entry is its own.
-  const submit = entryOrderId != null && entryTs != null
-    ? eventsNear(db, instanceId, "order.submit", entryTs).find((p) => p.orderId === entryOrderId)
-    : undefined;
+  const { orderId: entryOrderId, submit } = openingOrder(db, instanceId, entryOrderTicket, entryTs);
 
   const row: RoundTripRow = {
     instanceId,
@@ -117,6 +111,29 @@ export function recomputeRoundTrip(db: Db, instanceId: string, position: string)
        @exitTs, @exitPrice, @qty, @realized, @gross, @commission, @swap, @fee, @legs, @entryOrderId, @entryOrderTicket, @stopPrice,
        @targetPrice, @ended, @holdMs, @open)`,
   ).run({ ...row, open: row.open ? 1 : 0 });
+}
+
+/**
+ * The engine order that opened the position and its submit. The orders table maps the venue ticket
+ * to the order id; when it does not (the accept never reached that row, or the id belongs to
+ * another run), the `order.accepted` near the entry that carries the ticket names the order. An
+ * order id repeats across engine restarts, so only the submit near the entry is its own.
+ */
+function openingOrder(db: Db, instanceId: string, ticket: string | null, entryTs: number | null): { orderId: string | null; submit: Record<string, unknown> | undefined } {
+  if (ticket == null) return { orderId: null, submit: undefined };
+  const stored = (statement(db,
+    "SELECT order_id o FROM orders WHERE instance_id=? AND broker_order_id=? ORDER BY created_ts ASC LIMIT 1",
+  ).get(instanceId, ticket) as { o: string } | undefined)?.o ?? null;
+  if (entryTs == null) return { orderId: stored, submit: undefined };
+  const submits = eventsNear(db, instanceId, "order.submit", entryTs);
+  const submitOf = (id: string | null) => (id == null ? undefined : submits.find((p) => p.orderId === id));
+  const own = submitOf(stored);
+  if (own) return { orderId: stored, submit: own };
+  const accepted = eventsNear(db, instanceId, "order.accepted", entryTs)
+    .find((p) => p.brokerOrderId != null && String(p.brokerOrderId) === ticket && typeof p.orderId === "string");
+  const acceptedId = (accepted?.orderId as string | undefined) ?? null;
+  const viaAccept = submitOf(acceptedId);
+  return viaAccept ? { orderId: acceptedId, submit: viaAccept } : { orderId: stored ?? acceptedId, submit: undefined };
 }
 
 /**
