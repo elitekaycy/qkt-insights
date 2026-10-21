@@ -99,7 +99,7 @@ export default function Equity({ instanceId }: { instanceId: string | null }) {
         title="Equity & risk"
         sub={`Broker account equity for ${instanceId}; per-strategy equity below, normalized to % change so different capital sizes compare fairly.`}
       />
-      <Panel className="mt-5" title="Account equity" hint="broker-reported, 1-minute rollup">
+      <Panel className="mt-5" title="Account equity" hint="broker-reported, sampled from the 1-minute rollup">
         <Loadable loading={account.isPending} error={account.isError} retry={() => account.refetch()} what="the account curve" lines={4}>
           {accountByBroker.size === 0 ? (
             <Empty>No account history yet — waiting for the broker state poller.</Empty>
