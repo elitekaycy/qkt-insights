@@ -38,11 +38,15 @@ underwater curve, and drawdown periods.
 
 ![Strategies](assets/screenshots/strategies.png)
 
-Every strategy on the instance in the sortable table Home uses: status (running, retired, or
-halted with the reason and how long ago under the name), Today on the account's trading day plus
-what it floats, 7D, MTD, all-time, max drawdown, trades, win rate and last close. Portfolio sleeves
-get one table per portfolio with its total and a link to the portfolio page; retired and empty
-strategies are one click away. A row opens the strategy.
+Every strategy on the instance as a card, from the same figures as Home's table: net P&L
+(realized from every close on the account plus what it floats) with its return on the strategy's
+own base, a sparkline of cumulative realized P&L, trades, win rate, max drawdown and last close.
+Each portfolio is a group card (net, return on the allocated capital, combined curve) that opens
+the portfolio page, with its sleeves as cards beneath; standalone strategies follow in a grid of
+three, two or one columns by width. A running strategy carries no badge; a halted one is a muted
+card with a quiet "Halted" (the reason on hover or tap). The search box filters the cards, a select
+orders them by net, today, name or last trade, and retired and empty strategies are one click
+away. The whole card is the link (click, tap or Enter).
 
 A strategy page follows the backtester journal. The header carries the net since the first trade
 (realized plus open), the return on the strategy's own base with the base named (portfolio
