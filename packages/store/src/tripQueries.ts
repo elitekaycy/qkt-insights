@@ -60,6 +60,9 @@ const R = `(CASE WHEN t.open = 0 AND t.stop_price IS NOT NULL AND t.entry_price 
   THEN coalesce(t.realized / ${RISK},
     (CASE t.side WHEN 'long' THEN t.exit_price - t.entry_price ELSE t.entry_price - t.exit_price END) / abs(t.entry_price - t.stop_price)) END)`;
 const ENDED = "(CASE t.ended WHEN 'so' THEN 'venue' ELSE t.ended END)";
+/** The UTC entry weekday, 0 Monday .. 6 Sunday, and hour 0-23. */
+const ENTRY_WEEKDAY = "((CAST(strftime('%w', t.entry_ts / 1000, 'unixepoch') AS INTEGER) + 6) % 7)";
+const ENTRY_HOUR = "CAST(strftime('%H', t.entry_ts / 1000, 'unixepoch') AS INTEGER)";
 const PNL = "(CASE WHEN t.open = 1 AND t.exit_ts IS NULL THEN NULL ELSE t.realized END)";
 
 const COLUMNS = `t.position_ticket id, t.broker, t.strategy_id strategyId, coalesce(t.symbol, t.instrument) symbol, upper(t.instrument) instrument,
@@ -238,6 +241,11 @@ function filterSql(f: QueryFilter | undefined, sql: Sql, hideIds = false): void 
   windowSql("t.entry_ts", f.entry, sql);
   windowSql("t.exit_ts", f.exit, sql);
   if (f.ended) sql.where.push(`t.ended=${sql.bind(f.ended === "venue" ? "so" : f.ended)}`);
+  if (f.weekday !== undefined) sql.where.push(`t.entry_ts IS NOT NULL AND ${ENTRY_WEEKDAY}=${sql.bind(f.weekday)}`);
+  if (f.hour) {
+    sql.where.push("t.entry_ts IS NOT NULL");
+    rangeSql(ENTRY_HOUR, f.hour, sql);
+  }
   if (f.ticket && !hideIds) sql.where.push(`(t.position_ticket=${sql.bind(f.ticket)} OR t.entry_order_id=${sql.bind(f.ticket)})`);
 }
 

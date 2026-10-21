@@ -4,7 +4,7 @@
 
 - **Health** — every reporting instance, last-event age, sequence position, sink counters, journal backlog, quarantined envelopes by type, live/idle status.
 - **Uptime** — a heartbeat monitor per daemon and HTTP probes for anything else on the box (the MT5 gateway, with `mt5_status: connected` asserted); 24h strip, uptime %, incident timeline, and a Telegram/webhook alert on every down and recovery. A dead-man ping tells an outside service the collector itself is alive.
-- **Strategies** — per-strategy drill-down against the strategy's own capital: its equity curve (never the shared account), Sharpe, win rate, max drawdown, return, trades, the latest logs, and the deploy's runtime details one click from the name.
+- **Strategies** — every strategy in one sortable table, and per strategy the journal's sections (Overview, Calendar, Daily, Monthly, Trades, Time & risk, Logs) over its round trips, with net and return on the strategy's own capital, its halt, and the deploy's runtime details.
 - **Trades** — every round trip (one row per position, entry to exit, P&L after costs), searchable with the query bar,
   sortable, exported as CSV, each one opening a drawer with its timeline from signal to close.
 - **Logs** — engine logs shipped from qkt, searched with the same query bar (`level:`, `strategy:`, `logger:`, `time:`,
@@ -98,10 +98,11 @@ web bar (`@qkt-insights/contract/query`) and compiled to bound SQL; tokens it ca
 | Route | Answers |
 |---|---|
 | `GET /round-trips?instance&q&strategy&from&sort&dir&limit&cursor` | a page (keyset cursor, up to 500 rows) and, on the first page, `totals` of the whole match: matched, total in scope, net, wins, losses, win rate, average, best, worst |
+| `GET /round-trips/analytics?instance&q&strategy&from` | the journal aggregates of the same match (a strategy page's sections): counts, P&L, win rate, profit factor, payoff, expectancy, R, max drawdown, streaks, after-N-losses, the per-trade series, UTC exit days and months, and buckets by side, how it ended, hold time, instrument, UTC entry weekday and hour, each with the query token that lists its trades |
 | `GET /round-trips/facets?instance&strategy` | strategies, instruments, exit days and common sizes, for completions |
 | `GET /round-trips/export?…` | the whole match as CSV, streamed page by page |
 | `GET /round-trips/:ticket?instance` | the trade drawer: legs, timeline with latencies, slippage, MAE/MFE, raw events |
-| `GET /public/:token/round-trips`, `…/facets` | a shared link's closed round trips, without tickets, profiles or stops |
+| `GET /public/:token/round-trips`, `…/analytics`, `…/facets` | a shared link's closed round trips and their aggregates, without tickets, profiles or stops |
 
 `/logs` also takes `logger` (part of the name), `from` and `to` (ms); `q` text FTS cannot parse is searched as words.
 

@@ -55,7 +55,35 @@ function Status({ row, isPublic }: { row: StrategyRow | null; isPublic: boolean 
   return isPublic ? null : <span className="inline-flex items-center gap-1.5 text-[11px] text-muted"><LiveDot on /> running</span>;
 }
 
-export function StrategyTable({ lines, now, isPublic }: { lines: StrategyLine[]; now: number; isPublic: boolean }) {
+/** The halt's reason and age under the name, so it reads without a click; the badge holds the rest. */
+function HaltLine({ row }: { row: StrategyRow | null }) {
+  if (!row?.halted) return null;
+  return (
+    <div className="truncate text-[11px] text-warn" title={haltSummary(row) ?? undefined}>
+      {row.haltReason ?? "no reason given"}
+      {row.haltedAt != null && <span className="text-muted"> · {age(row.haltedAt)}</span>}
+    </div>
+  );
+}
+
+export function StrategyTable({
+  lines,
+  now,
+  isPublic,
+  title = "Strategies",
+  hint = "click a row to open the strategy · times UTC",
+  right,
+  footer = "the rows add up to the account; unattributed = deals no strategy claimed",
+}: {
+  lines: StrategyLine[];
+  now: number;
+  isPublic: boolean;
+  title?: string;
+  hint?: string;
+  /** Extra header content at the right edge, e.g. a group's total. */
+  right?: ReactNode;
+  footer?: string;
+}) {
   const { navigate } = useRoute();
   const [sortParam, setSort] = useSearchParam("sort", "today");
   const [showAll, setShowAll] = useState(false);
@@ -92,10 +120,11 @@ export function StrategyTable({ lines, now, isPublic }: { lines: StrategyLine[];
   return (
     <Card className="overflow-hidden">
       <div className="flex flex-wrap items-center gap-x-2.5 gap-y-1 border-b border-line px-4 py-3">
-        <h2 className="text-sm font-medium text-body">Strategies</h2>
-        <span className="text-xs text-muted">click a row to open the strategy · times UTC</span>
+        <h2 className="text-sm font-medium text-body">{title}</h2>
+        <span className="text-xs text-muted">{hint}</span>
+        {right && <span className="ml-auto flex items-center gap-2">{right}</span>}
         {hiddenCount > 0 && (
-          <button type="button" onClick={() => setShowAll((s) => !s)} className="ml-auto text-xs font-medium text-accent-ink hover:underline">
+          <button type="button" onClick={() => setShowAll((s) => !s)} className={`${right ? "" : "ml-auto"} text-xs font-medium text-accent-ink hover:underline`}>
             {showAll ? "Hide retired and empty" : `Show ${hiddenCount} retired or empty`}
           </button>
         )}
@@ -125,7 +154,7 @@ export function StrategyTable({ lines, now, isPublic }: { lines: StrategyLine[];
                     onClick={l.key ? () => open(l) : undefined}
                     className={`border-b border-line text-bright last:border-b-0 hover:bg-hover ${l.key ? "cursor-pointer" : ""} ${l.row && !l.row.active ? "text-muted" : ""}`}
                   >
-                    <td className="px-3 py-2">
+                    <td className="max-w-[22rem] px-3 py-2">
                       <div className="flex min-w-0 items-center gap-2">
                         {l.key ? (
                           <Link to={`/s/${encodeURIComponent(l.key)}`} onClick={(e) => e.stopPropagation()} className="truncate font-semibold hover:underline" title={l.key}>
@@ -136,6 +165,7 @@ export function StrategyTable({ lines, now, isPublic }: { lines: StrategyLine[];
                         )}
                         {l.key && <Status row={l.row} isPublic={isPublic} />}
                       </div>
+                      <HaltLine row={l.row} />
                     </td>
                     {COLUMNS.slice(1).map((c) => (
                       <td key={c.key} className={`whitespace-nowrap px-3 py-2 text-right ${c.key === "trades" || c.key === "winRate" || c.key === "lastTs" ? "text-body" : ""}`}>
@@ -157,6 +187,7 @@ export function StrategyTable({ lines, now, isPublic }: { lines: StrategyLine[];
                     <span className="ml-auto shrink-0 text-xs text-muted">Today</span>
                     <span className="shrink-0 font-semibold">{cell(l, "today")}</span>
                   </div>
+                  <HaltLine row={l.row} />
                   <div className="mt-1.5 grid grid-cols-4 gap-x-2 text-xs tabular-nums">
                     <Mini k="7D">{cell(l, "d7")}</Mini>
                     <Mini k="MTD">{cell(l, "mtd")}</Mini>
@@ -182,7 +213,7 @@ export function StrategyTable({ lines, now, isPublic }: { lines: StrategyLine[];
         </div>
       )}
       <div className="border-t border-line px-4 py-2 text-[11px] text-faint">
-        as of {ts(now).slice(11, 16)} UTC · the rows add up to the account; unattributed = deals no strategy claimed
+        as of {ts(now).slice(11, 16)} UTC · {footer}
       </div>
     </Card>
   );

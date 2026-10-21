@@ -382,7 +382,7 @@ export function Segmented<T extends string>({
           role="tab"
           aria-selected={value === o.key}
           onClick={() => onChange(o.key)}
-          className={`h-7 whitespace-nowrap rounded-md px-3 text-sm font-medium transition ${
+          className={`h-7 shrink-0 whitespace-nowrap rounded-md px-3 text-sm font-medium transition ${
             value === o.key ? "bg-well text-bright" : "text-body hover:bg-hover hover:text-bright"
           }`}
         >
@@ -596,11 +596,17 @@ export function LoadMore({ shown, total, onMore }: { shown: number; total: numbe
   );
 }
 
+const DAY_MS = 86_400_000;
+
+/** Date ranges: rolling windows, and calendar spans that begin at a UTC midnight. */
 export const RANGES = [
-  { key: "24h", label: "Last 24h", ms: 86_400_000 },
-  { key: "7d", label: "Last 7 days", ms: 7 * 86_400_000 },
-  { key: "30d", label: "Last 30 days", ms: 30 * 86_400_000 },
-  { key: "all", label: "All time", ms: Infinity },
+  { key: "today", label: "Today (UTC)", short: "Today" },
+  { key: "24h", label: "Last 24h", short: "24h" },
+  { key: "7d", label: "Last 7 days", short: "7D" },
+  { key: "mtd", label: "Month to date", short: "MTD" },
+  { key: "30d", label: "Last 30 days", short: "30D" },
+  { key: "ytd", label: "Year to date", short: "YTD" },
+  { key: "all", label: "All time", short: "All" },
 ] as const;
 export type RangeKey = (typeof RANGES)[number]["key"];
 
@@ -611,9 +617,18 @@ export function useRangeParam(): [RangeKey, (v: RangeKey) => void] {
   return [key, (v) => set(v)];
 }
 
-export function rangeStart(key: RangeKey): number {
-  const r = RANGES.find((x) => x.key === key)!;
-  return r.ms === Infinity ? 0 : Date.now() - r.ms;
+/** Where a range begins, epoch ms; 0 for all time. Today, MTD and YTD start at a UTC midnight. */
+export function rangeStart(key: RangeKey, now = Date.now()): number {
+  const d = new Date(now);
+  switch (key) {
+    case "today": return Math.floor(now / DAY_MS) * DAY_MS;
+    case "24h": return now - DAY_MS;
+    case "7d": return now - 7 * DAY_MS;
+    case "mtd": return Date.UTC(d.getUTCFullYear(), d.getUTCMonth(), 1);
+    case "30d": return now - 30 * DAY_MS;
+    case "ytd": return Date.UTC(d.getUTCFullYear(), 0, 1);
+    case "all": return 0;
+  }
 }
 
 export function RangeSelect({ value, onChange }: { value: RangeKey; onChange: (v: RangeKey) => void }) {

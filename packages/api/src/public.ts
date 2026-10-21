@@ -2,7 +2,7 @@ import { createHash } from "node:crypto";
 import type { FastifyInstance, FastifyReply, FastifyRequest } from "fastify";
 import {
   accountDrawdown, accountEquity, accountPerformance, accountRisk, closedTrades, fullyClosedPositions, listDeals, listRoundTrips, listStrategyRoster, listTrades, openPositionsAt, portfolioGroupOf,
-  roundTripFacets, roundTripTotals, ROUND_TRIP_SORTS, type RoundTripScope, type RoundTripSort,
+  roundTripAnalytics, roundTripFacets, roundTripTotals, ROUND_TRIP_SORTS, type RoundTripScope, type RoundTripSort,
   resolveVisibility, strategyEquityCurve, strategyStats, type AccountLimits, type Db, type LiveStateStore, type ShareKind, type ShareRow, type Shares, type StrategyRow, type Views,
 } from "@qkt-insights/store";
 import { isSameOrigin, requireSession } from "./auth.js";
@@ -10,7 +10,7 @@ import type { TtlCache } from "./cache.js";
 import { WindowCounter } from "./limits.js";
 import { performanceBundle } from "./performance.js";
 import { ACCOUNT_EQUITY_POINTS } from "./rest.js";
-import { accountLabeller, publicAccountSummary, publicBundle, publicDeal, publicRoundTrip, publicStrategy, publicTrade } from "./publicView.js";
+import { accountLabeller, publicAccountSummary, publicBundle, publicDeal, publicRoundTrip, publicStrategy, publicTrade, publicTripAnalytics } from "./publicView.js";
 import { parseFor } from "./roundTrips.js";
 
 export const PUBLIC_REQUESTS_PER_MINUTE = 240;
@@ -487,6 +487,19 @@ export function registerPublic(app: FastifyInstance, deps: PublicDeps): void {
         rows: listRoundTrips(deps.db, q).rows.map(publicRoundTrip), nextCursor: null, totals: roundTripTotals(deps.db, q),
         query: { canonical: parsed.canonical, errors: parsed.errors },
       };
+    },
+  });
+
+  // The journal aggregates over the same closed round trips; trade ids are opaque, as in the list.
+  route("/round-trips/analytics", {
+    params: (q, scope, cutoff) => {
+      const s = optionalStrategy(q, scope);
+      return s === NOT_FOUND ? NOT_FOUND : { ...s, q: (text(q.q) ?? "").slice(0, 500), range: rangePreset(q.from, cutoff) };
+    },
+    compute: (scope, p, cutoff) => {
+      const base = { ...roundTripScope(scope, p.strategy, cutoff), since: presetFrom(p.range, cutoff) };
+      const parsed = parseFor(deps.db, base, p.q);
+      return { ...publicTripAnalytics(roundTripAnalytics(deps.db, { ...base, filter: parsed.filter })), query: { canonical: parsed.canonical, errors: parsed.errors } };
     },
   });
 

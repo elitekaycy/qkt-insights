@@ -1,5 +1,5 @@
 import { createHmac, randomBytes } from "node:crypto";
-import type { AccountSummary, ClosedTradeRow, DealRow, StrategyRow, TripRow, TradeRow } from "@qkt-insights/store";
+import type { AccountSummary, ClosedTradeRow, DealRow, StrategyRow, TripAnalytics, TripBucket, TripRow, TradeRow } from "@qkt-insights/store";
 import type { PerformanceBundle } from "./performance.js";
 
 /*
@@ -128,6 +128,27 @@ export function publicRoundTrip(r: TripRow) {
     id: opaqueId(r.id), broker: null, strategyId: r.strategyId, symbol: publicSymbol(r.symbol), instrument: r.instrument,
     side: r.side, status: r.status, entryTs: r.entryTs, entryPrice: r.entryPrice, exitTs: r.exitTs, exitPrice: r.exitPrice, qty: r.qty,
     pnl: r.pnl, holdMs: r.holdMs, stopPrice: null, targetPrice: null, risk: null, r: r.r, ended: r.ended, legs: r.legs, entryOrderId: null, priceDigits: r.priceDigits,
+  };
+}
+
+const publicBucket = (b: TripBucket): TripBucket => ({ key: b.key, label: b.label, filter: b.filter, n: b.n, wins: b.wins, losses: b.losses, pnl: b.pnl });
+
+/** The journal aggregates with every trade id made opaque. */
+export function publicTripAnalytics(a: TripAnalytics): TripAnalytics {
+  const ref = (t: { id: string; pnl: number } | null) => (t ? { id: opaqueId(t.id) ?? "", pnl: t.pnl } : null);
+  return {
+    total: a.total, matched: a.matched, closed: a.closed, open: a.open, pnl: a.pnl, grossWin: a.grossWin, grossLoss: a.grossLoss,
+    wins: a.wins, losses: a.losses, breakeven: a.breakeven, winRate: a.winRate, profitFactor: a.profitFactor, avgWin: a.avgWin,
+    avgLoss: a.avgLoss, payoff: a.payoff, expectancy: a.expectancy, r: { n: a.r.n, avg: a.r.avg, total: a.r.total },
+    best: ref(a.best), worst: ref(a.worst), avgHoldMs: a.avgHoldMs, maxDd: a.maxDd, maxDdWindow: a.maxDdWindow ? { from: a.maxDdWindow.from, to: a.maxDdWindow.to } : null,
+    streaks: { current: a.streaks.current, maxWin: a.streaks.maxWin, maxLoss: a.streaks.maxLoss },
+    postLoss: a.postLoss.map((p) => ({ n: p.n, sample: p.sample, nextWinRate: p.nextWinRate, nextAvg: p.nextAvg })),
+    trades: a.trades.map((t) => ({ id: opaqueId(t.id) ?? "", exitTs: t.exitTs, pnl: t.pnl, cum: t.cum })),
+    tradesTruncated: a.tradesTruncated,
+    daily: a.daily.map((d) => ({ day: d.day, n: d.n, wins: d.wins, losses: d.losses, pnl: d.pnl })),
+    monthly: a.monthly.map((m) => ({ day: m.day, n: m.n, wins: m.wins, losses: m.losses, pnl: m.pnl, grossWin: m.grossWin, grossLoss: m.grossLoss })),
+    side: a.side.map(publicBucket), ended: a.ended.map(publicBucket), hold: a.hold.map(publicBucket), instrument: a.instrument.map(publicBucket),
+    weekday: a.weekday.map(publicBucket), hour: a.hour.map(publicBucket),
   };
 }
 

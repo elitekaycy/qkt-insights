@@ -122,6 +122,34 @@ describe("GET /round-trips", () => {
   });
 });
 
+describe("GET /round-trips/analytics", () => {
+  interface Analytics { matched: number; pnl: number; wins: number; losses: number; winRate: number | null; side: Array<{ filter: string; n: number; pnl: number }>; daily: unknown[]; trades: unknown[]; query: { errors: string[] } }
+
+  it("aggregates the same match as the list, for any scope and query", async () => {
+    for (const url of [`instance=${I}`, `instance=${I}&strategy=gold`, `instance=${I}&q=${q("side:short")}`, `instance=${I}&from=${T0 + 25 * D}`]) {
+      const a = (await get(`/round-trips/analytics?${url}`)).json() as Analytics;
+      const t = ((await get(`/round-trips?${url}`)).json() as Page).totals!;
+      expect([a.matched, a.pnl, a.wins, a.losses, a.winRate]).toEqual([t.matched, t.net, t.wins, t.losses, t.winRate]);
+    }
+  });
+
+  it("gives every bucket the filter that lists its trades", async () => {
+    const a = (await get(`/round-trips/analytics?instance=${I}&strategy=gold`)).json() as Analytics;
+    expect(a.daily).toHaveLength(20);
+    expect(a.trades).toHaveLength(20);
+    for (const b of a.side) {
+      const t = ((await get(`/round-trips?instance=${I}&strategy=gold&q=${q(b.filter)}`)).json() as Page).totals!;
+      expect([t.matched, t.net]).toEqual([b.n, b.pnl]);
+    }
+  });
+
+  it("reports what it could not read and refuses bad parameters", async () => {
+    expect(((await get(`/round-trips/analytics?instance=${I}&q=${q("held:soon")}`)).json() as Analytics).query.errors).toHaveLength(1);
+    expect((await get(`/round-trips/analytics?instance=${I}&from=yesterday`)).statusCode).toBe(400);
+    expect((await app.inject({ method: "GET", url: `/round-trips/analytics?instance=${I}` })).statusCode).toBe(401);
+  });
+});
+
 describe("GET /round-trips/facets, /round-trips/:id, /round-trips/export", () => {
   it("lists strategies, instruments, days and sizes", async () => {
     const f = (await get(`/round-trips/facets?instance=${I}`)).json() as { strategies: unknown[]; instruments: unknown[]; days: string[]; sizes: number[] };

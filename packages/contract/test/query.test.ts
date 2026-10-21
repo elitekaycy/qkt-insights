@@ -118,6 +118,19 @@ describe("query tags", () => {
   });
 });
 
+describe("weekday: and hour:", () => {
+  it("read the UTC entry weekday and hour", () => {
+    expect(one("weekday:mon").filter.weekday).toBe(0);
+    expect(one("weekday:Sunday").chips[0]!.text).toBe("weekday:sun");
+    expect(one("dow:tues").filter.weekday).toBe(1);
+    expect(one("weekday:mo").errors[0]).toMatch(/mon to sun/);
+    expect(one("hour:14").filter.hour).toEqual({ min: 14, max: 14 });
+    expect(one("hour:8..16").filter.hour).toEqual({ min: 8, max: 16, maxOpen: false });
+    expect(one("hour:>=20").chips[0]!.label).toBe("Entered at least 20:00 UTC");
+    expect(one("hour:24").errors[0]).toMatch(/0-23/);
+  });
+});
+
 describe("free text and bare words", () => {
   it("bare words name a filter when they can, else they are free text", () => {
     expect(one("long").filter.side).toBe("long");

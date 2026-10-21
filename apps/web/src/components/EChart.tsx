@@ -1,6 +1,6 @@
 import { useEffect, useRef, useState } from "react";
 import * as echarts from "echarts/core";
-import { BarChart, BoxplotChart, CustomChart, HeatmapChart, LineChart, ScatterChart } from "echarts/charts";
+import { BarChart, CustomChart, HeatmapChart, LineChart } from "echarts/charts";
 import {
   DataZoomComponent,
   GridComponent,
@@ -18,9 +18,7 @@ import { useTheme } from "../theme";
 echarts.use([
   LineChart,
   BarChart,
-  ScatterChart,
   HeatmapChart,
-  BoxplotChart,
   CustomChart,
   GridComponent,
   TooltipComponent,
@@ -288,6 +286,8 @@ export function EChart({
   height = 260,
   label,
   zoom = true,
+  onAxisClick,
+  onZoom,
 }: {
   option: QktChartOption;
   height?: number | `${number}%`;
@@ -295,6 +295,13 @@ export function EChart({
   label?: string;
   /** Set false for charts whose x axis should never zoom. */
   zoom?: boolean;
+  /**
+   * A click anywhere in the plot: the x value under the pointer (a category index, or a time),
+   * so the whole column is the target, not only the bar or point.
+   */
+  onAxisClick?: (x: number) => void;
+  /** The visible share of the x axis after a zoom or pan, in percent; null when reset. */
+  onZoom?: (window: { start: number; end: number } | null) => void;
 }) {
   const host = useRef<HTMLDivElement>(null);
   const el = useRef<HTMLDivElement>(null);
@@ -304,6 +311,8 @@ export function EChart({
   const [zoomed, setZoomed] = useState(false);
   const focusedRef = useRef(false);
   focusedRef.current = focused;
+  const handlers = useRef({ onAxisClick, onZoom });
+  handlers.current = { onAxisClick, onZoom };
 
   // charts that bring their own dataZoom keep it; the host only adds the default contract
   const points = zoom && option.dataZoom === undefined ? zoomablePoints(option) : 0;
@@ -316,7 +325,18 @@ export function EChart({
     chart.current = c;
     c.on("datazoom", () => {
       const z = (c.getOption() as { dataZoom?: Array<{ start?: number; end?: number }> }).dataZoom?.[0];
-      setZoomed(z != null && ((z.start ?? 0) > 0.5 || (z.end ?? 100) < 99.5));
+      const on = z != null && ((z.start ?? 0) > 0.5 || (z.end ?? 100) < 99.5);
+      setZoomed(on);
+      handlers.current.onZoom?.(on ? { start: z!.start ?? 0, end: z!.end ?? 100 } : null);
+    });
+    c.getZr().on("click", (e: { offsetX: number; offsetY: number }) => {
+      const click = handlers.current.onAxisClick;
+      if (!click || c.isDisposed()) return;
+      const at = [e.offsetX, e.offsetY];
+      if (!c.containPixel({ gridIndex: 0 }, at)) return;
+      const x = c.convertFromPixel({ xAxisIndex: 0 }, at) as number | number[];
+      const v = Array.isArray(x) ? x[0] : x;
+      if (v != null && Number.isFinite(v)) click(v);
     });
     // a hidden or collapsing container reports 0x0: resizing then throws inside zrender
     const ro = new ResizeObserver(() => {
@@ -353,6 +373,7 @@ export function EChart({
     };
     c.setOption(resolveTokens(base, read), { notMerge: true, lazyUpdate: true });
     setZoomed(false);
+    handlers.current.onZoom?.(null);
   }, [option, theme, zoomable, points]);
 
   // touch screens: the chart pans only after a tap, so a swipe over it still scrolls the page
@@ -377,6 +398,7 @@ export function EChart({
   const reset = () => {
     chart.current?.dispatchAction({ type: "dataZoom", start: 0, end: 100 });
     setZoomed(false);
+    onZoom?.(null);
   };
 
   return (
@@ -392,7 +414,7 @@ export function EChart({
       onKeyDown={(e) => {
         if (e.key === "Escape") (e.currentTarget as HTMLDivElement).blur();
       }}
-      className={`group/chart relative rounded-lg outline-none ${zoomable && focused ? "ring-1 ring-line-strong" : ""}`}
+      className={`group/chart relative rounded-lg outline-none ${zoomable && focused ? "ring-1 ring-line-strong" : ""} ${onAxisClick ? "cursor-pointer" : ""}`}
     >
       <div ref={el} style={{ height, width: "100%", minHeight: typeof height === "string" ? 220 : undefined }} />
       {zoomable && (

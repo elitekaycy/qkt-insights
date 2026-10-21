@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 import type { AccountRiskRow, LivePositionRow } from "./api";
-import { limitUse, openRisk, positionRisks, rangeFirstDay, riskRowFor, strategyPeriods } from "./home";
+import { emptyPeriods, limitUse, openRisk, positionRisks, rangeFirstDay, riskRowFor, strategyLines, strategyPeriods } from "./home";
 
 function position(p: Partial<LivePositionRow> & Pick<LivePositionRow, "ticket">): LivePositionRow {
   return { symbol: "XAUUSD", side: "BUY", qty: 1, entryPrice: 100, ...p };
@@ -77,5 +77,18 @@ describe("rangeFirstDay", () => {
     expect(rangeFirstDay("mtd", now)).toBe("2026-10-01");
     expect(rangeFirstDay("ytd", now)).toBe("2026-01-01");
     expect(rangeFirstDay("all", now)).toBeNull();
+  });
+});
+
+describe("strategyLines", () => {
+  it("lists the roster, then retired strategies with closes, then unattributed, so the rows add up to the account", () => {
+    const row = (id: string) => ({ strategyId: id, firstSeen: 0, lastSeen: 0, startingBalance: null, definedCapital: null, metadata: null, realizedNet: null, dealCount: 0, active: true });
+    const periods = strategyPeriods(
+      [{ strategyId: "a", ts: 1, realized: 5 }, { strategyId: "gone", ts: 2, realized: -2 }, { strategyId: null, ts: 3, realized: 1 }],
+      { now: 10, dayStart: 0 },
+    );
+    const lines = strategyLines([row("a"), row("b")], periods);
+    expect(lines.map((l) => [l.key, l.row?.strategyId ?? null, l.periods.all])).toEqual([["a", "a", 5], ["b", "b", 0], ["gone", null, -2], [null, null, 1]]);
+    expect(lines[1]!.periods).toEqual(emptyPeriods("b"));
   });
 });

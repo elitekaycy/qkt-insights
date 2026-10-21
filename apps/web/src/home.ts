@@ -1,4 +1,4 @@
-import type { AccountRiskRow, LiveAccount, LivePositionRow } from "./api";
+import type { AccountRiskRow, LiveAccount, LivePositionRow, StrategyRow } from "./api";
 import { instrumentOf, openPnl } from "./format";
 
 /*
@@ -221,4 +221,22 @@ export function rangeFirstDay(range: HomeRange, now: number): string | null {
   if (range === "mtd") return new Date(Date.UTC(d.getUTCFullYear(), d.getUTCMonth(), 1)).toISOString().slice(0, 10);
   if (range === "ytd") return `${d.getUTCFullYear()}-01-01`;
   return new Date(Date.UTC(d.getUTCFullYear(), d.getUTCMonth(), d.getUTCDate()) - 6 * DAY_MS).toISOString().slice(0, 10);
+}
+
+/** A strategy with no close and no open position yet: every period at zero. */
+export function emptyPeriods(key: string | null): StrategyPeriods {
+  return { key, today: 0, todayRealized: 0, floating: 0, d7: 0, mtd: 0, all: 0, maxDd: 0, trades: 0, wins: 0, losses: 0, winRate: null, lastTs: null };
+}
+
+/**
+ * One line per strategy for the strategy table: every roster strategy (zeros when it has not
+ * traded), then closes whose strategy left the roster, then the unattributed bucket, so the
+ * column sums equal the account.
+ */
+export function strategyLines(rows: readonly StrategyRow[], periods: ReadonlyMap<string | null, StrategyPeriods>): Array<{ key: string | null; row: StrategyRow | null; periods: StrategyPeriods }> {
+  const known = new Set(rows.map((r) => r.strategyId));
+  return [
+    ...rows.map((row) => ({ key: row.strategyId as string | null, row: row as StrategyRow | null, periods: periods.get(row.strategyId) ?? emptyPeriods(row.strategyId) })),
+    ...[...periods.values()].filter((p) => p.key == null || !known.has(p.key)).map((p) => ({ key: p.key, row: null, periods: p })),
+  ];
 }
