@@ -1,10 +1,11 @@
 import type { QueryFilter, Range, Window } from "@qkt-insights/contract/query";
-import { digitsFrom, roundPrice } from "@qkt-insights/contract/prices";
+import { decimalsOf, MAX_PRICE_DIGITS, roundPrice } from "@qkt-insights/contract/prices";
 import type { Db } from "./db.js";
 import { winRatePct } from "./analytics.js";
 import { refreshProjections } from "./projections.js";
 import { statement } from "./statements.js";
 import { instanceMoneyDigits, roundMoney } from "./money.js";
+import { digitsFromPrices, INFERRED_POINT_VALUE } from "./inferredVenueFacts.js";
 
 /*
  * Reads over the round_trips projection (one row per venue position, kept on write by the
@@ -49,22 +50,24 @@ export interface TripRow {
   ended: TripEnded | null;
   legs: number;
   entryOrderId: string | null;
-  /** "deal": a venue position; "ledger": one engine close of an instance without broker deals (paper). */
+  /** "deal": a venue position; "ledger": one engine close no broker deal stands for (paper). */
   source: "deal" | "ledger";
+  /** Why the position closed, as qkt stated it (STOP, TAKE_PROFIT, SIGNAL, MANUAL, TIMED, STOP_OUT, ...); null when not stated. */
+  closeReason: string | null;
   /** Decimals the venue quotes this instrument with: every price of the row prints at it. */
   priceDigits: number;
 }
 
-/** P&L the venue paid per point of the move, when the move and the venue agree on direction. */
-const PER_POINT = `(CASE WHEN t.entry_price IS NOT NULL AND t.exit_price IS NOT NULL
-    AND (CASE t.side WHEN 'long' THEN t.exit_price - t.entry_price ELSE t.entry_price - t.exit_price END) <> 0
-    AND t.gross / (CASE t.side WHEN 'long' THEN t.exit_price - t.entry_price ELSE t.entry_price - t.exit_price END) > 0
-  THEN t.gross / (CASE t.side WHEN 'long' THEN t.exit_price - t.entry_price ELSE t.entry_price - t.exit_price END) END)`;
-/** Money at risk to the initial stop: the venue's money per point times the points to the stop. */
-const RISK = `(CASE WHEN t.open = 0 AND t.stop_price IS NOT NULL AND t.entry_price IS NOT NULL AND abs(t.entry_price - t.stop_price) > 0
-  THEN ${PER_POINT} * abs(t.entry_price - t.stop_price) END)`;
-/** P&L over that risk; without a venue price per point, the move over the points to the stop. */
-const R = `(CASE WHEN t.open = 0 AND t.stop_price IS NOT NULL AND t.entry_price IS NOT NULL AND t.exit_price IS NOT NULL
+/**
+ * Money at risk to the initial stop of a closed round trip: what qkt stated for its entry, else the
+ * venue's money per point (inferred from its gross over the move) times the points to the stop.
+ */
+const RISK = `(CASE WHEN t.open = 0 AND t.risk_amount > 0 THEN t.risk_amount
+  WHEN t.open = 0 AND t.stop_price IS NOT NULL AND t.entry_price IS NOT NULL AND abs(t.entry_price - t.stop_price) > 0
+  THEN ${INFERRED_POINT_VALUE} * abs(t.entry_price - t.stop_price) END)`;
+/** P&L over that risk; without a stated risk or a venue price per point, the move over the points to the stop. */
+const R = `(CASE WHEN t.open = 0 AND t.risk_amount > 0 AND t.exit_price IS NOT NULL THEN t.realized / t.risk_amount
+  WHEN t.open = 0 AND t.stop_price IS NOT NULL AND t.entry_price IS NOT NULL AND t.exit_price IS NOT NULL
     AND abs(t.entry_price - t.stop_price) > 0
   THEN coalesce(t.realized / ${RISK},
     (CASE t.side WHEN 'long' THEN t.exit_price - t.entry_price ELSE t.entry_price - t.exit_price END) / abs(t.entry_price - t.stop_price)) END)`;
@@ -78,7 +81,7 @@ const COLUMNS = `t.position_ticket id, t.broker, t.strategy_id strategyId, coale
   t.side, CASE WHEN t.open = 1 THEN 'open' ELSE 'closed' END status, t.entry_ts entryTs, t.entry_price entryPrice,
   CASE WHEN t.open = 1 THEN NULL ELSE t.exit_ts END exitTs, CASE WHEN t.open = 1 THEN NULL ELSE t.exit_price END exitPrice,
   coalesce(t.qty, 0) qty, ${PNL} pnl, t.hold_ms holdMs, t.stop_price stopPrice, t.target_price targetPrice, ${RISK} risk, ${R} r,
-  ${ENDED} ended, t.legs, t.entry_order_id entryOrderId, t.source`;
+  ${ENDED} ended, t.legs, t.entry_order_id entryOrderId, t.source, t.close_reason closeReason`;
 
 type StoredTrip = Omit<TripRow, "priceDigits">;
 
@@ -96,8 +99,8 @@ const parse = (payload: string): Record<string, unknown> => { try { return obj(J
 const levelOf = (v: unknown): number | null => num(v) ?? num(obj(v).price);
 
 /**
- * Decimals each instrument's venue prices show on the instance, read from its newest deals.
- * e.g. { XAUUSD: 2, EURUSD: 5 }
+ * Decimals each instrument's venue prices show on the instance: its stated tick size, else what its
+ * newest deals' prices show. e.g. { XAUUSD: 2, EURUSD: 5 }
  */
 export function instrumentDigits(db: Db, instanceId: string): Map<string, number> {
   // deals only grow: the newest deal id says whether the answer can have changed
@@ -114,14 +117,22 @@ export function instrumentDigits(db: Db, instanceId: string): Map<string, number
 const digitsCache = new WeakMap<Db, Map<string, { mark: number; digits: Map<string, number> }>>();
 
 function readDigits(db: Db, instanceId: string): Map<string, number> {
-  const rows = statement(db, `SELECT symbol, price FROM deals WHERE instance_id=? AND canonical=1 AND price IS NOT NULL
-    ORDER BY ts DESC LIMIT 2000`).all(instanceId) as Array<{ symbol: string | null; price: number }>;
+  const rows = statement(db, `SELECT symbol, price, tick_size tick FROM deals WHERE instance_id=? AND canonical=1 AND price IS NOT NULL
+    ORDER BY ts DESC LIMIT 2000`).all(instanceId) as Array<{ symbol: string | null; price: number; tick: number | null }>;
   const prices = new Map<string, number[]>();
+  const ticks = new Map<string, number>();
   for (const r of rows) {
     const k = instrumentKey(r.symbol);
-    if (k) prices.set(k, [...(prices.get(k) ?? []), r.price]);
+    if (!k) continue;
+    prices.set(k, [...(prices.get(k) ?? []), r.price]);
+    if (r.tick != null && r.tick > 0 && !ticks.has(k)) ticks.set(k, r.tick);
   }
-  return new Map([...prices].map(([k, ps]) => [k, digitsFrom(ps, k)]));
+  return new Map([...prices].map(([k, ps]) => [k, digitsOf(ticks.get(k), ps, k)]));
+}
+
+/** The decimals a price of an instrument shows: its stated tick's, else what its prices and name say. */
+function digitsOf(tick: number | null | undefined, prices: readonly number[], instrument: string): number {
+  return tick != null && tick > 0 ? Math.min(MAX_PRICE_DIGITS, decimalsOf(tick)) : digitsFromPrices(prices, instrument);
 }
 
 const instrumentKey = (symbol: string | null): string => {
@@ -131,7 +142,7 @@ const instrumentKey = (symbol: string | null): string => {
 };
 
 function withDigits(rows: StoredTrip[], digits: Map<string, number>): TripRow[] {
-  return rows.map((r) => ({ ...r, priceDigits: digits.get(r.instrument) ?? digitsFrom([], r.instrument) }));
+  return rows.map((r) => ({ ...r, priceDigits: digits.get(r.instrument) ?? digitsFromPrices([], r.instrument) }));
 }
 
 /** A price at its row's precision, for text (CSV, timeline). */
@@ -421,6 +432,12 @@ export interface RoundTripLeg {
   qty: number | null; price: number | null; profit: number | null; commission: number | null; swap: number | null; fee: number | null;
   /** profit + commission + swap + fee. */
   net: number; comment: string | null; ts: number;
+  /** Why this leg closed, as qkt stated it; null for an opening leg or when not stated. */
+  closeReason: string | null;
+  /** Who computed profit: "venue" or "engine" (qkt's accounting, for a venue that reports none); null when not stated. */
+  realizedSource: string | null;
+  /** The instrument's stated price tick and account money per point per unit of qty; null when not stated. */
+  tickSize: number | null; valuePerPoint: number | null;
 }
 
 export interface TimelineStep {
@@ -468,7 +485,7 @@ export function roundTripDetail(db: Db, instanceId: string, id: string): RoundTr
   const stored = statement(db, `SELECT ${COLUMNS}, NULL pnlInExit FROM round_trips t WHERE t.instance_id=? AND t.position_ticket=?`).get(instanceId, id) as StoredTrip | undefined;
   if (!stored) return null;
   const legs = venueLegs(db, instanceId, stored.id);
-  const digits = digitsFrom(legs.flatMap((l) => (l.price != null ? [l.price] : [])), stored.instrument);
+  const digits = digitsOf(legs.find((l) => l.tickSize != null)?.tickSize, legs.flatMap((l) => (l.price != null ? [l.price] : [])), stored.instrument);
   const trip: TripRow = { ...stored, priceDigits: digits };
   const ids = new Set<string>();
   if (trip.entryOrderId) ids.add(trip.entryOrderId);
@@ -478,7 +495,10 @@ export function roundTripDetail(db: Db, instanceId: string, id: string): RoundTr
   const dir = trip.side === "long" ? 1 : -1;
   const gross = legs.filter((l) => OUT.has(l.entry ?? "")).reduce((a, l) => a + (l.profit ?? 0), 0);
   const move = trip.entryPrice != null && trip.exitPrice != null ? dir * (trip.exitPrice - trip.entryPrice) : null;
-  const perPoint = move != null && Math.abs(move) > 1e-12 && gross / move > 0 ? gross / move : null;
+  // The account money one point is worth at the trip's size: stated per unit of qty, else the venue's gross over the move.
+  const valuePerPoint = legs.find((l) => l.valuePerPoint != null)?.valuePerPoint;
+  const perPoint = valuePerPoint != null ? valuePerPoint * trip.qty
+    : move != null && Math.abs(move) > 1e-12 && gross / move > 0 ? gross / move : null;
   const slip = (reference: number | null, fill: number | null, sign: 1 | -1, basis: Slippage["basis"]): Slippage | null => {
     if (reference == null || fill == null) return null;
     // entry: paying more than the reference on a long is worse; exit: receiving less is worse
@@ -507,7 +527,8 @@ export function roundTripDetail(db: Db, instanceId: string, id: string): RoundTr
 
 function venueLegs(db: Db, instanceId: string, ticket: string): RoundTripLeg[] {
   const rows = statement(db, `SELECT d.deal_ticket dealTicket, d.order_ticket orderTicket, d.broker, d.symbol, d.side, d.entry, d.qty, d.price,
-      d.profit, d.commission, d.swap, d.fee, d.comment, d.ts
+      d.profit, d.commission, d.swap, d.fee, d.comment, d.ts, d.close_reason closeReason, d.realized_source realizedSource,
+      d.tick_size tickSize, d.value_per_point valuePerPoint
     FROM deals d WHERE d.instance_id=? AND d.position_ticket=? AND d.canonical=1 ORDER BY d.ts, d.rowid`).all(instanceId, ticket) as Omit<RoundTripLeg, "net">[];
   return rows.map((l) => ({ ...l, net: (l.profit ?? 0) + (l.commission ?? 0) + (l.swap ?? 0) + (l.fee ?? 0) }));
 }
@@ -544,7 +565,7 @@ function engineEvents(db: Db, instanceId: string, trip: TripRow, ids: Set<string
   }
   const mine = ({ e, p }: { e: EventRow; p: Record<string, unknown> }) =>
     ids.has(String(p.orderId)) || ids.has(String(order(p).orderId)) || ids.has(String(obj(order(p).entry).orderId))
-    || (ticket != null && (p.brokerOrderId === ticket || p.ticket === ticket || p.closesTicket === ticket))
+    || (ticket != null && (p.positionId === ticket || p.nextPositionId === ticket || p.brokerOrderId === ticket || p.ticket === ticket || p.closesTicket === ticket))
     || (e.type.startsWith("decision.") && decisions.has(String(p.decisionId)));
   return all.filter(mine).map(({ e }) => e).sort((a, b) => a.ts - b.ts || a.seq - b.seq);
 }
@@ -605,7 +626,10 @@ function timeline(trip: TripRow, legs: RoundTripLeg[], events: Array<Omit<EventR
         steps.push({ ts: e.ts, kind: "bot", title: "Cancelled by hand (qkt bot cancel)", detail: null, source: "engine" });
         break;
       case "order.filled": case "order.partially_filled": {
-        const reason = { STOP: "stop", STOP_LOSS: "stop", TAKE_PROFIT: "target", CLOSE: "close order" }[String(p.exitReason)] ?? null;
+        const reason = {
+          STOP: "stop", STOP_LOSS: "stop", TAKE_PROFIT: "target", CLOSE: "close order", SIGNAL: "signal", TIMED: "timed hold", MANUAL: "hand",
+          STOP_OUT: "stop-out", LIQUIDATION: "liquidation", EXPIRY: "expiry",
+        }[String(p.closeReason ?? p.exitReason)] ?? null;
         steps.push({ ts: e.ts, kind: "fill", title: `${e.type === "order.partially_filled" ? "Partly filled" : "Filled"} ${lot(p.qty)} @ ${px(p.price)}`, detail: reason ? `exit by ${reason}` : null, source: "engine" });
         break;
       }

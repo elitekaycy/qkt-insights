@@ -381,6 +381,10 @@ export interface LiveAccount {
   login?: string;
   server?: string;
   name?: string;
+  /** The venue account (`mt5:<login>@<server>`, `vgp:<adapter>:<login>`), as the collector resolved it. */
+  accountId?: string;
+  connector?: string;
+  adapter?: string;
   lastSeen: number;
   stale: boolean;
 }

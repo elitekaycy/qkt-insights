@@ -1,6 +1,7 @@
 import type { Db } from "./db.js";
 import { statement } from "./statements.js";
 import { cumulativeRounding, instanceMoneyDigits } from "./money.js";
+import { LEDGER_COVERED } from "./roundTrips.js";
 
 /** Closing legs of a position: the deal entries that take volume off it. */
 export const OUT_LEGS = "('OUT','INOUT','OUT_BY')";
@@ -126,7 +127,7 @@ export function recomputeTicket(db: Db, instanceId: string, dealTicket: string):
 
 /**
  * The next `limit` position keys after `after` in (instance, position ticket) order, then the legs
- * without a position ticket, then the engine closes ("l:<id>") of instances without deals: the units
+ * without a position ticket, then the engine closes ("l:<id>") no deal stands for: the units
  * a rebuild works through in batches. Seeks the position index, so each batch costs O(log n + limit).
  */
 export function positionKeysAfter(db: Db, after: { instanceId: string; key: string } | null, limit: number): Array<{ instanceId: string; key: string }> {
@@ -152,7 +153,7 @@ export function positionKeysAfter(db: Db, after: { instanceId: string; key: stri
   const from = stage === "l" ? { instanceId: after!.instanceId, id: after!.key.slice(2) } : { instanceId: "", id: "" };
   const rows = statement(db,
     `SELECT c.instance_id instanceId, c.id FROM trade_closes c
-     WHERE (c.instance_id, c.id) > (?, ?) AND NOT EXISTS (SELECT 1 FROM deals d INDEXED BY idx_deals_order WHERE d.instance_id=c.instance_id)
+     WHERE (c.instance_id, c.id) > (?, ?) AND NOT ${LEDGER_COVERED("c")}
      ORDER BY c.instance_id, c.id LIMIT ?`,
   ).all(from.instanceId, from.id, limit - out.length) as Array<{ instanceId: string; id: string }>;
   for (const r of rows) out.push({ instanceId: r.instanceId, key: `l:${r.id}` });
@@ -175,9 +176,10 @@ export function takeNewDeals(db: Db): void {
        SELECT 1 FROM deals d WHERE d.instance_id=deals.instance_id AND d.deal_ticket=deals.deal_ticket AND d.rowid<deals.rowid)
      WHERE rowid > ?`,
   ).run(wm);
-  // An instance's first deals make its venue positions its round trips, in place of its engine closes.
+  // A strategy's or a broker's first deals make its venue positions its round trips, in place of its engine closes.
   statement(db,
-    "DELETE FROM round_trips WHERE source='ledger' AND instance_id IN (SELECT DISTINCT instance_id FROM deals WHERE rowid > ?)",
+    `DELETE FROM round_trips WHERE source='ledger' AND EXISTS (SELECT 1 FROM deals n WHERE n.rowid > ? AND n.instance_id=round_trips.instance_id
+       AND (n.strategy_id=round_trips.strategy_id OR n.broker=upper(substr(round_trips.symbol, 1, instr(round_trips.symbol, ':') - 1))))`,
   ).run(wm);
   statement(db,
     `INSERT INTO projection_dirty (kind, instance_id, key)

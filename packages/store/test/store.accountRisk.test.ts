@@ -139,13 +139,24 @@ describe("monthBases", () => {
 });
 
 describe("account identity in the rollup", () => {
-  it("records login@server so relabels of one account stitch", async () => {
+  it("records the account id (inferred from login@server when not stated) so relabels of one account stitch", async () => {
     const { LiveStateStore } = await import("../src/index.js");
     const db = openDb(":memory:");
     const live = new LiveStateStore();
     live.upsert(I, { v: 1, instanceId: I, id: "a1", seq: 1, ts: T0, type: "state.account",
       payload: { broker: "BRK_S01", currency: "USD", balance: 1000, equity: 990, login: "42", server: "Demo-1" } } as never);
     live.flushRollup(db, T0 + 1000);
-    expect(db.prepare("SELECT broker, account FROM account_equity").all()).toEqual([{ broker: "BRK", account: "42@Demo-1" }]);
+    expect(db.prepare("SELECT broker, account FROM account_equity").all()).toEqual([{ broker: "BRK", account: "mt5:42@Demo-1" }]);
+  });
+
+  it("records a stated account id and label as they are", async () => {
+    const { LiveStateStore } = await import("../src/index.js");
+    const db = openDb(":memory:");
+    const live = new LiveStateStore();
+    live.upsert(I, { v: 1, instanceId: I, id: "a1", seq: 1, ts: T0, type: "state.account",
+      payload: { broker: "PAPER_DERIBIT", currency: "USDC", balance: 1000, equity: 990, login: "paper",
+        venue: { connector: "vgp", adapter: "paper", label: "PAPER_DERIBIT" }, accountId: "vgp:paper:paper" } } as never);
+    live.flushRollup(db, T0 + 1000);
+    expect(db.prepare("SELECT broker, account FROM account_equity").all()).toEqual([{ broker: "PAPER_DERIBIT", account: "vgp:paper:paper" }]);
   });
 });

@@ -11,21 +11,27 @@ function replaceOrAppend<T>(list: T[], match: (x: T) => boolean, next: T): T[] {
   return out;
 }
 
-function accountKey(instanceId: string, account: Pick<LiveAccount, "broker" | "login" | "server">): string {
+function accountKey(instanceId: string, account: Pick<LiveAccount, "broker" | "login" | "server" | "accountId">): string {
   if (account.login && account.server) return JSON.stringify([instanceId, account.server, account.login]);
+  if (account.accountId) return JSON.stringify([instanceId, account.accountId]);
   return JSON.stringify([instanceId, account.broker]);
 }
 
-function displayBroker(broker: string): string {
-  return broker.replace(/_S\d+$/u, "");
+/** The label an account is shown under: the config entry qkt named, else the label without its profile suffix. */
+function displayBroker(p: { broker: string; venue?: { label?: string | null } }): string {
+  return p.venue?.label ?? p.broker.replace(/_S\d+$/u, "");
 }
 
 /** Folds pushed account state into the cached snapshot so values tick instantly. */
 function applyEnvelope(prev: LiveStateSnapshot | undefined, e: LiveEnvelope): LiveStateSnapshot {
   const snap = prev ?? { accounts: [], positions: [], orders: [] };
-  const p = e.payload as unknown as Omit<LiveAccount, "instanceId" | "lastSeen" | "stale">;
-  const next: LiveAccount = { ...p, broker: displayBroker(p.broker), instanceId: e.instanceId, lastSeen: e.ts, stale: false };
-  return { ...snap, accounts: replaceOrAppend(snap.accounts, (a) => accountKey(a.instanceId, a) === accountKey(e.instanceId, next), next) };
+  const p = e.payload as unknown as Omit<LiveAccount, "instanceId" | "lastSeen" | "stale"> & { venue?: { label?: string | null } };
+  const { venue: _venue, ...fields } = p;
+  const next: LiveAccount = { ...fields, broker: displayBroker(p), instanceId: e.instanceId, lastSeen: e.ts, stale: false };
+  const same = (a: LiveAccount) => accountKey(a.instanceId, a) === accountKey(e.instanceId, next);
+  // The collector resolves an account id for an envelope that states none; keep it.
+  next.accountId ??= snap.accounts.find(same)?.accountId;
+  return { ...snap, accounts: replaceOrAppend(snap.accounts, same, next) };
 }
 
 /**

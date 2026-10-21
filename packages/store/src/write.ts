@@ -5,6 +5,7 @@ import { bumpEpoch, bumpMarks, bumpStrategy } from "./versions.js";
 import { OUTAGE_AFTER_MS } from "./monitors.js";
 import { setInstanceCurrency } from "./money.js";
 import { isLiveStateType, type Envelope, type QuarantinedEnvelope } from "@qkt-insights/contract";
+import { strategyFromDealComment } from "./inferredVenueFacts.js";
 
 /** A flat position still records one valuation this often so its holding period is visible. */
 /** A flat position is still re-marked this often, so a stored mark proves it was held. */
@@ -255,13 +256,14 @@ export function ingestEnvelopes(db: Db, instanceId: string, events: Envelope[], 
   );
   const insLogFts = statement(db, "INSERT INTO logs_fts (text, instance_id, log_rowid) VALUES (?,?,?)");
   const insClose = statement(db,
-    "INSERT OR IGNORE INTO trade_closes (id, instance_id, strategy_id, symbol, side, qty, price, realized, entry_ts, ts, order_id) VALUES (?,?,?,?,?,?,?,?,?,?,?)",
+    "INSERT OR IGNORE INTO trade_closes (id, instance_id, strategy_id, symbol, side, qty, price, realized, entry_ts, ts, order_id, close_reason) VALUES (?,?,?,?,?,?,?,?,?,?,?,?)",
   );
   const insDeal = statement(db,
     `INSERT OR IGNORE INTO deals
        (id, instance_id, broker, deal_ticket, position_ticket, order_ticket, symbol, side, entry,
-        qty, price, profit, commission, swap, fee, magic, comment, strategy_id, ts)
-     VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)`,
+        qty, price, profit, commission, swap, fee, magic, comment, strategy_id, ts,
+        account_id, close_reason, realized_source, attribution, next_position_ticket, tick_size, value_per_point)
+     VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)`,
   );
 
   const tx = db.transaction((evs: Envelope[]): IngestOutcome => {
@@ -295,17 +297,22 @@ export function ingestEnvelopes(db: Db, instanceId: string, events: Envelope[], 
       // no events row, no FTS row, idempotent by deterministic id.
       if (e.type === "broker.deal") {
         const p = e.payload;
-        const strategyId = p.strategyId ?? resolveDealStrategy(db, instanceId, p.dealTicket, p.positionTicket ?? null, p.comment ?? null);
+        // qkt names the position and the leg (positionId, legEntry); older releases only MT5's ticket and entry.
+        const position = p.positionId ?? p.positionTicket ?? null;
+        const strategyId = p.strategyId ?? resolveDealStrategy(db, instanceId, p.dealTicket, position, p.comment ?? null, p.attribution == null);
         if (!isDealLocalToInstance(db, instanceId, strategyId)) continue;
-        const info = insDeal.run(e.id, instanceId, p.broker, p.dealTicket, p.positionTicket ?? null, p.orderTicket ?? null,
-          p.symbol ?? null, p.side ?? null, p.entry ?? null, p.qty, p.price, p.profit, p.commission ?? null,
-          p.swap ?? null, p.fee ?? null, p.magic ?? null, p.comment ?? null, strategyId, p.ts);
+        const costs = dealCosts(p);
+        const info = insDeal.run(e.id, instanceId, p.broker, p.dealTicket, position, p.orderTicket ?? null,
+          p.symbol ?? null, p.side ?? null, p.legEntry ?? p.entry ?? null, p.qty, p.price, p.profit, costs.commission,
+          costs.swap, costs.fee, p.magic ?? null, p.comment ?? null, strategyId, p.ts,
+          p.accountId ?? null, p.closeReason ?? null, p.realizedSource ?? null, p.attribution ?? null, p.nextPositionId ?? null,
+          p.instrument?.tickSize ?? null, p.instrument?.valuePerPoint ?? null);
         if (info.changes === 0) {
           duplicate();
           // Re-ingested deal (the 30d backfill re-runs on every restart). If it
           // first stored unattributed but now resolves — its strategies row
           // appeared, or a sibling got attributed — fill the NULL instead of skipping.
-          if (strategyId && adoptUnattributed(db, instanceId, strategyId, p.dealTicket, p.positionTicket ?? null) > 0)
+          if (strategyId && adoptUnattributed(db, instanceId, strategyId, p.dealTicket, position) > 0)
             bumpStrategy(db, instanceId, strategyId);
           continue;
         }
@@ -313,7 +320,7 @@ export function ingestEnvelopes(db: Db, instanceId: string, events: Envelope[], 
         upInstance.run({ id: instanceId, ts: e.ts, seq: e.seq , heardAt });
         if (strategyId) {
           upStrategy.run({ i: instanceId, s: strategyId, ts: e.ts });
-          adoptUnattributed(db, instanceId, strategyId, p.dealTicket, p.positionTicket ?? null);
+          adoptUnattributed(db, instanceId, strategyId, p.dealTicket, position);
         }
         bumpStrategy(db, instanceId, strategyId);
         continue;
@@ -362,7 +369,8 @@ export function ingestEnvelopes(db: Db, instanceId: string, events: Envelope[], 
       accepted++;
       if (e.type === "trade.closed") {
         const p = e.payload;
-        insClose.run(e.id, instanceId, e.strategyId ?? null, p.symbol, p.side, p.qty, p.price, p.realized, p.entryTs ?? null, p.ts, p.orderId);
+        insClose.run(e.id, instanceId, e.strategyId ?? null, p.symbol, p.side, p.qty, p.price, p.realized, p.entryTs ?? null, p.ts, p.orderId,
+          p.closeReason ?? null);
       }
       insFts.run(ftsText(e), instanceId, info.lastInsertRowid as number);
       upInstance.run({ id: instanceId, ts: e.ts, seq: e.seq , heardAt });
@@ -442,13 +450,29 @@ function adoptUnattributed(db: Db, instanceId: string, strategyId: string, dealT
   return changes;
 }
 
-// MT5 overwrites the close-leg comment when SL/TP fires (e.g. "[tp 4332.689]"),
-// so a venue-closed deal can never name its strategy itself. Two recoveries, in
-// order of trust: any attributed sibling of the same position (the IN leg keeps
-// the original comment-derived attribution), else a "dsl-<strategy>" comment
-// prefix-matched against the instance's known strategies — both directions,
-// because MT5 truncates comments to 31 chars; only a unique match wins.
-function resolveDealStrategy(db: Db, instanceId: string, dealTicket: string, positionTicket: string | null, comment: string | null): string | null {
+/** Where a deal's costs go: commission, swap (and funding, borrow) or fee (everything else). */
+const COST_COLUMN: Record<string, "commission" | "swap"> = { COMMISSION: "commission", SWAP: "swap", FUNDING: "swap", BORROW: "swap" };
+
+/**
+ * A deal's commission, swap and fee, negative when paid. A deal that sends typed `costs` (amount
+ * positive when paid) is charged those alone: qkt then repeats them in the scalars, and adding both
+ * would count them twice. Profit stays gross either way.
+ */
+function dealCosts(p: { costs?: Array<{ kind: string; amount: number }>; commission?: number; swap?: number; fee?: number }):
+  { commission: number | null; swap: number | null; fee: number | null } {
+  if (!Array.isArray(p.costs)) return { commission: p.commission ?? null, swap: p.swap ?? null, fee: p.fee ?? null };
+  const out = { commission: 0, swap: 0, fee: 0 };
+  for (const c of p.costs) out[COST_COLUMN[c.kind.toUpperCase()] ?? "fee"] -= c.amount;
+  return out;
+}
+
+// A venue-closed deal often cannot name its strategy itself (MT5 overwrites the close-leg
+// comment when SL/TP fires, e.g. "[tp 4332.689]"; a close fetched after a restart has no owner
+// in qkt's map). The first recovery is any attributed sibling of the same deal ticket or
+// position: the IN leg keeps its attribution. A deal that states no `attribution` (an older qkt)
+// also gets the MT5 comment inference.
+function resolveDealStrategy(db: Db, instanceId: string, dealTicket: string, positionTicket: string | null, comment: string | null,
+  inferFromComment: boolean): string | null {
   const copy = statement(db,
     "SELECT strategy_id s FROM deals WHERE instance_id=? AND deal_ticket=? AND strategy_id IS NOT NULL ORDER BY rowid LIMIT 1",
   ).get(instanceId, dealTicket) as { s: string } | undefined;
@@ -459,26 +483,22 @@ function resolveDealStrategy(db: Db, instanceId: string, dealTicket: string, pos
     ).get(instanceId, positionTicket) as { s: string } | undefined;
     if (hit) return hit.s;
   }
-  if (comment != null && comment.startsWith("dsl-") && comment.length > 4) {
-    const tag = comment.slice(4);
-    const matches = (statement(db, "SELECT strategy_id s FROM strategies WHERE instance_id=?").all(instanceId) as { s: string }[])
-      .map((r) => r.s)
-      .filter((s) => s.startsWith(tag) || tag.startsWith(s));
-    if (matches.length === 1) return matches[0]!;
-  }
-  return null;
+  return inferFromComment ? strategyFromDealComment(db, instanceId, comment) : null;
 }
 
 /**
  * Re-marks the round trips an engine event explains once their deals are stored: a close order
- * for a ticket and a `qkt bot close` of it (how the position ended), and an order fill or
- * acceptance naming a broker ticket (the opening order whose bracket the round trip reads).
+ * for a ticket and a `qkt bot close` of it (how the position ended), a fill naming its position
+ * (`positionId`: the entry whose bracket and risk the round trip reads), and an order fill or
+ * acceptance naming a broker ticket (the opening order, for an engine that names no position).
  * Most order events name none of these and cost nothing here.
  */
 function markRoundTrips(db: Db, instanceId: string, e: Envelope): void {
-  const p = e.payload as { ticket?: unknown; closesTicket?: unknown; brokerOrderId?: unknown };
-  const position = e.type === "bot.close" ? p.ticket : e.type === "order.submit" ? p.closesTicket : null;
-  const order = e.type === "order.filled" || e.type === "order.accepted" || e.type === "order.partially_filled" ? p.brokerOrderId : null;
+  const p = e.payload as { ticket?: unknown; closesTicket?: unknown; brokerOrderId?: unknown; positionId?: unknown };
+  const filled = e.type === "order.filled" || e.type === "order.partially_filled";
+  // A fill that names its position is the position's entry (its bracket and risk) or one of its closes.
+  const position = e.type === "bot.close" ? p.ticket : e.type === "order.submit" ? p.closesTicket : filled ? p.positionId : null;
+  const order = filled || e.type === "order.accepted" ? p.brokerOrderId : null;
   if (typeof position === "string") {
     statement(db,
       `INSERT INTO projection_dirty (kind, instance_id, key) SELECT 'position', @i, 'p:' || @t

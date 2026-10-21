@@ -12,7 +12,8 @@ describe("parseAccountLimits", () => {
       "777@Demo-Server": { basis: "static", startBalance: 50000, dailyLossPct: 5, maxDrawdownPct: 10, dailyResetHour: 0, timezone: "Europe/Athens", dailyLossIncludesFloating: true },
       "*": { maxDrawdown: 3000 },
     }));
-    expect(limits["777@Demo-Server"]).toMatchObject({ basis: "static", startBalance: 50000, timezone: "Europe/Athens", dailyLossIncludesFloating: true });
+    // a bare MT5 login@server names the account qkt reports as mt5:login@server
+    expect(limits["mt5:777@Demo-Server"]).toMatchObject({ basis: "static", startBalance: 50000, timezone: "Europe/Athens", dailyLossIncludesFloating: true });
     expect(limits["*"]).toEqual({ maxDrawdown: 3000 });
   });
 

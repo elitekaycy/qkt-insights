@@ -28,7 +28,7 @@ export interface Projection {
 
 export const PROJECTIONS: Record<string, Projection> = {
   closed_trades: {
-    version: 5,
+    version: 6,
     clear: clearClosedTrades,
     step: (db, cursor, batch) => {
       const after = cursor == null ? null : (JSON.parse(cursor) as { instanceId: string; key: string });
@@ -62,7 +62,7 @@ export const PROJECTIONS: Record<string, Projection> = {
 };
 
 PROJECTIONS.account_drawdown = {
-  version: 1,
+  version: 2,
   clear: clearAccountProjection,
   step: (db, cursor) => accountRebuildStep(db, cursor),
 };

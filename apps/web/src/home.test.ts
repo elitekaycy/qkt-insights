@@ -51,10 +51,10 @@ describe("limitUse", () => {
 });
 
 describe("riskRowFor", () => {
-  it("prefers the login@server identity over the label", () => {
-    const rows = [riskRow({ account: "2@srv", label: "BRK" }), riskRow({ account: "1@srv", label: "OLD" })];
-    expect(riskRowFor({ broker: "BRK", login: "1", server: "srv" }, rows)!.account).toBe("1@srv");
-    expect(riskRowFor({ broker: "BRK" }, rows)!.account).toBe("2@srv");
+  it("prefers the account id over the label", () => {
+    const rows = [riskRow({ account: "mt5:2@srv", label: "BRK" }), riskRow({ account: "mt5:1@srv", label: "OLD" })];
+    expect(riskRowFor({ broker: "BRK", accountId: "mt5:1@srv" }, rows)!.account).toBe("mt5:1@srv");
+    expect(riskRowFor({ broker: "BRK" }, rows)!.account).toBe("mt5:2@srv");
   });
 });
 

@@ -32,8 +32,10 @@ export interface RoundTrip {
   ended: "stop" | "tp" | "signal" | "venue" | "manual" | null;
   legs: number;
   entryOrderId: string | null;
-  /** "deal": a venue position; "ledger": one engine close of an instance without broker deals (paper). */
+  /** "deal": a venue position; "ledger": one engine close no broker deal stands for (paper). */
   source: "deal" | "ledger";
+  /** Why the position closed, as qkt stated it (STOP, TAKE_PROFIT, SIGNAL, MANUAL, TIMED, STOP_OUT, ...); null when not stated. */
+  closeReason?: string | null;
   /** Decimals the venue quotes this instrument with. */
   priceDigits: number;
 }

@@ -66,7 +66,7 @@ export default function Equity({ instanceId }: { instanceId: string | null }) {
     .filter((s) => s.points.length > 0);
 
   // One chart per venue account: the server stitches the labels one account reported under
-  // (login@server, else labels that take turns). EquityChart wants EquityPoint; realized/unrealized
+  // (by account id, else labels that take turns). EquityChart wants EquityPoint; realized/unrealized
   // are unused by the chart.
   const accountByBrokerMinute = new Map<string, Map<number, EquityPoint>>();
   // the label each account reported under last, for the heading when there are several
@@ -239,8 +239,8 @@ export default function Equity({ instanceId }: { instanceId: string | null }) {
   );
 }
 
-/** "ICMARKETS · #•••4821" for an identified account ("login@server"), else its label. */
+/** "ICMARKETS · #•••4821" for an account identified by login ("mt5:login@server"), else its label. */
 function accountHeading(key: string, label: string): string {
   const at = key.lastIndexOf("@");
-  return at > 0 ? `${label} · #${maskLogin(key.slice(0, at))}` : label;
+  return at > 0 ? `${label} · #${maskLogin(key.slice(key.indexOf(":") + 1, at))}` : label;
 }
