@@ -1,19 +1,19 @@
 import type { ReactNode } from "react";
-import type { ClosedTradeRow, DayNet, ExecutionQuality, ExcursionStats, HealthRow, NormalizedPerformance, PerformanceReport } from "../api";
-import { compact, duration, money, num } from "../format";
+import type { ClosedTradeRow, DayNet, ExcursionStats, PerformanceReport } from "../api";
+import { compact, duration, money } from "../format";
 import { ChartCard } from "./ChartCard";
 import { chartColors, EChart, qktChartAxis, qktChartGrid, qktChartTooltip, qktInsideZoom, type QktChartOption } from "./EChart";
 import { ComparisonChart, type ComparisonSeries } from "./EquityChart";
-import { Card, LiveDot } from "./ui";
+import { Card } from "./ui";
 
-export type DashboardWidgetId = "pnl" | "outcomes" | "risk" | "behavior" | "direction" | "equity" | "normalized" | "excursions" | "execution" | "review" | "system";
+export type DashboardWidgetId = "pnl" | "outcomes" | "risk" | "behavior" | "direction" | "equity" | "excursions";
 type WidgetSize = "medium" | "large";
 interface Placement { id: DashboardWidgetId; size: WidgetSize }
 
 // Full-width charts anchor the view; the metric tiles then run as one uniform
 // band so like sits next to like instead of a pie beside progress bars beside
 // number cells. Order: headline P&L and equity charts, the excursion scatter,
-// then every metric tile, then the operational review and system panels.
+// then every metric tile.
 const DEFAULT_LAYOUT: Placement[] = [
   { id: "pnl", size: "large" },
   { id: "equity", size: "large" },
@@ -22,10 +22,6 @@ const DEFAULT_LAYOUT: Placement[] = [
   { id: "direction", size: "medium" },
   { id: "risk", size: "medium" },
   { id: "behavior", size: "medium" },
-  { id: "normalized", size: "medium" },
-  { id: "execution", size: "medium" },
-  { id: "review", size: "medium" },
-  { id: "system", size: "medium" },
 ];
 const SIZE_CLASS: Record<WidgetSize, string> = {
   medium: "md:col-span-6 xl:col-span-6",
@@ -37,9 +33,7 @@ export interface OverviewDashboardData {
   dailyNets: DayNet[];
   closes: ClosedTradeRow[];
   reports: PerformanceReport[];
-  normalized: NormalizedPerformance[];
   excursions: ExcursionStats[];
-  execution: ExecutionQuality[];
   series: ComparisonSeries[];
   accountEquity: number | null;
   accountBalance: number | null;
@@ -47,9 +41,6 @@ export interface OverviewDashboardData {
   totalAllocated: number;
   dailyLossCap: number | null;
   drawdownCap: number | null;
-  health: HealthRow | null;
-  recentStateEvents: number;
-  strategies: number;
 }
 
 export function OverviewDashboard({ data }: { data: OverviewDashboardData }) {
@@ -78,11 +69,7 @@ function Widget({ id, data }: { id: DashboardWidgetId; data: OverviewDashboardDa
   if (id === "behavior") return <BehaviorWidget closes={data.closes} reports={data.reports} />;
   if (id === "direction") return <DirectionWidget closes={data.closes} />;
   if (id === "equity") return <EquityWidget data={data} />;
-  if (id === "normalized") return <NormalizedWidget rows={data.normalized} closes={data.closes} />;
-  if (id === "excursions") return <ExcursionWidget rows={data.excursions} />;
-  if (id === "execution") return <ExecutionWidget rows={data.execution} />;
-  if (id === "review") return <ReviewWidget data={data} />;
-  return <SystemWidget data={data} />;
+  return <ExcursionWidget rows={data.excursions} />;
 }
 
 function PnlWidget({ data }: { data: OverviewDashboardData }) {
@@ -221,27 +208,6 @@ function EquityWidget({ data }: { data: OverviewDashboardData }) {
   );
 }
 
-function NormalizedWidget({ rows, closes }: { rows: NormalizedPerformance[]; closes: ClosedTradeRow[] }) {
-  const trades = rows.reduce((a, x) => a + x.trades, 0);
-  const qty = rows.reduce((a, x) => a + x.totalQty, 0);
-  const comparableQuantity = new Set(closes.map((x) => x.symbol)).size <= 1;
-  const netPerUnit = comparableQuantity && qty > 0 ? rows.reduce((a, x) => a + (x.netPerUnit ?? 0) * x.totalQty, 0) / qty : null;
-  const rrN = rows.reduce((a, x) => a + x.plannedRiskRewardSample, 0);
-  const rr = rrN > 0 ? rows.reduce((a, x) => a + (x.averagePlannedRiskReward ?? 0) * x.plannedRiskRewardSample, 0) / rrN : null;
-  return (
-    <Card className="h-full overflow-hidden">
-      <WidgetHeader title="Size-normalized performance" description="Net per quantity is shown only when every close uses the same instrument unit." />
-      <div className="grid grid-cols-2 gap-px bg-line/70">
-        <Metric label="Net per unit" value={netPerUnit == null ? "—" : money(netPerUnit)} tone={netPerUnit == null ? undefined : netPerUnit >= 0 ? "up" : "down"} />
-        <Metric label="Average quantity" value={trades > 0 && comparableQuantity ? num(qty / trades) : comparableQuantity ? "—" : "mixed units"} />
-        <Metric label="Total quantity" value={trades > 0 && comparableQuantity ? num(qty) : comparableQuantity ? "—" : "mixed units"} />
-        <Metric label="Planned reward/risk" value={rr == null ? "—" : `${rr.toFixed(2)}R`} />
-      </div>
-      <div className="border-t border-line/70 px-5 py-3 text-[11px] text-faint">Closed-trade sample n={trades} · planned-risk sample n={rrN}{!comparableQuantity ? " · quantity aggregation withheld across instruments" : ""}</div>
-    </Card>
-  );
-}
-
 function ExcursionWidget({ rows }: { rows: ExcursionStats[] }) {
   const samples = rows.flatMap((x) => x.rows);
   const closed = rows.reduce((a, x) => a + x.closedTrades, 0);
@@ -268,71 +234,6 @@ function ExcursionWidget({ rows }: { rows: ExcursionStats[] }) {
     <ChartCard title="Trade excursion" description="Maximum adverse versus favorable movement before exit; sampled from stored position valuations." meta={`coverage ${closed > 0 ? ((samples.length / closed) * 100).toFixed(1) : "0.0"}% · n=${samples.length}/${closed}`} value={averageCapture == null ? "—" : `${averageCapture.toFixed(1)}% captured`}>
       {samples.length > 0 ? <div className="p-3 sm:p-4"><EChart option={option} height={310} /></div> : <WidgetEmpty>Position valuation samples will reveal MAE, MFE, and exit capture.</WidgetEmpty>}
     </ChartCard>
-  );
-}
-
-function ExecutionWidget({ rows }: { rows: ExecutionQuality[] }) {
-  const submitted = rows.reduce((a, x) => a + x.submitted, 0);
-  const accepted = rows.reduce((a, x) => a + x.accepted, 0);
-  const rejected = rows.reduce((a, x) => a + x.rejected, 0);
-  const acceptMs = accepted > 0 ? rows.reduce((a, x) => a + (x.averageAcceptMs ?? 0) * x.accepted, 0) / accepted : null;
-  const p95s = rows.map((x) => x.p95FillMs).filter((x): x is number => x != null);
-  const slipN = rows.reduce((a, x) => a + x.slippageSample, 0);
-  const slippage = slipN > 0 ? rows.reduce((a, x) => a + (x.averageAdverseSlippage ?? 0) * x.slippageSample, 0) / slipN : null;
-  return (
-    <Card className="h-full overflow-hidden">
-      <WidgetHeader title="Execution quality" description="Order acceptance, fill latency, rejection, and adverse price slippage." />
-      <div className="grid grid-cols-2 gap-px bg-line/70">
-        <Metric label="Rejection rate" value={submitted > 0 ? `${((rejected / submitted) * 100).toFixed(1)}%` : "—"} tone={rejected > 0 ? "down" : undefined} />
-        <Metric label="Average accept" value={acceptMs == null ? "—" : duration(acceptMs)} />
-        <Metric label="Worst strategy p95 fill" value={p95s.length > 0 ? duration(Math.max(...p95s)) : "—"} />
-        <Metric label="Adverse slippage" value={slippage == null ? "—" : num(slippage)} tone={slippage != null && slippage > 0 ? "down" : undefined} />
-      </div>
-      <div className="border-t border-line/70 px-5 py-3 text-[11px] text-faint">Submitted n={submitted} · slippage sample n={slipN}</div>
-    </Card>
-  );
-}
-
-function ReviewWidget({ data }: { data: OverviewDashboardData }) {
-  const closed = data.closes.length;
-  const total = data.closes.reduce((a, x) => a + x.realized, 0);
-  const excursionRows = data.excursions.flatMap((x) => x.rows);
-  const capture = excursionRows.filter((x) => x.capturePct != null);
-  const averageCapture = capture.length > 0 ? capture.reduce((a, x) => a + x.capturePct!, 0) / capture.length : null;
-  const submitted = data.execution.reduce((a, x) => a + x.submitted, 0);
-  const rejected = data.execution.reduce((a, x) => a + x.rejected, 0);
-  const notes: string[] = [];
-  if (closed < 20) notes.push(`Treat performance as early evidence: only ${closed} closed trades are available.`);
-  if (averageCapture != null && averageCapture < 40) notes.push(`Exit capture averages ${averageCapture.toFixed(1)}%; review profit-taking and giveback.`);
-  if (submitted > 0 && rejected / submitted >= 0.05) notes.push(`${((rejected / submitted) * 100).toFixed(1)}% of submitted orders were rejected; inspect sizing and venue constraints.`);
-  if (total < 0) notes.push(`Realized P&L is ${money(total)}; compare the weakest symbols, directions, and holding periods.`);
-  if (notes.length === 0) notes.push("No immediate exception stands out. Continue monitoring sample size, execution, and risk consumption.");
-  return (
-    <Card className="h-full overflow-hidden">
-      <WidgetHeader title="Review focus" description="Deterministic prompts from the current evidence; not an AI verdict or trading advice." />
-      <ol className="grid gap-3 p-5">
-        {notes.slice(0, 4).map((note, index) => <li key={note} className="flex gap-3 text-sm leading-relaxed text-body"><span className="font-mono text-xs text-accent">0{index + 1}</span><span>{note}</span></li>)}
-      </ol>
-    </Card>
-  );
-}
-
-function SystemWidget({ data }: { data: OverviewDashboardData }) {
-  const fresh = data.health != null && Date.now() - data.health.lastSeen < 30_000;
-  const rows: Array<[string, ReactNode]> = [
-    ["Instance", <span className="flex items-center gap-2"><LiveDot on={fresh} />{fresh ? "live" : "idle"}</span>],
-    ["Broker state", data.recentStateEvents > 0 ? `${data.recentStateEvents} recent` : "waiting"],
-    ["Collector queue", data.health?.insightsQueued ?? "—"],
-    ["Delivery backlog", data.health?.insightsJournalPending ?? "—"],
-    ["Strategies", data.strategies],
-  ];
-  return (
-    <Card className="h-full overflow-hidden">
-      <WidgetHeader title="System health" description="Transport and collector state; operational, not performance data." />
-      <div className="grid gap-3 p-5 text-sm">
-        {rows.map(([label, value]) => <div key={label} className="flex items-center justify-between gap-4"><span className="text-muted">{label}</span><span className="font-mono text-bright">{value}</span></div>)}
-      </div>
-    </Card>
   );
 }
 

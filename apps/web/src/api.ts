@@ -295,9 +295,7 @@ export interface PerformanceBundle {
   rolling?: RollingPoint[];
   costs?: CostDecomposition | null;
   contribution?: ContributionRanking | null;
-  normalized?: NormalizedPerformance;
   excursions?: ExcursionStats | null;
-  execution?: ExecutionQuality;
 }
 export interface AccountDrawdownRow {
   broker: string; currentEquity: number | null; peakEquity: number | null;
@@ -454,14 +452,6 @@ export interface ContributionRanking {
   byDirection: ContributionRow[];
   totalNet: number;
 }
-export interface NormalizedPerformance {
-  trades: number;
-  totalQty: number;
-  netPerUnit: number | null;
-  averageQty: number | null;
-  averagePlannedRiskReward: number | null;
-  plannedRiskRewardSample: number;
-}
 export interface ExcursionRow {
   ticket: string;
   symbol: string;
@@ -483,18 +473,6 @@ export interface ExcursionStats {
   averageCapturePct: number | null;
   sampled: true;
 }
-export interface ExecutionQuality {
-  submitted: number;
-  accepted: number;
-  filled: number;
-  rejected: number;
-  rejectionRate: number | null;
-  averageAcceptMs: number | null;
-  p95FillMs: number | null;
-  averageAdverseSlippage: number | null;
-  slippageSample: number;
-}
-
 export type ShareKind = "overview" | "portfolio" | "strategy";
 export type ShareVisibility = "public" | "private";
 

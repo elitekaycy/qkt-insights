@@ -229,7 +229,7 @@ function snap(v: unknown, choices: number[], fallback: number): number {
   return choices.reduce((best, c) => (Math.abs(n - c) < Math.abs(n - best) ? c : best), choices[0]!);
 }
 
-const INCLUDABLE = new Set(["report", "dailyNets", "drawdownPeriods", "postLoss", "breakdowns", "closes", "dowHour", "rolling", "costs", "contribution", "normalized", "excursions"]);
+const INCLUDABLE = new Set(["report", "dailyNets", "drawdownPeriods", "postLoss", "breakdowns", "closes", "dowHour", "rolling", "costs", "contribution", "excursions"]);
 
 const NOT_FOUND = Symbol("not found");
 

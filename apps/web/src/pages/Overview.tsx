@@ -1,10 +1,10 @@
 import { useQueries, useQuery } from "@tanstack/react-query";
-import { get, type AccountDrawdownRow, type DayNet, type EquityPoint, type HealthRow, type PerformanceBundle, type StrategyRow } from "../api";
+import { get, type AccountDrawdownRow, type DayNet, type EquityPoint, type PerformanceBundle, type StrategyRow } from "../api";
 import { AccountSummary } from "../components/AccountSummary";
 import type { ComparisonSeries } from "../components/EquityChart";
 import { OverviewDashboard } from "../components/OverviewDashboard";
-import { Card, Cell, DataList, Empty, FlashValue, LiveDot, Loadable, PageHeader, Panel, Pill, SideTag, Stat } from "../components/ui";
-import { age, duration, money, num, price } from "../format";
+import { Card, Cell, DataList, FlashValue, LiveDot, Loadable, PageHeader, Panel, Pill, SideTag, Stat } from "../components/ui";
+import { duration, money, num, price } from "../format";
 import { strategyCapital, strategyDisplayName } from "../portfolio";
 import { useLiveState } from "../useLiveState";
 import { useLiveStream } from "../useLiveStream";
@@ -67,12 +67,6 @@ export default function Overview({
     enabled: !!instanceId,
     refetchInterval: 30_000,
   });
-  const health = useQuery({
-    queryKey: ["health"],
-    queryFn: () => get<HealthRow[]>("/health/instances"),
-    enabled: !view.public,
-    refetchInterval: 15_000,
-  });
 
   // Only the live deployed roster feeds the overview aggregates; ids left over from a
   // prior bench topology (active=false) are excluded from counts, curves, and allocation.
@@ -94,9 +88,16 @@ export default function Overview({
     queries: ids.map((id) => ({
       queryKey: ["perf-daily", instanceId, id],
       queryFn: () =>
-        get<Partial<PerformanceBundle>>(`/performance?instance=${encodeURIComponent(instanceId!)}&strategy=${encodeURIComponent(id)}&include=dailyNets,report,closes,normalized,excursions,execution,costs,contribution`),
+        get<Partial<PerformanceBundle>>(`/performance?instance=${encodeURIComponent(instanceId!)}&strategy=${encodeURIComponent(id)}&include=dailyNets,report,closes,excursions,costs,contribution`),
       refetchInterval: 60000,
     })),
+  });
+
+  const drawdown = useQuery({
+    queryKey: ["accountDrawdown", instanceId],
+    queryFn: () => get<AccountDrawdownRow[]>(`/account/drawdown?instance=${encodeURIComponent(instanceId!)}`),
+    enabled: instanceId != null,
+    refetchInterval: 60_000,
   });
 
   if (!instanceId) {
@@ -107,12 +108,6 @@ export default function Overview({
     );
   }
 
-  const drawdown = useQuery({
-    queryKey: ["accountDrawdown", instanceId],
-    queryFn: () => get<AccountDrawdownRow[]>(`/account/drawdown?instance=${encodeURIComponent(instanceId!)}`),
-    enabled: instanceId != null,
-    refetchInterval: 60_000,
-  });
   const accounts = (liveState.data?.accounts ?? []).filter((a) => a.instanceId === instanceId);
   const brokerPositions = (liveState.data?.positions ?? []).filter((p) => p.instanceId === instanceId);
   const nameByStrategy = new Map(rows.map((r) => [r.strategyId, strategyDisplayName(r)]));
@@ -127,9 +122,7 @@ export default function Overview({
   const reports = perf.flatMap((q) => q.data?.report ? [q.data.report] : []);
   const costs = perf.flatMap((q) => q.data?.costs ? [q.data.costs] : []);
   const contribution = perf.flatMap((q) => q.data?.contribution ? [q.data.contribution] : []);
-  const normalized = perf.flatMap((q) => q.data?.normalized ? [q.data.normalized] : []);
   const excursions = perf.flatMap((q) => q.data?.excursions ? [q.data.excursions] : []);
-  const execution = perf.flatMap((q) => q.data?.execution ? [q.data.execution] : []);
   const dailyLossCap = aggregateRiskCap(rows, ["maxDailyDrawdownPct", "maxDailyLossPct", "max_daily_drawdown_pct"]);
   const drawdownCap = aggregateRiskCap(rows, ["maxDrawdownPct", "max_drawdown_pct"]);
 
@@ -324,9 +317,7 @@ export default function Overview({
             dailyNets: combinedDaily,
             closes: combinedCloses,
             reports,
-            normalized,
             excursions,
-            execution,
             series,
             accountEquity,
             accountBalance,
@@ -334,41 +325,11 @@ export default function Overview({
             totalAllocated,
             dailyLossCap,
             drawdownCap,
-            health: health.data?.find((h) => h.instanceId === instanceId) ?? null,
-            recentStateEvents: live.length,
-            strategies: rows.length,
           }}
         />
       </Loadable>
 
 
-      {!view.public && (
-      <div className="mt-8">
-        <Panel stagger={6} title="Instances" hint="every qkt box the collector has heard from">
-          <Loadable loading={health.isPending} error={health.isError} retry={() => health.refetch()} what="instance health" lines={1}>
-          <div className="flex flex-wrap gap-3 p-4">
-            {(health.data ?? []).length === 0 && <Empty>No instances reporting yet</Empty>}
-            {(health.data ?? []).map((h) => {
-              const fresh = Date.now() - h.lastSeen < 30_000;
-              return (
-                <div
-                  key={h.instanceId}
-                  className="flex w-full flex-wrap items-center gap-x-3 gap-y-1 rounded-lg border border-line bg-raised px-4 py-2.5 sm:w-auto"
-                >
-                  <LiveDot on={fresh} />
-                  <span className="min-w-0 flex-1 truncate font-semibold text-bright sm:flex-none">{h.instanceId}</span>
-                  <span className="order-last basis-full text-xs text-muted sm:order-none sm:basis-auto">
-                    {age(h.lastSeen)} · <span className="font-mono text-faint">seq {h.lastSeq}</span>
-                  </span>
-                  <Pill tone={fresh ? "up" : "neutral"}>{fresh ? "live" : "idle"}</Pill>
-                </div>
-              );
-            })}
-          </div>
-          </Loadable>
-        </Panel>
-      </div>
-      )}
     </div>
   );
 }
