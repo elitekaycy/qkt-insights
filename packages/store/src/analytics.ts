@@ -3,6 +3,7 @@ import { OUT_LEGS } from "./closedTrades.js";
 import { refreshProjections } from "./projections.js";
 import { statement } from "./statements.js";
 import { dailyRows, strategyTotals, type DailyRow } from "./strategyDaily.js";
+import { excursionsOf } from "./excursions.js";
 
 export { OUT_LEGS };
 
@@ -1049,17 +1050,19 @@ export interface ExcursionStats {
 /**
  * Sampled MAE/MFE from the broker position poll. Values between polls are not
  * observed, so coverage and the sampled flag are part of the result contract.
+ * Each close's lowest and highest mark inside its held window (entry to this close; a ticket
+ * closed in parts is measured once per close) come from the position_excursions projection.
  */
 export function excursionStats(db: Db, f: AnalyticsFilter): ExcursionStats | null {
   if (!hasClosingDeals(db, f)) return null;
   const trades = dealClosedTrades(db, f);
-  const marks = heldMarks(db, f.instanceId, f.strategyId, trades);
+  const marks = excursionsOf(db, trades.map((t) => closeDealRowid.get(t)!));
   const rows: ExcursionRow[] = [];
-  for (const [i, trade] of trades.entries()) {
-    const m = marks.get(i);
-    if (!trade.orderId || m == null || m.n === 0) continue;
-    const mae = Math.min(m.lowest, 0);
-    const mfe = Math.max(m.highest, 0);
+  for (const trade of trades) {
+    const m = marks.get(closeDealRowid.get(trade)!);
+    if (!trade.orderId || m == null || m.marks === 0) continue;
+    const mae = Math.min(m.lowest ?? 0, 0);
+    const mfe = Math.max(m.highest ?? 0, 0);
     rows.push({
       ticket: trade.orderId,
       symbol: trade.symbol,
@@ -1069,7 +1072,7 @@ export function excursionStats(db: Db, f: AnalyticsFilter): ExcursionStats | nul
       mae,
       mfe,
       capturePct: mfe > 0 ? (trade.realized / mfe) * 100 : null,
-      observations: m.n,
+      observations: m.marks,
     });
   }
   if (rows.length === 0) return null;
@@ -1087,27 +1090,6 @@ export function excursionStats(db: Db, f: AnalyticsFilter): ExcursionStats | nul
     winnersWithCapture: captures.length,
     sampled: true,
   };
-}
-
-/**
- * Lowest and highest marked P&L, and the number of marks, of each trade's position inside its held
- * window (entry to this close), keyed by the trade's index. One query for every trade: a ticket
- * closed in parts is measured once per close, over that close's own window.
- */
-function heldMarks(db: Db, instanceId: string, strategyId: string, trades: DealClosedTrade[]): Map<number, { lowest: number; highest: number; n: number }> {
-  const windows = trades.flatMap((t, i) => (t.orderId && t.entryTs != null ? [[i, t.orderId, t.entryTs, t.ts]] : []));
-  if (windows.length === 0) return new Map();
-  const rows = db.prepare(
-    `WITH w(i, ticket, lo, hi) AS (
-       SELECT json_extract(value, '$[0]'), json_extract(value, '$[1]'), json_extract(value, '$[2]'), json_extract(value, '$[3]')
-       FROM json_each(@windows))
-     SELECT w.i i, MIN(v.profit) lowest, MAX(v.profit) highest, COUNT(v.profit) n
-     FROM w JOIN position_valuations v
-       ON v.instance_id=@instanceId AND v.ticket=w.ticket AND v.ts>=w.lo AND v.ts<=w.hi
-     WHERE v.strategy_id=@strategyId OR v.strategy_id IS NULL
-     GROUP BY w.i`,
-  ).all({ instanceId, strategyId, windows: JSON.stringify(windows) }) as Array<{ i: number; lowest: number | null; highest: number | null; n: number }>;
-  return new Map(rows.map((r) => [r.i, { lowest: r.lowest ?? 0, highest: r.highest ?? 0, n: r.n }]));
 }
 
 function walkPeriods(snaps: SnapRow[]): DrawdownPeriod[] {

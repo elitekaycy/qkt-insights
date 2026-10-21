@@ -1,6 +1,7 @@
 import type { Db } from "./db.js";
 import { statement } from "./statements.js";
 import { clearClosedTrades, positionKeysAfter, recomputePosition, recomputeTicket, type ClosedTradeKey } from "./closedTrades.js";
+import { clearExcursions, excursionsAfter, recomputeExcursions, recomputeTicketExcursions } from "./excursions.js";
 import { clearDaily, dailyKey, dailyUnitsAfter, recomputeDaily, recomputeDailyKeys, utcDay, type CloseSource } from "./strategyDaily.js";
 
 /**
@@ -30,7 +31,7 @@ export const PROJECTIONS: Record<string, Projection> = {
     step: (db, cursor, batch) => {
       const after = cursor == null ? null : (JSON.parse(cursor) as { instanceId: string; key: string });
       const keys = positionKeysAfter(db, after, batch);
-      for (const k of keys) changedCloses(db, k.instanceId, recomputePosition(db, k.instanceId, k.key));
+      for (const k of keys) positionChanged(db, k.instanceId, k.key);
       const last = keys[keys.length - 1];
       return keys.length < batch || last == null ? null : JSON.stringify(last);
     },
@@ -46,7 +47,24 @@ export const PROJECTIONS: Record<string, Projection> = {
       return units.length < batch || last == null ? null : JSON.stringify(last);
     },
   },
+  position_excursions: {
+    version: 1,
+    clear: clearExcursions,
+    step: (db, cursor, batch) => {
+      const rowids = excursionsAfter(db, cursor == null ? 0 : Number(cursor), batch);
+      recomputeExcursions(db, rowids);
+      const last = rowids[rowids.length - 1];
+      return rowids.length < batch || last == null ? null : String(last);
+    },
+  },
 };
+
+/** Recomputes one position's closes, then what is derived per close: its excursion and its strategy's days. */
+function positionChanged(db: Db, instanceId: string, key: string): void {
+  const change = recomputePosition(db, instanceId, key);
+  recomputeExcursions(db, [...new Set([...change.before, ...change.after].map((r) => r.dealRowid))]);
+  changedCloses(db, instanceId, change);
+}
 
 /**
  * Queues the strategy days whose closes one position recompute changed: for each close added,
@@ -67,8 +85,8 @@ function changedCloses(db: Db, instanceId: string, change: { before: ClosedTrade
 /** Rows drained per pass; a pass may queue more keys (a ticket marks its positions). */
 const DRAIN_BATCH = 500;
 
-/** Kinds drained in this order: a ticket marks positions, a position marks strategy days. */
-const DRAIN_ORDER = ["ticket", "position", "daily"] as const;
+/** Kinds drained in this order: a ticket marks positions, a position marks strategy days; marks are per ticket. */
+const DRAIN_ORDER = ["ticket", "position", "excursion", "daily"] as const;
 
 /** Brings every projection up to date with the writes recorded since the last call. Cheap when nothing changed. */
 export function refreshProjections(db: Db): void {
@@ -83,7 +101,8 @@ export function refreshProjections(db: Db): void {
         if (rows.length === 0) break;
         for (const r of rows) done.run(kind, r.instanceId, r.key);
         if (kind === "ticket") for (const r of rows) recomputeTicket(db, r.instanceId, r.key);
-        else if (kind === "position") for (const r of rows) changedCloses(db, r.instanceId, recomputePosition(db, r.instanceId, r.key));
+        else if (kind === "position") for (const r of rows) positionChanged(db, r.instanceId, r.key);
+        else if (kind === "excursion") for (const r of rows) recomputeTicketExcursions(db, r.instanceId, r.key);
         else recomputeDailyKeys(db, rows);
       }
     }
