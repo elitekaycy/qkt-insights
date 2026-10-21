@@ -6,6 +6,8 @@ import { closedTrades, hasClosingDeals, SNAPSHOT_EQUITY, strategyBase, strategyE
 // instance's newest bump. Comfortably exceeds the state-poll cadence (~30s) times the
 // number of sessions, so all of one daemon's sessions read as live between bumps.
 export const ROSTER_WINDOW_MS = 300_000;
+/** A strategy this far behind the instance's newest report is off the active roster. */
+export const RETIRED_AFTER_MS = 30 * 86_400_000;
 
 export interface InstanceRow { id: string; name: string | null; firstSeen: number; lastSeen: number; lastSeq: number; /** Collector clock; null only for rows older than the column. */ heardAt: number | null }
 export interface StrategyRow { strategyId: string; firstSeen: number; lastSeen: number; startingBalance: number | null; /** Operator-declared capital (STRATEGY_CAPITAL); wins over startingBalance as the strategy's base. */ definedCapital: number | null; metadata: Record<string, unknown> | null; realizedNet: number | null; dealCount: number; active: boolean }
@@ -57,10 +59,13 @@ function strategyRosterRows(db: Db, instanceId: string): Array<Omit<StrategyRow,
   // roster bump. An instance that has never reported a roster (older daemon) has no
   // roster rows, so every strategy stays active — the feature only ever hides ids a
   // live roster has superseded, and reshard leftovers age out once un-bumped.
+  // A strategy silent for RETIRED_AFTER_MS while a sibling still reports is retired: inactive,
+  // but kept with all of its money history (pruneStaleStrategies never deletes it).
   const rows = db.prepare(
     `SELECT s.strategy_id strategyId, s.first_seen firstSeen, s.last_seen lastSeen, s.starting_balance startingBalance, s.metadata,
        (SELECT c.capital FROM strategy_capital c WHERE c.strategy_id=s.strategy_id) definedCapital,
        CASE
+         WHEN s.last_seen < (SELECT MAX(s2.last_seen) FROM strategies s2 WHERE s2.instance_id=s.instance_id) - ? THEN 0
          WHEN NOT EXISTS (SELECT 1 FROM instance_roster ir WHERE ir.instance_id=s.instance_id) THEN 1
          WHEN EXISTS (
            SELECT 1 FROM instance_roster ir WHERE ir.instance_id=s.instance_id AND ir.strategy_id=s.strategy_id
@@ -69,7 +74,7 @@ function strategyRosterRows(db: Db, instanceId: string): Array<Omit<StrategyRow,
          ELSE 0
        END active
      FROM strategies s WHERE s.instance_id=? ORDER BY s.strategy_id`,
-  ).all(ROSTER_WINDOW_MS, instanceId) as Array<Omit<StrategyRow, "realizedNet" | "dealCount" | "metadata" | "active"> & { metadata: string | null; active: number }>;
+  ).all(RETIRED_AFTER_MS, ROSTER_WINDOW_MS, instanceId) as Array<Omit<StrategyRow, "realizedNet" | "dealCount" | "metadata" | "active"> & { metadata: string | null; active: number }>;
   return rows.map((r) => ({
     ...r,
     metadata: typeof r.metadata === "string" ? JSON.parse(r.metadata) as Record<string, unknown> : null,

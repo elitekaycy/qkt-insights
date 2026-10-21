@@ -122,12 +122,12 @@ export async function buildServer(mode: Mode) {
       const r = pruneRetention(db, now);
       if (r.logs || r.events || r.valuations || r.views || r.quarantined)
         app.log.info({ ...r }, "retention prune");
-      // Retire strategies that stopped reporting past the window (e.g. a swapped-out book) along
-      // with all their data, so old registrations don't linger in the dashboard forever.
       if (r.monitors) app.log.info({ monitors: r.monitors }, "monitor history pruned");
+      // Strategies that stopped reporting (a swapped-out book) lose their operational rows only;
+      // their deals and closes stay in every all-time and account total.
       const s = pruneStaleStrategies(db, now);
-      if (s.strategies)
-        app.log.info({ ...s }, "stale strategies pruned");
+      if (s.rows)
+        app.log.info({ ...s }, "retired strategies' operational history pruned");
     } catch (e) {
       app.log.error(e, "retention prune failed");
     }
