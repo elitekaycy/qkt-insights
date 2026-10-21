@@ -1,6 +1,6 @@
 import { useState } from "react";
 import { useQuery } from "@tanstack/react-query";
-import { get, type EquityPoint, type LogRow, type PerformanceBundle, type StrategyRow, type StrategyStats, type TradeRow, type TradeView } from "../api";
+import { get, MIN_RATIO_DAYS, type EquityPoint, type LogRow, type PerformanceBundle, type StrategyRow, type StrategyStats, type TradeRow, type TradeView } from "../api";
 import { CalendarView } from "../components/Calendar";
 import { TradeDetail } from "../components/detail";
 import { EquityChart } from "../components/EquityChart";
@@ -11,7 +11,7 @@ import {
   type RangeKey,
 } from "../components/ui";
 import { LogLine } from "../components/LogLine";
-import { age, money, num, pct, price, ts, tsShort } from "../format";
+import { age, fixed, money, num, openPnl, pct, price, ts, tsShort } from "../format";
 import { buildCloseMap } from "../useCloses";
 import { useLiveState } from "../useLiveState";
 import { physicalPortfolioId, portfolioGroupId, strategyCapital, strategyDisplayName as displayName, summarizePortfolio } from "../portfolio";
@@ -37,7 +37,7 @@ function useOpenByStrategy(instanceId: string | null) {
   const open = new Map<string, number>();
   for (const g of groups)
     for (const p of g.list)
-      if (p.strategyId) open.set(p.strategyId, (open.get(p.strategyId) ?? 0) + (p.profit ?? 0));
+      if (p.strategyId) open.set(p.strategyId, (open.get(p.strategyId) ?? 0) + openPnl(p));
   return { open, hasState: groups.length > 0, stale: groups.length > 0 && groups.every((g) => g.stale) };
 }
 
@@ -730,7 +730,8 @@ export function StrategyDetail({ instanceId, strategyId, onBack }: { instanceId:
             {performance.data && (
               <CalendarView
                 days={performance.data.dailyNets}
-                startingBalance={capital.amount}
+                returnBase={() => capital.amount}
+                baseLabel={capital.source ? `the strategy's ${capital.source}` : "the strategy's capital"}
                 trades={tradeRows}
                 onTrade={view.public ? undefined : setOpenTrade}
               />
@@ -751,8 +752,13 @@ export function StrategyDetail({ instanceId, strategyId, onBack }: { instanceId:
           tone={s?.realizedPnl == null ? "neutral" : s.realizedPnl >= 0 ? "up" : "down"}
           stagger={1}
         />
-        <Stat label="Sharpe" value={num(s?.sharpe)} stagger={2} />
-        <Stat label="Win rate" value={pct(s?.winRate)} stagger={3} />
+        <Stat
+          label="Sharpe"
+          value={num(s?.sharpe)}
+          sub={s == null ? undefined : s.sharpe == null && s.ratioDays < MIN_RATIO_DAYS ? `needs ${MIN_RATIO_DAYS} days with closes, has ${s.ratioDays}` : `n=${s.ratioDays} days`}
+          stagger={2}
+        />
+        <Stat label="Win rate" value={pct(s?.winRate)} sub="round trips, breakeven excluded" stagger={3} />
         <Stat label="Max drawdown" value={pct(s?.maxDrawdownPct)} tone={s?.maxDrawdownPct ? "down" : "neutral"} stagger={4} />
         <Stat
           label="Trades"
@@ -833,7 +839,7 @@ export function StrategyDetail({ instanceId, strategyId, onBack }: { instanceId:
                   </Cell>
                   <Cell className="font-mono">{t.qty}</Cell>
                   <Cell className="whitespace-nowrap font-mono text-muted">@ {price(t.price)}</Cell>
-                  <Cell className={`font-mono font-semibold ${realizedTone(r)}`}>{r == null ? "—" : `${r > 0 ? "+" : ""}${r.toFixed(2)}`}</Cell>
+                  <Cell className={`font-mono font-semibold ${realizedTone(r)}`}>{r == null ? "—" : `${r > 0 ? "+" : ""}${fixed(r)}`}</Cell>
                 </>
               );
             }}
@@ -845,7 +851,7 @@ export function StrategyDetail({ instanceId, strategyId, onBack }: { instanceId:
                     <span className="min-w-0 truncate font-semibold text-bright">{t.symbol}</span>
                     <SideTag side={t.side} />
                     <span className={`ml-auto shrink-0 font-mono text-sm font-semibold ${realizedTone(r)}`}>
-                      {r == null ? "—" : `${r > 0 ? "+" : ""}${r.toFixed(2)}`}
+                      {r == null ? "—" : `${r > 0 ? "+" : ""}${fixed(r)}`}
                     </span>
                   </div>
                   <div className="mt-1 flex items-center gap-2 font-mono text-xs text-faint">

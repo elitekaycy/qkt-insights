@@ -302,7 +302,7 @@ export function ingestEnvelopes(db: Db, instanceId: string, events: Envelope[], 
       if (e.type === "broker.deal") {
         const p = e.payload;
         const strategyId = p.strategyId ?? resolveDealStrategy(db, instanceId, p.dealTicket, p.positionTicket ?? null, p.comment ?? null);
-        if (!isDealLocalToInstance(db, instanceId, strategyId, p.magic ?? null)) continue;
+        if (!isDealLocalToInstance(db, instanceId, strategyId)) continue;
         const info = insDeal.run(e.id, instanceId, p.broker, p.dealTicket, p.positionTicket ?? null, p.orderTicket ?? null,
           p.symbol ?? null, p.side ?? null, p.entry ?? null, p.qty, p.price, p.profit, p.commission ?? null,
           p.swap ?? null, p.fee ?? null, p.magic ?? null, p.comment ?? null, strategyId, p.ts,
@@ -399,19 +399,15 @@ export function quarantineEnvelopes(db: Db, instanceId: string, envelopes: Array
 }
 
 // qkt sends every deal on the account and names the strategy only when it knows it
-// (#1143): a close after a restart, a retired strategy's close, or a manual close
-// arrives with no strategy. Keep such a deal when it is this instance's own — its
-// magic already appears on a deal attributed here — so its owner can be adopted
-// from the opening deal later; drop deals from other tools sharing the account.
-// An explicitly named strategy this instance does not run is never adopted.
-function isDealLocalToInstance(db: Db, instanceId: string, strategyId: string | null, magic: number | null): boolean {
+// (#1143): a close after a restart, a retired strategy's close, a manual close or another
+// tool's trade on the same account arrives with no strategy. Such a deal is kept unattributed:
+// it moved the account's balance, so the account totals show it as "Unattributed", and its owner
+// is adopted later when a sibling leg resolves. Only a deal explicitly named for a strategy this
+// instance does not run is dropped: it is another instance's, attributed there.
+function isDealLocalToInstance(db: Db, instanceId: string, strategyId: string | null): boolean {
+  if (strategyId == null) return true;
   const known = db.prepare("SELECT strategy_id strategyId FROM strategies WHERE instance_id=?").all(instanceId) as { strategyId: string }[];
-  if (known.length === 0) return true;
-  if (strategyId != null) return known.some((row) => row.strategyId === strategyId);
-  if (magic == null) return false;
-  return db.prepare(
-    "SELECT 1 FROM deals WHERE instance_id=? AND magic=? AND strategy_id IS NOT NULL LIMIT 1",
-  ).get(instanceId, magic) != null;
+  return known.length === 0 || known.some((row) => row.strategyId === strategyId);
 }
 
 // A deal is sent once per broker profile that shares the account, so the same deal

@@ -57,21 +57,21 @@ describe("time cutoff", () => {
 describe("openPositionsAt", () => {
   const M = 60_000;
   const AT = T0 + 10 * HOUR;
-  function mark(db: Db, ticket: string, ts: number, profit: number, strategyId = "gold") {
+  function mark(db: Db, ticket: string, ts: number, profit: number, strategyId = "gold", swap = 0) {
     db.prepare(
-      "INSERT INTO position_valuations (instance_id, broker, ticket, ts, symbol, side, qty, entry_price, current_price, profit, swap, strategy_id) VALUES ('i1','EXNESS',?,?, 'EXNESS:XAUUSD','BUY',1,4300,4301,?,0,?)",
-    ).run(ticket, ts, profit, strategyId);
+      "INSERT INTO position_valuations (instance_id, broker, ticket, ts, symbol, side, qty, entry_price, current_price, profit, swap, strategy_id) VALUES ('i1','EXNESS',?,?, 'EXNESS:XAUUSD','BUY',1,4300,4301,?,?,?)",
+    ).run(ticket, ts, profit, swap, strategyId);
   }
 
   it("values each position open at the moment by its last mark then, never a later one", async () => {
     const { openPositionsAt } = await import("../src/index.js");
     const db = seeded();
     mark(db, "p-open", AT - 3 * M, 10);
-    mark(db, "p-open", AT - M, 12);
+    mark(db, "p-open", AT - M, 12, "gold", -1.5);
     mark(db, "p-open", AT + 5 * M, 50);
     mark(db, "p-later", AT + 2 * M, -3);
     mark(db, "p-stale", AT - 30 * M, 7);
-    expect(openPositionsAt(db, { instanceId: "i1", at: AT })).toEqual([{ broker: "EXNESS", ticket: "p-open", strategyId: "gold", profit: 12, ts: AT - M }]);
+    expect(openPositionsAt(db, { instanceId: "i1", at: AT })).toEqual([{ broker: "EXNESS", ticket: "p-open", strategyId: "gold", profit: 12, swap: -1.5, ts: AT - M }]);
   });
 
   it("keeps a flat position that was only re-marked on the heartbeat", async () => {

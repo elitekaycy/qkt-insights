@@ -11,6 +11,7 @@ import {
 } from "@qkt-insights/api";
 import { authAlertText, channelsFromEnv, parseHttpMonitors, parseMarketDataMonitor, sendAlert, startMonitors } from "./monitors.js";
 import { parseStrategyCapital } from "./capital.js";
+import { parseAccountLimits } from "./accountLimits.js";
 import { existsSync, readFileSync } from "node:fs";
 import { join, dirname } from "node:path";
 import { fileURLToPath } from "node:url";
@@ -76,6 +77,7 @@ export function totpSetupText(account: string): string {
 
 export async function buildServer(mode: Mode) {
   const capitals = parseStrategyCapital(process.env.STRATEGY_CAPITAL);
+  const accountLimits = parseAccountLimits(process.env.INSIGHTS_ACCOUNT_LIMITS);
   const db = openDb(env("INSIGHTS_DB", "/data/insights.db"));
   replaceStrategyCapital(db, capitals);
   const bus = new LiveBus();
@@ -122,12 +124,12 @@ export async function buildServer(mode: Mode) {
       const r = pruneRetention(db, now);
       if (r.logs || r.events || r.valuations || r.views || r.quarantined)
         app.log.info({ ...r }, "retention prune");
-      // Retire strategies that stopped reporting past the window (e.g. a swapped-out book) along
-      // with all their data, so old registrations don't linger in the dashboard forever.
       if (r.monitors) app.log.info({ monitors: r.monitors }, "monitor history pruned");
+      // Strategies that stopped reporting (a swapped-out book) lose their operational rows only;
+      // their deals and closes stay in every all-time and account total.
       const s = pruneStaleStrategies(db, now);
-      if (s.strategies)
-        app.log.info({ ...s }, "stale strategies pruned");
+      if (s.rows)
+        app.log.info({ ...s }, "retired strategies' operational history pruned");
     } catch (e) {
       app.log.error(e, "retention prune failed");
     }
@@ -160,13 +162,13 @@ export async function buildServer(mode: Mode) {
         if (text) void sendAlert(text, { kind: `auth.${e.kind}`, ip: e.ip }, { channels, brand, log: app.log });
       },
     });
-    registerRest(app, { db, liveState, monitors });
+    registerRest(app, { db, liveState, monitors, accountLimits });
     registerLive(app, { bus, authenticate: hasSession });
     const shares = new Shares(db);
     const views = new Views(db);
     const publicCache = new TtlCache(60_000, 1000);
     registerShares(app, { db, shares, cache: publicCache, views });
-    registerPublic(app, { db, liveState, shares, cache: publicCache, delayMs: publicDelayMinutes(process.env.PUBLIC_DELAY_MINUTES) * 60_000, views });
+    registerPublic(app, { db, liveState, shares, cache: publicCache, delayMs: publicDelayMinutes(process.env.PUBLIC_DELAY_MINUTES) * 60_000, views, accountLimits });
     registerViews(app, { views });
     // Links whose subject stopped being public without an admin change (deploy metadata moved a
     // strategy, a strategy was pruned) are replaced within a minute.

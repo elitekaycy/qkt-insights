@@ -6,13 +6,15 @@ import {
   Card, Cell, DataList, Loadable, LoadMore, PageHeader, Panel, Pill, RangeSelect, rangeStart, SearchInput, Select, SideTag, TimeCell,
   type RangeKey,
 } from "../components/ui";
-import { price, tsShort } from "../format";
+import { dealNet, fixed, price, tsShort } from "../format";
 import { realizedLabel, useCloseMap } from "../useCloses";
 import { useLiveStream } from "../useLiveStream";
 import { usePublicPageView, useView } from "../view";
 
 // a pushed deal or fill means the history just grew — refetch instead of waiting out the poll
 const HISTORY_TYPES = ["broker.deal", "trade"];
+/** Strategy filter value for deals and fills no strategy claimed. */
+const UNATTRIBUTED = "(unattributed)";
 
 export default function Trades({ instanceId }: { instanceId: string | null }) {
   usePublicPageView("trades");
@@ -34,7 +36,7 @@ export default function Trades({ instanceId }: { instanceId: string | null }) {
     queryKey: ["trades-page", instanceId, strategy],
     queryFn: () => {
       const p = new URLSearchParams({ instance: instanceId!, limit: "1000" });
-      if (strategy) p.set("strategy", strategy);
+      if (strategy && strategy !== UNATTRIBUTED) p.set("strategy", strategy);
       return get<TradeRow[]>(`/trades?${p}`);
     },
     enabled: !!instanceId,
@@ -66,17 +68,17 @@ export default function Trades({ instanceId }: { instanceId: string | null }) {
   const filtered = (trades.data ?? []).filter(
     (t) =>
       t.ts >= start &&
+      (strategy !== UNATTRIBUTED || t.strategyId == null) &&
       (!needle ||
         t.payload.symbol.toUpperCase().includes(needle) ||
         t.payload.orderId.toUpperCase().includes(needle) ||
         (t.strategyId ?? "").toUpperCase().includes(needle)),
   );
   const shown = filtered.slice(0, cap);
-  const dealNet = (d: DealRow) => (d.profit ?? 0) + (d.commission ?? 0) + (d.swap ?? 0);
   const filteredDeals = (deals.data ?? []).filter(
     (d) =>
       d.ts >= start &&
-      (!strategy || d.strategyId === strategy) &&
+      (!strategy || (strategy === UNATTRIBUTED ? d.strategyId == null : d.strategyId === strategy)) &&
       (!needle ||
         (d.symbol ?? "").toUpperCase().includes(needle) ||
         d.dealTicket.toUpperCase().includes(needle) ||
@@ -119,6 +121,7 @@ export default function Trades({ instanceId }: { instanceId: string | null }) {
               }}
             >
               <option value="">all strategies</option>
+              <option value={UNATTRIBUTED}>unattributed</option>
               {(strategies.data ?? []).map((s) => (
                 <option key={s.strategyId} value={s.strategyId}>
                   {s.strategyId}
@@ -166,7 +169,7 @@ export default function Trades({ instanceId }: { instanceId: string | null }) {
                     <Cell className="font-mono">{price(d.price)}</Cell>
                     <Cell className={`font-mono font-semibold ${n > 0 ? "text-up" : n < 0 ? "text-down" : "text-muted"}`}>
                       {n > 0 ? "+" : ""}
-                      {n.toFixed(2)}
+                      {fixed(n)}
                     </Cell>
                     <Cell className="font-mono text-xs text-faint">{d.dealTicket}</Cell>
                   </>
@@ -181,7 +184,7 @@ export default function Trades({ instanceId }: { instanceId: string | null }) {
                       <SideTag side={d.side} />
                       <span className={`ml-auto shrink-0 font-mono text-sm font-semibold ${n > 0 ? "text-up" : n < 0 ? "text-down" : "text-muted"}`}>
                         {n > 0 ? "+" : ""}
-                        {n.toFixed(2)}
+                        {fixed(n)}
                       </span>
                     </div>
                     <div className="mt-1 flex items-center gap-2 text-xs text-faint">

@@ -191,10 +191,26 @@ describe("contributionRanking", () => {
     roundTrip(db, 3, { openTs: T0, closeTs: T0 + 3 * HOUR, profit: -5, symbol: "EXNESS:EURUSD", side: "SELL" });
     const c = contributionRanking(db, F)!;
     expect(c.totalNet).toBeCloseTo(15);
-    expect(c.bySymbol[0]).toMatchObject({ key: "EXNESS:XAUUSD", net: 20, trades: 2, winRate: 50, expectancy: 10 });
+    expect(c.bySymbol[0]).toMatchObject({ key: "XAUUSD", net: 20, trades: 2, winRate: 50, expectancy: 10 });
     expect(c.bySymbol[0]!.share).toBeCloseTo(20 / 15);
     expect(c.bySymbol[1]!.share).toBeCloseTo(-5 / 15);
     expect(c.byDirection.map((r) => r.key).sort()).toEqual(["BUY", "SELL"]);
+  });
+
+  it("folds broker-profile symbols of one instrument into one row, keeping the venues as detail", () => {
+    const db = openDb(":memory:");
+    seedStrategy(db, 10000);
+    roundTrip(db, 1, { openTs: T0, closeTs: T0 + HOUR, profit: 12, symbol: "ICM_S01:XAUUSD" });
+    roundTrip(db, 2, { openTs: T0, closeTs: T0 + 2 * HOUR, profit: -4, symbol: "ICM_S05:XAUUSD" });
+    roundTrip(db, 3, { openTs: T0, closeTs: T0 + 3 * HOUR, profit: 7, symbol: "ICMARKETS:XAUUSD" });
+    roundTrip(db, 4, { openTs: T0, closeTs: T0 + 4 * HOUR, profit: -2, symbol: "ICM_S01:EURUSD" });
+    const c = contributionRanking(db, F)!;
+    expect(c.bySymbol.map((r) => [r.key, r.trades])).toEqual([["XAUUSD", 3], ["EURUSD", 1]]);
+    expect(c.bySymbol[0]!.net).toBeCloseTo(15);
+    expect(c.bySymbol[0]!.venues!.sort()).toEqual(["ICMARKETS:XAUUSD", "ICM_S01:XAUUSD", "ICM_S05:XAUUSD"]);
+    const b = tradeBreakdowns(db, F)!;
+    expect(b.bySymbol.map((r) => [r.key, r.trades])).toEqual([["XAUUSD", 3], ["EURUSD", 1]]);
+    expect(b.bySymbol[0]!.venues).toHaveLength(3);
   });
 
   it("shares stay signed against a negative total", () => {
@@ -215,6 +231,19 @@ describe("contributionRanking", () => {
   });
 });
 
+describe("win rate", () => {
+  it("is one definition everywhere: wins over decided round trips, breakeven excluded", () => {
+    const db = openDb(":memory:");
+    seedStrategy(db, 10000);
+    roundTrip(db, 1, { openTs: T0, closeTs: T0 + HOUR, profit: 10 });
+    roundTrip(db, 2, { openTs: T0, closeTs: T0 + HOUR + 60_000, profit: 0 });
+    roundTrip(db, 3, { openTs: T0, closeTs: T0 + HOUR + 120_000, profit: -5 });
+    expect(performanceReport(db, F).winRate).toBe(50);
+    expect(contributionRanking(db, F)!.bySymbol[0]!.winRate).toBe(50);
+    expect(dowHourMatrix(db, F)![0]).toMatchObject({ n: 3, winRate: 50 });
+  });
+});
+
 describe("excursionStats", () => {
   it("derives sampled MAE, MFE, capture, and coverage from position valuations", () => {
     const db = openDb(":memory:");
@@ -230,7 +259,26 @@ describe("excursionStats", () => {
     insert.run("qkt-prod", "EXNESS", "1", T0 + 200, "EXNESS:XAUUSD", "BUY", 0.01, 4300, 4308, 10, 0, "hedge_straddle");
 
     const result = excursionStats(db, F)!;
-    expect(result).toMatchObject({ closedTrades: 2, sampledTrades: 1, coveragePct: 50, averageMae: -3, averageMfe: 10, averageCapturePct: 60, sampled: true });
+    expect(result).toMatchObject({ closedTrades: 2, sampledTrades: 1, coveragePct: 50, averageMae: -3, averageMfe: 10, medianWinnerCapturePct: 60, winnersWithCapture: 1, sampled: true });
     expect(result.rows[0]).toMatchObject({ ticket: "1", exitPnl: 6, mae: -3, mfe: 10, capturePct: 60, observations: 2 });
+  });
+
+  it("reports the median capture of winners, so one loser with a tiny MFE cannot read -900%", () => {
+    const db = openDb(":memory:");
+    seedStrategy(db, 10000);
+    const insert = db.prepare(
+      `INSERT INTO position_valuations
+       (instance_id, broker, ticket, ts, symbol, side, qty, entry_price, current_price, profit, swap, strategy_id)
+       VALUES (?,?,?,?,?,?,?,?,?,?,?,?)`,
+    );
+    // winners: captured 50%, 80%, 40%; loser: -45 exit after a +0.5 peak (-9000%)
+    const trades: Array<[number, number, number]> = [[1, 5, 10], [2, 8, 10], [3, 4, 10], [4, -45, 0.5]];
+    for (const [n, exit, mfe] of trades) {
+      roundTrip(db, n, { openTs: T0, closeTs: T0 + n * HOUR, profit: exit });
+      insert.run("qkt-prod", "EXNESS", String(n), T0 + 100, "EXNESS:XAUUSD", "BUY", 0.01, 4300, 4300, mfe, 0, "hedge_straddle");
+    }
+    const r = excursionStats(db, F)!;
+    expect(r.medianWinnerCapturePct).toBeCloseTo(50, 9);
+    expect(r.winnersWithCapture).toBe(3);
   });
 });

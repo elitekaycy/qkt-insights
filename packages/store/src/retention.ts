@@ -73,25 +73,15 @@ export function pruneRetention(db: Database, now: number, retentionDays = RETENT
 }
 
 export interface StaleStrategyResult {
-  /** strategy registrations removed. */
+  /** strategies that stopped reporting past the window (now off the active roster). */
   strategies: number;
-  /** total per-strategy data rows removed across every table. */
+  /** operational rows removed across those strategies. */
   rows: number;
 }
 
-/** Per-strategy tables to purge when a strategy is retired. Only those actually present with an
- * `(instance_id, strategy_id)` shape are touched, so a schema change can't crash the sweep. */
-const STRATEGY_SCOPED_TABLES = [
-  "logs",
-  "events",
-  "deals",
-  "trade_closes",
-  "equity_snapshots",
-  "position_valuations",
-  "positions_current",
-  "risk_events",
-  "risk_snapshots",
-] as const;
+/** Operational per-strategy tables a retired strategy no longer needs. Money history (deals,
+ * trade_closes, equity_snapshots, risk_events, trade events, open positions) is never listed. */
+const RETIRED_OPERATIONAL_TABLES = ["logs", "risk_snapshots"] as const;
 
 function hasStrategyScope(db: Database, table: string): boolean {
   const cols = db.prepare(`PRAGMA table_info(${table})`).all() as { name: string }[];
@@ -99,21 +89,21 @@ function hasStrategyScope(db: Database, table: string): boolean {
   return names.has("instance_id") && names.has("strategy_id");
 }
 
-/** Remove strategies that stopped reporting more than `retentionDays` ago, and ALL of their data.
+/** Clear the operational history of strategies that stopped reporting more than `retentionDays` ago.
  *
- * Swapping a book only changes what the daemon trades — insights keeps a permanent registration for
- * every strategy that ever reported, so the old children linger in the dashboard forever. A
- * still-deployed strategy re-emits lifecycle/trade/log events (each bumps `last_seen`), and the
- * daemon re-registers every deployed strategy on each restart/redeploy — far more often than the
- * window — so only genuinely removed strategies age out. Unlike [pruneRetention]'s row-level,
- * analytics-preserving cut, a departed strategy's history is no longer relevant, so this deletes
- * everything keyed to it (registration + deals/trades/events/logs/marks/risk rows + FTS mirrors).
+ * Swapping a book only changes what the daemon trades; the swapped-out children keep their
+ * registration. The roster marks a strategy inactive once its `last_seen` falls a window behind
+ * the instance's newest strategy (listStrategies), which hides it from the active roster. Its money
+ * history stays: deals, closed trades, equity snapshots, risk events, trade fills and open
+ * positions are what "all-time" and the account totals are summed from, and deleting them made
+ * all-time disagree with the venue. Only logs, non-trade events, risk snapshots and marks of
+ * closed positions are removed.
  *
- * e.g. the 14 children of a book swapped out 31 days ago all disappear on the next sweep; the 5
- * strategies deployed today keep reporting, so their `last_seen` stays inside the window. */
+ * e.g. a book swapped out 31 days ago: its logs go, its deals and the registration that names
+ * them stay, and the account's all-time net still includes them. */
 export function pruneStaleStrategies(db: Database, now: number, retentionDays = RETENTION_DAYS): StaleStrategyResult {
   const cutoff = now - retentionDays * DAY_MS;
-  const tables = STRATEGY_SCOPED_TABLES.filter((t) => hasStrategyScope(db, t));
+  const tables = RETIRED_OPERATIONAL_TABLES.filter((t) => hasStrategyScope(db, t));
   return db.transaction(() => {
     const stale = db
       .prepare("SELECT instance_id AS i, strategy_id AS s FROM strategies WHERE last_seen < ?")
@@ -124,13 +114,18 @@ export function pruneStaleStrategies(db: Database, now: number, retentionDays = 
         "DELETE FROM logs_fts WHERE log_rowid IN (SELECT rowid FROM logs WHERE instance_id=? AND strategy_id=?)",
       ).run(i, s);
       db.prepare(
-        "DELETE FROM events_fts WHERE event_rowid IN (SELECT rowid FROM events WHERE instance_id=? AND strategy_id=?)",
+        `DELETE FROM events_fts WHERE event_rowid IN
+           (SELECT rowid FROM events WHERE instance_id=? AND strategy_id=? AND type NOT IN ('trade','trade.closed'))`,
       ).run(i, s);
+      rows += db.prepare("DELETE FROM events WHERE instance_id=? AND strategy_id=? AND type NOT IN ('trade','trade.closed')").run(i, s).changes;
       for (const t of tables) {
         rows += db.prepare(`DELETE FROM ${t} WHERE instance_id=? AND strategy_id=?`).run(i, s).changes;
       }
+      rows += db.prepare(
+        `DELETE FROM position_valuations WHERE instance_id=? AND strategy_id=? AND (instance_id, broker, ticket) NOT IN
+           (SELECT instance_id, broker, ticket FROM positions_current)`,
+      ).run(i, s).changes;
     }
-    const strategies = db.prepare("DELETE FROM strategies WHERE last_seen < ?").run(cutoff).changes;
-    return { strategies, rows };
+    return { strategies: stale.length, rows };
   })();
 }

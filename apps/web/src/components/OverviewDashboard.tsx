@@ -1,6 +1,6 @@
 import type { ReactNode } from "react";
-import type { ClosedTradeRow, DayNet, ExcursionStats, PerformanceReport } from "../api";
-import { compact, duration, money } from "../format";
+import type { AccountRiskRow, ClosedTradeRow, DayNet, ExcursionStats } from "../api";
+import { compact, duration, fixed, money } from "../format";
 import { ChartCard } from "./ChartCard";
 import { chartColors, EChart, qktChartAxis, qktChartGrid, qktChartTooltip, qktInsideZoom, type QktChartOption } from "./EChart";
 import { ComparisonChart, type ComparisonSeries } from "./EquityChart";
@@ -32,15 +32,15 @@ export interface OverviewDashboardData {
   instanceId: string;
   dailyNets: DayNet[];
   closes: ClosedTradeRow[];
-  reports: PerformanceReport[];
+  /** Sums of winning and (positive) losing closes' net, the profit-factor terms. */
+  sumWins: number;
+  sumLosses: number;
   excursions: ExcursionStats[];
   series: ComparisonSeries[];
   accountEquity: number | null;
-  accountBalance: number | null;
   accountOpenPnl: number | null;
-  totalAllocated: number;
-  dailyLossCap: number | null;
-  drawdownCap: number | null;
+  /** Each venue account's drawdown and daily loss against its own limits. */
+  risk: AccountRiskRow[];
 }
 
 export function OverviewDashboard({ data }: { data: OverviewDashboardData }) {
@@ -66,7 +66,7 @@ function Widget({ id, data }: { id: DashboardWidgetId; data: OverviewDashboardDa
   if (id === "pnl") return <PnlWidget data={data} />;
   if (id === "outcomes") return <OutcomeWidget closes={data.closes} />;
   if (id === "risk") return <RiskWidget data={data} />;
-  if (id === "behavior") return <BehaviorWidget closes={data.closes} reports={data.reports} />;
+  if (id === "behavior") return <BehaviorWidget closes={data.closes} sumWins={data.sumWins} sumLosses={data.sumLosses} />;
   if (id === "direction") return <DirectionWidget closes={data.closes} />;
   if (id === "equity") return <EquityWidget data={data} />;
   return <ExcursionWidget rows={data.excursions} />;
@@ -116,44 +116,62 @@ function OutcomeWidget({ closes }: { closes: ClosedTradeRow[] }) {
       { name: "Breakeven", value: flat, itemStyle: { color: chartColors.muted } },
       { name: "Losses", value: losses, itemStyle: { color: chartColors.down } },
     ] }],
-    graphic: closes.length > 0 ? [{ type: "text", left: "center", top: "35%", style: { text: `${((wins / closes.length) * 100).toFixed(1)}%\nwin rate`, textAlign: "center", fill: "#f2f4f6", font: "600 16px Archivo", lineHeight: 22 } }] : [],
+    graphic: wins + losses > 0 ? [{ type: "text", left: "center", top: "35%", style: { text: `${((wins / (wins + losses)) * 100).toFixed(1)}%\nwin rate`, textAlign: "center", fill: "#f2f4f6", font: "600 16px Archivo", lineHeight: 22 } }] : [],
   };
   return (
-    <ChartCard title="Trade outcomes" description="Wins, losses, and flat closes across every strategy." meta={`n=${closes.length}`}>
+    <ChartCard title="Trade outcomes" description="Wins, losses, and breakeven closes on the account; the win rate excludes breakeven." meta={`n=${closes.length}`}>
       {closes.length > 0 ? <div className="p-3"><EChart option={option} height={250} /></div> : <WidgetEmpty>No closed trades yet.</WidgetEmpty>}
     </ChartCard>
   );
 }
 
 function RiskWidget({ data }: { data: OverviewDashboardData }) {
-  const today = new Date().toISOString().slice(0, 10);
-  const todayNet = data.dailyNets.find((x) => x.day === today)?.net ?? 0;
-  const drawdown = data.accountBalance != null && data.accountEquity != null ? Math.max(0, data.accountBalance - data.accountEquity) : null;
+  const capital = data.risk.reduce<number | null>((a, r) => (r.startBalance == null ? a : (a ?? 0) + r.startBalance), null);
+  const one = data.risk.length === 1 ? data.risk[0]! : null;
   return (
     <Card className="h-full overflow-hidden">
-      <WidgetHeader title="Risk budget" description="Current consumption of configured loss and drawdown limits." />
-      <div className="grid gap-5 p-5 sm:grid-cols-2">
-        <Budget label="Daily loss" used={Math.max(0, -todayNet)} cap={data.dailyLossCap} detail={`today ${money(todayNet)} UTC`} />
-        <Budget label="Account drawdown" used={drawdown} cap={data.drawdownCap} detail={`equity ${money(data.accountEquity)}`} />
+      <WidgetHeader title="Risk budget" description="Consumption of each account's loss and drawdown limits; limits belong to the account, never summed per strategy." />
+      {data.risk.length === 0 && <WidgetEmpty>Account limits appear with the first broker account rollup.</WidgetEmpty>}
+      {data.risk.map((r) => (
+        <div key={r.account} className="grid gap-5 border-b border-line/70 p-5 sm:grid-cols-2">
+          {data.risk.length > 1 && <div className="text-[11px] font-semibold uppercase tracking-[0.12em] text-muted sm:col-span-2">{r.label}</div>}
+          <Budget
+            label={`Daily loss · ${r.dailyLoss.includesFloating ? "incl. floating" : "realized"}`}
+            used={r.dailyLoss.used}
+            cap={r.dailyLoss.cap}
+            detail={`day from ${String(r.dailyLoss.resetHour).padStart(2, "0")}:00 ${r.dailyLoss.timezone} · realized ${money(r.dailyLoss.realizedToday)}`}
+          />
+          <Budget
+            label={`Account drawdown · ${r.basis === "static" ? "static" : "from peak"}`}
+            used={r.drawdown.used}
+            cap={r.drawdown.cap}
+            detail={`${r.basis === "static" ? "below start balance" : "below peak equity"} ${money(r.drawdown.reference)} · equity ${money(r.equity)}`}
+          />
+          <div className="text-[11px] text-faint sm:col-span-2">
+            {r.source == null ? "No limits configured: set INSIGHTS_ACCOUNT_LIMITS or the strategies' qkt risk caps." : `Limits from ${r.source}.`}
+          </div>
+        </div>
+      ))}
+      <div className="grid grid-cols-2 gap-px bg-line/70">
         <Metric label="Open P&L" value={money(data.accountOpenPnl)} tone={(data.accountOpenPnl ?? 0) < 0 ? "down" : "up"} />
-        <Metric label="Allocated capital" value={money(data.totalAllocated)} />
+        <Metric label={one?.startBalanceSource === "first recorded balance" ? "Account capital · first balance" : "Account capital · start balance"} value={money(capital)} />
       </div>
     </Card>
   );
 }
 
 function Budget({ label, used, cap, detail }: { label: string; used: number | null; cap: number | null; detail: string }) {
-  const pct = used != null && cap != null && cap > 0 ? Math.min(100, (used / cap) * 100) : null;
+  const pct = used != null && cap != null && cap > 0 ? (used / cap) * 100 : null;
   return (
     <div>
       <div className="flex items-baseline justify-between gap-3"><span className="text-xs font-semibold text-body">{label}</span><span className="font-mono text-xs text-muted">{used == null ? "—" : money(used)} / {cap == null ? "no cap" : money(cap)}</span></div>
-      <div className="mt-2 h-2 overflow-hidden rounded-full bg-raised"><div className={`h-full rounded-full ${pct != null && pct >= 80 ? "bg-down" : pct != null && pct >= 55 ? "bg-warn" : "bg-info"}`} style={{ width: `${pct ?? 0}%` }} /></div>
-      <div className="mt-1.5 text-[11px] text-faint">{pct == null ? "Configure the strategy risk cap to activate this budget." : `${pct.toFixed(1)}% used · ${detail}`}</div>
+      <div className="mt-2 h-2 overflow-hidden rounded-full bg-raised"><div className={`h-full rounded-full ${pct != null && pct >= 80 ? "bg-down" : pct != null && pct >= 55 ? "bg-warn" : "bg-info"}`} style={{ width: `${Math.min(100, pct ?? 0)}%` }} /></div>
+      <div className="mt-1.5 text-[11px] text-faint">{pct == null ? detail : `${pct.toFixed(1)}% used · ${detail}`}</div>
     </div>
   );
 }
 
-function BehaviorWidget({ closes, reports }: { closes: ClosedTradeRow[]; reports: PerformanceReport[] }) {
+function BehaviorWidget({ closes, sumWins, sumLosses }: { closes: ClosedTradeRow[]; sumWins: number; sumLosses: number }) {
   const chronological = [...closes].sort((a, b) => a.ts - b.ts);
   let streak = 0;
   for (let i = chronological.length - 1; i >= 0; i--) {
@@ -163,9 +181,7 @@ function BehaviorWidget({ closes, reports }: { closes: ClosedTradeRow[]; reports
     else break;
   }
   const held = closes.filter((x) => x.entryTs != null).map((x) => x.ts - x.entryTs!);
-  const grossProfit = reports.reduce((a, x) => a + x.grossProfit, 0);
-  const grossLoss = reports.reduce((a, x) => a + x.grossLoss, 0);
-  const pf = grossLoss > 0 ? grossProfit / grossLoss : grossProfit > 0 ? Infinity : null;
+  const pf = sumLosses > 0 ? sumWins / sumLosses : sumWins > 0 ? Infinity : null;
   return (
     <Card className="h-full overflow-hidden">
       <WidgetHeader title="Trading behavior" description="Compact context for pace, streaks, and payoff." />
@@ -211,8 +227,10 @@ function EquityWidget({ data }: { data: OverviewDashboardData }) {
 function ExcursionWidget({ rows }: { rows: ExcursionStats[] }) {
   const samples = rows.flatMap((x) => x.rows);
   const closed = rows.reduce((a, x) => a + x.closedTrades, 0);
-  const captureRows = samples.filter((x) => x.capturePct != null);
-  const averageCapture = captureRows.length > 0 ? captureRows.reduce((a, x) => a + x.capturePct!, 0) / captureRows.length : null;
+  // Median capture of winners: exit P&L over the best open P&L seen, on trades that closed in profit.
+  const captures = samples.filter((x) => x.exitPnl > 0 && x.capturePct != null).map((x) => x.capturePct!).sort((a, b) => a - b);
+  const mid = Math.floor(captures.length / 2);
+  const medianCapture = captures.length === 0 ? null : captures.length % 2 ? captures[mid]! : (captures[mid - 1]! + captures[mid]!) / 2;
   const option: QktChartOption = {
     backgroundColor: "transparent",
     grid: { ...qktChartGrid, top: 24, left: 56, right: 24, bottom: 48 },
@@ -231,7 +249,7 @@ function ExcursionWidget({ rows }: { rows: ExcursionStats[] }) {
     }],
   };
   return (
-    <ChartCard title="Trade excursion" description="Maximum adverse versus favorable movement before exit; sampled from stored position valuations." meta={`coverage ${closed > 0 ? ((samples.length / closed) * 100).toFixed(1) : "0.0"}% · n=${samples.length}/${closed}`} value={averageCapture == null ? "—" : `${averageCapture.toFixed(1)}% captured`}>
+    <ChartCard title="Trade excursion" description="Maximum adverse versus favorable movement before exit; sampled from stored position valuations." meta={`coverage ${closed > 0 ? ((samples.length / closed) * 100).toFixed(1) : "0.0"}% · n=${samples.length}/${closed}`} value={medianCapture == null ? "—" : <span title={`median over ${captures.length} winning trades`}>{`${fixed(medianCapture, 1)}% median capture of winners`}</span>}>
       {samples.length > 0 ? <div className="p-3 sm:p-4"><EChart option={option} height={310} /></div> : <WidgetEmpty>Position valuation samples will reveal MAE, MFE, and exit capture.</WidgetEmpty>}
     </ChartCard>
   );

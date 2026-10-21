@@ -1,6 +1,6 @@
 import { useState, type ReactNode } from "react";
-import type { ClosedTradeRow, DayNet, PerformanceBundle, PerformanceReport } from "../api";
-import { duration, money, num, price, tsShort } from "../format";
+import { MIN_RATIO_DAYS, type ClosedTradeRow, type DayNet, type PerformanceBundle, type PerformanceReport } from "../api";
+import { duration, fixed, instrumentOf, money, num, price, tsShort, winPct } from "../format";
 import { EChart, qktChartAxis, qktChartGrid, qktChartTooltip, qktInsideZoom, type QktChartOption } from "./EChart";
 import { BucketBoxplot, ContributionBars, CostStack } from "./EdgeCharts";
 import { Cell, DataList, Empty, Panel, Pill, Row, Select, Stat, Table, TimeCell, type Tone } from "./ui";
@@ -20,7 +20,7 @@ function pf(v: PerformanceReport["profitFactor"]): string {
 /** Percent values that arrive already scaled to 0–100. */
 function pcts(v: number | null | undefined, digits = 1): string {
   if (v == null) return "—";
-  return `${v.toFixed(digits)}%`;
+  return `${fixed(v, digits)}%`;
 }
 
 function toneOf(v: number | null | undefined): Tone {
@@ -261,7 +261,7 @@ export function PerformancePanels({ bundle }: { bundle: PerformanceBundle }) {
             label="Profit factor"
             value={pf(r.profitFactor)}
             tone={r.profitFactor === "inf" || (typeof r.profitFactor === "number" && r.profitFactor >= 1) ? "up" : "down"}
-            explain={`Gross profit divided by gross loss — here ${money(r.grossProfit)} / ${money(r.grossLoss)}. It answers: for every unit lost, how much was won?`}
+            explain={`The sum of winning trades divided by the sum of losing trades, both net of costs — here ${money(r.grossProfit)} / ${money(r.grossLoss)}. It answers: for every unit lost, how much was won?`}
             reading="Above 1 the strategy makes money; 1.5+ is solid; below 1 it loses overall. ∞ means no losing trades yet."
             detail={<CloseList rows={closes} hint="every closed trade in this range" />}
           />
@@ -277,8 +277,8 @@ export function PerformancePanels({ bundle }: { bundle: PerformanceBundle }) {
           <MStat
             label="Win rate"
             value={pcts(r.winRate)}
-            sub={`${r.wins}W · ${r.losses}L`}
-            explain={`The share of closed trades that ended positive: ${r.wins} winners out of ${r.wins + r.losses}.`}
+            sub={`${r.wins}W · ${r.losses}L · breakeven excluded`}
+            explain={`Winning closed round trips over winning plus losing ones (breakeven closes excluded): ${r.wins} winners out of ${r.wins + r.losses}.`}
             reading="A low win rate can still be profitable if wins are much bigger than losses — read it together with the payoff ratio."
             detail={<CloseList rows={closes} hint={`${r.wins} wins and ${r.losses} losses`} />}
           />
@@ -317,23 +317,23 @@ export function PerformancePanels({ bundle }: { bundle: PerformanceBundle }) {
             label="Total net"
             value={money(r.totalNet)}
             tone={toneOf(r.totalNet)}
-            explain={`All closed-trade P&L in this range summed: ${money(r.grossProfit)} of profit minus ${money(r.grossLoss)} of loss.`}
+            explain={`All closed-trade P&L in this range summed: ${money(r.grossProfit)} of winning trades minus ${money(r.grossLoss)} of losing trades.`}
             reading="This is realized result only — open positions aren't counted until they close."
             detail={<CloseList rows={closes} hint="every closed trade summed into this" />}
           />
           <MStat
-            label="Gross profit"
+            label="Sum of wins"
             value={money(r.grossProfit)}
             tone="up"
-            explain="The sum of winning trades only, before subtracting any losses."
+            explain="The net P&L (after commission and swap) of winning trades only, before subtracting any losses. Gross, before costs, is in Cost of trading."
             detail={<CloseList rows={winRows} hint={`the ${winRows.length} winning trades`} />}
           />
           <MStat
-            label="Gross loss"
+            label="Sum of losses"
             value={money(-r.grossLoss)}
             tone={r.grossLoss > 0 ? "down" : "neutral"}
-            explain="The sum of losing trades only."
-            reading="Gross profit minus gross loss gives the total net; their ratio is the profit factor."
+            explain="The net P&L (after commission and swap) of losing trades only."
+            reading="Sum of wins minus sum of losses gives the total net; their ratio is the profit factor."
             detail={<CloseList rows={lossRows} hint={`the ${lossRows.length} losing trades`} />}
           />
           <MStat
@@ -385,7 +385,7 @@ export function PerformancePanels({ bundle }: { bundle: PerformanceBundle }) {
           <MStat
             label="Sharpe"
             value={num(r.sharpe)}
-            sub="annualized, 252d"
+            sub={r.sharpe == null && r.ratioDays < MIN_RATIO_DAYS ? `needs ${MIN_RATIO_DAYS} days with closes, has ${r.ratioDays}` : `annualized, 252d · n=${r.ratioDays} days`}
             explain="Average daily return divided by the volatility of daily returns, scaled to a year. The classic risk-adjusted-return score."
             reading="Rule of thumb: under 1 weak, 1–2 decent, above 2 strong. Penalizes upside swings as much as downside — see Sortino."
             detail={<DayList rows={bundle.dailyNets} hint="the daily return series this is computed from" />}
@@ -393,7 +393,7 @@ export function PerformancePanels({ bundle }: { bundle: PerformanceBundle }) {
           <MStat
             label="Sortino"
             value={num(r.sortino)}
-            sub="downside-only vol"
+            sub={r.sortino == null && r.ratioDays < MIN_RATIO_DAYS ? `needs ${MIN_RATIO_DAYS} days with closes, has ${r.ratioDays}` : "downside-only vol"}
             explain="Like Sharpe, but only downside volatility counts as risk — big up days don't lower the score."
             reading="Usually higher than Sharpe. If it's much higher, most of the volatility is the good kind."
             detail={<DayList rows={bundle.dailyNets} hint="the daily return series this is computed from" />}
@@ -401,7 +401,7 @@ export function PerformancePanels({ bundle }: { bundle: PerformanceBundle }) {
           <MStat
             label="Calmar"
             value={num(r.calmar)}
-            sub="return / max DD"
+            sub={r.calmar == null && r.ratioDays < MIN_RATIO_DAYS ? `needs ${MIN_RATIO_DAYS} days with closes, has ${r.ratioDays}` : "return / max DD"}
             explain="Annualized return divided by max drawdown percent — return earned per unit of worst drawdown."
             reading="Above 1 means a year's return outweighs the worst historical fall."
             detail={<DayList rows={bundle.dailyNets} hint="the daily return series this is computed from" />}
@@ -539,26 +539,27 @@ function holdBucket(c: ClosedTradeRow): string {
 function dimKey(c: ClosedTradeRow, dim: TradeDimension): string {
   const d = new Date(c.ts);
   if (dim === "side") return sideKey(c.side);
-  if (dim === "symbol") return c.symbol;
+  if (dim === "symbol") return instrumentOf(c.symbol);
   if (dim === "hour") return String(d.getUTCHours()).padStart(2, "0");
   if (dim === "weekday") return WEEKDAYS[(d.getUTCDay() + 6) % 7]!;
   if (dim === "lot") return c.qty.toFixed(2);
   return holdBucket(c);
 }
 
-interface GroupRow { key: string; net: number; trades: number; wins: number; avg: number; winRate: number }
+interface GroupRow { key: string; net: number; trades: number; wins: number; losses: number; avg: number; winRate: number | null }
 
 function groupTrades(rows: ClosedTradeRow[], dim: TradeDimension): GroupRow[] {
   const out = new Map<string, GroupRow>();
   for (const c of rows) {
     const key = dimKey(c, dim);
-    const cur = out.get(key) ?? { key, net: 0, trades: 0, wins: 0, avg: 0, winRate: 0 };
+    const cur = out.get(key) ?? { key, net: 0, trades: 0, wins: 0, losses: 0, avg: 0, winRate: null };
     cur.net += c.realized;
     cur.trades++;
     if (c.realized > 0) cur.wins++;
+    else if (c.realized < 0) cur.losses++;
     out.set(key, cur);
   }
-  const rowsOut = [...out.values()].map((r) => ({ ...r, avg: r.trades > 0 ? r.net / r.trades : 0, winRate: r.trades > 0 ? (r.wins / r.trades) * 100 : 0 }));
+  const rowsOut = [...out.values()].map((r) => ({ ...r, avg: r.trades > 0 ? r.net / r.trades : 0, winRate: r.wins + r.losses > 0 ? (r.wins / (r.wins + r.losses)) * 100 : null }));
   if (dim === "weekday") return rowsOut.sort((a, b) => WEEKDAYS.indexOf(a.key) - WEEKDAYS.indexOf(b.key));
   if (dim === "side") return rowsOut.sort((a, b) => a.key.localeCompare(b.key));
   return rowsOut.sort((a, b) => a.key.localeCompare(b.key, undefined, { numeric: true }));
@@ -592,7 +593,8 @@ function sideCurveRows(rows: ClosedTradeRow[]) {
   });
 }
 
-function metricValue(r: GroupRow, metric: TradeMetric): number {
+/** null = unknown (a bucket with only breakeven closes has no win rate); charted as a gap, never 0. */
+function metricValue(r: GroupRow, metric: TradeMetric): number | null {
   if (metric === "trades") return r.trades;
   if (metric === "winRate") return r.winRate;
   if (metric === "avg") return r.avg;
@@ -610,10 +612,10 @@ function TradeAnalysis({ bundle }: { bundle: PerformanceBundle }) {
   const [dimension, setDimension] = useState<TradeDimension>("side");
   const [metric, setMetric] = useState<TradeMetric>("net");
   const closes = bundle.closes;
-  const symbols = [...new Set(closes.map((c) => c.symbol))].sort();
+  const symbols = [...new Set(closes.map((c) => instrumentOf(c.symbol)))].sort();
   const filtered = closes.filter((c) => {
     if (side && sideKey(c.side) !== side) return false;
-    if (symbol && c.symbol !== symbol) return false;
+    if (symbol && instrumentOf(c.symbol) !== symbol) return false;
     if (outcome === "wins" && c.realized <= 0) return false;
     if (outcome === "losses" && c.realized >= 0) return false;
     return true;
@@ -665,7 +667,7 @@ function TradeAnalysis({ bundle }: { bundle: PerformanceBundle }) {
           const value = metricValue(g, metric);
           return {
             value,
-            itemStyle: { color: metric === "trades" ? "#5cb8ff" : value >= 0 ? "#3fe08c" : "#ff6b6b" },
+            itemStyle: { color: metric === "trades" ? "#5cb8ff" : (value ?? 0) >= 0 ? "#3fe08c" : "#ff6b6b" },
           };
         }),
       },
@@ -884,7 +886,7 @@ export function EdgeDetailPanels({ bundle }: { bundle: PerformanceBundle }) {
   return (
     <div className="grid gap-5">
       <div className="grid gap-5 xl:grid-cols-2">
-        <Panel title="Cost of trading" hint="gross profit vs commission vs swap, per UTC month" stagger={4}>
+        <Panel title="Cost of trading" hint="gross (before commission and swap) vs commission vs swap, per UTC month" stagger={4}>
           {costs && costs.byMonth.length > 0 ? (
             <div className="grid gap-3 p-3">
               <CostStack costs={costs} />
@@ -914,7 +916,7 @@ export function EdgeDetailPanels({ bundle }: { bundle: PerformanceBundle }) {
             <Empty>Cost split needs broker deals — paper instances carry realized P&L without a commission/swap breakdown.</Empty>
           )}
         </Panel>
-        <Panel title="Where the money comes from" hint="net contribution by symbol · n labels · expectancy in tooltip" stagger={5}>
+        <Panel title="Where the money comes from" hint="net contribution by instrument (broker-profile symbols folded) · n labels · expectancy in tooltip" stagger={5}>
           {contribution && contribution.bySymbol.length > 0 ? (
             <div className="grid gap-3 p-3">
               <ContributionBars ranking={contribution} />
@@ -926,10 +928,10 @@ export function EdgeDetailPanels({ bundle }: { bundle: PerformanceBundle }) {
                   empty="No closed trades to attribute yet."
                   cells={(r) => (
                     <>
-                      <Cell className="font-semibold text-bright">{r.key}</Cell>
+                      <Cell className="font-semibold text-bright"><span title={r.venues?.join(", ")}>{r.key}</span></Cell>
                       <Cell className={`font-mono ${r.net >= 0 ? "text-up" : "text-down"}`}>{money(r.net)}</Cell>
                       <Cell className="font-mono text-muted">{r.trades}</Cell>
-                      <Cell className="font-mono text-muted">{r.winRate.toFixed(0)}%</Cell>
+                      <Cell className="font-mono text-muted">{winPct(r.winRate)}</Cell>
                       <Cell className={`font-mono ${r.expectancy >= 0 ? "text-up" : "text-down"}`}>{money(r.expectancy)}</Cell>
                     </>
                   )}
@@ -941,7 +943,7 @@ export function EdgeDetailPanels({ bundle }: { bundle: PerformanceBundle }) {
                       </div>
                       <div className="mt-1 flex items-center gap-2 font-mono text-xs text-faint">
                         <span>
-                          {r.trades} trades · {r.winRate.toFixed(0)}% win
+                          {r.trades} trades · {winPct(r.winRate)} win
                         </span>
                         <span className={`ml-auto whitespace-nowrap ${r.expectancy >= 0 ? "text-up" : "text-down"}`}>{money(r.expectancy)} / trade</span>
                       </div>

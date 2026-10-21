@@ -213,6 +213,8 @@ export interface StrategyStats {
   winRate: number | null;
   maxDrawdownPct: number | null;
   sharpe: number | null;
+  /** End-of-day points behind sharpe; it is null below MIN_RATIO_DAYS. */
+  ratioDays: number;
 }
 export interface EquityPoint {
   ts: number;
@@ -246,6 +248,8 @@ export interface PerformanceReport {
   sharpe: number | null;
   sortino: number | null;
   calmar: number | null;
+  /** End-of-day points behind the ratios; they are null below MIN_RATIO_DAYS (20). */
+  ratioDays: number;
   wins: number;
   losses: number;
   winRate: number | null;
@@ -306,6 +310,56 @@ export interface PerformanceBundle {
   costs?: CostDecomposition | null;
   contribution?: ContributionRanking | null;
   excursions?: ExcursionStats | null;
+}
+/** A close anywhere on the account; strategyId null is a deal no strategy claimed. */
+export interface AccountClose extends ClosedTradeRow {
+  strategyId: string | null;
+  /** The symbol without its broker-profile prefix. */
+  instrument: string;
+}
+export interface AccountBucket {
+  key: string | null;
+  net: number;
+  trades: number;
+  wins: number;
+  losses: number;
+  venues?: string[];
+}
+/** Every close on the account: retired strategies and unattributed deals included. */
+export interface AccountSummary {
+  closes: AccountClose[];
+  dailyNets: DayNet[];
+  totalNet: number;
+  trades: number;
+  wins: number;
+  losses: number;
+  breakeven: number;
+  sumWins: number;
+  sumLosses: number;
+  /** Gross = before commission, swap and fee. Null without broker deals. */
+  costs: { grossProfit: number; commission: number; swap: number; fee: number; net: number } | null;
+  byInstrument: AccountBucket[];
+  byStrategy: AccountBucket[];
+  /** Capital each traded month's return is measured against. */
+  monthBases: PeriodBase[];
+}
+export interface PeriodBase { period: string; base: number; source: "account equity" | "start balance" }
+/** Drawdown and daily-loss consumption of one venue account against its own limits. */
+export interface AccountRiskRow {
+  account: string;
+  label: string;
+  source: "account limits" | "strategy risk config" | null;
+  basis: "peak" | "static";
+  startBalance: number | null;
+  startBalanceSource: "configured" | "strategy risk config" | "first recorded balance" | null;
+  balance: number | null;
+  equity: number | null;
+  peakEquity: number | null;
+  drawdown: { used: number | null; usedPct: number | null; reference: number | null; cap: number | null };
+  dailyLoss: {
+    used: number | null; cap: number | null; dayStart: number; resetHour: number; timezone: string;
+    includesFloating: boolean; dayStartBalance: number | null; realizedToday: number;
+  };
 }
 export interface AccountDrawdownRow {
   broker: string; currentEquity: number | null; peakEquity: number | null;
@@ -399,6 +453,8 @@ export interface DealRow {
 }
 export interface AccountEquityPoint {
   broker: string;
+  /** The venue account the label belongs to: labels of one account share it. */
+  account: string;
   minuteTs: number;
   balance: number | null;
   equity: number | null;
@@ -407,6 +463,8 @@ export interface AccountEquityPoint {
 
 export interface BreakdownRow {
   key: string;
+  /** bySymbol only: venue symbols folded into this instrument (absent on shared links). */
+  venues?: string[];
   net: number;
   trades: number;
   wins: number;
@@ -428,7 +486,8 @@ export interface DowHourCell {
   n: number;
   net: number;
   mean: number;
-  winRate: number;
+  /** Wins over decided round trips, breakeven excluded; null when none was decided. */
+  winRate: number | null;
 }
 export interface RollingPoint {
   day: string;
@@ -451,9 +510,12 @@ export interface CostDecomposition {
 }
 export interface ContributionRow {
   key: string;
+  /** bySymbol only: venue symbols folded into this instrument (absent on shared links). */
+  venues?: string[];
   net: number;
   trades: number;
-  winRate: number;
+  /** Wins over decided round trips, breakeven excluded; null when none was decided. */
+  winRate: number | null;
   expectancy: number;
   share: number | null;
 }
@@ -480,7 +542,9 @@ export interface ExcursionStats {
   coveragePct: number;
   averageMae: number;
   averageMfe: number;
-  averageCapturePct: number | null;
+  /** Median exit/MFE over winning trades; null when none had a favorable excursion. */
+  medianWinnerCapturePct: number | null;
+  winnersWithCapture: number;
   sampled: true;
 }
 export type ShareKind = "overview" | "portfolio" | "strategy";
@@ -580,3 +644,6 @@ export function reportPublicView(page: string, strategy?: string | null): void {
   const sent = typeof navigator.sendBeacon === "function" && navigator.sendBeacon(url, new Blob([body], { type: "application/json" }));
   if (!sent) void fetch(url, { method: "POST", headers: { "content-type": "application/json" }, body, keepalive: true }).catch(() => undefined);
 }
+
+/** Sharpe, Sortino and Calmar need this many UTC days with a close; below it they show "—". */
+export const MIN_RATIO_DAYS = 20;

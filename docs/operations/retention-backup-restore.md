@@ -19,6 +19,12 @@ Recommended baseline:
 - Quarantined envelopes (`quarantined_events`): the weekly prune drops rows received more than 30 days ago.
   Export them first if a contract fix should replay older ones.
 
+The built-in weekly prune follows this: it removes logs, non-trade events and marks of closed
+positions older than 30 days. A strategy that stops reporting for 30 days (a swapped-out book)
+leaves the active roster (Strategies shows it under "retired") and loses its logs and risk
+snapshots, but its deals, closed trades, equity snapshots, risk events and trade fills are never
+deleted, so all-time and account totals keep matching the venue.
+
 Do not delete broker deals or order history until tax, audit, and strategy-review requirements are satisfied.
 
 ## Online Backup

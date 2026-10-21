@@ -158,7 +158,7 @@ describe("deals-backed analytics", () => {
 
   it("tradeBreakdowns builds from the deals rows with hold times", () => {
     const b = tradeBreakdowns(seeded(), F)!;
-    expect(b.bySymbol[0]).toMatchObject({ key: "EXNESS:XAUUSD", trades: 4, wins: 3 });
+    expect(b.bySymbol[0]).toMatchObject({ key: "XAUUSD", venues: ["EXNESS:XAUUSD"], trades: 4, wins: 3 });
     expect(b.bySymbol[0]!.net).toBeCloseTo(7.67);
     expect(b.holdTime).not.toBeNull();
   });

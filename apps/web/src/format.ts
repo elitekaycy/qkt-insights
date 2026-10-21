@@ -16,9 +16,17 @@ export function tsShort(ms: number): string {
   return `${date} ${time}`;
 }
 
+/** toFixed that never prints "-0.00": a value that rounds to zero is unsigned. */
+export function fixed(v: number, digits = 2): string {
+  const s = v.toFixed(digits);
+  return Number(s) === 0 ? (0).toFixed(digits) : s;
+}
+
 export function money(v: number | null | undefined): string {
   if (v == null) return "—";
-  return v.toLocaleString("en-US", { minimumFractionDigits: 2, maximumFractionDigits: 2 });
+  // round first, so -0.004 prints "0.00" and never "-0.00"
+  const r = Number(v.toFixed(2)) || 0;
+  return r.toLocaleString("en-US", { minimumFractionDigits: 2, maximumFractionDigits: 2 });
 }
 
 /**
@@ -45,12 +53,12 @@ export function compact(v: number): string {
 
 export function pct(v: number | null | undefined): string {
   if (v == null) return "—";
-  return `${(v * 100).toFixed(1)}%`;
+  return `${fixed(v * 100, 1)}%`;
 }
 
 export function num(v: number | null | undefined, digits = 2): string {
   if (v == null) return "—";
-  return v.toFixed(digits);
+  return fixed(v, digits);
 }
 
 /** Full human-readable timestamp, e.g. "Wed, 11 Jun 2026 · 13:45:09". */
@@ -76,4 +84,29 @@ export function age(ms: number): string {
   if (s < 3600) return `${Math.floor(s / 60)}m ago`;
   if (s < 86400) return `${Math.floor(s / 3600)}h ago`;
   return `${Math.floor(s / 86400)}d ago`;
+}
+
+/**
+ * The instrument behind a venue symbol: qkt prefixes each symbol with the broker profile that saw
+ * it, e.g. "ICM_S05:XAUUSD" -> "XAUUSD". Aggregate by this; show the full symbol as detail.
+ */
+export function instrumentOf(symbol: string | null | undefined): string {
+  if (!symbol) return "";
+  const i = symbol.lastIndexOf(":");
+  return i >= 0 ? symbol.slice(i + 1) : symbol;
+}
+
+/** A 0-100 win rate as "55%", "—" when no round trip was decided. */
+export function winPct(v: number | null | undefined): string {
+  return v == null ? "—" : `${v.toFixed(0)}%`;
+}
+
+/** A deal leg's net: venue profit plus every cost it booked (commission, swap, fee). */
+export function dealNet(d: { profit: number | null; commission: number | null; swap: number | null; fee?: number | null }): number {
+  return (d.profit ?? 0) + (d.commission ?? 0) + (d.swap ?? 0) + (d.fee ?? 0);
+}
+
+/** A live position's open P&L as the venue floats it: profit plus accrued swap. */
+export function openPnl(p: { profit?: number | null; swap?: number | null }): number {
+  return (p.profit ?? 0) + (p.swap ?? 0);
 }

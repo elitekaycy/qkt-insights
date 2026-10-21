@@ -1,5 +1,5 @@
 import { describe, it, expect, beforeEach } from "vitest";
-import { openDb, ingestEvents, listLogs, listTrades, strategyStats, type Db } from "../src/index.js";
+import { openDb, ingestEvents, listLogs, listTrades, strategyStats, MIN_RATIO_DAYS, type Db } from "../src/index.js";
 import type { Envelope } from "@qkt-insights/contract";
 
 function env(p: any): Envelope {
@@ -97,10 +97,21 @@ describe("strategyStats", () => {
     expect(s.winRate).toBeCloseTo(3 / 5);
     // Peaks 1100 -> trough 1050 (4.545%), peak 1150 -> trough 1100 (4.348%): max is 1050/1100.
     expect(s.maxDrawdownPct).toBeCloseTo(50 / 1100);
-    // Daily returns: .1, -.0455, .0952, -.0435, .0909 -> mean/std * sqrt(252)
-    const rets = [0.1, 1050 / 1100 - 1, 1150 / 1050 - 1, 1100 / 1150 - 1, 1200 / 1100 - 1];
+    // Six daily points are under MIN_RATIO_DAYS: no Sharpe from a handful of days.
+    expect(s.ratioDays).toBe(6);
+    expect(s.sharpe).toBeNull();
+  });
+
+  it("computes sharpe from MIN_RATIO_DAYS daily points", () => {
+    const db = openDb(":memory:");
+    const eq = Array.from({ length: MIN_RATIO_DAYS }, (_, i) => 1000 + i * 20 - (i % 2) * 30);
+    ingestEvents(db, "qkt-prod", eq.map((e_, i) => env({ strategyId: "latch", ts: t0 + i * DAY, type: "snapshot.equity",
+      payload: { strategyId: "latch", realized: e_ - 1000, unrealized: 0, equity: e_, startingBalance: 1000 } })));
+    const s = strategyStats(db, { instanceId: "qkt-prod", strategyId: "latch" }, t0 + (MIN_RATIO_DAYS - 1) * DAY + 60_000);
+    const rets = eq.slice(1).map((e_, i) => e_ / eq[i]! - 1);
     const mean = rets.reduce((a, b) => a + b) / rets.length;
     const sd = Math.sqrt(rets.reduce((a, b) => a + (b - mean) ** 2, 0) / (rets.length - 1));
+    expect(s.ratioDays).toBe(MIN_RATIO_DAYS);
     expect(s.sharpe).toBeCloseTo((mean / sd) * Math.sqrt(252), 5);
   });
 

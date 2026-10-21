@@ -1,5 +1,5 @@
 import { createHmac, randomBytes } from "node:crypto";
-import type { ClosedTradeRow, DealRow, StrategyRow, TradeRow } from "@qkt-insights/store";
+import type { AccountSummary, ClosedTradeRow, DealRow, StrategyRow, TradeRow } from "@qkt-insights/store";
 import type { PerformanceBundle } from "./performance.js";
 
 /*
@@ -69,10 +69,11 @@ function publicClose(c: ClosedTradeRow & { entryOrderId?: string | null; exitOrd
   };
 }
 
-type Keyed = { key: string };
+type Keyed = { key: string; venues?: string[] };
 
-function relabelKeys<T extends Keyed>(rows: T[]): T[] {
-  return rows.map((r) => ({ ...r, key: publicSymbol(r.key) }));
+/** Instrument keys pass; the venue symbols behind them name broker profiles and are dropped. */
+function relabelKeys<T extends Keyed>(rows: T[]): Array<Omit<T, "venues">> {
+  return rows.map(({ venues: _venues, ...r }) => ({ ...r, key: publicSymbol(r.key) }));
 }
 
 /**
@@ -93,6 +94,15 @@ export function publicBundle(b: PerformanceBundle) {
         mae: r.mae, mfe: r.mfe, capturePct: r.capturePct, observations: r.observations,
       })),
     },
+  };
+}
+
+/** The account roll-up of a shared overview: built from its public strategies only, ids opaque. */
+export function publicAccountSummary(s: AccountSummary) {
+  return {
+    ...s,
+    closes: s.closes.map((c) => ({ ...publicClose(c), strategyId: c.strategyId, instrument: c.instrument })),
+    byInstrument: relabelKeys(s.byInstrument.map((b) => ({ ...b, key: b.key ?? "" }))),
   };
 }
 
