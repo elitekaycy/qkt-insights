@@ -256,6 +256,13 @@ describe("GET /logs/page", () => {
     expect((await get(`/logs?instance=${I}&q=${encodeURIComponent("mt5-gateway")}`)).statusCode).toBe(200);
   });
 
+  it("strategy=unattributed returns only the lines no strategy wrote, as the round-trip endpoints read it", async () => {
+    ingestEvents(db, I, [env("log", T0 + 3 * D, { level: "WARN", logger: "com.qkt.app.LiveSession", message: "venue session dropped" }, undefined, "l-none")]);
+    const res = await page(`/logs/page?instance=${I}&strategy=unattributed`);
+    expect(res.total).toBe(1);
+    expect(res.rows.map((l) => l.message)).toEqual(["venue session dropped"]);
+  });
+
   it("answers an unreadable cursor with the first page and requires an instance", async () => {
     expect(await page(`/logs/page?instance=${I}&cursor=nonsense`)).toMatchObject({ total: 3, nextCursor: null });
     expect((await get("/logs/page")).statusCode).toBe(400);
