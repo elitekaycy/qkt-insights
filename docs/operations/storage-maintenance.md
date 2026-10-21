@@ -8,7 +8,9 @@ to bring an older database onto the same footing.
 - **WAL checkpoint** every 10 minutes (`wal_checkpoint(TRUNCATE)`, WAL capped at 64 MiB).
 - **Retention prune** 5 minutes after the server starts listening, then weekly
   (`retention-backup-restore.md` lists what it removes). Nothing heavy runs before the server
-  listens, so a restart starts taking ingest at once.
+  listens, so a restart starts taking ingest at once. The prune runs as steps of at most a few hundred
+  deleted rows, each its own transaction (under 50 ms on a production copy), with requests and
+  ingest served between steps; the log line reports the longest step.
 - **Returning free pages.** After each prune the collector runs `PRAGMA incremental_vacuum` in
   small steps, yielding to requests between steps, until no free page is left. This only does
   anything on a database created with `auto_vacuum=INCREMENTAL`.

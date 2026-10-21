@@ -5,7 +5,7 @@ import websocket from "@fastify/websocket";
 import fastifyStatic from "@fastify/static";
 import compress from "@fastify/compress";
 import { setImmediate as yieldToEventLoop } from "node:timers/promises";
-import { openDb, checkpoint, reclaimFreePages, rebuildProjection, PROJECTIONS, LiveBus, LiveStateStore, MarketDataEpisodes, Monitors, Sessions, Shares, Views, pruneRetention, pruneStaleStrategies, replaceStrategyCapital } from "@qkt-insights/store";
+import { openDb, checkpoint, reclaimFreePages, rebuildProjection, PROJECTIONS, LiveBus, LiveStateStore, MarketDataEpisodes, Monitors, Sessions, Shares, Views, pruneRetentionSteps, pruneStaleStrategiesSteps, replaceStrategyCapital, type PruneSteps } from "@qkt-insights/store";
 import { registerCollector } from "@qkt-insights/collector";
 import {
   REQUESTS_PER_MINUTE, TotpVerifier, TtlCache, generateTotpSecret, hasSession, registerAuth, registerLive, registerPublic, registerRest, registerSecurity,
@@ -136,28 +136,45 @@ export async function buildServer(mode: Mode) {
       app.log.error({ err }, "incremental vacuum failed");
     }
   };
-  const prune = () => {
+  // The prune runs as short steps (a few hundred rows each, one transaction each) with the event
+  // loop free in between, so ingest and reads are never held up for the whole prune.
+  const runSteps = async <T>(steps: PruneSteps<T>): Promise<{ value: T; longestStepMs: number }> => {
+    let longestStepMs = 0;
+    for (;;) {
+      const started = performance.now();
+      const r = steps.next();
+      longestStepMs = Math.max(longestStepMs, performance.now() - started);
+      if (r.done) return { value: r.value, longestStepMs };
+      await yieldToEventLoop();
+    }
+  };
+  let pruning = false;
+  const prune = async () => {
+    if (pruning) return;
+    pruning = true;
     try {
       const now = Date.now();
-      const r = pruneRetention(db, now);
+      const { value: r, longestStepMs } = await runSteps(pruneRetentionSteps(db, now));
       if (r.logs || r.events || r.valuations || r.views || r.quarantined)
-        app.log.info({ ...r }, "retention prune");
+        app.log.info({ ...r, longestStepMs: Math.round(longestStepMs) }, "retention prune");
       if (r.monitors) app.log.info({ monitors: r.monitors }, "monitor history pruned");
       // Strategies that stopped reporting (a swapped-out book) lose their operational rows only;
       // their deals and closes stay in every all-time and account total.
-      const s = pruneStaleStrategies(db, now);
-      if (s.rows)
-        app.log.info({ ...s }, "retired strategies' operational history pruned");
+      const { value: st } = await runSteps(pruneStaleStrategiesSteps(db, now));
+      if (st.rows)
+        app.log.info({ ...st }, "retired strategies' operational history pruned");
     } catch (e) {
       app.log.error(e, "retention prune failed");
+    } finally {
+      pruning = false;
     }
     void reclaim();
   };
   let firstPrune: NodeJS.Timeout | undefined;
   let retention: NodeJS.Timeout | undefined;
   app.addHook("onListen", async () => {
-    firstPrune ??= setTimeout(prune, 5 * 60_000).unref();
-    retention ??= setInterval(prune, 7 * 24 * 60 * 60_000).unref();
+    firstPrune ??= setTimeout(() => void prune(), 5 * 60_000).unref();
+    retention ??= setInterval(() => void prune(), 7 * 24 * 60 * 60_000).unref();
   });
   app.addHook("onClose", async () => {
     clearTimeout(firstPrune);
