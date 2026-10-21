@@ -4,7 +4,8 @@ import cookie from "@fastify/cookie";
 import websocket from "@fastify/websocket";
 import fastifyStatic from "@fastify/static";
 import compress from "@fastify/compress";
-import { openDb, checkpoint, LiveBus, LiveStateStore, MarketDataEpisodes, Monitors, Sessions, Shares, Views, pruneRetention, pruneStaleStrategies, replaceStrategyCapital } from "@qkt-insights/store";
+import { setImmediate as yieldToEventLoop } from "node:timers/promises";
+import { openDb, checkpoint, reclaimFreePages, LiveBus, LiveStateStore, MarketDataEpisodes, Monitors, Sessions, Shares, Views, pruneRetention, pruneStaleStrategies, replaceStrategyCapital } from "@qkt-insights/store";
 import { registerCollector } from "@qkt-insights/collector";
 import {
   REQUESTS_PER_MINUTE, TotpVerifier, TtlCache, generateTotpSecret, hasSession, registerAuth, registerLive, registerPublic, registerRest, registerSecurity,
@@ -120,8 +121,21 @@ export async function buildServer(mode: Mode) {
 
   // Retention: prune operational logs/events and stale position marks past the window so the DB
   // does not grow unbounded (trade events and open-position history are kept — see pruneRetention).
-  // Run once shortly after boot (covers restart-heavy periods) and weekly thereafter. unref so
-  // neither timer holds the process open.
+  // Run once shortly after the server listens (covers restart-heavy periods) and weekly thereafter,
+  // never before: a backlog of ingest waits on boot, and a prune on a large file takes minutes.
+  // The pages it frees go back to the filesystem in small steps between requests.
+  const reclaim = async () => {
+    try {
+      let reclaimed = 0;
+      for (let free = reclaimFreePages(db); free > 0; free = reclaimFreePages(db)) {
+        reclaimed += 1;
+        await yieldToEventLoop();
+      }
+      if (reclaimed > 0) app.log.info({ steps: reclaimed }, "free pages returned to the filesystem");
+    } catch (err) {
+      app.log.error({ err }, "incremental vacuum failed");
+    }
+  };
   const prune = () => {
     try {
       const now = Date.now();
@@ -137,11 +151,18 @@ export async function buildServer(mode: Mode) {
     } catch (e) {
       app.log.error(e, "retention prune failed");
     }
+    void reclaim();
   };
-  const firstPrune = setTimeout(prune, 5 * 60_000);
-  firstPrune.unref();
-  const retention = setInterval(prune, 7 * 24 * 60 * 60_000);
-  retention.unref();
+  let firstPrune: NodeJS.Timeout | undefined;
+  let retention: NodeJS.Timeout | undefined;
+  app.addHook("onListen", async () => {
+    firstPrune ??= setTimeout(prune, 5 * 60_000).unref();
+    retention ??= setInterval(prune, 7 * 24 * 60 * 60_000).unref();
+  });
+  app.addHook("onClose", async () => {
+    clearTimeout(firstPrune);
+    clearInterval(retention);
+  });
 
   if (mode === "serve" || mode === "run") {
     await app.register(cookie);

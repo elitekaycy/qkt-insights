@@ -27,6 +27,9 @@ deleted, so all-time and account totals keep matching the venue.
 
 Do not delete broker deals or order history until tax, audit, and strategy-review requirements are satisfied.
 
+Deleted rows return their space to the filesystem only on a database with incremental auto-vacuum;
+`storage-maintenance.md` covers checking and converting an older database.
+
 ## Online Backup
 
 Use SQLite's online backup API or the `sqlite3` CLI `.backup` command. Do not copy only the main DB file while the server is running.
