@@ -111,7 +111,7 @@ export interface QuarantineCount {
 export type MonitorStatus = "up" | "down" | "pending";
 export interface StripBucket {
   ts: number;
-  /** null = no checks recorded in the bucket (the collector was not running). */
+  /** null = no checks recorded in the bucket (the collector was not running) and no outage known in it. */
   status: "up" | "down" | null;
   checks: number;
   downs: number;
@@ -127,8 +127,12 @@ export interface MonitorSummary {
   detail: string | null;
   failures: number;
   strip: StripBucket[];
+  /** Minutes up over the window's minutes since the monitor's first record; outage minutes are down, unchecked ones not up. */
   uptime24h: number | null;
   uptime30d: number | null;
+  /** Share of those minutes nothing checked and no outage covers (counted against uptime). */
+  unchecked24h: number | null;
+  unchecked30d: number | null;
 }
 export interface MonitorEventRow {
   monitor: string;

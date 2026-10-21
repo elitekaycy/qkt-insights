@@ -1,6 +1,6 @@
 import { Fragment, useRef, useState, type KeyboardEvent, type PointerEvent, type ReactNode } from "react";
 import { useQuery } from "@tanstack/react-query";
-import { get, type HealthRow, type LiveAccount, type LiveStateSnapshot, type MonitorSummary, type MonitorsView, type StripBucket } from "../api";
+import { get, type HealthRow, type LiveAccount, type LiveStateSnapshot, type MonitorEventRow, type MonitorSummary, type MonitorsView, type StripBucket } from "../api";
 import { Cell, DataList, Empty, LiveDot, PageHeader, Panel, Pill, Row, Skeleton, Stat, Table, type Tone } from "../components/ui";
 import { age, clock, duration, money, pct, signedMoney, tsDay, tsShort } from "../format";
 
@@ -33,6 +33,7 @@ function beatLabel(b: StripBucket, spanMs: number): string {
   const when = `${tsShort(b.ts)}–${clock(b.ts + spanMs)} UTC`;
   if (b.status == null) return `${when} · no checks`;
   if (b.status === "up") return `${when} · up · ${b.checks} checks`;
+  if (b.downs === 0) return `${when} · down · inside an outage${b.checks === 0 ? ", nothing was checking" : ""}`;
   return `${when} · down · ${b.downs} of ${b.checks} checks failed`;
 }
 
@@ -113,6 +114,11 @@ function sinceLabel(m: MonitorSummary): string {
   return `${m.status} for ${duration(Date.now() - m.since)}`;
 }
 
+/** "0.40% unchecked" when some minutes had no check and no known outage; they count against uptime. */
+function uncheckedLabel(v: number | null): string | null {
+  return v != null && v > 0 ? `${pct(v, 2)} unchecked` : null;
+}
+
 function MonitorRow({ m }: { m: MonitorSummary }) {
   const target = m.kind === "heartbeat" ? "qkt heartbeat · 30s pulse" : m.target;
   return (
@@ -129,7 +135,9 @@ function MonitorRow({ m }: { m: MonitorSummary }) {
           </div>
         </div>
         <div className="shrink-0 text-right">
-          <div className={`text-lg font-semibold leading-tight ${uptimeTone(m.uptime24h)}`}>{pct(m.uptime24h)}</div>
+          <div className={`text-lg font-semibold leading-tight ${uptimeTone(m.uptime24h)}`} title={uncheckedLabel(m.unchecked24h) ?? undefined}>
+            {pct(m.uptime24h, 2)}
+          </div>
           <div className="text-[11px] uppercase tracking-[0.06em] text-faint">24h</div>
         </div>
       </div>
@@ -138,7 +146,8 @@ function MonitorRow({ m }: { m: MonitorSummary }) {
       </div>
       <div className="mt-1.5 flex flex-wrap gap-x-4 gap-y-1 text-xs text-muted sm:pl-5">
         <span>
-          30d <span className={`${uptimeTone(m.uptime30d)}`}>{pct(m.uptime30d)}</span>
+          30d <span className={`${uptimeTone(m.uptime30d)}`}>{pct(m.uptime30d, 2)}</span>
+          {uncheckedLabel(m.unchecked30d) && <span className="text-faint"> · {uncheckedLabel(m.unchecked30d)}</span>}
         </span>
         {m.status === "down" ? (
           <span className="text-loss">{m.detail ?? "check failed"}</span>
@@ -182,7 +191,7 @@ function Monitors({ view, loading, failed }: { view: MonitorsView | undefined; l
         className="mt-6"
        
         title="Uptime"
-        hint="checked every 30s · down after 3 straight failures · each beat is 30 min, red if any check failed, grey when nothing was checking"
+        hint="checked every 30s · a heartbeat is down after 150s of silence, a probe after 3 straight failures · outages the collector slept through are written when it is back · each beat is 30 min, red if any check failed or an outage covers it, grey when nothing was checking · uptime counts unchecked minutes as not up"
       >
         {loading && <Skeleton lines={3} className="p-4" />}
         {failed && !view && <div className="px-4 py-10 text-center text-sm text-loss">Could not load monitors from the collector. Retrying.</div>}
@@ -198,9 +207,9 @@ function Monitors({ view, loading, failed }: { view: MonitorsView | undefined; l
         </ul>
       </Panel>
 
-      <Panel className="mt-6" title="Incidents" hint="every up/down transition, newest first" scroll="max-h-[24rem]">
+      <Panel className="mt-6" title="Incidents" hint="every up/down transition, newest first · a down lasts until the monitor's next up" scroll="max-h-[24rem]">
         <DataList
-          head={["When (UTC)", "Monitor", "Status", "Reason"]}
+          head={["When (UTC)", "Monitor", "Status", "Lasted", "Reason"]}
           rows={events}
           keyOf={(e) => `${e.monitor}:${e.ts}`}
           empty="No transitions recorded."
@@ -211,20 +220,31 @@ function Monitors({ view, loading, failed }: { view: MonitorsView | undefined; l
               <Cell>
                 <Pill tone={STATUS_TONE[e.status]}>{e.status}</Pill>
               </Cell>
+              <Cell className="whitespace-nowrap text-muted">{lasted(e, events)}</Cell>
               <Cell className="text-muted">{e.detail ?? "—"}</Cell>
             </>
           )}
           card={(e) => (
-            <div className="flex items-center gap-2">
-              <span className="truncate font-semibold text-bright">{e.monitor}</span>
-              <Pill tone={STATUS_TONE[e.status]}>{e.status}</Pill>
-              <span className="ml-auto whitespace-nowrap text-xs text-muted">{tsShort(e.ts)} UTC</span>
-            </div>
+            <>
+              <div className="flex items-center gap-2">
+                <span className="truncate font-semibold text-bright">{e.monitor}</span>
+                <Pill tone={STATUS_TONE[e.status]}>{e.status}</Pill>
+                <span className="ml-auto whitespace-nowrap text-xs text-muted">{tsShort(e.ts)} UTC</span>
+              </div>
+              {e.status === "down" && <div className="mt-1 text-xs text-muted">lasted {lasted(e, events)}{e.detail ? ` · ${e.detail}` : ""}</div>}
+            </>
           )}
         />
       </Panel>
     </>
   );
+}
+
+/** A down transition's length: to the same monitor's next up, "ongoing" without one; blank for an up. */
+function lasted(e: MonitorEventRow, events: MonitorEventRow[]): string {
+  if (e.status !== "down") return "";
+  const up = events.filter((x) => x.monitor === e.monitor && x.status === "up" && x.ts > e.ts).reduce<MonitorEventRow | null>((a, x) => (a == null || x.ts < a.ts ? x : a), null);
+  return up ? duration(up.ts - e.ts) : "ongoing";
 }
 
 function accountSummary(accounts: LiveAccount[]): LiveAccount | null {

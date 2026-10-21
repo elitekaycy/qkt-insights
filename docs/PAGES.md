@@ -124,9 +124,12 @@ Engine logs shipped from the instance, searched with the same query bar: `level:
 
 Fleet at a glance, then uptime: one heartbeat monitor per daemon, one market-data
 monitor per daemon when `INSIGHTS_MARKETDATA_MONITOR` is on, and every declared HTTP
-probe, each with a 24h strip (30-minute bars, red on any failed check, grey when
-nothing was checking), uptime over 24h and 30d, latency or the failure reason, and
-how long it has held its current status. Incidents lists every up/down transition.
+probe, each with a 24h strip (30-minute bars, red on any failed check or a stored
+outage, grey when nothing was checking), uptime over 24h and 30d (unchecked minutes
+count as not up, and their share is shown), latency or the failure reason, and how
+long it has held its current status. Incidents lists every up/down transition with how
+long each outage lasted, including the ones written after the fact for the time the
+collector itself was down (`insights collector`).
 Below that, runtime status for every reporting instance: last event age, sequence
 position, sink delivery counters, journal backlog, and broker account truth.
 

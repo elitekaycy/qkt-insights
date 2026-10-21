@@ -2,6 +2,7 @@ import type { Db } from "./db.js";
 import { statement } from "./statements.js";
 import { refreshProjections } from "./projections.js";
 import { bumpEpoch, bumpMarks, bumpStrategy } from "./versions.js";
+import { OUTAGE_AFTER_MS } from "./monitors.js";
 import { isLiveStateType, type Envelope, type QuarantinedEnvelope } from "@qkt-insights/contract";
 
 /** A flat position still records one valuation this often so its holding period is visible. */
@@ -43,9 +44,19 @@ const ORDER_STATE: Record<string, string> = {
   "order.rejected": "REJECTED",
 };
 
+/**
+ * The instance's own stream of envelopes (health pulses every 30s, journaled and replayed oldest
+ * first by qkt) says when it was silent: an envelope stamped more than OUTAGE_AFTER_MS after the
+ * newest one before it closes a silence. Both ends are the instance's clock, so its skew cannot
+ * fake one; they are stored on the collector's clock through this envelope's offset (heard minus
+ * stamped). A collector outage the instance journaled through leaves no gap in the stream.
+ * SET expressions read the row as it was before the update.
+ */
 const UP_INSTANCE_SQL =
   `INSERT INTO instances (id, first_seen, last_seen, last_seq, heard_at) VALUES (@id,@ts,@ts,@seq,@heardAt)
-   ON CONFLICT(id) DO UPDATE SET last_seen=max(last_seen,@ts), last_seq=max(last_seq,@seq), heard_at=@heardAt`;
+   ON CONFLICT(id) DO UPDATE SET last_seen=max(last_seen,@ts), last_seq=max(last_seq,@seq), heard_at=@heardAt,
+     silent_from = CASE WHEN @ts - last_seen > ${OUTAGE_AFTER_MS} THEN last_seen + (@heardAt - @ts) ELSE silent_from END,
+     silent_to = CASE WHEN @ts - last_seen > ${OUTAGE_AFTER_MS} THEN @heardAt ELSE silent_to END`;
 
 /**
  * Bump an instance's heartbeat (last_seen/last_seq) without writing an event.

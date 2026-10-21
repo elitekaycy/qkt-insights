@@ -16,7 +16,12 @@ export const ROSTER_WINDOW_MS = 300_000;
 /** A strategy this far behind the instance's newest report is off the active roster. */
 export const RETIRED_AFTER_MS = 30 * 86_400_000;
 
-export interface InstanceRow { id: string; name: string | null; firstSeen: number; lastSeen: number; lastSeq: number; /** Collector clock; null only for rows older than the column. */ heardAt: number | null }
+export interface InstanceRow {
+  id: string; name: string | null; firstSeen: number; lastSeen: number; lastSeq: number;
+  /** Collector clock; null only for rows older than the column. */ heardAt: number | null;
+  /** The latest silence longer than an outage in the instance's own stream, on the collector's clock; null without one. */
+  silentFrom: number | null; silentTo: number | null;
+}
 export interface StrategyRow { strategyId: string; firstSeen: number; lastSeen: number; startingBalance: number | null; /** Operator-declared capital (STRATEGY_CAPITAL); wins over startingBalance as the strategy's base. */ definedCapital: number | null; metadata: Record<string, unknown> | null; realizedNet: number | null; dealCount: number; active: boolean }
 export interface TradeRow { id: string; strategyId: string | null; ts: number; payload: unknown }
 export interface SearchHit { id: string; instanceId: string; type: string; ts: number; payload: unknown }
@@ -26,7 +31,7 @@ export interface HealthRow { instanceId: string; lastSeen: number; lastSeq: numb
 export interface QuarantineCount { type: string | null; v: number | null; count: number; lastReceivedAt: number; reason: string }
 
 export function listInstances(db: Db): InstanceRow[] {
-  return db.prepare("SELECT id, name, first_seen firstSeen, last_seen lastSeen, last_seq lastSeq, heard_at heardAt FROM instances ORDER BY id").all() as InstanceRow[];
+  return db.prepare("SELECT id, name, first_seen firstSeen, last_seen lastSeen, last_seq lastSeq, heard_at heardAt, silent_from silentFrom, silent_to silentTo FROM instances ORDER BY id").all() as InstanceRow[];
 }
 
 /** The roster without realized figures: cheap enough for visibility checks that run per request. */
