@@ -15,7 +15,7 @@ Recommended baseline:
 - Raw events, orders, deals, risk events, position projections: retain for at least 1 year.
 - Account equity and position valuation history: retain for at least 1 year, then archive by month if the DB grows beyond operational limits.
 - Logs: retain 30-90 days unless needed for an incident.
-- Ingest observations: retain at least as long as raw events so duplicate delivery remains auditable.
+- A redelivered envelope is acknowledged as `duplicate` in the ingest response; nothing is stored for it.
 - Quarantined envelopes (`quarantined_events`): the weekly prune drops rows received more than 30 days ago.
   Export them first if a contract fix should replay older ones.
 
@@ -26,6 +26,9 @@ snapshots, but its deals, closed trades, equity snapshots, risk events and trade
 deleted, so all-time and account totals keep matching the venue.
 
 Do not delete broker deals or order history until tax, audit, and strategy-review requirements are satisfied.
+
+Deleted rows return their space to the filesystem only on a database with incremental auto-vacuum;
+`storage-maintenance.md` covers checking and converting an older database.
 
 ## Online Backup
 
@@ -51,7 +54,7 @@ sha256sum "/backups/qkt-insights-YYYYMMDDTHHMMSSZ.db.gz" > "/backups/qkt-insight
 3. Decompress the selected backup.
 4. Start qkt-insights with `INSIGHTS_DB` pointed at the restored file.
 5. Confirm `/healthz` returns `{"ok":true}`.
-6. Open the UI and verify instances, strategies, orders, deals, equity, and health pages.
+6. Open the UI and verify instances, strategies, trades, deals, equity, and health pages.
 
 ## Recovery Objectives
 

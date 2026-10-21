@@ -1,5 +1,6 @@
 import type { Database } from "better-sqlite3";
 import { VIEW_RETENTION_DAYS } from "./views.js";
+import { bumpEpoch } from "./versions.js";
 
 /** Days of operational history kept before the weekly prune. Trade events (the analytics source of
  * truth) and marks for still-open positions are exempt regardless of age. */
@@ -27,7 +28,8 @@ export interface RetentionResult {
  *
  * What is pruned:
  *  - `logs` (+ its `logs_fts` mirror): debug/operational log lines, fully disposable.
- *  - `events` (+ `events_fts`): only NON-`trade` types (health checks, signal/latch heartbeats).
+ *  - `events` (+ `events_fts`): every NON-`trade` type, including order lifecycle, signals and
+ *    lifecycle events, so /search and order-event history reach back only this far.
  *    `type='trade'` events are the source of truth for win rate, expectancy, the calendar and cost
  *    decomposition, so they are never pruned.
  *  - `position_valuations`: per-tick marks whose (instance, broker, ticket) is not in
@@ -68,6 +70,7 @@ export function pruneRetention(db: Database, now: number, retentionDays = RETENT
 
     const quarantined = db.prepare("DELETE FROM quarantined_events WHERE received_at < ?").run(cutoff).changes;
 
+    bumpEpoch(db);
     return { logs, events, valuations, monitors, views, quarantined };
   })();
 }
@@ -126,6 +129,7 @@ export function pruneStaleStrategies(db: Database, now: number, retentionDays = 
            (SELECT instance_id, broker, ticket FROM positions_current)`,
       ).run(i, s).changes;
     }
+    if (rows > 0) bumpEpoch(db);
     return { strategies: stale.length, rows };
   })();
 }

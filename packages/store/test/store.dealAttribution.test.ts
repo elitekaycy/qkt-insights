@@ -211,6 +211,7 @@ describe("006_deal_attribution migration", () => {
   it("creates the position lookup index", () => {
     const db = openDb(":memory:");
     const names = db.prepare("SELECT name FROM sqlite_master WHERE type='index'").all().map((r: any) => r.name);
-    expect(names).toContain("idx_deals_position");
+    expect(names).toContain("idx_deals_position_ts");
+    expect(names).not.toContain("idx_deals_position");
   });
 });

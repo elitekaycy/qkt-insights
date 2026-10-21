@@ -12,3 +12,5 @@ export * from "./shares.js";
 export * from "./views.js";
 export * from "./account.js";
 export * from "./accountRisk.js";
+export * from "./statements.js";
+export * from "./versions.js";

@@ -1,5 +1,6 @@
 import type { Db } from "./db.js";
 import { accountCloses, accountSummary, type AccountFilter, type AccountSummary } from "./account.js";
+import { dataVersion } from "./versions.js";
 
 const HOUR = 3_600_000;
 const DAY = 86_400_000;
@@ -23,7 +24,31 @@ export interface AccountSeries {
 
 interface Group { labels: string[]; identity: string | null; points: Array<{ ts: number; balance: number | null; equity: number; label: string }>; minutes: Set<number> }
 
+/** The latest stitched series per database and instance, with the account version it was built at. */
+const latestSeries = new WeakMap<Db, Map<string, { version: string; series: AccountSeries[] }>>();
+
+/**
+ * Callers must treat the result as read-only: the series up to the newest stored minute is
+ * shared between requests until the account rollup writes again.
+ */
 export function accountSeries(db: Db, f: { instanceId: string; from?: number; to?: number }): AccountSeries[] {
+  const newest = (db.prepare("SELECT MAX(minute_ts) ts FROM account_equity WHERE instance_id=?").get(f.instanceId) as { ts: number | null }).ts;
+  // A cutoff at or past the newest stored minute keeps every row, so it is the same series.
+  if (f.from != null || (f.to != null && (newest == null || f.to < newest))) return stitchSeries(db, f);
+  let byInstance = latestSeries.get(db);
+  if (!byInstance) {
+    byInstance = new Map();
+    latestSeries.set(db, byInstance);
+  }
+  const version = `${dataVersion(db, [{ account: f.instanceId }])}.${newest}`;
+  const hit = byInstance.get(f.instanceId);
+  if (hit && hit.version === version) return hit.series;
+  const series = stitchSeries(db, { instanceId: f.instanceId });
+  byInstance.set(f.instanceId, { version, series });
+  return series;
+}
+
+function stitchSeries(db: Db, f: { instanceId: string; from?: number; to?: number }): AccountSeries[] {
   const rows = db.prepare(
     `SELECT broker, account, minute_ts ts, balance, equity FROM account_equity
      WHERE instance_id=? AND equity IS NOT NULL AND minute_ts<=? ORDER BY minute_ts ASC`,

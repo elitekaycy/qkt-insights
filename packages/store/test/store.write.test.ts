@@ -1,6 +1,6 @@
 import { describe, it, expect } from "vitest";
 import { openDb } from "../src/db.js";
-import { ingestEvents, persistStateEvent } from "../src/index.js";
+import { ingestEnvelopes, ingestEvents, persistStateEvent } from "../src/index.js";
 import { closedTrades } from "../src/analytics.js";
 import type { Envelope } from "@qkt-insights/contract";
 
@@ -12,11 +12,18 @@ describe("schema", () => {
   it("creates core tables and the FTS table on open", () => {
     const db = openDb(":memory:");
     const names = db.prepare("SELECT name FROM sqlite_master WHERE type IN ('table')").all().map((r: any) => r.name);
-    for (const t of ["events", "instances", "strategies", "orders", "equity_snapshots", "events_fts", "ingest_observations",
+    for (const t of ["events", "instances", "strategies", "orders", "equity_snapshots", "events_fts",
       "positions_current", "position_valuations", "position_reconciliations", "risk_events", "risk_snapshots",
-      "portfolio_allocations", "portfolio_exposure", "portfolio_equity"]) {
+      "portfolio_allocations", "portfolio_equity"]) {
       expect(names).toContain(t);
     }
+  });
+
+  it("drops the write-only tables", () => {
+    const db = openDb(":memory:");
+    const names = db.prepare("SELECT name FROM sqlite_master WHERE type IN ('table')").all().map((r: any) => r.name);
+    expect(names).not.toContain("ingest_observations");
+    expect(names).not.toContain("portfolio_exposure");
   });
 
   it("enables WAL on a file-backed db", () => {
@@ -69,8 +76,7 @@ describe("ingestEvents", () => {
     expect(row.state).toBe("FILLED");
     expect(row.cum_qty).toBe(0.1);
     expect(row.avg_price).toBe(2350);
-    expect(row.cum_qty_decimal).toBe("0.1");
-    expect(row.avg_price_decimal).toBe("2350");
+    expect(row).toMatchObject({ qty_decimal: null, cum_qty_decimal: null, avg_price_decimal: null });
   });
 
   it("appends equity snapshots and updates strategy equity", () => {
@@ -80,7 +86,7 @@ describe("ingestEvents", () => {
     ]);
     expect(db.prepare("SELECT COUNT(*) c FROM equity_snapshots").get()).toMatchObject({ c: 1 });
     expect(db.prepare("SELECT equity FROM strategies WHERE strategy_id='latch'").get()).toMatchObject({ equity: 1008 });
-    expect(db.prepare("SELECT equity_decimal FROM equity_snapshots").get()).toMatchObject({ equity_decimal: "1008" });
+    expect(db.prepare("SELECT equity_decimal FROM equity_snapshots").get()).toMatchObject({ equity_decimal: null });
   });
 
   it("indexes events into FTS so search can find them by symbol", () => {
@@ -100,16 +106,14 @@ describe("ingestEvents", () => {
     expect(db.prepare("SELECT COUNT(*) c FROM events").get()).toMatchObject({ c: 1 });
   });
 
-  it("records duplicate observations without treating producer-local seq as delivery continuity", () => {
+  it("reports a redelivered id as a duplicate without treating producer-local seq as delivery continuity", () => {
     const db = openDb(":memory:");
     const trade = (id: string, seq: number) => env({
       id, seq, type: "trade",
       payload: { orderId: id, symbol: "XAUUSD", side: "BUY", price: 2350, qty: 0.1, ts: 1718000000000 },
     });
-    ingestEvents(db, "qkt-prod", [trade("e1", 1), trade("e3", 3), trade("e2", 2), trade("e3", 3)]);
-    expect(db.prepare("SELECT kind, event_id eventId, seq, previous_seq previousSeq, expected_seq expectedSeq FROM ingest_observations ORDER BY id").all()).toEqual([
-      { kind: "duplicate", eventId: "e3", seq: 3, previousSeq: null, expectedSeq: null },
-    ]);
+    const outcome = ingestEnvelopes(db, "qkt-prod", [trade("e1", 1), trade("e3", 3), trade("e2", 2), trade("e3", 3)]);
+    expect(outcome).toEqual({ accepted: 3, statuses: ["accepted", "accepted", "accepted", "duplicate"] });
   });
 });
 
@@ -132,7 +136,7 @@ describe("broker state ingest hygiene", () => {
     expect(db.prepare("SELECT strategy_id FROM strategies").get()).toMatchObject({ strategy_id: "hedge_straddle" });
     const row: any = db.prepare("SELECT * FROM deals").get();
     expect(row).toMatchObject({ broker: "EXNESS", deal_ticket: "456", entry: "OUT", profit: 9.7, strategy_id: "hedge_straddle" });
-    expect(row).toMatchObject({ qty_decimal: "0.01", price_decimal: "2310.2", profit_decimal: "9.7" });
+    expect(row).toMatchObject({ qty_decimal: null, price_decimal: null, profit_decimal: null });
   });
 
   it("snapshot.equity no longer writes events or FTS rows", () => {
@@ -191,7 +195,7 @@ describe("broker state ingest hygiene", () => {
       { ticket: "123", current_price: 2315.2, profit: 14.7 },
     ]);
     expect(db.prepare("SELECT qty_decimal, current_price_decimal, profit_decimal FROM positions_current WHERE ticket='123'").get())
-      .toMatchObject({ qty_decimal: "0.01", current_price_decimal: "2315.2", profit_decimal: "14.7" });
+      .toMatchObject({ qty_decimal: null, current_price_decimal: null, profit_decimal: null });
     expect(db.prepare("SELECT COUNT(*) c FROM position_valuations").get()).toMatchObject({ c: 3 });
   });
 

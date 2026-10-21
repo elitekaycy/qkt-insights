@@ -1,5 +1,8 @@
 import { describe, it, expect } from "vitest";
-import { openDb } from "../src/db.js";
+import { mkdtempSync, rmSync } from "node:fs";
+import { tmpdir } from "node:os";
+import { join } from "node:path";
+import { openDb, reclaimFreePages } from "../src/db.js";
 import { runMigrations } from "../src/migrations.js";
 import { ingestEvents, persistStateEvent, instanceHealth } from "../src/index.js";
 import type { Envelope } from "@qkt-insights/contract";
@@ -71,5 +74,44 @@ describe("position valuation dedupe", () => {
     expect(count()).toBe(3);
     // positions_current still reflects the latest poll regardless.
     expect(db.prepare("SELECT last_seen FROM positions_current WHERE ticket='T1'").get()).toEqual({ last_seen: T0 + 90_000 + 5 * 60_000 });
+  });
+});
+
+describe("storage maintenance", () => {
+  it("creates new databases with incremental auto-vacuum and returns freed pages", () => {
+    const dir = mkdtempSync(join(tmpdir(), "insights-av-"));
+    try {
+      const db = openDb(join(dir, "fresh.db"));
+      expect(db.pragma("auto_vacuum", { simple: true })).toBe(2);
+      const ins = db.prepare("INSERT INTO logs (id, instance_id, strategy_id, level, logger, message, ts, seq) VALUES (?,?,?,?,?,?,?,?)");
+      db.transaction(() => {
+        for (let i = 0; i < 3000; i++) ins.run(`l${i}`, "i", null, "INFO", "x", "y".repeat(500), i, i);
+      })();
+      db.prepare("DELETE FROM logs").run();
+      expect(db.pragma("freelist_count", { simple: true })).toBeGreaterThan(100);
+      let free = reclaimFreePages(db, 50);
+      while (free > 0) free = reclaimFreePages(db, 50);
+      expect(db.pragma("freelist_count", { simple: true })).toBe(0);
+      db.close();
+    } finally {
+      rmSync(dir, { recursive: true, force: true });
+    }
+  });
+
+  it("leaves an existing database's mode alone", () => {
+    const dir = mkdtempSync(join(tmpdir(), "insights-av-"));
+    try {
+      const path = join(dir, "old.db");
+      const first = openDb(path);
+      first.pragma("auto_vacuum = NONE");
+      first.exec("VACUUM");
+      first.close();
+      const db = openDb(path);
+      expect(db.pragma("auto_vacuum", { simple: true })).toBe(0);
+      expect(reclaimFreePages(db)).toBe(0);
+      db.close();
+    } finally {
+      rmSync(dir, { recursive: true, force: true });
+    }
   });
 });
