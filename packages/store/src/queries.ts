@@ -1,7 +1,7 @@
 import type { Db } from "./db.js";
 import { VALUATION_HEARTBEAT_MS } from "./write.js";
 import { accountSeries } from "./accountRisk.js";
-import { closedTrades, hasClosingDeals, SNAPSHOT_EQUITY, strategyBase, strategyEquityCurve, tradePnls, type StrategyEquityPoint } from "./analytics.js";
+import { closedTrades, hasClosingDeals, MIN_RATIO_DAYS, SNAPSHOT_EQUITY, strategyBase, strategyEquityCurve, tradePnls, type StrategyEquityPoint } from "./analytics.js";
 
 // A strategy stays "active" while its roster bump is within this window of the
 // instance's newest bump. Comfortably exceeds the state-poll cadence (~30s) times the
@@ -575,6 +575,8 @@ export interface StrategyStats {
   winRate: number | null;
   maxDrawdownPct: number | null;
   sharpe: number | null;
+  /** End-of-day points behind sharpe; it is null below MIN_RATIO_DAYS. */
+  ratioDays: number;
 }
 
 /**
@@ -585,8 +587,8 @@ export interface StrategyStats {
  *   performance report uses, so the overview and performance tabs must never
  *   disagree on the same number. winRate skips zero-P&L closes, like the report.
  * - maxDrawdownPct/sharpe: over the deals-rebuilt equity curve (else snapshots);
- *   sharpe is annualized from end-of-day returns (sqrt(252)), null under 5 daily
- *   points — too little data to pretend.
+ *   sharpe is annualized from end-of-day returns (sqrt(252)), null under
+ *   MIN_RATIO_DAYS daily points — too little data to pretend.
  * - equity/startingBalance: with deals, equity = starting balance + realized,
  *   always current because every close updates it. Without deals they come from
  *   ledger snapshots only while fresh (newest younger than 10 minutes vs [now]);
@@ -631,7 +633,7 @@ export function strategyStats(db: Db, f: { instanceId: string; strategyId: strin
   for (const s of snaps) byDay.set(Math.floor(s.ts / 86_400_000), s.equity);
   const daily = [...byDay.entries()].sort((a, b) => a[0] - b[0]).map(([, eq]) => eq);
   let sharpe: number | null = null;
-  if (daily.length >= 5) {
+  if (daily.length >= MIN_RATIO_DAYS) {
     const rets: number[] = [];
     for (let i = 1; i < daily.length; i++) {
       const prev = daily[i - 1]!;
@@ -658,10 +660,11 @@ export function strategyStats(db: Db, f: { instanceId: string; strategyId: strin
     winRate,
     maxDrawdownPct: snaps.length > 0 ? maxDd : null,
     sharpe,
+    ratioDays: daily.length,
   };
 }
 
-export interface PositionMark { broker: string; ticket: string; strategyId: string | null; profit: number | null; ts: number }
+export interface PositionMark { broker: string; ticket: string; strategyId: string | null; profit: number | null; swap: number | null; ts: number }
 
 /**
  * A position counts as open at a moment only if it was marked shortly before it. Unchanged
@@ -676,7 +679,7 @@ export const POSITION_MARK_FRESH_MS = 2 * VALUATION_HEARTBEAT_MS + 60_000;
  */
 export function openPositionsAt(db: Db, f: { instanceId: string; at: number; freshMs?: number }): PositionMark[] {
   return db.prepare(
-    `SELECT v.broker, v.ticket, v.strategy_id strategyId, v.profit, v.ts
+    `SELECT v.broker, v.ticket, v.strategy_id strategyId, v.profit, v.swap, v.ts
      FROM position_valuations v
      JOIN (SELECT broker, ticket, MAX(ts) ts FROM position_valuations
            WHERE instance_id=@instanceId AND ts<=@at AND ts>=@from GROUP BY broker, ticket) m

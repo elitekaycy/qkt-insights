@@ -474,7 +474,8 @@ export function registerPublic(app: FastifyInstance, deps: PublicDeps): void {
       // Open P&L per strategy, as marked at the cutoff: never live, never per position.
       const open = openPositionsAt(deps.db, { instanceId: scope.instanceId, at: cutoff }).filter((p) => p.strategyId != null && scope.allowed.has(p.strategyId));
       const openByStrategy: Record<string, number> = {};
-      for (const p of open) openByStrategy[p.strategyId!] = (openByStrategy[p.strategyId!] ?? 0) + (p.profit ?? 0);
+      // Open P&L includes swap, as the venue's floating P&L does.
+      for (const p of open) openByStrategy[p.strategyId!] = (openByStrategy[p.strategyId!] ?? 0) + (p.profit ?? 0) + (p.swap ?? 0);
       if (!scope.accountLevel) return { accounts: [], positions: [], orders: [], openByStrategy };
       const liveAccounts = liveAccountCount(scope.instanceId);
       const currency = deps.liveState.snapshot(now()).accounts.find((a) => a.instanceId === scope.instanceId)?.currency ?? "USD";
@@ -488,7 +489,7 @@ export function registerPublic(app: FastifyInstance, deps: PublicDeps): void {
         instanceId: scope.instanceId, broker: label(broker), currency, balance: p.balance ?? 0, equity: p.equity ?? 0,
         openProfit: p.openProfit ?? 0, lastSeen: p.minuteTs, stale: false,
       }));
-      const unrealized = open.reduce((a, p) => a + (p.profit ?? 0), 0);
+      const unrealized = open.reduce((a, p) => a + (p.profit ?? 0) + (p.swap ?? 0), 0);
       return { accounts, positions: [], orders: [], openPositions: { count: open.length, unrealized: open.length > 0 ? unrealized : null }, openByStrategy };
     },
   });

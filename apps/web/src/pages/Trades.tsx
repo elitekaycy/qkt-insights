@@ -6,7 +6,7 @@ import {
   Card, Cell, DataList, Loadable, LoadMore, PageHeader, Panel, Pill, RangeSelect, rangeStart, SearchInput, Select, SideTag, TimeCell,
   type RangeKey,
 } from "../components/ui";
-import { price, tsShort } from "../format";
+import { dealNet, fixed, price, tsShort } from "../format";
 import { realizedLabel, useCloseMap } from "../useCloses";
 import { useLiveStream } from "../useLiveStream";
 import { usePublicPageView, useView } from "../view";
@@ -75,7 +75,6 @@ export default function Trades({ instanceId }: { instanceId: string | null }) {
         (t.strategyId ?? "").toUpperCase().includes(needle)),
   );
   const shown = filtered.slice(0, cap);
-  const dealNet = (d: DealRow) => (d.profit ?? 0) + (d.commission ?? 0) + (d.swap ?? 0);
   const filteredDeals = (deals.data ?? []).filter(
     (d) =>
       d.ts >= start &&
@@ -170,7 +169,7 @@ export default function Trades({ instanceId }: { instanceId: string | null }) {
                     <Cell className="font-mono">{price(d.price)}</Cell>
                     <Cell className={`font-mono font-semibold ${n > 0 ? "text-up" : n < 0 ? "text-down" : "text-muted"}`}>
                       {n > 0 ? "+" : ""}
-                      {n.toFixed(2)}
+                      {fixed(n)}
                     </Cell>
                     <Cell className="font-mono text-xs text-faint">{d.dealTicket}</Cell>
                   </>
@@ -185,7 +184,7 @@ export default function Trades({ instanceId }: { instanceId: string | null }) {
                       <SideTag side={d.side} />
                       <span className={`ml-auto shrink-0 font-mono text-sm font-semibold ${n > 0 ? "text-up" : n < 0 ? "text-down" : "text-muted"}`}>
                         {n > 0 ? "+" : ""}
-                        {n.toFixed(2)}
+                        {fixed(n)}
                       </span>
                     </div>
                     <div className="mt-1 flex items-center gap-2 text-xs text-faint">

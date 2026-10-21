@@ -4,7 +4,7 @@ import { AccountSummary } from "../components/AccountSummary";
 import type { ComparisonSeries } from "../components/EquityChart";
 import { OverviewDashboard } from "../components/OverviewDashboard";
 import { Card, Cell, DataList, FlashValue, LiveDot, Loadable, PageHeader, Panel, Pill, SideTag, Stat } from "../components/ui";
-import { duration, money, num, price } from "../format";
+import { duration, fixed, money, num, price } from "../format";
 import { strategyDisplayName } from "../portfolio";
 import { useLiveState } from "../useLiveState";
 import { useLiveStream } from "../useLiveStream";
@@ -223,7 +223,7 @@ export default function Overview({
                   </Cell>
                   <Cell className={`font-mono font-semibold ${profitTone(p.profit)}`}>
                     <FlashValue value={p.profit}>
-                      {p.profit == null ? "—" : `${p.profit > 0 ? "+" : ""}${p.profit.toFixed(2)}`}
+                      {p.profit == null ? "—" : `${p.profit > 0 ? "+" : ""}${fixed(p.profit)}`}
                     </FlashValue>
                   </Cell>
                   <Cell className="font-mono text-muted">{p.swap ?? "—"}</Cell>
@@ -243,7 +243,7 @@ export default function Overview({
                     <SideTag side={p.side} />
                     <span className={`ml-auto shrink-0 font-mono text-sm font-semibold ${profitTone(p.profit)}`}>
                       <FlashValue value={p.profit}>
-                        {p.profit == null ? "—" : `${p.profit > 0 ? "+" : ""}${p.profit.toFixed(2)}`}
+                        {p.profit == null ? "—" : `${p.profit > 0 ? "+" : ""}${fixed(p.profit)}`}
                       </FlashValue>
                     </span>
                   </div>

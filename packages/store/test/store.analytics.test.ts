@@ -1,5 +1,5 @@
 import { describe, it, expect } from "vitest";
-import { openDb, ingestEvents, performanceReport, dailyNets, drawdownPeriods, postLossStats, tradeBreakdowns, closedTrades, strategyStats, listStrategies, type Db } from "../src/index.js";
+import { openDb, ingestEvents, performanceReport, dailyNets, drawdownPeriods, postLossStats, tradeBreakdowns, closedTrades, strategyStats, listStrategies, MIN_RATIO_DAYS, type Db } from "../src/index.js";
 import type { Envelope } from "@qkt-insights/contract";
 
 const DAY = 86_400_000;
@@ -64,14 +64,27 @@ describe("performanceReport", () => {
     expect(r.maxDrawdownAbs).toBeCloseTo(60);
     expect(r.maxDrawdownPct).toBeCloseTo((60 / 1100) * 100);
     expect(r.recoveryFactor).toBeCloseTo(220 / 60);
-    expect(r.sharpe).not.toBeNull();
-    expect(r.sortino).not.toBeNull();
-    expect(r.calmar).not.toBeNull();
-    // sortino uses CFA downside dev over all N returns
-    const rets = [0.1, 1040 / 1100 - 1, 1140 / 1040 - 1, 1120 / 1140 - 1, 1220 / 1120 - 1];
+    // six end-of-day points: below MIN_RATIO_DAYS, so no ratio is pretended
+    expect(r.ratioDays).toBe(6);
+    expect(r.sharpe).toBeNull();
+    expect(r.sortino).toBeNull();
+    expect(r.calmar).toBeNull();
+  });
+
+  it("computes the ratios once there are MIN_RATIO_DAYS end-of-day points", () => {
+    const db = openDb(":memory:");
+    const equity = Array.from({ length: MIN_RATIO_DAYS }, (_, i) => 1000 + i * 10 + (i % 3 === 0 ? -25 : 0));
+    ingestEvents(db, "qkt-prod", equity.map((e, i) => snap(T0 + i * DAY, e - 1000, e)));
+    const r = performanceReport(db, F);
+    expect(r.ratioDays).toBe(MIN_RATIO_DAYS);
+    const rets = equity.slice(1).map((e, i) => e / equity[i]! - 1);
     const mean = rets.reduce((a, b) => a + b) / rets.length;
+    const sd = Math.sqrt(rets.reduce((a, b) => a + (b - mean) ** 2, 0) / (rets.length - 1));
+    // sortino uses CFA downside dev over all N returns
     const down = Math.sqrt(rets.reduce((a, b) => a + Math.min(0, b) ** 2, 0) / rets.length);
-    expect(r.sortino).toBeCloseTo(((mean * 252) / (down * Math.sqrt(252))) * 1, 4);
+    expect(r.sharpe).toBeCloseTo((mean * 252) / (sd * Math.sqrt(252)), 6);
+    expect(r.sortino).toBeCloseTo((mean * 252) / (down * Math.sqrt(252)), 6);
+    expect(r.calmar).not.toBeNull();
   });
 
   it("computes streaks and day stats", () => {

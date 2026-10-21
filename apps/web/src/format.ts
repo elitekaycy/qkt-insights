@@ -95,3 +95,18 @@ export function instrumentOf(symbol: string | null | undefined): string {
   const i = symbol.lastIndexOf(":");
   return i >= 0 ? symbol.slice(i + 1) : symbol;
 }
+
+/** A 0-100 win rate as "55%", "—" when no round trip was decided. */
+export function winPct(v: number | null | undefined): string {
+  return v == null ? "—" : `${v.toFixed(0)}%`;
+}
+
+/** A deal leg's net: venue profit plus every cost it booked (commission, swap, fee). */
+export function dealNet(d: { profit: number | null; commission: number | null; swap: number | null; fee?: number | null }): number {
+  return (d.profit ?? 0) + (d.commission ?? 0) + (d.swap ?? 0) + (d.fee ?? 0);
+}
+
+/** A live position's open P&L as the venue floats it: profit plus accrued swap. */
+export function openPnl(p: { profit?: number | null; swap?: number | null }): number {
+  return (p.profit ?? 0) + (p.swap ?? 0);
+}

@@ -15,6 +15,20 @@ import type { Db } from "./db.js";
 
 const DAY = 86_400_000;
 
+/**
+ * Sharpe, Sortino and Calmar need at least this many end-of-day points (UTC days with a close);
+ * below it they are null: a ratio from a handful of days says nothing.
+ */
+export const MIN_RATIO_DAYS = 20;
+
+/**
+ * The one win-rate definition: winning closed round trips over winning plus losing ones, in
+ * percent. Breakeven closes (net exactly 0) are excluded; null when none was decided.
+ */
+export function winRatePct(wins: number, losses: number): number | null {
+  return wins + losses > 0 ? (wins / (wins + losses)) * 100 : null;
+}
+
 export interface AnalyticsFilter {
   instanceId: string;
   strategyId: string;
@@ -60,6 +74,8 @@ export interface PerformanceReport {
   sharpe: number | null;
   sortino: number | null;
   calmar: number | null;
+  /** End-of-day points the ratios use; they are null below MIN_RATIO_DAYS. */
+  ratioDays: number;
   wins: number;
   losses: number;
   winRate: number | null;
@@ -517,12 +533,12 @@ export function performanceReport(db: Db, f: AnalyticsFilter): PerformanceReport
   const periods = snaps.length > 0 ? walkPeriods(snaps) : [];
   const drawdownDurationDays = periods.length > 0 ? Math.max(...periods.map((p) => p.lengthDays)) : null;
 
-  // Ratios from end-of-day equity returns; null under 5 daily points (too little to pretend).
+  // Ratios from end-of-day equity returns; null under MIN_RATIO_DAYS daily points (too little to pretend).
   const byDay = new Map<string, number>();
   for (const s of snaps) byDay.set(utcDay(s.ts), s.equity);
   const dailyEq = [...byDay.entries()].sort((a, b) => (a[0] < b[0] ? -1 : 1)).map(([, eq]) => eq);
   let sharpe: number | null = null, sortino: number | null = null, calmar: number | null = null;
-  if (dailyEq.length >= 5) {
+  if (dailyEq.length >= MIN_RATIO_DAYS) {
     const rets: number[] = [];
     for (let i = 1; i < dailyEq.length; i++) {
       const prev = dailyEq[i - 1]!;
@@ -559,6 +575,7 @@ export function performanceReport(db: Db, f: AnalyticsFilter): PerformanceReport
     sharpe,
     sortino,
     calmar,
+    ratioDays: dailyEq.length,
     wins: wins.length,
     losses: losses.length,
     winRate: winRate != null ? winRate * 100 : null,
@@ -696,8 +713,8 @@ export interface DowHourCell {
   n: number;
   net: number;
   mean: number;
-  /** Percentage 0-100. */
-  winRate: number;
+  /** Percentage 0-100 (winRatePct); null when every close was breakeven. */
+  winRate: number | null;
 }
 
 /**
@@ -709,28 +726,29 @@ export interface DowHourCell {
 export function dowHourMatrix(db: Db, f: AnalyticsFilter): DowHourCell[] | null {
   const rows = closes(db, f);
   if (rows.length === 0) return null;
-  const cells = new Map<number, DowHourCell & { wins: number }>();
+  const cells = new Map<number, DowHourCell & { wins: number; losses: number }>();
   for (const r of rows) {
     const d = new Date(r.ts);
     const dow = (d.getUTCDay() + 6) % 7;
     const hour = d.getUTCHours();
     const k = dow * 24 + hour;
-    const cur = cells.get(k) ?? { dow, hour, n: 0, net: 0, mean: 0, winRate: 0, wins: 0 };
+    const cur = cells.get(k) ?? { dow, hour, n: 0, net: 0, mean: 0, winRate: null, wins: 0, losses: 0 };
     cur.n++;
     cur.net += r.realized;
     if (r.realized > 0) cur.wins++;
+    else if (r.realized < 0) cur.losses++;
     cells.set(k, cur);
   }
   return [...cells.values()]
     .sort((a, b) => a.dow * 24 + a.hour - (b.dow * 24 + b.hour))
-    .map(({ wins, ...c }) => ({ ...c, mean: c.net / c.n, winRate: (wins / c.n) * 100 }));
+    .map(({ wins, losses, ...c }) => ({ ...c, mean: c.net / c.n, winRate: winRatePct(wins, losses) }));
 }
 
 export interface RollingPoint {
   day: string;
   /** Annualized (√252) Sharpe over the window's daily equity returns; null during warmup. */
   sharpe: number | null;
-  /** Percentage of traded days in the window that were net-positive; null when none traded. */
+  /** Percentage of traded days in the window that were net-positive (winning days, not trades); null when none traded. */
   winRate: number | null;
   /** Mean net P&L per traded day in the window; null when none traded. */
   meanNet: number | null;
@@ -835,8 +853,8 @@ export interface ContributionRow {
   venues?: string[];
   net: number;
   trades: number;
-  /** Percentage 0-100. */
-  winRate: number;
+  /** Percentage 0-100 (winRatePct); null when every close was breakeven. */
+  winRate: number | null;
   /** Mean net per trade. */
   expectancy: number;
   /** Signed fraction of total net (net/totalNet); null when total is 0. */
@@ -860,13 +878,14 @@ export function contributionRanking(db: Db, f: AnalyticsFilter): ContributionRan
   if (rows.length === 0) return null;
   const totalNet = rows.reduce((a, r) => a + r.realized, 0);
   const build = (key: (r: ClosedTradeRow) => string, venues: boolean): ContributionRow[] => {
-    const m = new Map<string, { net: number; trades: number; wins: number; venues: Set<string> }>();
+    const m = new Map<string, { net: number; trades: number; wins: number; losses: number; venues: Set<string> }>();
     for (const r of rows) {
       const k = key(r);
-      const cur = m.get(k) ?? { net: 0, trades: 0, wins: 0, venues: new Set<string>() };
+      const cur = m.get(k) ?? { net: 0, trades: 0, wins: 0, losses: 0, venues: new Set<string>() };
       cur.net += r.realized;
       cur.trades++;
       if (r.realized > 0) cur.wins++;
+      else if (r.realized < 0) cur.losses++;
       cur.venues.add(r.symbol);
       m.set(k, cur);
     }
@@ -876,7 +895,7 @@ export function contributionRanking(db: Db, f: AnalyticsFilter): ContributionRan
         ...(venues ? { venues: [...v.venues] } : {}),
         net: v.net,
         trades: v.trades,
-        winRate: (v.wins / v.trades) * 100,
+        winRate: winRatePct(v.wins, v.losses),
         expectancy: v.net / v.trades,
         share: totalNet !== 0 ? v.net / totalNet : null,
       }))
@@ -904,7 +923,13 @@ export interface ExcursionStats {
   coveragePct: number;
   averageMae: number;
   averageMfe: number;
-  averageCapturePct: number | null;
+  /**
+   * Median of exit P&L / MFE over winning trades that had a favorable excursion. A mean over all
+   * trades is meaningless: a loser with a tiny MFE scores -900%.
+   */
+  medianWinnerCapturePct: number | null;
+  /** Winning trades behind the median. */
+  winnersWithCapture: number;
   sampled: true;
 }
 
@@ -941,7 +966,9 @@ export function excursionStats(db: Db, f: AnalyticsFilter): ExcursionStats | nul
     });
   }
   if (rows.length === 0) return null;
-  const captures = rows.map((x) => x.capturePct).filter((x): x is number => x != null && Number.isFinite(x));
+  const captures = rows.filter((x) => x.exitPnl > 0).map((x) => x.capturePct)
+    .filter((x): x is number => x != null && Number.isFinite(x)).sort((a, b) => a - b);
+  const mid = Math.floor(captures.length / 2);
   return {
     rows,
     closedTrades: trades.length,
@@ -949,7 +976,8 @@ export function excursionStats(db: Db, f: AnalyticsFilter): ExcursionStats | nul
     coveragePct: trades.length > 0 ? (rows.length / trades.length) * 100 : 0,
     averageMae: rows.reduce((a, x) => a + x.mae, 0) / rows.length,
     averageMfe: rows.reduce((a, x) => a + x.mfe, 0) / rows.length,
-    averageCapturePct: captures.length > 0 ? captures.reduce((a, x) => a + x, 0) / captures.length : null,
+    medianWinnerCapturePct: captures.length === 0 ? null : captures.length % 2 ? captures[mid]! : (captures[mid - 1]! + captures[mid]!) / 2,
+    winnersWithCapture: captures.length,
     sampled: true,
   };
 }

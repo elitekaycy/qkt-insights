@@ -1,6 +1,6 @@
 import type { ReactNode } from "react";
 import type { AccountRiskRow, ClosedTradeRow, DayNet, ExcursionStats } from "../api";
-import { compact, duration, money } from "../format";
+import { compact, duration, fixed, money } from "../format";
 import { ChartCard } from "./ChartCard";
 import { chartColors, EChart, qktChartAxis, qktChartGrid, qktChartTooltip, qktInsideZoom, type QktChartOption } from "./EChart";
 import { ComparisonChart, type ComparisonSeries } from "./EquityChart";
@@ -116,10 +116,10 @@ function OutcomeWidget({ closes }: { closes: ClosedTradeRow[] }) {
       { name: "Breakeven", value: flat, itemStyle: { color: chartColors.muted } },
       { name: "Losses", value: losses, itemStyle: { color: chartColors.down } },
     ] }],
-    graphic: closes.length > 0 ? [{ type: "text", left: "center", top: "35%", style: { text: `${((wins / closes.length) * 100).toFixed(1)}%\nwin rate`, textAlign: "center", fill: "#f2f4f6", font: "600 16px Archivo", lineHeight: 22 } }] : [],
+    graphic: wins + losses > 0 ? [{ type: "text", left: "center", top: "35%", style: { text: `${((wins / (wins + losses)) * 100).toFixed(1)}%\nwin rate`, textAlign: "center", fill: "#f2f4f6", font: "600 16px Archivo", lineHeight: 22 } }] : [],
   };
   return (
-    <ChartCard title="Trade outcomes" description="Wins, losses, and flat closes across every strategy." meta={`n=${closes.length}`}>
+    <ChartCard title="Trade outcomes" description="Wins, losses, and breakeven closes on the account; the win rate excludes breakeven." meta={`n=${closes.length}`}>
       {closes.length > 0 ? <div className="p-3"><EChart option={option} height={250} /></div> : <WidgetEmpty>No closed trades yet.</WidgetEmpty>}
     </ChartCard>
   );
@@ -227,8 +227,10 @@ function EquityWidget({ data }: { data: OverviewDashboardData }) {
 function ExcursionWidget({ rows }: { rows: ExcursionStats[] }) {
   const samples = rows.flatMap((x) => x.rows);
   const closed = rows.reduce((a, x) => a + x.closedTrades, 0);
-  const captureRows = samples.filter((x) => x.capturePct != null);
-  const averageCapture = captureRows.length > 0 ? captureRows.reduce((a, x) => a + x.capturePct!, 0) / captureRows.length : null;
+  // Median capture of winners: exit P&L over the best open P&L seen, on trades that closed in profit.
+  const captures = samples.filter((x) => x.exitPnl > 0 && x.capturePct != null).map((x) => x.capturePct!).sort((a, b) => a - b);
+  const mid = Math.floor(captures.length / 2);
+  const medianCapture = captures.length === 0 ? null : captures.length % 2 ? captures[mid]! : (captures[mid - 1]! + captures[mid]!) / 2;
   const option: QktChartOption = {
     backgroundColor: "transparent",
     grid: { ...qktChartGrid, top: 24, left: 56, right: 24, bottom: 48 },
@@ -247,7 +249,7 @@ function ExcursionWidget({ rows }: { rows: ExcursionStats[] }) {
     }],
   };
   return (
-    <ChartCard title="Trade excursion" description="Maximum adverse versus favorable movement before exit; sampled from stored position valuations." meta={`coverage ${closed > 0 ? ((samples.length / closed) * 100).toFixed(1) : "0.0"}% · n=${samples.length}/${closed}`} value={averageCapture == null ? "—" : `${averageCapture.toFixed(1)}% captured`}>
+    <ChartCard title="Trade excursion" description="Maximum adverse versus favorable movement before exit; sampled from stored position valuations." meta={`coverage ${closed > 0 ? ((samples.length / closed) * 100).toFixed(1) : "0.0"}% · n=${samples.length}/${closed}`} value={medianCapture == null ? "—" : <span title={`median over ${captures.length} winning trades`}>{`${fixed(medianCapture, 1)}% median capture of winners`}</span>}>
       {samples.length > 0 ? <div className="p-3 sm:p-4"><EChart option={option} height={310} /></div> : <WidgetEmpty>Position valuation samples will reveal MAE, MFE, and exit capture.</WidgetEmpty>}
     </ChartCard>
   );

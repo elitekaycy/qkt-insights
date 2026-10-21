@@ -1,5 +1,5 @@
 import type { BreakdownRow, ContributionRanking, CostDecomposition, DowHourCell, PerformanceReport, RollingPoint } from "../api";
-import { money } from "../format";
+import { money, winPct } from "../format";
 import { EChart, qktBottomLegend, qktChartAxis, qktChartGrid, qktChartTooltip, useNarrowChart, type QktChartOption } from "./EChart";
 
 /*
@@ -41,7 +41,7 @@ export function DowHourHeatmap({ cells, height = 320 }: { cells: DowHourCell[]; 
         const c = p.data?.cell;
         if (!c) return "";
         const warn = c.n < MIN_N ? ` — under ${MIN_N} trades, treat as noise` : "";
-        return `${DOW[c.dow]} ${String(c.hour).padStart(2, "0")}:00 UTC<br/>n ${c.n}${warn}<br/>net ${money(c.net)} · mean ${money(c.mean)}<br/>win rate ${c.winRate.toFixed(0)}%`;
+        return `${DOW[c.dow]} ${String(c.hour).padStart(2, "0")}:00 UTC<br/>n ${c.n}${warn}<br/>net ${money(c.net)} · mean ${money(c.mean)}<br/>win rate ${winPct(c.winRate)} (breakeven excluded)`;
       },
     },
     xAxis: {
@@ -183,7 +183,7 @@ export function HonestBucketBars({ rows, height = 260 }: { rows: BreakdownRow[];
   return <EChart option={option} height={height} />;
 }
 
-/** Rolling Sharpe + win rate on twin axes; warmup nulls leave visible gaps. */
+/** Rolling Sharpe + share of winning days (net-positive UTC days, not trades) on twin axes; warmup nulls leave visible gaps. */
 export function RollingChart({ points, height = 260 }: { points: RollingPoint[]; height?: number }) {
   const narrow = useNarrowChart();
   const below = qktBottomLegend(true);
@@ -208,7 +208,7 @@ export function RollingChart({ points, height = 260 }: { points: RollingPoint[];
     ],
     series: [
       { name: "rolling Sharpe", type: "line", showSymbol: false, connectNulls: false, data: points.map((p) => p.sharpe) },
-      { name: "rolling win rate", type: "line", yAxisIndex: 1, showSymbol: false, connectNulls: false, data: points.map((p) => p.winRate) },
+      { name: "rolling winning days", type: "line", yAxisIndex: 1, showSymbol: false, connectNulls: false, data: points.map((p) => p.winRate) },
     ],
   };
   return <EChart option={option} height={height} />;
@@ -235,7 +235,7 @@ export function CostStack({ costs, height = 260 }: { costs: CostDecomposition; h
     xAxis: { type: "category", data: rows.map((r) => r.key), ...qktChartAxis },
     yAxis: { type: "value", ...qktChartAxis },
     series: [
-      { name: "gross", type: "bar", data: rows.map((r) => r.grossProfit), itemStyle: { color: UP, opacity: 0.9 } },
+      { name: "gross (before costs)", type: "bar", data: rows.map((r) => r.grossProfit), itemStyle: { color: UP, opacity: 0.9 } },
       { name: "commission", type: "bar", stack: "cost", data: rows.map((r) => r.commission), itemStyle: { color: "#ffb86b" } },
       { name: "swap", type: "bar", stack: "cost", data: rows.map((r) => r.swap), itemStyle: { color: "#5cb8ff" } },
       { name: "fee", type: "bar", stack: "cost", data: rows.map((r) => r.fee), itemStyle: { color: "#a78bfa" } },
@@ -257,7 +257,7 @@ export function ContributionBars({ ranking, height = 260 }: { ranking: Contribut
         const r = rows[p.dataIndex];
         if (!r) return "";
         const share = r.share != null ? ` · ${(r.share * 100).toFixed(0)}% of net` : "";
-        return `${r.key}<br/>net ${money(r.net)}${share}<br/>n ${r.trades} · win ${r.winRate.toFixed(0)}% · expectancy ${money(r.expectancy)}`;
+        return `${r.key}<br/>net ${money(r.net)}${share}<br/>n ${r.trades} · win ${winPct(r.winRate)} · expectancy ${money(r.expectancy)}`;
       },
     },
     xAxis: { type: "value", ...qktChartAxis },

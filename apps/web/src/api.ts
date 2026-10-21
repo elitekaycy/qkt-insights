@@ -213,6 +213,8 @@ export interface StrategyStats {
   winRate: number | null;
   maxDrawdownPct: number | null;
   sharpe: number | null;
+  /** End-of-day points behind sharpe; it is null below MIN_RATIO_DAYS. */
+  ratioDays: number;
 }
 export interface EquityPoint {
   ts: number;
@@ -246,6 +248,8 @@ export interface PerformanceReport {
   sharpe: number | null;
   sortino: number | null;
   calmar: number | null;
+  /** End-of-day points behind the ratios; they are null below MIN_RATIO_DAYS (20). */
+  ratioDays: number;
   wins: number;
   losses: number;
   winRate: number | null;
@@ -482,7 +486,8 @@ export interface DowHourCell {
   n: number;
   net: number;
   mean: number;
-  winRate: number;
+  /** Wins over decided round trips, breakeven excluded; null when none was decided. */
+  winRate: number | null;
 }
 export interface RollingPoint {
   day: string;
@@ -509,7 +514,8 @@ export interface ContributionRow {
   venues?: string[];
   net: number;
   trades: number;
-  winRate: number;
+  /** Wins over decided round trips, breakeven excluded; null when none was decided. */
+  winRate: number | null;
   expectancy: number;
   share: number | null;
 }
@@ -536,7 +542,9 @@ export interface ExcursionStats {
   coveragePct: number;
   averageMae: number;
   averageMfe: number;
-  averageCapturePct: number | null;
+  /** Median exit/MFE over winning trades; null when none had a favorable excursion. */
+  medianWinnerCapturePct: number | null;
+  winnersWithCapture: number;
   sampled: true;
 }
 export type ShareKind = "overview" | "portfolio" | "strategy";
@@ -636,3 +644,6 @@ export function reportPublicView(page: string, strategy?: string | null): void {
   const sent = typeof navigator.sendBeacon === "function" && navigator.sendBeacon(url, new Blob([body], { type: "application/json" }));
   if (!sent) void fetch(url, { method: "POST", headers: { "content-type": "application/json" }, body, keepalive: true }).catch(() => undefined);
 }
+
+/** Sharpe, Sortino and Calmar need this many UTC days with a close; below it they show "—". */
+export const MIN_RATIO_DAYS = 20;
