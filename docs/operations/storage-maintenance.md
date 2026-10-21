@@ -8,7 +8,9 @@ to bring an older database onto the same footing.
 - **WAL checkpoint** every 10 minutes (`wal_checkpoint(TRUNCATE)`, WAL capped at 64 MiB).
 - **Retention prune** 5 minutes after the server starts listening, then weekly
   (`retention-backup-restore.md` lists what it removes). Nothing heavy runs before the server
-  listens, so a restart starts taking ingest at once.
+  listens, so a restart starts taking ingest at once. The prune runs as steps of at most a few hundred
+  deleted rows, each its own transaction (under 50 ms on a production copy), with requests and
+  ingest served between steps; the log line reports the longest step.
 - **Returning free pages.** After each prune the collector runs `PRAGMA incremental_vacuum` in
   small steps, yielding to requests between steps, until no free page is left. This only does
   anything on a database created with `auto_vacuum=INCREMENTAL`.
@@ -77,11 +79,14 @@ nothing is lost; only the dashboard is unavailable.
        === q(dst, "SELECT group_concat(rowid) FROM (SELECT rowid FROM events ORDER BY rowid DESC LIMIT 1000)");
      checks.logsRowids = q(src, "SELECT group_concat(rowid) FROM (SELECT rowid FROM logs ORDER BY rowid DESC LIMIT 1000)")
        === q(dst, "SELECT group_concat(rowid) FROM (SELECT rowid FROM logs ORDER BY rowid DESC LIMIT 1000)");
+     checks.dealsRowids = q(src, "SELECT group_concat(rowid) FROM deals") === q(dst, "SELECT group_concat(rowid) FROM deals");
      console.log(checks);'
    ```
 
    Expect `integrity: "ok"`, `autoVacuum: 2`, both orphan counts `0` and every other check
-   `true`. If any check fails, delete the copy and keep the original; do not swap.
+   `true`. If any check fails, delete the copy and keep the original; do not swap. The one
+   exception is `dealsRowids`: the closed-trade projections point at deals by rowid, so if it is
+   `false`, swap and run `rebuild all` before starting the container (`projections.md`).
 
 5. **Swap**, keeping the original until the dashboard is confirmed:
 

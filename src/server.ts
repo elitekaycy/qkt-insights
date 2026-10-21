@@ -5,7 +5,7 @@ import websocket from "@fastify/websocket";
 import fastifyStatic from "@fastify/static";
 import compress from "@fastify/compress";
 import { setImmediate as yieldToEventLoop } from "node:timers/promises";
-import { openDb, checkpoint, reclaimFreePages, LiveBus, LiveStateStore, MarketDataEpisodes, Monitors, Sessions, Shares, Views, pruneRetention, pruneStaleStrategies, replaceStrategyCapital } from "@qkt-insights/store";
+import { openDb, checkpoint, reclaimFreePages, rebuildProjection, PROJECTIONS, LiveBus, LiveStateStore, MarketDataEpisodes, Monitors, Sessions, Shares, Views, pruneRetentionSteps, pruneStaleStrategiesSteps, replaceStrategyCapital, type PruneSteps } from "@qkt-insights/store";
 import { registerCollector } from "@qkt-insights/collector";
 import {
   REQUESTS_PER_MINUTE, TotpVerifier, TtlCache, generateTotpSecret, hasSession, registerAuth, registerLive, registerPublic, registerRest, registerSecurity,
@@ -136,28 +136,45 @@ export async function buildServer(mode: Mode) {
       app.log.error({ err }, "incremental vacuum failed");
     }
   };
-  const prune = () => {
+  // The prune runs as short steps (a few hundred rows each, one transaction each) with the event
+  // loop free in between, so ingest and reads are never held up for the whole prune.
+  const runSteps = async <T>(steps: PruneSteps<T>): Promise<{ value: T; longestStepMs: number }> => {
+    let longestStepMs = 0;
+    for (;;) {
+      const started = performance.now();
+      const r = steps.next();
+      longestStepMs = Math.max(longestStepMs, performance.now() - started);
+      if (r.done) return { value: r.value, longestStepMs };
+      await yieldToEventLoop();
+    }
+  };
+  let pruning = false;
+  const prune = async () => {
+    if (pruning) return;
+    pruning = true;
     try {
       const now = Date.now();
-      const r = pruneRetention(db, now);
+      const { value: r, longestStepMs } = await runSteps(pruneRetentionSteps(db, now));
       if (r.logs || r.events || r.valuations || r.views || r.quarantined)
-        app.log.info({ ...r }, "retention prune");
+        app.log.info({ ...r, longestStepMs: Math.round(longestStepMs) }, "retention prune");
       if (r.monitors) app.log.info({ monitors: r.monitors }, "monitor history pruned");
       // Strategies that stopped reporting (a swapped-out book) lose their operational rows only;
       // their deals and closes stay in every all-time and account total.
-      const s = pruneStaleStrategies(db, now);
-      if (s.rows)
-        app.log.info({ ...s }, "retired strategies' operational history pruned");
+      const { value: st } = await runSteps(pruneStaleStrategiesSteps(db, now));
+      if (st.rows)
+        app.log.info({ ...st }, "retired strategies' operational history pruned");
     } catch (e) {
       app.log.error(e, "retention prune failed");
+    } finally {
+      pruning = false;
     }
     void reclaim();
   };
   let firstPrune: NodeJS.Timeout | undefined;
   let retention: NodeJS.Timeout | undefined;
   app.addHook("onListen", async () => {
-    firstPrune ??= setTimeout(prune, 5 * 60_000).unref();
-    retention ??= setInterval(prune, 7 * 24 * 60 * 60_000).unref();
+    firstPrune ??= setTimeout(() => void prune(), 5 * 60_000).unref();
+    retention ??= setInterval(() => void prune(), 7 * 24 * 60 * 60_000).unref();
   });
   app.addHook("onClose", async () => {
     clearTimeout(firstPrune);
@@ -251,9 +268,36 @@ export async function buildServer(mode: Mode) {
   return app;
 }
 
+/**
+ * `rebuild <projection|all>`: rebuilds write-time projections from their source tables
+ * (docs/operations/projections.md). Run it with the server stopped; progress goes to `print`.
+ */
+export function rebuildCommand(args: string[], dbPath: string, print: (line: string) => void = (l) => process.stdout.write(`${l}\n`)): void {
+  const names = Object.keys(PROJECTIONS);
+  const which = args[0];
+  if (!which || (which !== "all" && !names.includes(which))) {
+    throw new Error(`usage: rebuild <${[...names, "all"].join("|")}>`);
+  }
+  const db = openDb(dbPath);
+  try {
+    for (const name of which === "all" ? names : [which]) {
+      let batches = 0;
+      const r = rebuildProjection(db, name, { force: true, onBatch: () => { if (++batches % 20 === 0) print(`${name}: ${batches} batches`); } });
+      print(`${name}: rebuilt in ${r.batches} batches, ${Math.round(r.ms)} ms`);
+    }
+    checkpoint(db);
+  } finally {
+    db.close();
+  }
+}
+
 async function main() {
   if (process.argv[2] === "totp-setup") {
     process.stdout.write(totpSetupText(process.argv[3] ?? process.env.INSIGHTS_NAME?.trim() ?? "admin"));
+    return;
+  }
+  if (process.argv[2] === "rebuild") {
+    rebuildCommand(process.argv.slice(3), env("INSIGHTS_DB", "/data/insights.db"));
     return;
   }
   const mode = parseMode(process.argv.slice(2));

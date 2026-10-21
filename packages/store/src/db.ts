@@ -1,5 +1,6 @@
 import Database from "better-sqlite3";
 import { runMigrations } from "./migrations.js";
+import { ensureProjections } from "./projections.js";
 
 export type Db = Database.Database;
 
@@ -19,6 +20,7 @@ export function openDb(path: string): Db {
   db.pragma(`journal_size_limit = ${WAL_SIZE_LIMIT_BYTES}`);
   db.pragma("foreign_keys = ON");
   runMigrations(db);
+  ensureProjections(db);
   return db;
 }
 

@@ -1,4 +1,11 @@
 import type { Db } from "./db.js";
+import { OUT_LEGS } from "./closedTrades.js";
+import { refreshProjections } from "./projections.js";
+import { statement } from "./statements.js";
+import { dailyRows, strategyTotals, type DailyRow } from "./strategyDaily.js";
+import { excursionsOf } from "./excursions.js";
+
+export { OUT_LEGS };
 
 /**
  * Trading-performance analytics. Sources, in order of trust:
@@ -192,8 +199,6 @@ export interface DealClosedTrade extends ClosedTradeRow {
   exitOrderId: string | null;
 }
 
-export const OUT_LEGS = "('OUT','INOUT','OUT_BY')";
-
 /** True when broker deals closed positions for this strategy — the deals source is authoritative then. */
 
 /**
@@ -204,29 +209,21 @@ export const OUT_LEGS = "('OUT','INOUT','OUT_BY')";
  * attribution occasionally guessed differently. The first-stored row is the
  * canonical one: it comes from the poller that owned the fill and attributed
  * it, so summing anything over deals without this predicate multiplies P&L by
- * the number of profiles.
+ * the number of profiles. The flag is set when the row is stored (migration 028).
  */
 export function canonicalDeal(alias: string): string {
-  return `${alias}.rowid = (SELECT MIN(dd.rowid) FROM deals dd
-    WHERE dd.instance_id=${alias}.instance_id AND dd.deal_ticket=${alias}.deal_ticket)`;
+  return `${alias}.canonical=1`;
 }
 
 /**
  * `alias.position_ticket` belongs to a position whose IN volume was fully matched by OUT legs at
  * or before @to. Reversal (INOUT) positions never qualify: their legs cannot be split into a
- * closed part and an open part.
+ * closed part and an open part. Reads the closure ranges stored per position (closedTrades.ts).
  */
 export function fullyClosedPosition(alias: string): string {
-  // Correlated on the position so it reads only that position's legs through
-  // idx_deals_position_ts, instead of grouping every deal of the instance per query.
-  return `(SELECT CASE WHEN SUM(CASE WHEN fc.entry='INOUT' THEN 1 ELSE 0 END) = 0
-                        AND SUM(CASE WHEN fc.entry='IN' THEN fc.qty ELSE 0 END) > 0
-                        AND SUM(CASE WHEN fc.entry IN ('OUT','OUT_BY') THEN fc.qty ELSE 0 END)
-                            >= SUM(CASE WHEN fc.entry='IN' THEN fc.qty ELSE 0 END) - 1e-9
-                   THEN 1 ELSE 0 END
-      FROM deals fc
-      WHERE fc.instance_id=${alias}.instance_id AND fc.position_ticket=${alias}.position_ticket
-        AND fc.ts<=@to AND ${canonicalDeal("fc")}) = 1`;
+  return `EXISTS (SELECT 1 FROM position_closures pc
+    WHERE pc.instance_id=${alias}.instance_id AND pc.position_ticket=${alias}.position_ticket
+      AND pc.from_ts<=@to AND (pc.until_ts IS NULL OR pc.until_ts>@to))`;
 }
 
 function requireCutoff(f: { to?: number; closedPositionsOnly?: boolean }): void {
@@ -235,10 +232,12 @@ function requireCutoff(f: { to?: number; closedPositionsOnly?: boolean }): void 
 
 /** Position tickets fully closed by `to` on the instance (see fullyClosedPosition). */
 export function fullyClosedPositions(db: Db, f: { instanceId: string; to: number }): Set<string> {
-  const rows = db.prepare(
-    `SELECT DISTINCT d.position_ticket p FROM deals d
-     WHERE d.instance_id=@instanceId AND d.entry IN ${OUT_LEGS} AND d.ts<=@to AND d.position_ticket IS NOT NULL
-       AND ${fullyClosedPosition("d")}`,
+  refreshProjections(db);
+  const rows = statement(db,
+    `SELECT pc.position_ticket p FROM position_closures pc
+     WHERE pc.instance_id=@instanceId AND pc.from_ts<=@to AND (pc.until_ts IS NULL OR pc.until_ts>@to)
+       AND EXISTS (SELECT 1 FROM deals d WHERE d.instance_id=pc.instance_id AND d.position_ticket=pc.position_ticket
+                     AND d.entry IN ${OUT_LEGS} AND d.ts<=@to)`,
   ).all({ instanceId: f.instanceId, to: f.to }) as Array<{ p: string }>;
   return new Set(rows.map((r) => r.p));
 }
@@ -250,10 +249,11 @@ export function hasClosingDeals(db: Db, f: { instanceId: string; strategyId: str
 }
 
 function closingDealExists(db: Db, f: { instanceId: string; strategyId: string; to?: number; closedPositionsOnly?: boolean }): boolean {
-  const cl = ["d.instance_id=@instanceId", "d.strategy_id=@strategyId", `d.entry IN ${OUT_LEGS}`, canonicalDeal("d")];
-  if (f.to != null) cl.push("d.ts<=@to");
-  if (f.closedPositionsOnly) cl.push(fullyClosedPosition("d"));
-  return db.prepare(`SELECT 1 FROM deals d WHERE ${cl.join(" AND ")} LIMIT 1`)
+  refreshProjections(db);
+  const cl = ["ct.instance_id=@instanceId", "ct.strategy_id=@strategyId"];
+  if (f.to != null) cl.push("ct.ts<=@to");
+  if (f.closedPositionsOnly) cl.push(fullyClosedPosition("ct"));
+  return statement(db, `SELECT 1 FROM closed_trades ct WHERE ${cl.join(" AND ")} LIMIT 1`)
     .get({ instanceId: f.instanceId, strategyId: f.strategyId, to: f.to }) != null;
 }
 
@@ -268,7 +268,7 @@ function closingDealExists(db: Db, f: { instanceId: string; strategyId: string; 
  * on both legs (2026-08-31..09-04 the entry legs carried -212 of -239 total), and
  * counting only the close leg reported EURUSD RSI fade at +72 when the venue said
  * -113. Charging the IN cost once, on the first close, keeps a partially-closed
- * position from paying it per partial.
+ * position from paying it per partial. The rows are the closed_trades projection.
  */
 export function dealClosedTrades(db: Db, f: AnalyticsFilter): DealClosedTrade[] {
   requireCutoff(f);
@@ -276,64 +276,79 @@ export function dealClosedTrades(db: Db, f: AnalyticsFilter): DealClosedTrade[] 
 }
 
 function dealClosedTradeRows(db: Db, f: AnalyticsFilter): DealClosedTrade[] {
-  const cl = ["o.instance_id=@instanceId", "o.strategy_id=@strategyId", `o.entry IN ${OUT_LEGS}`, canonicalDeal("o")];
-  if (f.from != null) cl.push("o.ts>=@from");
-  if (f.to != null) cl.push("o.ts<=@to");
-  if (f.closedPositionsOnly) cl.push(fullyClosedPosition("o"));
-  return dealCloseRows(db, cl, { instanceId: f.instanceId, strategyId: f.strategyId, from: f.from, to: f.to })
-    .map(({ strategyId: _owner, ...row }) => row);
+  return closedTradeRows(db, f).map((r) => {
+    const { strategyId: _owner, ...row } = r;
+    closeDealRowid.set(row, closeDealRowid.get(r)!);
+    return row;
+  });
+}
+
+/** The closing deal behind each row the close readers return, for joins on the projection. */
+const closeDealRowid = new WeakMap<object, number>();
+
+/** The closed_trades rowid (closing deal) behind a row closedTradeRows or dealClosedTrades returned. */
+export function closeDealOf(row: object): number | undefined {
+  return closeDealRowid.get(row);
+}
+
+export interface CloseRowFilter {
+  instanceId: string;
+  strategyId?: string;
+  /** JSON array of strategy ids the closes must belong to. */
+  strategyIds?: string | null;
+  from?: number;
+  to?: number;
+  closedPositionsOnly?: boolean;
 }
 
 /**
- * The closing-deal query behind dealClosedTrades, over any filter on the closing leg `o`.
- * Each row carries the canonical copy's owner (null when unattributed).
+ * Closed trades from the closed_trades projection, oldest first (closes sharing a timestamp in
+ * deal order), each with the canonical copy's owner (null when unattributed). One index range
+ * scan; the engine order ids resolve per row through the orders index. The order-id lookups are
+ * scalar subselects, NOT joins: several order rows can share a broker_order_id (one per broker
+ * profile after a multi-profile deploy), and a join would fan each close out into one row per copy.
  */
-export function dealCloseRows(db: Db, where: string[], params: Record<string, unknown>): Array<DealClosedTrade & { strategyId: string | null }> {
-  // The order-id lookups are scalar subselects, NOT joins: several order rows can
-  // share a broker_order_id (one per broker profile after a multi-profile deploy),
-  // and a join would fan each closing deal out into one row per copy — every
-  // extra row re-counting the close's realized P&L.
-  const rows = db.prepare(
-    `SELECT o.position_ticket orderId, o.symbol, o.side outSide, i.side inSide, o.qty, o.strategy_id owner,
-            i.price entryPrice, o.price exitPrice, i.ts entryTs, o.ts ts,
-            o.profit + COALESCE(o.commission,0) + COALESCE(o.swap,0) + COALESCE(o.fee,0)
-              + CASE WHEN o.rowid = (
-                  SELECT f.rowid FROM deals f
-                  WHERE f.instance_id=o.instance_id AND f.position_ticket=o.position_ticket
-                    AND f.entry IN ${OUT_LEGS} AND ${canonicalDeal("f")}
-                  ORDER BY f.ts ASC, f.rowid ASC LIMIT 1)
-                THEN COALESCE(i.commission,0) + COALESCE(i.swap,0) + COALESCE(i.fee,0) ELSE 0 END realized,
+export function closedTradeRows(db: Db, f: CloseRowFilter): Array<DealClosedTrade & { strategyId: string | null }> {
+  refreshProjections(db);
+  const cl = ["ct.instance_id=@instanceId"];
+  if (f.strategyId != null) cl.push("ct.strategy_id=@strategyId");
+  if (f.from != null) cl.push("ct.ts>=@from");
+  if (f.to != null) cl.push("ct.ts<=@to");
+  if (f.closedPositionsOnly) cl.push(fullyClosedPosition("ct"));
+  if (f.strategyIds != null) cl.push("ct.strategy_id IN (SELECT value FROM json_each(@ids))");
+  const rows = statement(db,
+    `SELECT ct.deal_rowid dealRowid, ct.position_ticket orderId, ct.symbol, ct.out_side outSide, ct.in_side inSide, ct.qty,
+            ct.strategy_id owner, ct.entry_price entryPrice, ct.exit_price exitPrice, ct.entry_ts entryTs, ct.ts, ct.realized,
             (SELECT eo.order_id FROM orders eo
-              WHERE eo.instance_id=o.instance_id AND eo.broker_order_id=i.order_ticket
+              WHERE eo.instance_id=ct.instance_id AND eo.broker_order_id=ct.entry_order_ticket
               ORDER BY eo.created_ts ASC LIMIT 1) entryOrderId,
             (SELECT xo.order_id FROM orders xo
-              WHERE xo.instance_id=o.instance_id AND xo.broker_order_id=o.order_ticket
+              WHERE xo.instance_id=ct.instance_id AND xo.broker_order_id=ct.exit_order_ticket
               ORDER BY xo.created_ts ASC LIMIT 1) exitOrderId
-     FROM deals o
-     LEFT JOIN deals i ON i.rowid = (
-       SELECT rowid FROM deals x
-       WHERE x.instance_id=o.instance_id AND x.position_ticket=o.position_ticket AND x.entry='IN'
-       ORDER BY x.ts ASC LIMIT 1
-     )
-     WHERE ${where.join(" AND ")}
-     ORDER BY o.ts ASC`,
-  ).all(params) as any[];
-  return rows.map((r) => ({
-    orderId: r.orderId,
-    symbol: r.symbol,
-    side: r.inSide ?? (r.outSide === "BUY" ? "SELL" : r.outSide === "SELL" ? "BUY" : r.outSide),
-    qty: r.qty,
-    price: r.exitPrice,
-    entryPrice: r.entryPrice ?? null,
-    exitPrice: r.exitPrice,
-    entryTs: r.entryTs ?? null,
-    ts: r.ts,
-    realized: r.realized,
-    holdMs: r.entryTs != null ? r.ts - r.entryTs : null,
-    entryOrderId: r.entryOrderId ?? null,
-    exitOrderId: r.exitOrderId ?? null,
-    strategyId: r.owner ?? null,
-  }));
+     FROM closed_trades ct
+     WHERE ${cl.join(" AND ")}
+     ORDER BY ct.ts ASC, ct.deal_rowid ASC`,
+  ).all({ instanceId: f.instanceId, strategyId: f.strategyId, from: f.from, to: f.to, ids: f.strategyIds ?? null }) as any[];
+  return rows.map((r) => {
+    const row = {
+      orderId: r.orderId,
+      symbol: r.symbol,
+      side: r.inSide ?? (r.outSide === "BUY" ? "SELL" : r.outSide === "SELL" ? "BUY" : r.outSide),
+      qty: r.qty,
+      price: r.exitPrice,
+      entryPrice: r.entryPrice ?? null,
+      exitPrice: r.exitPrice,
+      entryTs: r.entryTs ?? null,
+      ts: r.ts,
+      realized: r.realized,
+      holdMs: r.entryTs != null ? r.ts - r.entryTs : null,
+      entryOrderId: r.entryOrderId ?? null,
+      exitOrderId: r.exitOrderId ?? null,
+      strategyId: r.owner ?? null,
+    };
+    closeDealRowid.set(row, r.dealRowid);
+    return row;
+  });
 }
 
 export interface StrategyEquityPoint { ts: number; equity: number; realized: number; unrealized: number }
@@ -463,7 +478,24 @@ export function dailyNets(db: Db, f: AnalyticsFilter): DayNet[] {
   return memo(db, "dailyNets", f, () => dayNets(db, f));
 }
 
+/**
+ * The strategy_daily rows that answer `f`, when they can: the projection holds whole days of the
+ * whole history, so a `from` window, a cutoff before the newest close, or closedPositionsOnly
+ * (which drops closes per cutoff) is computed from the closes instead. Null also when the source
+ * the strategy's figures come from has no closes (the snapshot fallback applies).
+ */
+function projectedDays(db: Db, f: AnalyticsFilter): { rows: DailyRow[]; dealBacked: boolean } | null {
+  if (f.closedPositionsOnly || f.from != null) return null;
+  const deal = dealBacked(db, f);
+  refreshProjections(db);
+  const totals = strategyTotals(db, f.instanceId, f.strategyId, deal ? "deal" : "ledger");
+  if (!totals || (f.to != null && f.to < totals.lastTs)) return null;
+  return { rows: dailyRows(db, f.instanceId, f.strategyId, deal ? "deal" : "ledger"), dealBacked: deal };
+}
+
 function dayNets(db: Db, f: AnalyticsFilter): DayNet[] {
+  const projected = projectedDays(db, f);
+  if (projected) return projected.rows.map((d) => ({ day: d.day, net: d.net, trades: d.trades }));
   // Closed-trades path: group per UTC day — net is the day's realized sum, trades the number of
   // closing legs. Uses closes() so it falls back to trade.closed rows when broker deals were not
   // polled (engine-native fills), matching report/contribution; otherwise a live book that trades
@@ -825,10 +857,8 @@ export interface RollingPoint {
  */
 export function rollingStats(db: Db, f: AnalyticsFilter, windowDays = 30): RollingPoint[] {
   const win = Number.isFinite(windowDays) ? Math.min(180, Math.max(7, Math.floor(windowDays))) : 30;
-  const snaps = series(db, f);
-  if (snaps.length === 0) return [];
-  const eqByDay = new Map<string, number>();
-  for (const s of snaps) eqByDay.set(utcDay(s.ts), s.equity);
+  const eqByDay = endOfDayEquity(db, f);
+  if (eqByDay.size === 0) return [];
   const days = [...eqByDay.keys()].sort();
   const nets = new Map(dailyNets(db, f).map((d) => [d.day, d.net]));
 
@@ -855,6 +885,28 @@ export function rollingStats(db: Db, f: AnalyticsFilter, windowDays = 30): Rolli
       meanNet: dayNets.length > 0 ? dayNets.reduce((a, b) => a + b, 0) / dayNets.length : null,
     };
   });
+}
+
+/**
+ * Last equity of each UTC day in the money-over-time series (series()). For the deals-rebuilt
+ * curve that is the starting base plus the running realized total at the day's last close, with
+ * the base itself on the day the first traded position opened: strategy_daily holds the running
+ * totals, so this is O(days). Snapshot series are read as before.
+ */
+function endOfDayEquity(db: Db, f: AnalyticsFilter): Map<string, number> {
+  const projected = projectedDays(db, f);
+  if (projected?.dealBacked) {
+    const totals = strategyTotals(db, f.instanceId, f.strategyId, "deal")!;
+    const sb = strategyBase(db, f) ?? 0;
+    const out = new Map<string, number>();
+    const anchor = totals.firstEntryTs ?? totals.firstTs;
+    if (f.to == null || anchor <= f.to) out.set(utcDay(anchor), sb);
+    for (const d of projected.rows) out.set(d.day, sb + d.closeCum);
+    return out;
+  }
+  const out = new Map<string, number>();
+  for (const s of series(db, f)) out.set(utcDay(s.ts), s.equity);
+  return out;
 }
 
 export interface CostRow {
@@ -998,17 +1050,19 @@ export interface ExcursionStats {
 /**
  * Sampled MAE/MFE from the broker position poll. Values between polls are not
  * observed, so coverage and the sampled flag are part of the result contract.
+ * Each close's lowest and highest mark inside its held window (entry to this close; a ticket
+ * closed in parts is measured once per close) come from the position_excursions projection.
  */
 export function excursionStats(db: Db, f: AnalyticsFilter): ExcursionStats | null {
   if (!hasClosingDeals(db, f)) return null;
   const trades = dealClosedTrades(db, f);
-  const marks = heldMarks(db, f.instanceId, f.strategyId, trades);
+  const marks = excursionsOf(db, trades.map((t) => closeDealRowid.get(t)!));
   const rows: ExcursionRow[] = [];
-  for (const [i, trade] of trades.entries()) {
-    const m = marks.get(i);
-    if (!trade.orderId || m == null || m.n === 0) continue;
-    const mae = Math.min(m.lowest, 0);
-    const mfe = Math.max(m.highest, 0);
+  for (const trade of trades) {
+    const m = marks.get(closeDealRowid.get(trade)!);
+    if (!trade.orderId || m == null || m.marks === 0) continue;
+    const mae = Math.min(m.lowest ?? 0, 0);
+    const mfe = Math.max(m.highest ?? 0, 0);
     rows.push({
       ticket: trade.orderId,
       symbol: trade.symbol,
@@ -1018,7 +1072,7 @@ export function excursionStats(db: Db, f: AnalyticsFilter): ExcursionStats | nul
       mae,
       mfe,
       capturePct: mfe > 0 ? (trade.realized / mfe) * 100 : null,
-      observations: m.n,
+      observations: m.marks,
     });
   }
   if (rows.length === 0) return null;
@@ -1036,27 +1090,6 @@ export function excursionStats(db: Db, f: AnalyticsFilter): ExcursionStats | nul
     winnersWithCapture: captures.length,
     sampled: true,
   };
-}
-
-/**
- * Lowest and highest marked P&L, and the number of marks, of each trade's position inside its held
- * window (entry to this close), keyed by the trade's index. One query for every trade: a ticket
- * closed in parts is measured once per close, over that close's own window.
- */
-function heldMarks(db: Db, instanceId: string, strategyId: string, trades: DealClosedTrade[]): Map<number, { lowest: number; highest: number; n: number }> {
-  const windows = trades.flatMap((t, i) => (t.orderId && t.entryTs != null ? [[i, t.orderId, t.entryTs, t.ts]] : []));
-  if (windows.length === 0) return new Map();
-  const rows = db.prepare(
-    `WITH w(i, ticket, lo, hi) AS (
-       SELECT json_extract(value, '$[0]'), json_extract(value, '$[1]'), json_extract(value, '$[2]'), json_extract(value, '$[3]')
-       FROM json_each(@windows))
-     SELECT w.i i, MIN(v.profit) lowest, MAX(v.profit) highest, COUNT(v.profit) n
-     FROM w JOIN position_valuations v
-       ON v.instance_id=@instanceId AND v.ticket=w.ticket AND v.ts>=w.lo AND v.ts<=w.hi
-     WHERE v.strategy_id=@strategyId OR v.strategy_id IS NULL
-     GROUP BY w.i`,
-  ).all({ instanceId, strategyId, windows: JSON.stringify(windows) }) as Array<{ i: number; lowest: number | null; highest: number | null; n: number }>;
-  return new Map(rows.map((r) => [r.i, { lowest: r.lowest ?? 0, highest: r.highest ?? 0, n: r.n }]));
 }
 
 function walkPeriods(snaps: SnapRow[]): DrawdownPeriod[] {

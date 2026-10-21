@@ -159,3 +159,35 @@ describe("pruneStaleStrategies", () => {
     expect(pruneStaleStrategies(db, NOW)).toEqual({ strategies: 0, rows: 0 });
   });
 });
+
+describe("pruneRetentionSteps", () => {
+  it("prunes in short transactions that let writes in between, removing what the one-shot prune removes", async () => {
+    const { pruneRetentionSteps } = await import("../src/retention.js");
+    const db = openDb(":memory:");
+    for (let k = 0; k < 2600; k++) {
+      seedLog(db, `log-${k}`, k % 3 ? OLD : RECENT, `line ${k}`);
+      seedEvent(db, `ev-${k}`, k % 4 ? OLD : RECENT, k % 5 ? "insights.health" : "trade");
+    }
+    openPosition(db, "open");
+    for (let k = 0; k < 900; k++) seedMark(db, k % 7 ? `closed-${k % 11}` : "open", OLD + k);
+    const steps = pruneRetentionSteps(db, NOW);
+    let yielded = 0;
+    let r = steps.next();
+    while (!r.done) {
+      yielded++;
+      // Ingest between steps: an old line written mid-prune is removed or kept, never half of it.
+      if (yielded === 3) seedLog(db, "log-mid", RECENT, "mid line");
+      r = steps.next();
+    }
+    expect(yielded).toBeGreaterThan(10);
+    expect(r.value).toMatchObject({ logs: 1733, events: 1560, valuations: 771 });
+    const q = (sql: string) => (db.prepare(sql).get() as { n: number }).n;
+    expect(q("SELECT COUNT(*) n FROM logs WHERE ts < " + (NOW - 30 * DAY))).toBe(0);
+    expect(q("SELECT COUNT(*) n FROM logs")).toBe(868);
+    expect(q("SELECT COUNT(*) n FROM logs_fts")).toBe(868);
+    expect(q("SELECT COUNT(*) n FROM events")).toBe(2600 - 1560);
+    expect(q("SELECT COUNT(*) n FROM events_fts f LEFT JOIN events e ON e.rowid=f.event_rowid WHERE e.rowid IS NULL")).toBe(0);
+    expect(q("SELECT COUNT(*) n FROM position_valuations WHERE ticket <> 'open'")).toBe(0);
+    expect(q("SELECT COUNT(*) n FROM position_valuations WHERE ticket = 'open'")).toBe(129);
+  });
+});

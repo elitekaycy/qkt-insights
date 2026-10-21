@@ -1,6 +1,6 @@
 import type { Db } from "./db.js";
 import {
-  canonicalDeal, dealCloseRows, fullyClosedPosition, instrumentOf, OUT_LEGS,
+  canonicalDeal, closedTradeRows, fullyClosedPosition, instrumentOf, OUT_LEGS,
   type DayNet, type DealClosedTrade,
 } from "./analytics.js";
 
@@ -39,11 +39,7 @@ export interface AccountClose extends Omit<DealClosedTrade, "entryPrice" | "exit
 export function accountCloses(db: Db, f: AccountFilter): AccountClose[] {
   if (f.closedPositionsOnly && f.to == null) throw new Error("closedPositionsOnly needs a `to` cutoff");
   const ids = f.strategyIds ? JSON.stringify([...f.strategyIds]) : null;
-  const cl = ["o.instance_id=@instanceId", `o.entry IN ${OUT_LEGS}`, canonicalDeal("o")];
-  if (f.to != null) cl.push("o.ts<=@to");
-  if (f.closedPositionsOnly) cl.push(fullyClosedPosition("o"));
-  if (ids != null) cl.push("o.strategy_id IN (SELECT value FROM json_each(@ids))");
-  const deals = dealCloseRows(db, cl, { instanceId: f.instanceId, to: f.to, ids });
+  const deals = closedTradeRows(db, { instanceId: f.instanceId, to: f.to, closedPositionsOnly: f.closedPositionsOnly, strategyIds: ids });
   const dealBacked = new Set(deals.map((d) => d.strategyId));
 
   const out: AccountClose[] = deals.map((d) => ({ ...d, instrument: instrumentOf(d.symbol) }));

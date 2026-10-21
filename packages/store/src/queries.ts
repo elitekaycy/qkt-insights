@@ -1,6 +1,12 @@
 import type { Db } from "./db.js";
 import { VALUATION_HEARTBEAT_MS } from "./write.js";
 import { accountSeries } from "./accountRisk.js";
+import { NeedsScan, projectedViews } from "./accountViews.js";
+import {
+  binaryCompare, groupingInputs, hasMinuteWithoutEquity, stateAt, storedChains, totalChains, TOTAL_SCOPE, type StateRow,
+} from "./accountProjection.js";
+import { refreshProjections } from "./projections.js";
+import { statement } from "./statements.js";
 import { closedTrades, hasClosingDeals, MIN_RATIO_DAYS, SNAPSHOT_EQUITY, strategyBase, strategyEquityCurve, tradePnls, withAnalyticsScope, type StrategyEquityPoint } from "./analytics.js";
 
 // A strategy stays "active" while its roster bump is within this window of the
@@ -31,10 +37,18 @@ export function listStrategyRoster(db: Db, instanceId: string): StrategyRow[] {
 /** The admin roster, with realized figures and each strategy's current halt. */
 export function listStrategies(db: Db, instanceId: string, now = Date.now()): Array<StrategyRow & StrategyHalt> {
   const halts = currentHalts(db, instanceId, now);
+  // One grouped read of strategy_totals: each strategy's closes from broker deals when it has any,
+  // else its trade.closed rows (the closedTrades choice), totalled newest first as the list was.
+  refreshProjections(db);
+  const totals = new Map<string, { deal?: { closes: number; net: number }; ledger?: { closes: number; net: number } }>();
+  for (const t of statement(db, "SELECT strategy_id s, source, closes, net_newest_first net FROM strategy_totals WHERE instance_id=?").all(instanceId) as Array<{ s: string; source: "deal" | "ledger"; closes: number; net: number }>) {
+    totals.set(t.s, { ...totals.get(t.s), [t.source]: { closes: t.closes, net: t.net } });
+  }
   return strategyRosterRows(db, instanceId).map((r) => {
-    const closes = closedTrades(db, { instanceId, strategyId: r.strategyId });
+    const t = totals.get(r.strategyId);
+    const closes = t?.deal ?? t?.ledger;
     return {
-      ...r, realizedNet: closes.length > 0 ? closes.reduce((a, c) => a + c.realized, 0) : null, dealCount: closes.length,
+      ...r, realizedNet: closes ? closes.net : null, dealCount: closes?.closes ?? 0,
       ...strategyHalt(halts, r.strategyId),
     };
   });
@@ -373,9 +387,8 @@ export interface DealRow {
 
 export function listDeals(db: Db, f: { instanceId: string; strategyId?: string; limit: number; before?: number }): DealRow[] {
   // One row per venue deal: profiles sharing an account each store a copy (see canonicalDeal).
-  const cl: string[] = ["instance_id=@instanceId",
-    `rowid = (SELECT MIN(dd.rowid) FROM deals dd
-      WHERE dd.instance_id=deals.instance_id AND dd.deal_ticket=deals.deal_ticket)`];
+  refreshProjections(db);
+  const cl: string[] = ["instance_id=@instanceId", "canonical=1"];
   if (f.strategyId) cl.push("strategy_id=@strategyId");
   if (f.before != null) cl.push("ts<@before");
   return db.prepare(
@@ -398,13 +411,23 @@ export interface AccountEquityPoint {
  * whole series stays at most `points` long. Drawdown and risk figures read the full series.
  */
 export function accountEquity(db: Db, f: { instanceId: string; from?: number; to?: number; points?: number }): AccountEquityPoint[] {
+  return accountEquityRows(db, f, false);
+}
+
+/** accountEquity by scanning the range's minutes: what the projected answer must equal, and its fallback. */
+export function accountEquityScan(db: Db, f: { instanceId: string; from?: number; to?: number; points?: number }): AccountEquityPoint[] {
+  return accountEquityRows(db, f, true);
+}
+
+function accountEquityRows(db: Db, f: { instanceId: string; from?: number; to?: number; points?: number }, scan: boolean): AccountEquityPoint[] {
   const cl: string[] = ["instance_id=@instanceId"];
   if (f.from != null) cl.push("minute_ts>=@from");
   if (f.to != null) cl.push("minute_ts<=@to");
   const where = cl.join(" AND ");
   const params = { instanceId: f.instanceId, from: f.from, to: f.to };
   let rows: Array<Omit<AccountEquityPoint, "account">> | null = null;
-  if (f.points != null) {
+  if (f.points != null && !scan) rows = sampledFromProjection(db, f);
+  if (f.points != null && rows == null) {
     const points = Math.max(2, Math.floor(f.points));
     const span = db.prepare(
       `SELECT COUNT(*) n, COUNT(DISTINCT minute_ts) minutes, MIN(minute_ts) lo, MAX(minute_ts) hi FROM account_equity WHERE ${where}`,
@@ -419,10 +442,11 @@ export function accountEquity(db: Db, f: { instanceId: string; from?: number; to
          GROUP BY broker, CAST((minute_ts - @lo) / @bucket AS INTEGER)
          ORDER BY minuteTs ASC, broker ASC`,
       );
-      // A label handover can put two labels in one bucket; widen until the cap holds.
+      // A label handover can put two labels in one bucket; widen until the cap holds, or until one
+      // bucket spans the range (each label then keeps its last minute, however small the cap).
       for (;;) {
         rows = sample.all({ ...params, lo: span.lo, bucket }) as Array<Omit<AccountEquityPoint, "account">>;
-        if (rows.length <= points) break;
+        if (rows.length <= points || bucket > span.hi - span.lo) break;
         bucket = Math.max(bucket + 1, Math.ceil((bucket * rows.length) / points));
       }
     }
@@ -432,8 +456,74 @@ export function accountEquity(db: Db, f: { instanceId: string; from?: number; to
      FROM account_equity WHERE ${where} ORDER BY minute_ts ASC, broker ASC`,
   ).all(params) as Array<Omit<AccountEquityPoint, "account">>;
   const accountOf = new Map<string, string>();
-  for (const s of accountSeries(db, { instanceId: f.instanceId, to: f.to })) for (const l of s.labels) accountOf.set(l, s.key);
+  for (const s of scan ? accountSeries(db, { instanceId: f.instanceId, to: f.to }) : accountKeys(db, f.instanceId, f.to)) for (const l of s.labels) accountOf.set(l, s.key);
   return rows.map((r) => ({ ...r, account: accountOf.get(r.broker) ?? r.broker }));
+}
+
+/** Each venue account's key and labels as accountSeries stitches them, without loading the series when the projection can say. */
+function accountKeys(db: Db, instanceId: string, to?: number): Array<{ key: string; labels: string[] }> {
+  try {
+    const views = projectedViews(db, instanceId, to);
+    if (views) return views;
+  } catch (e) {
+    // An account the projection cannot stitch exactly: read the series.
+    if (!(e instanceof NeedsScan)) throw e;
+  }
+  return accountSeries(db, { instanceId, to });
+}
+
+/**
+ * accountEquity's bucket sampling answered by seeks: the row counts come from the drawdown walks'
+ * running counts, and each label's last minute in each bucket is one index seek, so the cost is
+ * O(buckets x labels x log n) however many minutes the range holds. Null when the projection
+ * cannot count exactly (a minute without equity, a minute three labels share): the caller scans.
+ */
+function sampledFromProjection(db: Db, f: { instanceId: string; from?: number; to?: number; points?: number }): Array<Omit<AccountEquityPoint, "account">> | null {
+  if (hasMinuteWithoutEquity(db, f.instanceId)) return null;
+  refreshProjections(db);
+  const to = f.to ?? Number.MAX_SAFE_INTEGER;
+  const inputs = groupingInputs(db, f.instanceId, to);
+  if (!inputs || storedChains(db, f.instanceId) == null) return null;
+  const countTo = (scope: string, ts: number) => stateAt(db, f.instanceId, scope, ts)?.points ?? 0;
+  const before = f.from != null ? f.from - 1 : null;
+  let n = 0;
+  for (const l of inputs.labels) n += countTo(l.broker, to) - (before != null ? countTo(l.broker, before) : 0);
+  const minutes = countTo(TOTAL_SCOPE, to) - (before != null ? countTo(TOTAL_SCOPE, before) : 0);
+  const points = Math.max(2, Math.floor(f.points!));
+  const from = f.from ?? Number.MIN_SAFE_INTEGER;
+  const edge = (dir: "ASC" | "DESC") => (statement(db,
+    `SELECT minute_ts ts FROM account_equity WHERE instance_id=? AND minute_ts>=? AND minute_ts<=? ORDER BY minute_ts ${dir} LIMIT 1`,
+  ).get(f.instanceId, from, to) as { ts: number } | undefined)?.ts ?? null;
+  const lo = edge("ASC");
+  const hi = edge("DESC");
+  if (!(n > points && lo != null && hi != null)) {
+    return statement(db,
+      `SELECT broker, minute_ts minuteTs, balance, equity, open_profit openProfit
+       FROM account_equity WHERE instance_id=? AND minute_ts>=? AND minute_ts<=? ORDER BY minute_ts ASC, broker ASC`,
+    ).all(f.instanceId, from, to) as Array<Omit<AccountEquityPoint, "account">>;
+  }
+  // Labels reporting in the same minutes each keep a point per bucket, so fewer buckets.
+  const perBucket = Math.ceil(n / Math.max(1, minutes));
+  let bucket = Math.max(60_000, Math.ceil((hi - lo + 1) / Math.max(1, Math.floor(points / perBucket))));
+  const lastInBucket = statement(db,
+    `WITH RECURSIVE k(i) AS (SELECT 0 UNION ALL SELECT i + 1 FROM k WHERE i < @last)
+     SELECT e.broker, e.minute_ts minuteTs, e.balance, e.equity, e.open_profit openProfit
+     FROM k JOIN account_equity e ON e.rowid = (
+       SELECT rowid FROM account_equity
+       WHERE instance_id=@instanceId AND broker=@broker AND minute_ts>=@lo + k.i * @bucket AND minute_ts<@lo + (k.i + 1) * @bucket
+         AND minute_ts>=@from AND minute_ts<=@to
+       ORDER BY minute_ts DESC LIMIT 1)`,
+  );
+  // A label handover can put two labels in one bucket; widen until the cap holds, or one bucket spans the range.
+  for (;;) {
+    const rows: Array<Omit<AccountEquityPoint, "account">> = [];
+    for (const l of inputs.labels) {
+      rows.push(...(lastInBucket.all({ instanceId: f.instanceId, broker: l.broker, lo, bucket, from, to, last: Math.floor((hi - lo) / bucket) }) as Array<Omit<AccountEquityPoint, "account">>));
+    }
+    rows.sort((a, b) => a.minuteTs - b.minuteTs || binaryCompare(a.broker, b.broker));
+    if (rows.length <= points || bucket > hi - lo) return rows;
+    bucket = Math.max(bucket + 1, Math.ceil((bucket * rows.length) / points));
+  }
 }
 
 export interface AccountDrawdownRow {
@@ -449,6 +539,11 @@ export interface AccountDrawdownRow {
  * against.
  */
 export function accountDrawdown(db: Db, f: { instanceId: string; to?: number }): AccountDrawdownRow[] {
+  return projectedDrawdown(db, f) ?? accountDrawdownScan(db, f);
+}
+
+/** accountDrawdown by walking every stored minute: what the projected answer must equal, and its fallback. */
+export function accountDrawdownScan(db: Db, f: { instanceId: string; to?: number }): AccountDrawdownRow[] {
   const rows = db.prepare(
     `SELECT broker, minute_ts ts, equity FROM account_equity
      WHERE instance_id=? AND equity IS NOT NULL AND minute_ts<=? ORDER BY broker, minute_ts ASC`,
@@ -530,6 +625,47 @@ export function accountDrawdown(db: Db, f: { instanceId: string; to?: number }):
       tot.peakTs = tPeakTs > 0 ? tPeakTs : null;
     }
     out.push(tot);
+  }
+  return out;
+}
+
+/**
+ * accountDrawdown from the stored walks: each label's state at its last minute by the cutoff, and
+ * the TOTAL walk when the labels group into the same accounts by the cutoff as when it was built.
+ * O(labels) seeks. Null when only the full scan is exact.
+ */
+function projectedDrawdown(db: Db, f: { instanceId: string; to?: number }): AccountDrawdownRow[] | null {
+  if (hasMinuteWithoutEquity(db, f.instanceId)) return null;
+  refreshProjections(db);
+  const to = f.to ?? Number.MAX_SAFE_INTEGER;
+  const labels = (statement(db, "SELECT broker FROM account_labels WHERE instance_id=? AND first_ts<=? ORDER BY broker")
+    .all(f.instanceId, to) as Array<{ broker: string }>).map((r) => r.broker);
+  const rowOf = (broker: string, s: StateRow): AccountDrawdownRow => ({
+    broker,
+    currentEquity: s.equity,
+    peakEquity: s.peak > 0 ? s.peak : null,
+    peakTs: s.peakTs > 0 ? s.peakTs : null,
+    currentDdPct: s.peak > 0 ? ((s.peak - s.equity) / s.peak) * 100 : null,
+    maxDdPct: s.maxDd,
+    points: s.points,
+  });
+  const out: AccountDrawdownRow[] = [];
+  for (const l of labels) {
+    const s = stateAt(db, f.instanceId, l, to);
+    if (!s) return null;
+    out.push(rowOf(l, s));
+  }
+  if (out.length > 1) {
+    const inputs = groupingInputs(db, f.instanceId, to);
+    const stored = storedChains(db, f.instanceId);
+    if (!inputs || !stored) return null;
+    // The stored walk is exact for this cutoff when the labels reporting by then group the same way.
+    const present = new Set(labels);
+    const asBuilt = stored.map((c) => c.filter((l) => present.has(l))).filter((c) => c.length > 0);
+    if (JSON.stringify(asBuilt) !== JSON.stringify(totalChains(inputs))) return null;
+    const total = stateAt(db, f.instanceId, TOTAL_SCOPE, to);
+    if (!total) return null;
+    out.push(rowOf("TOTAL", total));
   }
   return out;
 }

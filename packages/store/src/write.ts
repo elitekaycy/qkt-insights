@@ -1,5 +1,6 @@
 import type { Db } from "./db.js";
 import { statement } from "./statements.js";
+import { refreshProjections } from "./projections.js";
 import { bumpEpoch, bumpMarks, bumpStrategy } from "./versions.js";
 import { isLiveStateType, type Envelope, type QuarantinedEnvelope } from "@qkt-insights/contract";
 
@@ -360,10 +361,12 @@ export function ingestEnvelopes(db: Db, instanceId: string, events: Envelope[], 
       }
       if (MONEY_EVENT_TYPES.has(e.type)) bumpStrategy(db, instanceId, e.strategyId ?? (e.payload as { strategyId?: string }).strategyId);
       foldOrder(db, instanceId, e);
+      markRoundTrips(db, instanceId, e);
       foldPosition(db, instanceId, e);
       foldRisk(db, instanceId, e);
       foldPortfolio(db, instanceId, e);
     }
+    refreshProjections(db);
     return { accepted, statuses };
   });
   return tx(events);
@@ -405,6 +408,13 @@ function isDealLocalToInstance(db: Db, instanceId: string, strategyId: string | 
 // knows it, so the row analytics picks is never the unattributed one.
 /** Returns how many rows took the owner. */
 function adoptUnattributed(db: Db, instanceId: string, strategyId: string, dealTicket: string, positionTicket: string | null): number {
+  // An UPDATE on deals runs its projection trigger program even when no row matches; a redelivered
+  // deal (the common case) has nothing to adopt, so look before writing.
+  const unattributed = statement(db,
+    `SELECT 1 FROM deals WHERE instance_id=@i AND deal_ticket=@d AND strategy_id IS NULL
+     UNION ALL SELECT 1 FROM deals WHERE instance_id=@i AND position_ticket=@p AND strategy_id IS NULL LIMIT 1`,
+  ).get({ i: instanceId, d: dealTicket, p: positionTicket });
+  if (!unattributed) return 0;
   let changes = statement(db, "UPDATE deals SET strategy_id=? WHERE instance_id=? AND deal_ticket=? AND strategy_id IS NULL")
     .run(strategyId, instanceId, dealTicket).changes;
   if (positionTicket)
@@ -438,6 +448,33 @@ function resolveDealStrategy(db: Db, instanceId: string, dealTicket: string, pos
     if (matches.length === 1) return matches[0]!;
   }
   return null;
+}
+
+/**
+ * Re-marks the round trips an engine event explains once their deals are stored: a close order
+ * for a ticket and a `qkt bot close` of it (how the position ended), and an order fill or
+ * acceptance naming a broker ticket (the opening order whose bracket the round trip reads).
+ * Most order events name none of these and cost nothing here.
+ */
+function markRoundTrips(db: Db, instanceId: string, e: Envelope): void {
+  const p = e.payload as { ticket?: unknown; closesTicket?: unknown; brokerOrderId?: unknown };
+  const position = e.type === "bot.close" ? p.ticket : e.type === "order.submit" ? p.closesTicket : null;
+  const order = e.type === "order.filled" || e.type === "order.accepted" || e.type === "order.partially_filled" ? p.brokerOrderId : null;
+  if (typeof position === "string") {
+    statement(db,
+      `INSERT INTO projection_dirty (kind, instance_id, key) SELECT 'position', @i, 'p:' || @t
+       WHERE EXISTS (SELECT 1 FROM deals WHERE instance_id=@i AND position_ticket=@t)
+         AND NOT EXISTS (SELECT 1 FROM projection_dirty WHERE kind='position' AND instance_id=@i AND key='p:' || @t)`,
+    ).run({ i: instanceId, t: position });
+  }
+  if (typeof order === "string") {
+    statement(db,
+      `INSERT INTO projection_dirty (kind, instance_id, key)
+       SELECT DISTINCT 'position', @i, 'p:' || d.position_ticket FROM deals d INDEXED BY idx_deals_order
+       WHERE d.instance_id=@i AND d.order_ticket=@t AND d.position_ticket IS NOT NULL
+         AND NOT EXISTS (SELECT 1 FROM projection_dirty q WHERE q.kind='position' AND q.instance_id=@i AND q.key='p:' || d.position_ticket)`,
+    ).run({ i: instanceId, t: order });
+  }
 }
 
 // Events can reach the collector out of order because qkt's bus dispatch is re-entrant,

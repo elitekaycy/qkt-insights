@@ -1,6 +1,11 @@
 import { describe, it, expect } from "vitest";
 import { brotliDecompressSync, gunzipSync } from "node:zlib";
-import { buildServer, parseMode } from "../src/server.js";
+import { mkdtempSync, rmSync } from "node:fs";
+import { tmpdir } from "node:os";
+import { join } from "node:path";
+import { openDb, ingestEvents } from "@qkt-insights/store";
+import type { Envelope } from "@qkt-insights/contract";
+import { buildServer, parseMode, rebuildCommand } from "../src/server.js";
 
 describe("parseMode", () => {
   it("defaults to run", () => expect(parseMode([])).toBe("run"));
@@ -202,5 +207,31 @@ describe("PUBLIC_DELAY_MINUTES", () => {
     expect(beacon.statusCode).toBe(404);
     expect(unknown.statusCode).toBe(404);
     expect(unknown.headers["x-robots-tag"]).toBe("noindex, nofollow");
+  });
+});
+
+describe("rebuild command", () => {
+  it("rebuilds a projection, or every one, from the source tables of a database file", () => {
+    const dir = mkdtempSync(join(tmpdir(), "insights-rebuild-"));
+    try {
+      const path = join(dir, "insights.db");
+      const db = openDb(path);
+      const deal = (ticket: string, entry: "IN" | "OUT", ts: number, profit: number): Envelope => ({
+        v: 1, instanceId: "i1", id: `d-${ticket}`, seq: 0, ts, type: "broker.deal",
+        payload: { broker: "B", dealTicket: ticket, positionTicket: "P", symbol: "XAUUSD", side: entry === "IN" ? "BUY" : "SELL", entry, qty: 1, price: 1, profit, strategyId: "s", ts },
+      } as Envelope);
+      ingestEvents(db, "i1", [deal("1", "IN", 1_000, 0), deal("2", "OUT", 2_000, 5)]);
+      const before = db.prepare("SELECT * FROM closed_trades").all();
+      db.close();
+      const lines: string[] = [];
+      rebuildCommand(["all"], path, (l) => lines.push(l));
+      expect(lines.map((l) => l.split(":")[0])).toEqual(["closed_trades", "strategy_daily", "position_excursions", "account_drawdown"]);
+      const after = openDb(path);
+      expect(after.prepare("SELECT * FROM closed_trades").all()).toEqual(before);
+      after.close();
+      expect(() => rebuildCommand(["nope"], path)).toThrow(/usage: rebuild/);
+    } finally {
+      rmSync(dir, { recursive: true, force: true });
+    }
   });
 });
