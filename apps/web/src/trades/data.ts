@@ -22,6 +22,8 @@ export interface RoundTrip {
   exitPrice: number | null;
   qty: number;
   pnl: number | null;
+  /** With an `exit:` window: what the closing legs inside it realized, when others closed outside it; else null. */
+  pnlInExit: number | null;
   holdMs: number | null;
   stopPrice: number | null;
   targetPrice: number | null;
@@ -41,7 +43,9 @@ export interface RoundTripTotals {
   matched: number;
   closed: number;
   open: number;
+  /** With an `exit:` window: the realized of the matched trips' closing legs inside it. */
   net: number;
+  netInExit: boolean;
   wins: number;
   losses: number;
   winRate: number | null;

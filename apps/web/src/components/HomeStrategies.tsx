@@ -19,7 +19,7 @@ type SortKey = "name" | "today" | "d7" | "mtd" | "all" | "maxDd" | "trades" | "w
 const COLUMNS: ReadonlyArray<{ key: SortKey; label: string; hint?: string }> = [
   { key: "name", label: "Strategy" },
   { key: "today", label: "Today", hint: "realized on the account's day + floating" },
-  { key: "d7", label: "7D", hint: "realized, last 7 x 24 h" },
+  { key: "d7", label: "7D", hint: "realized, today and the 6 UTC days before" },
   { key: "mtd", label: "MTD", hint: "realized since the UTC month began" },
   { key: "all", label: "All-time", hint: "realized, every stored close" },
   { key: "maxDd", label: "Max DD", hint: "deepest fall of cumulative realized P&L from its peak" },

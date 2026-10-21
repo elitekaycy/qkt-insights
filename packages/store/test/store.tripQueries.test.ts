@@ -217,7 +217,7 @@ describe("sorting and cursors", () => {
 describe("totals and facets", () => {
   it("counts and money of the whole match, beside the unfiltered scope", () => {
     const db = seeded();
-    expect(roundTripTotals(db, q())).toEqual({ total: 5, matched: 5, closed: 4, open: 1, net: 193, wins: 2, losses: 2, winRate: 50, avg: 193 / 4, best: 993, worst: -550 });
+    expect(roundTripTotals(db, q())).toEqual({ total: 5, matched: 5, closed: 4, open: 1, net: 193, netInExit: false, wins: 2, losses: 2, winRate: 50, avg: 193 / 4, best: 993, worst: -550 });
     expect(roundTripTotals(db, q("side:short pnl:<0"))).toMatchObject({ total: 5, matched: 1, net: -550, wins: 0, losses: 1, winRate: 0 });
     expect(roundTripTotals(db, q("size:>9"))).toMatchObject({ matched: 0, net: 0, winRate: null, avg: null });
   });

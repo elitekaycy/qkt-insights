@@ -1,5 +1,6 @@
 import type { FastifyInstance } from "fastify";
 import { listInstances, listStrategies, listTrades, searchEvents, equityCurve, instanceHealth, searchLogs, logPage, strategyStats, listDeals, accountEquity, accountDrawdown, accountPerformance, accountRisk, monitorSummaries, listMonitorEvents, type AccountLimits, type Db, type LiveStateStore, type Monitors } from "@qkt-insights/store";
+import { UNATTRIBUTED_STRATEGY } from "@qkt-insights/contract/query";
 import { requireSession } from "./auth.js";
 import { TtlCache } from "./cache.js";
 import { performanceBundle } from "./performance.js";
@@ -63,7 +64,7 @@ export function registerRest(app: FastifyInstance, deps: RestDeps): void {
     const q = req.query; const i = q.instance; if (!need(reply, i, "instance")) return;
     // logger (part of the name), from and to (ms, [from, to)) narrow further; all optional
     const ms = (v: string | undefined) => (v != null && Number.isFinite(Number(v)) ? Number(v) : undefined);
-    return cache.get(req.url, () => searchLogs(deps.db, { instanceId: i, strategyId: q.strategy, level: q.level, q: q.q, logger: q.logger,
+    return cache.get(req.url, () => searchLogs(deps.db, { instanceId: i, strategyId: logStrategy(q.strategy), level: q.level, q: q.q, logger: q.logger,
       from: ms(q.from), to: ms(q.to), limit: LIMIT(q) }));
   });
 
@@ -72,7 +73,7 @@ export function registerRest(app: FastifyInstance, deps: RestDeps): void {
   app.get<{ Querystring: Record<string, string> }>("/logs/page", guard, async (req, reply) => {
     const q = req.query; const i = q.instance; if (!need(reply, i, "instance")) return;
     const ms = (v: string | undefined) => (v != null && Number.isFinite(Number(v)) ? Number(v) : undefined);
-    return cache.get(req.url, () => logPage(deps.db, { instanceId: i, strategyId: q.strategy, level: q.level, q: q.q, logger: q.logger,
+    return cache.get(req.url, () => logPage(deps.db, { instanceId: i, strategyId: logStrategy(q.strategy), level: q.level, q: q.q, logger: q.logger,
       from: ms(q.from), to: ms(q.to), limit: LIMIT(q), cursor: q.cursor }));
   });
 
@@ -141,4 +142,9 @@ export function registerRest(app: FastifyInstance, deps: RestDeps): void {
   });
 
   registerRoundTrips(app, deps);
+}
+
+/** `strategy=` on the log endpoints: a strategy id, or `unattributed` for the lines no strategy wrote (as the round-trip endpoints read it). */
+function logStrategy(v: string | undefined): string | null | undefined {
+  return v === UNATTRIBUTED_STRATEGY ? null : v || undefined;
 }

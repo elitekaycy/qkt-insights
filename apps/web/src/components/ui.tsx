@@ -641,11 +641,11 @@ export function LoadMore({ shown, total, onMore }: { shown: number; total: numbe
 
 const DAY_MS = 86_400_000;
 
-/** Date ranges: rolling windows, and calendar spans that begin at a UTC midnight. */
+/** Date ranges: rolling windows (24h, 30D), and calendar spans that begin at a UTC midnight (Today, 7D, MTD, YTD). */
 export const RANGES = [
   { key: "today", label: "Today (UTC)", short: "Today" },
   { key: "24h", label: "Last 24h", short: "24h" },
-  { key: "7d", label: "Last 7 days", short: "7D" },
+  { key: "7d", label: "Last 7 UTC days (incl. today)", short: "7D" },
   { key: "mtd", label: "Month to date", short: "MTD" },
   { key: "30d", label: "Last 30 days", short: "30D" },
   { key: "ytd", label: "Year to date", short: "YTD" },
@@ -660,13 +660,13 @@ export function useRangeParam(): [RangeKey, (v: RangeKey) => void] {
   return [key, (v) => set(v)];
 }
 
-/** Where a range begins, epoch ms; 0 for all time. Today, MTD and YTD start at a UTC midnight. */
+/** Where a range begins, epoch ms; 0 for all time. Today, 7D (today and the six UTC days before), MTD and YTD start at a UTC midnight. */
 export function rangeStart(key: RangeKey, now = Date.now()): number {
   const d = new Date(now);
   switch (key) {
     case "today": return Math.floor(now / DAY_MS) * DAY_MS;
     case "24h": return now - DAY_MS;
-    case "7d": return now - 7 * DAY_MS;
+    case "7d": return Math.floor(now / DAY_MS) * DAY_MS - 6 * DAY_MS;
     case "mtd": return Date.UTC(d.getUTCFullYear(), d.getUTCMonth(), 1);
     case "30d": return now - 30 * DAY_MS;
     case "ytd": return Date.UTC(d.getUTCFullYear(), 0, 1);

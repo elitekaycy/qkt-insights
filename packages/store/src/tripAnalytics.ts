@@ -1,12 +1,16 @@
 import type { Db } from "./db.js";
 import { winRatePct } from "./analytics.js";
+import { addMoney, instanceMoneyDigits, roundMoney } from "./money.js";
+import { refreshProjections } from "./projections.js";
 import { roundTripPages, roundTripTotals, type RoundTripQuery, type TripEnded, type TripRow } from "./tripQueries.js";
 
 /*
  * The journal's aggregates over round trips: one call answers every card, chart and table of a
  * strategy's sections for the scope and query on screen, so they all describe the same trades.
- * The unit is the closed round trip (entry to exit, P&L after costs). Days and months are UTC
- * exit days; weekday and hour are the UTC entry. Every bucket carries the query token that
+ * The unit is the closed round trip (entry to exit, P&L after costs). Days and months book each
+ * closing leg on its own UTC day, as the account calendar does, and count the round trips with a
+ * closing leg in them (what an `exit:<day>` drill lists); weekday and hour are the UTC entry.
+ * Every sum is kept at the account currency's minor unit. Every bucket carries the query token that
  * selects its trades, so a click narrows the page to exactly the trades behind the figure.
  */
 
@@ -47,7 +51,10 @@ export interface TripAnalytics {
   matched: number;
   closed: number;
   open: number;
-  /** Realized P&L of the matched round trips; a partly closed open one counts what it closed. */
+  /**
+   * Realized P&L of the matched round trips; a partly closed open one counts what it closed. Under
+   * an `exit:` window, what their closing legs inside it realized (RoundTripTotals.net).
+   */
   pnl: number;
   /** Closed round trips only from here on. */
   grossWin: number;
@@ -107,25 +114,37 @@ const ENDED_ORDER: ReadonlyArray<[TripEnded, string]> = [
 ];
 
 const bucket = (key: string, label: string, filter: string): TripBucket => ({ key, label, filter, n: 0, wins: 0, losses: 0, pnl: 0 });
-const add = (b: { n: number; wins: number; losses: number; pnl: number }, pnl: number) => {
-  b.n++;
-  b.pnl += pnl;
-  if (pnl > 0) b.wins++;
-  else if (pnl < 0) b.losses++;
-};
 const utcDay = (ts: number) => new Date(ts).toISOString().slice(0, 10);
 
 type Closed = TripRow & { pnl: number; exitTs: number };
+
+/** A closing leg of a round trip: when it closed and what it realized. */
+export interface TripLeg { ts: number; realized: number }
+
+export interface AnalyzeOptions {
+  /** Decimals of the account currency's minor unit (default 2). */
+  digits?: number;
+  /** Closing legs per round trip id; a trip without an entry books its whole P&L on its exit day. */
+  legs?: ReadonlyMap<string, readonly TripLeg[]>;
+}
 
 /**
  * Aggregates over the matched round trips. `rows` is every matched round trip in any order;
  * `counts` are the scope's totals (before and after the query), computed by the caller.
  */
-export function analyzeTrips(rows: readonly TripRow[], counts: { total: number; matched: number }): TripAnalytics {
+export function analyzeTrips(rows: readonly TripRow[], counts: { total: number; matched: number }, opts: AnalyzeOptions = {}): TripAnalytics {
+  const digits = opts.digits ?? 2;
+  const plus = (a: number, b: number) => addMoney(a, b, digits);
+  const add = (b: { n: number; wins: number; losses: number; pnl: number }, pnl: number) => {
+    b.n++;
+    b.pnl = plus(b.pnl, pnl);
+    if (pnl > 0) b.wins++;
+    else if (pnl < 0) b.losses++;
+  };
   const closed = rows
     .filter((r): r is Closed => r.status === "closed" && r.pnl != null && r.exitTs != null)
     .sort((a, b) => a.exitTs - b.exitTs || (a.id < b.id ? -1 : a.id > b.id ? 1 : 0));
-  const pnl = rows.reduce((a, r) => a + (r.pnl ?? 0), 0);
+  const pnl = rows.reduce((a, r) => plus(a, r.pnl ?? 0), 0);
   let grossWin = 0, grossLoss = 0, wins = 0, losses = 0, breakeven = 0;
   let rN = 0, rSum = 0, holdN = 0, holdSum = 0;
   let cum = 0, peak = 0, maxDd = 0;
@@ -145,8 +164,8 @@ export function analyzeTrips(rows: readonly TripRow[], counts: { total: number; 
 
   for (const t of closed) {
     const p = t.pnl;
-    if (p > 0) { wins++; grossWin += p; runW++; runL = 0; }
-    else if (p < 0) { losses++; grossLoss += p; runL++; runW = 0; }
+    if (p > 0) { wins++; grossWin = plus(grossWin, p); runW++; runL = 0; }
+    else if (p < 0) { losses++; grossLoss = plus(grossLoss, p); runL++; runW = 0; }
     else breakeven++;
     maxWin = Math.max(maxWin, runW);
     maxLoss = Math.max(maxLoss, runL);
@@ -154,24 +173,13 @@ export function analyzeTrips(rows: readonly TripRow[], counts: { total: number; 
     if (t.holdMs != null) { holdN++; holdSum += t.holdMs; }
     if (!best || p > best.pnl) best = t;
     if (!worst || p < worst.pnl) worst = t;
-    cum += p;
+    cum = plus(cum, p);
     if (cum > peak) { peak = cum; peakTs = t.exitTs; }
     if (peak - cum > maxDd) {
-      maxDd = peak - cum;
+      maxDd = roundMoney(peak - cum, digits);
       maxDdWindow = { from: peakTs ?? closed[0]!.exitTs, to: t.exitTs };
     }
     points.push({ id: t.id, exitTs: t.exitTs, pnl: p, cum });
-
-    const day = utcDay(t.exitTs);
-    const d = days.get(day) ?? { day, n: 0, wins: 0, losses: 0, pnl: 0 };
-    add(d, p);
-    days.set(day, d);
-    const month = day.slice(0, 7);
-    const m = months.get(month) ?? { day: month, n: 0, wins: 0, losses: 0, pnl: 0, grossWin: 0, grossLoss: 0 };
-    add(m, p);
-    if (p > 0) m.grossWin += p;
-    else m.grossLoss += p;
-    months.set(month, m);
 
     add(side[t.side], p);
     const inst = instrument.get(t.instrument) ?? bucket(t.instrument, t.instrument, `symbol:${t.instrument}`);
@@ -185,6 +193,31 @@ export function analyzeTrips(rows: readonly TripRow[], counts: { total: number; 
       add(hour[e.getUTCHours()]!, p);
     }
   }
+
+  // days and months: each trip's closing legs summed per UTC day (month), one count per trip there
+  for (const t of rows) {
+    const legs = opts.legs?.get(t.id);
+    const parts: readonly TripLeg[] = legs ?? (t.status === "closed" && t.pnl != null && t.exitTs != null ? [{ ts: t.exitTs, realized: t.pnl }] : []);
+    const perDay = new Map<string, number>(), perMonth = new Map<string, number>();
+    for (const l of parts) {
+      const day = utcDay(l.ts);
+      perDay.set(day, plus(perDay.get(day) ?? 0, l.realized));
+      perMonth.set(day.slice(0, 7), plus(perMonth.get(day.slice(0, 7)) ?? 0, l.realized));
+    }
+    for (const [day, p] of perDay) {
+      const d = days.get(day) ?? { day, n: 0, wins: 0, losses: 0, pnl: 0 };
+      add(d, p);
+      days.set(day, d);
+    }
+    for (const [month, p] of perMonth) {
+      const m = months.get(month) ?? { day: month, n: 0, wins: 0, losses: 0, pnl: 0, grossWin: 0, grossLoss: 0 };
+      add(m, p);
+      if (p > 0) m.grossWin = plus(m.grossWin, p);
+      else m.grossLoss = plus(m.grossLoss, p);
+      months.set(month, m);
+    }
+  }
+  const byKey = <T extends { day: string }>(a: T, b: T) => (a.day < b.day ? -1 : a.day > b.day ? 1 : 0);
 
   // the current streak: consecutive wins (positive) or losses (negative) ending at the latest decided trade
   let current = 0;
@@ -225,8 +258,8 @@ export function analyzeTrips(rows: readonly TripRow[], counts: { total: number; 
     postLoss: postLoss(closed.map((t) => t.pnl)),
     trades: points.slice(-TRIP_SERIES_MAX),
     tradesTruncated: points.length > TRIP_SERIES_MAX,
-    daily: [...days.values()],
-    monthly: [...months.values()],
+    daily: [...days.values()].sort(byKey),
+    monthly: [...months.values()].sort(byKey),
     side: [side.long, side.short],
     ended: [...ended.values()].filter((b) => b.n > 0),
     hold,
@@ -257,5 +290,24 @@ export function roundTripAnalytics(db: Db, q: RoundTripQuery): TripAnalytics {
   const rows: TripRow[] = [];
   for (const page of roundTripPages(db, { ...q, sort: "exit", dir: "asc", cursor: null }, 1000)) rows.push(...page);
   const totals = roundTripTotals(db, q);
-  return analyzeTrips(rows, { total: totals.total, matched: totals.matched });
+  const a = analyzeTrips(rows, { total: totals.total, matched: totals.matched },
+    { digits: instanceMoneyDigits(db, q.instanceId), legs: closingLegs(db, q.instanceId, rows, q.filter?.exit) });
+  // under an exit: window the headline is what the legs inside it realized, as the count line's net
+  return totals.netInExit ? { ...a, pnl: totals.net } : a;
+}
+
+/** The closing legs of the venue round trips among `rows` (inside the `exit:` window when there is one), oldest first. */
+function closingLegs(db: Db, instanceId: string, rows: readonly TripRow[], exit: { from?: number; to?: number } | undefined): Map<string, TripLeg[]> {
+  refreshProjections(db);
+  const ids = rows.filter((r) => r.source === "deal").map((r) => r.id);
+  const out = new Map<string, TripLeg[]>(ids.map((id) => [id, []]));
+  if (ids.length === 0) return out;
+  const legs = db.prepare(
+    `SELECT ct.position_ticket id, ct.ts, ct.realized FROM closed_trades ct
+     WHERE ct.instance_id=@instanceId AND ct.position_ticket IN (SELECT value FROM json_each(@ids))
+       ${exit?.from !== undefined ? "AND ct.ts>=@from" : ""} ${exit?.to !== undefined ? "AND ct.ts<@to" : ""}
+     ORDER BY ct.ts, ct.deal_rowid`,
+  ).all({ instanceId, ids: JSON.stringify(ids), from: exit?.from, to: exit?.to }) as Array<{ id: string; ts: number; realized: number | null }>;
+  for (const l of legs) out.get(l.id)!.push({ ts: l.ts, realized: l.realized ?? 0 });
+  return out;
 }

@@ -2,6 +2,7 @@ import type { Db } from "./db.js";
 import { OUT_LEGS } from "./closedTrades.js";
 import { refreshProjections } from "./projections.js";
 import { statement } from "./statements.js";
+import { addMoney, instanceMoneyDigits, roundMoney } from "./money.js";
 import { dailyRows, strategyTotals, type DailyRow } from "./strategyDaily.js";
 import { excursionsOf } from "./excursions.js";
 
@@ -379,9 +380,10 @@ function strategyEquityPoints(
   if (rows.length === 0) return [];
   const sb = strategyBase(db, f) ?? 0;
   const pts: StrategyEquityPoint[] = [{ ts: rows[0]!.entryTs ?? rows[0]!.ts, equity: sb, realized: 0, unrealized: 0 }];
+  const digits = instanceMoneyDigits(db, f.instanceId);
   let cum = 0;
   for (const r of rows) {
-    cum += r.realized;
+    cum = addMoney(cum, r.realized, digits);
     pts.push({ ts: r.ts, equity: sb + cum, realized: cum, unrealized: 0 });
   }
   if (f.from == null && f.to == null) return pts;
@@ -395,9 +397,10 @@ function ledgerCloses(db: Db, f: AnalyticsFilter): ClosedTradeRow[] {
     const cl = ["instance_id=@instanceId", "strategy_id=@strategyId"];
     if (f.from != null) cl.push("ts>=@from");
     if (f.to != null) cl.push("ts<=@to");
-    return db.prepare(
+    const digits = instanceMoneyDigits(db, f.instanceId);
+    return (db.prepare(
       `SELECT ts, symbol, side, qty, price, realized, entry_ts entryTs, order_id orderId FROM trade_closes WHERE ${cl.join(" AND ")} ORDER BY ts ASC`,
-    ).all(f) as ClosedTradeRow[];
+    ).all(f) as ClosedTradeRow[]).map((r) => ({ ...r, realized: roundMoney(r.realized, digits) }));
   });
 }
 
@@ -503,11 +506,12 @@ function dayNets(db: Db, f: AnalyticsFilter): DayNet[] {
   // but has no deals shows an empty calendar/equity while the report shows the P&L.
   const trades = closes(db, f);
   if (trades.length > 0) {
+    const digits = instanceMoneyDigits(db, f.instanceId);
     const byDay = new Map<string, DayNet>();
     for (const c of trades) {
       const day = utcDay(c.ts);
       const cur = byDay.get(day) ?? { day, net: 0, trades: 0 };
-      cur.net += c.realized;
+      cur.net = addMoney(cur.net, c.realized, digits);
       cur.trades++;
       byDay.set(day, cur);
     }

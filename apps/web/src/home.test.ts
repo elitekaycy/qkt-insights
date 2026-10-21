@@ -70,6 +70,19 @@ describe("strategyPeriods", () => {
   });
 });
 
+describe("7D", () => {
+  it("is today and the six UTC days before, in the strategy table as on the chart", () => {
+    const now = Date.UTC(2026, 9, 21, 9);
+    const first = Date.UTC(2026, 9, 15);
+    const rows = strategyPeriods(
+      [{ strategyId: "a", ts: first - 1, realized: 1000 }, { strategyId: "a", ts: first, realized: 0.1 }, { strategyId: "a", ts: now - 1, realized: 0.2 }],
+      { now, dayStart: Date.UTC(2026, 9, 21) },
+    );
+    expect(rows.get("a")).toMatchObject({ d7: 0.3, all: 1000.3 });
+    expect(rangeFirstDay("7d", now)).toBe(new Date(first).toISOString().slice(0, 10));
+  });
+});
+
 describe("rangeFirstDay", () => {
   it("anchors each chip to UTC days", () => {
     const now = Date.UTC(2026, 9, 21, 23, 30);

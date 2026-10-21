@@ -36,7 +36,7 @@ export function TripCount({ totals, loading, unit = "round trips", compactOnPhon
       {totals.matched > 0 && (
         <span>
           <span className={wide}>{" · net "}</span>
-          <b className={`font-semibold ${toneClass(totals.net)}`}>{pnl(totals.net)}</b>
+          <b className={`font-semibold ${toneClass(totals.net)}`} title={totals.netInExit ? "Realized by the closing legs inside the exit: range, as the calendar books it" : undefined}>{pnl(totals.net)}</b>
           <span className={wide}>
             {" · win rate "}
             <b className="font-semibold text-bright" title="Winning over decided closed round trips; breakeven ones excluded">{winPct(totals.winRate)}</b>
