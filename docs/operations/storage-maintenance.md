@@ -77,11 +77,14 @@ nothing is lost; only the dashboard is unavailable.
        === q(dst, "SELECT group_concat(rowid) FROM (SELECT rowid FROM events ORDER BY rowid DESC LIMIT 1000)");
      checks.logsRowids = q(src, "SELECT group_concat(rowid) FROM (SELECT rowid FROM logs ORDER BY rowid DESC LIMIT 1000)")
        === q(dst, "SELECT group_concat(rowid) FROM (SELECT rowid FROM logs ORDER BY rowid DESC LIMIT 1000)");
+     checks.dealsRowids = q(src, "SELECT group_concat(rowid) FROM deals") === q(dst, "SELECT group_concat(rowid) FROM deals");
      console.log(checks);'
    ```
 
    Expect `integrity: "ok"`, `autoVacuum: 2`, both orphan counts `0` and every other check
-   `true`. If any check fails, delete the copy and keep the original; do not swap.
+   `true`. If any check fails, delete the copy and keep the original; do not swap. The one
+   exception is `dealsRowids`: the closed-trade projections point at deals by rowid, so if it is
+   `false`, swap and run `rebuild all` before starting the container (`projections.md`).
 
 5. **Swap**, keeping the original until the dashboard is confirmed:
 

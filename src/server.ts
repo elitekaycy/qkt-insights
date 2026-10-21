@@ -5,7 +5,7 @@ import websocket from "@fastify/websocket";
 import fastifyStatic from "@fastify/static";
 import compress from "@fastify/compress";
 import { setImmediate as yieldToEventLoop } from "node:timers/promises";
-import { openDb, checkpoint, reclaimFreePages, LiveBus, LiveStateStore, MarketDataEpisodes, Monitors, Sessions, Shares, Views, pruneRetention, pruneStaleStrategies, replaceStrategyCapital } from "@qkt-insights/store";
+import { openDb, checkpoint, reclaimFreePages, rebuildProjection, PROJECTIONS, LiveBus, LiveStateStore, MarketDataEpisodes, Monitors, Sessions, Shares, Views, pruneRetention, pruneStaleStrategies, replaceStrategyCapital } from "@qkt-insights/store";
 import { registerCollector } from "@qkt-insights/collector";
 import {
   REQUESTS_PER_MINUTE, TotpVerifier, TtlCache, generateTotpSecret, hasSession, registerAuth, registerLive, registerPublic, registerRest, registerSecurity,
@@ -251,9 +251,36 @@ export async function buildServer(mode: Mode) {
   return app;
 }
 
+/**
+ * `rebuild <projection|all>`: rebuilds write-time projections from their source tables
+ * (docs/operations/projections.md). Run it with the server stopped; progress goes to `print`.
+ */
+export function rebuildCommand(args: string[], dbPath: string, print: (line: string) => void = (l) => process.stdout.write(`${l}\n`)): void {
+  const names = Object.keys(PROJECTIONS);
+  const which = args[0];
+  if (!which || (which !== "all" && !names.includes(which))) {
+    throw new Error(`usage: rebuild <${[...names, "all"].join("|")}>`);
+  }
+  const db = openDb(dbPath);
+  try {
+    for (const name of which === "all" ? names : [which]) {
+      let batches = 0;
+      const r = rebuildProjection(db, name, { force: true, onBatch: () => { if (++batches % 20 === 0) print(`${name}: ${batches} batches`); } });
+      print(`${name}: rebuilt in ${r.batches} batches, ${Math.round(r.ms)} ms`);
+    }
+    checkpoint(db);
+  } finally {
+    db.close();
+  }
+}
+
 async function main() {
   if (process.argv[2] === "totp-setup") {
     process.stdout.write(totpSetupText(process.argv[3] ?? process.env.INSIGHTS_NAME?.trim() ?? "admin"));
+    return;
+  }
+  if (process.argv[2] === "rebuild") {
+    rebuildCommand(process.argv.slice(3), env("INSIGHTS_DB", "/data/insights.db"));
     return;
   }
   const mode = parseMode(process.argv.slice(2));
