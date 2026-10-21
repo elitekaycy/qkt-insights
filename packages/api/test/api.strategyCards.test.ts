@@ -8,6 +8,7 @@ import { registerAuth } from "../src/auth.js";
 import { registerRest } from "../src/rest.js";
 import { floatingByStrategy, strategyLines, strategyPeriods } from "../../../apps/web/src/home";
 import { cardFigures, cardGroups, realizedCurves } from "../../../apps/web/src/strategyCards";
+import { strategyCapital } from "../../../apps/web/src/portfolio";
 import type { AccountSummary, LiveStateSnapshot, StrategyRow, StrategyStats } from "../../../apps/web/src/api";
 
 /*
@@ -38,6 +39,9 @@ beforeEach(async () => {
   db = openDb(":memory:");
   const add = db.prepare("INSERT INTO strategies (instance_id, strategy_id, first_seen, last_seen, metadata) VALUES (?, ?, ?, ?, ?)");
   add.run(I, "gold", now - 30 * DAY, now, null);
+  // the engine reports one starting balance for every strategy; the operator's defined capital is the strategy's own base
+  db.prepare("UPDATE strategies SET starting_balance = 2200000 WHERE strategy_id = 'gold'").run();
+  db.prepare("INSERT INTO strategy_capital (strategy_id, capital) VALUES ('gold', 1000000)").run();
   add.run(I, "book:s0", now - 30 * DAY, now, JSON.stringify({ portfolioId: "book", dslName: "eur_fade", allocatedCapital: 5_000 }));
   add.run(I, "book:s1", now - 30 * DAY, now, JSON.stringify({ portfolioId: "book_2", dslName: "gbp_break", allocatedCapital: 5_000 }));
   ingestEvents(db, I, [
@@ -107,7 +111,23 @@ describe("Strategy cards over the real API", () => {
     // the breakeven close is no win and no loss
     expect(gold.winRate).toBeCloseTo(2 / 3, 9);
     expect(gold.maxDd).toBeCloseTo(200, 9);
-    expect(gold.base).toBeNull();
+  });
+
+  it("measures the return on the defined capital the strategy page uses, not a differing starting balance", async () => {
+    const { rows, lines } = await cards();
+    const row = rows.find((r) => r.strategyId === "gold")!;
+    expect(row.startingBalance).toBe(2_200_000);
+    expect(row.definedCapital).toBe(1_000_000);
+    const card = cardFigures(lines.find((l) => l.key === "gold")!);
+    // the strategy page's base and label: strategyCapital(row)
+    expect(card.base).toBe(strategyCapital(row).amount);
+    expect(card.base).toBe(1_000_000);
+    expect(card.baseSource).toBe("defined");
+    expect(card.net / card.base!).toBeCloseTo(98.75 / 1_000_000, 12);
+    // a sleeve's base is its allocation, whatever else it reports
+    const sleeve = cardFigures(lines.find((l) => l.key === "book:s0")!);
+    expect(sleeve.base).toBe(5_000);
+    expect(sleeve.baseSource).toBe("portfolio allocation");
   });
 
   it("groups shards of one portfolio into one card whose net and base are its sleeves' sums", async () => {

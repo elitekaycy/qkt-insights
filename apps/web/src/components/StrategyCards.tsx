@@ -71,12 +71,17 @@ function Fig({ k, title, children }: { k: string; title?: string; children: Reac
   );
 }
 
-/** "on 50,000" with where the base comes from on hover. */
+const BASE_WORD: Record<string, string> = { defined: "capital", "portfolio allocation": "allocated", "starting balance": "start balance" };
+
+/**
+ * "on 1,000,000 capital": the base the strategy page measures its return on (strategyCapital), named
+ * by its source; the full source on hover.
+ */
 function BaseLabel({ base, source }: { base: number | null; source: string | null }) {
   if (base == null) return <span className="text-xs text-faint">no capital known</span>;
   return (
-    <span className="text-xs text-faint" title={`return on ${money(base, 0)} ${source ?? "capital"}`}>
-      on {money(base, 0)}
+    <span className="text-xs text-faint" title={`return on ${money(base, 0)} ${source === "defined" ? "defined capital" : source ?? "capital"}`}>
+      on {money(base, 0)} {BASE_WORD[source ?? ""] ?? ""}
     </span>
   );
 }
