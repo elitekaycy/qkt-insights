@@ -13,7 +13,7 @@ const CLOSING = new Set(["OUT", "INOUT", "OUT_BY"]);
 interface Leg {
   broker: string; symbol: string | null; side: string | null; entry: string | null; qty: number | null; price: number | null;
   profit: number | null; commission: number | null; swap: number | null; fee: number | null; comment: string | null;
-  strategyId: string | null; orderTicket: string | null; closeReason: string | null; ts: number;
+  strategyId: string | null; orderTicket: string | null; closeReason: string | null; attribution: string | null; ts: number;
 }
 
 export interface RoundTripRow {
@@ -74,7 +74,7 @@ function weighted(legs: Leg[]): number | null {
 export function recomputeRoundTrip(db: Db, instanceId: string, position: string): void {
   const legs = statement(db,
     `SELECT broker, symbol, side, entry, qty, price, profit, commission, swap, fee, comment, strategy_id strategyId, order_ticket orderTicket,
-       close_reason closeReason, ts
+       close_reason closeReason, attribution, ts
      FROM deals WHERE instance_id=? AND position_ticket=? AND canonical=1 ORDER BY ts, rowid`,
   ).all(instanceId, position) as Leg[];
   const prior = statement(db,
@@ -104,7 +104,9 @@ export function recomputeRoundTrip(db: Db, instanceId: string, position: string)
 
   const entryOrderTicket = ins[0]?.orderTicket ?? null;
   const near: EventsNear = (type, ts) => eventsNear(db, instanceId, type, ts);
-  const entry = entryOf(db, instanceId, position, entryOrderTicket, entryTs, near);
+  // A producer that states the facts (qkt names how it attributed every deal it sends) is read by them alone.
+  const stated = legs.some((l) => l.attribution != null);
+  const entry = entryOf(db, instanceId, position, entryOrderTicket, entryTs, near, stated);
   const closeReason = open || last == null ? null : last.closeReason;
 
   const row: RoundTripRow = {
@@ -128,7 +130,8 @@ export function recomputeRoundTrip(db: Db, instanceId: string, position: string)
     stopPrice: entry.stop ?? prior?.stopPrice ?? null,
     targetPrice: entry.target ?? prior?.targetPrice ?? null,
     ended: open || last == null ? null
-      : endedByReason(closeReason) ?? endedFromDealComment(last.comment) ?? endedFromEngineEvents(near, position, last.ts, prior?.ended ?? null),
+      : endedByReason(closeReason)
+        ?? (stated ? null : endedFromDealComment(last.comment) ?? endedFromEngineEvents(near, position, last.ts, prior?.ended ?? null)),
     holdMs: !open && entryTs != null && exitTs != null ? exitTs - entryTs : null,
     open,
     source: "deal",
@@ -148,17 +151,19 @@ export function recomputeRoundTrip(db: Db, instanceId: string, position: string)
 /**
  * The entry of position `position`: its opening order, and that order's initial stop, target and
  * money at risk. A fill that names the position it opened (`positionId`, leg IN) states all of it;
- * an engine that names no position is read by the venue ticket convention, with the bracket of the
- * order's submit and no stated risk.
+ * none, from a producer that `stated` its facts, means no engine order of this instance opened it
+ * (another tool's trade on the account). An engine that names no position is read by the venue
+ * ticket convention, with the bracket of the order's submit and no stated risk.
  */
-function entryOf(db: Db, instanceId: string, position: string, ticket: string | null, entryTs: number | null, near: EventsNear):
-  { orderId: string | null; stop: number | null; target: number | null; risk: number | null } {
+function entryOf(db: Db, instanceId: string, position: string, ticket: string | null, entryTs: number | null, near: EventsNear,
+  stated: boolean): { orderId: string | null; stop: number | null; target: number | null; risk: number | null } {
   if (entryTs != null) {
     const fill = near("order.filled", entryTs).concat(near("order.partially_filled", entryTs)).find((p) =>
       typeof p.orderId === "string" && (
         (p.positionId === position && p.legEntry === "IN") || (p.nextPositionId === position && p.legEntry === "INOUT")));
     if (fill) return { orderId: fill.orderId as string, stop: num(fill.initialStop), target: num(fill.initialTarget), risk: num(fill.riskAmount) };
   }
+  if (stated) return { orderId: null, stop: null, target: null, risk: null };
   const { orderId, submit } = entryOrderByTicket(db, instanceId, ticket, entryTs, near);
   return { orderId, stop: submit ? level(submit.stopLoss) : null, target: submit ? level(submit.takeProfit) : null, risk: null };
 }
