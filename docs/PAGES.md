@@ -10,7 +10,7 @@ Everything the selected instance is doing right now: account snapshot, open
 positions, account performance (net P&L, win rate, expectancy, drawdown), a
 trading calendar, monthly returns, and a full performance dashboard —
 daily/cumulative P&L, strategy equity, trade excursion, outcomes, risk budget,
-trading behavior, and execution quality — down to every reporting instance.
+long/short performance and trading behavior. Instance status lives on Health.
 
 ![Overview](assets/screenshots/overview.png)
 

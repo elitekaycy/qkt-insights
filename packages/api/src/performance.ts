@@ -1,6 +1,6 @@
 import {
-  closedTrades, contributionRanking, costDecomposition, dailyNets, dowHourMatrix, drawdownPeriods, excursionStats, executionQuality,
-  normalizedPerformance, performanceReport, postLossStats, rollingStats, tradeBreakdowns, type AnalyticsFilter, type Db,
+  closedTrades, contributionRanking, costDecomposition, dailyNets, dowHourMatrix, drawdownPeriods, excursionStats,
+  performanceReport, postLossStats, rollingStats, tradeBreakdowns, type AnalyticsFilter, type Db,
 } from "@qkt-insights/store";
 
 /**
@@ -23,9 +23,7 @@ export function performanceBundle(db: Db, f: AnalyticsFilter, include?: string, 
     rolling: want("rolling") ? rollingStats(db, f, typeof window === "string" ? Number(window) : undefined) : undefined,
     costs: want("costs") ? costDecomposition(db, f) : undefined,
     contribution: want("contribution") ? contributionRanking(db, f) : undefined,
-    normalized: want("normalized") ? normalizedPerformance(db, f) : undefined,
     excursions: want("excursions") ? excursionStats(db, f) : undefined,
-    execution: want("execution") ? executionQuality(db, f) : undefined,
   };
 }
 

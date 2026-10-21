@@ -76,17 +76,13 @@ function relabelKeys<T extends Keyed>(rows: T[]): T[] {
 }
 
 /**
- * Report, daily nets, drawdown periods, post-loss rows, day/hour cells, rolling points, costs,
- * normalized and execution figures are numbers keyed by time or bucket, so they pass as built.
+ * Report, daily nets, drawdown periods, post-loss rows, day/hour cells, rolling points and costs
+ * are numbers keyed by time or bucket, so they pass as built.
  * Everything that can carry a venue id or a broker-prefixed symbol is rebuilt.
  */
 export function publicBundle(b: PerformanceBundle) {
   return {
     ...b,
-    // Order latency and fill counts describe orders whose positions may still be open; planned R:R
-    // comes from every bracket submitted, open or not. Neither belongs on a public page.
-    execution: undefined,
-    normalized: b.normalized && { ...b.normalized, averagePlannedRiskReward: null, plannedRiskRewardSample: 0 },
     closes: b.closes?.map(publicClose),
     breakdowns: b.breakdowns && { ...b.breakdowns, bySymbol: relabelKeys(b.breakdowns.bySymbol) },
     contribution: b.contribution && { ...b.contribution, bySymbol: relabelKeys(b.contribution.bySymbol) },

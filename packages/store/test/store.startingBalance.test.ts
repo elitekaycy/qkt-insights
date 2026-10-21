@@ -1,7 +1,7 @@
 import { describe, it, expect } from "vitest";
 import { openDb } from "../src/db.js";
 import { runMigrations } from "../src/migrations.js";
-import { ingestEvents, strategyStats, startingBalanceOf, executionQuality } from "../src/index.js";
+import { ingestEvents, strategyStats, startingBalanceOf } from "../src/index.js";
 import type { Envelope } from "@qkt-insights/contract";
 
 const T0 = 1718000000000;
@@ -53,22 +53,5 @@ describe("starting balance from strategy.started", () => {
       .run("qkt-prod", "old", T0, T0, JSON.stringify({ risk: { startingBalance: 60000 } }));
     runMigrations(db);
     expect(db.prepare("SELECT starting_balance sb FROM strategies WHERE strategy_id='old'").get()).toEqual({ sb: 60000 });
-  });
-});
-
-describe("execution quality slippage", () => {
-  it("measures a market fill against the submission reference price", () => {
-    const db = openDb(":memory:");
-    ingestEvents(db, "qkt-prod", [
-      env({ id: "s1", ts: T0, type: "order.submit", strategyId: "gold", payload: {
-        orderId: "o1", orderType: "Market", symbol: "ICMARKETS:XAUUSD", side: "BUY", qty: 0.1, strategyId: "gold",
-        timeInForce: "GTC", createdTs: T0, referencePrice: 2300.00 } }),
-      env({ id: "a1", ts: T0 + 500, type: "order.accepted", strategyId: "gold", payload: { orderId: "o1", brokerOrderId: "b1" } }),
-      env({ id: "f1", ts: T0 + 900, type: "order.filled", strategyId: "gold", payload: {
-        orderId: "o1", brokerOrderId: "b1", symbol: "ICMARKETS:XAUUSD", side: "BUY", price: 2300.30, qty: 0.1 } }),
-    ]);
-    const q = executionQuality(db, { instanceId: "qkt-prod", strategyId: "gold" });
-    expect(q.slippageSample).toBe(1);
-    expect(q.averageAdverseSlippage).toBeCloseTo(0.30, 6);
   });
 });
