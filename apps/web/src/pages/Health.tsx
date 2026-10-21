@@ -15,6 +15,16 @@ function journalLabel(row: HealthRow): string {
   return `${row.insightsJournalPending ?? 0} pending`;
 }
 
+function quarantinedTotal(row: HealthRow): number {
+  return row.quarantined.reduce((n, q) => n + q.count, 0);
+}
+
+/** Shown only when something was held back, so a healthy row stays quiet. */
+function QuarantinePill({ row }: { row: HealthRow }) {
+  const n = quarantinedTotal(row);
+  return n > 0 ? <Pill tone="warn">{n} quarantined</Pill> : null;
+}
+
 const STATUS_TONE: Record<MonitorSummary["status"], Tone> = { up: "up", down: "down", pending: "neutral" };
 
 const BEAT_CLASS: Record<"up" | "down" | "none", string> = { up: "bg-up", down: "bg-down", none: "bg-line" };
@@ -255,6 +265,22 @@ function InstanceDetail({ row, accounts }: { row: HealthRow; accounts: LiveAccou
             {journalLabel(row)}
           </Fact>
         </div>
+        <div className="mt-3 text-sm">
+          <div className="text-[11px] uppercase tracking-[0.1em] text-faint">quarantined</div>
+          {row.quarantined.length === 0 ? (
+            <div className="text-muted">none</div>
+          ) : (
+            <ul className="mt-1 space-y-1">
+              {row.quarantined.map((q) => (
+                <li key={`${q.type}:${q.v}`} className="min-w-0" title={q.reason}>
+                  <span className="font-mono text-bright">{q.type ?? "no type"}</span>
+                  <span className="font-mono text-muted"> v{q.v ?? "?"} · {q.count} · last {age(q.lastReceivedAt)}</span>
+                  <div className="truncate text-xs text-faint">{q.reason}</div>
+                </li>
+              ))}
+            </ul>
+          )}
+        </div>
       </div>
       <div className="rounded-lg border border-line bg-panel">
         <DataList
@@ -373,6 +399,7 @@ export default function Health() {
                   <Pill tone={r.insightsJournalPending == null ? "neutral" : r.insightsJournalPending > 0 ? "warn" : "up"}>
                     journal {journalLabel(r)}
                   </Pill>
+                  <QuarantinePill row={r} />
                   <button
                     type="button"
                     aria-expanded={expanded}
@@ -420,9 +447,12 @@ export default function Health() {
                   <Cell className="text-muted">{acct ? (acct.login ? `${acct.broker} · #${acct.login}` : acct.broker) : "—"}</Cell>
                   <Cell className="font-mono text-bright">{acct ? money(acct.equity) : "—"}</Cell>
                   <Cell>
-                    <Pill tone={sinkTone(r)}>
-                      {r.insightsSent == null ? "unknown" : `${r.insightsFailed ?? 0} failed · ${r.insightsDropped ?? 0} dropped`}
-                    </Pill>
+                    <span className="flex flex-wrap gap-1.5">
+                      <Pill tone={sinkTone(r)}>
+                        {r.insightsSent == null ? "unknown" : `${r.insightsFailed ?? 0} failed · ${r.insightsDropped ?? 0} dropped`}
+                      </Pill>
+                      <QuarantinePill row={r} />
+                    </span>
                   </Cell>
                   <Cell>
                     <Pill tone={r.insightsJournalPending == null ? "neutral" : r.insightsJournalPending > 0 ? "warn" : "up"}>

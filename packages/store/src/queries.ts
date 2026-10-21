@@ -13,7 +13,9 @@ export interface OrderRow { orderId: string; strategyId: string | null; symbol: 
 export interface TradeRow { id: string; strategyId: string | null; ts: number; payload: unknown }
 export interface SearchHit { id: string; instanceId: string; type: string; ts: number; payload: unknown }
 export interface EquityPoint { ts: number; equity: number; realized: number; unrealized: number }
-export interface HealthRow { instanceId: string; lastSeen: number; lastSeq: number; strategies: number; insightsSent: number | null; insightsFailed: number | null; insightsDropped: number | null; insightsQueued: number | null; insightsJournalEnabled: number | null; insightsJournalPending: number | null; insightsHealthTs: number | null }
+export interface HealthRow { instanceId: string; lastSeen: number; lastSeq: number; strategies: number; insightsSent: number | null; insightsFailed: number | null; insightsDropped: number | null; insightsQueued: number | null; insightsJournalEnabled: number | null; insightsJournalPending: number | null; insightsHealthTs: number | null; quarantined: QuarantineCount[] }
+/** Envelopes held raw for one instance, per type and major; `reason` is the newest one's. */
+export interface QuarantineCount { type: string | null; v: number | null; count: number; lastReceivedAt: number; reason: string }
 export interface CurrentPositionRow {
   broker: string; ticket: string; symbol: string; side: string; qty: number; entryPrice: number;
   currentPrice: number | null; profit: number | null; swap: number | null; openedAt: number | null;
@@ -162,7 +164,14 @@ export function equityCurve(
 }
 
 export function instanceHealth(db: Db): HealthRow[] {
-  return db.prepare(
+  const quarantined = new Map<string, QuarantineCount[]>();
+  // MAX() makes SQLite return the bare `reason` column from the newest row of each group.
+  const counts = db.prepare(
+    `SELECT instance_id instanceId, type, v, COUNT(*) count, MAX(received_at) lastReceivedAt, reason
+     FROM quarantined_events GROUP BY instance_id, type, v ORDER BY count DESC, type`,
+  ).all() as Array<QuarantineCount & { instanceId: string }>;
+  for (const { instanceId, ...c } of counts) quarantined.set(instanceId, [...(quarantined.get(instanceId) ?? []), c]);
+  const rows = db.prepare(
     `SELECT i.id instanceId, i.last_seen lastSeen, i.last_seq lastSeq,
             (SELECT COUNT(*) FROM strategies s WHERE s.instance_id=i.id) strategies,
             json_extract(h.payload, '$.sent') insightsSent,
@@ -175,7 +184,8 @@ export function instanceHealth(db: Db): HealthRow[] {
      FROM instances i
      LEFT JOIN instance_health h ON h.instance_id = i.id
      ORDER BY i.id`,
-  ).all() as HealthRow[];
+  ).all() as Array<Omit<HealthRow, "quarantined">>;
+  return rows.map((r) => ({ ...r, quarantined: quarantined.get(r.instanceId) ?? [] }));
 }
 
 export function listCurrentPositions(db: Db, f: { instanceId: string; strategyId?: string; symbol?: string }): CurrentPositionRow[] {

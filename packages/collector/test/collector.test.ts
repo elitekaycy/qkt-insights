@@ -142,13 +142,15 @@ describe("POST /ingest", () => {
     expect(db.prepare("SELECT COUNT(*) c FROM events").get()).toMatchObject({ c: 0 });
   });
 
-  it("returns 400 on a malformed envelope", async () => {
+  it("acknowledges a malformed envelope and quarantines it instead of rejecting the batch", async () => {
     const res = await app.inject({
       method: "POST", url: "/ingest",
       headers: { authorization: "Bearer secret" },
       payload: { instanceId: "qkt-prod", events: [{ v: 1, instanceId: "qkt-prod", id: "x", seq: 1, ts: 1, type: "trade", payload: { nope: true } }] },
     });
-    expect(res.statusCode).toBe(400);
+    expect(res.statusCode).toBe(200);
+    expect(res.json()).toMatchObject({ accepted: 0, quarantined: 1, envelopes: [{ id: "x", status: "quarantined" }] });
+    expect(db.prepare("SELECT COUNT(*) c FROM events").get()).toMatchObject({ c: 0 });
   });
 
   it("bumps the instance heartbeat on a state.* batch even though it writes no event", async () => {

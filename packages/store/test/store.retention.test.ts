@@ -1,6 +1,7 @@
 import { describe, it, expect } from "vitest";
 import { openDb } from "../src/db.js";
 import { pruneRetention, pruneStaleStrategies } from "../src/retention.js";
+import { quarantineEnvelopes } from "../src/write.js";
 
 const NOW = 1_700_000_000_000;
 const DAY = 86_400_000;
@@ -53,7 +54,7 @@ describe("pruneRetention", () => {
 
     const r = pruneRetention(db, NOW);
 
-    expect(r).toEqual({ logs: 1, events: 1, valuations: 1, monitors: 0, views: 0 });
+    expect(r).toEqual({ logs: 1, events: 1, valuations: 1, monitors: 0, views: 0, quarantined: 0 });
 
     const logIds = db.prepare("SELECT id FROM logs ORDER BY id").all().map((x: any) => x.id);
     expect(logIds).toEqual(["log-new"]);
@@ -72,11 +73,21 @@ describe("pruneRetention", () => {
     expect(marks).toEqual([`closed@${RECENT}`, `open@${OLD}`]);
   });
 
+  it("prunes quarantined envelopes by when they were received, not by their own ts", () => {
+    const db = openDb(":memory:");
+    const quarantine = (id: string, receivedAt: number, ts: number) =>
+      quarantineEnvelopes(db, "qkt-prod", [{ id, instanceId: "qkt-prod", type: "signal.future", v: 1, ts, reason: "unknown type", raw: { id } }], receivedAt);
+    quarantine("q-old", OLD, RECENT);
+    quarantine("q-new", RECENT, OLD);
+    expect(pruneRetention(db, NOW).quarantined).toBe(1);
+    expect(db.prepare("SELECT id FROM quarantined_events").all()).toEqual([{ id: "q-new" }]);
+  });
+
   it("is a no-op on an empty window (nothing older than cutoff)", () => {
     const db = openDb(":memory:");
     seedLog(db, "log-new", RECENT, "new line");
     seedEvent(db, "ev-new", RECENT, "insights.health");
-    expect(pruneRetention(db, NOW)).toEqual({ logs: 0, events: 0, valuations: 0, monitors: 0, views: 0 });
+    expect(pruneRetention(db, NOW)).toEqual({ logs: 0, events: 0, valuations: 0, monitors: 0, views: 0, quarantined: 0 });
   });
 });
 

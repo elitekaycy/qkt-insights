@@ -97,6 +97,16 @@ export interface HealthRow {
   insightsJournalEnabled: boolean | number | null;
   insightsJournalPending: number | null;
   insightsHealthTs: number | null;
+  /** Envelopes /ingest acknowledged but kept raw (unknown type, bad payload, unsupported major), per type and major. */
+  quarantined: QuarantineCount[];
+}
+export interface QuarantineCount {
+  type: string | null;
+  v: number | null;
+  count: number;
+  lastReceivedAt: number;
+  /** The newest one's reason. */
+  reason: string;
 }
 export type MonitorStatus = "up" | "down" | "pending";
 export interface StripBucket {

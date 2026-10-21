@@ -18,6 +18,8 @@ export interface RetentionResult {
   monitors: number;
   /** shared-link page views older than VIEW_RETENTION_DAYS removed. */
   views: number;
+  /** quarantined envelopes received before the cutoff removed. */
+  quarantined: number;
 }
 
 /** Delete operational history older than `retentionDays`, preserving everything the dashboards
@@ -32,6 +34,7 @@ export interface RetentionResult {
  *    `positions_current` — i.e. the position has closed. Open positions keep their full mark history.
  *  - `monitor_minutes`, and `monitor_events` except each monitor's latest transition, which is
  *    what a restart restores the current status from.
+ *  - `quarantined_events` by receive time: a contract that learns the type replays from what is left.
  *
  * Deletes run in one transaction. `now` is injectable so tests can pin the cutoff.
  * e.g. a health event at now-40d is removed; a trade event at now-40d and a mark for an
@@ -63,7 +66,9 @@ export function pruneRetention(db: Database, now: number, retentionDays = RETENT
     // Views keep their own, longer window: audience trends are read over months.
     const views = db.prepare("DELETE FROM share_views WHERE ts < ?").run(now - VIEW_RETENTION_DAYS * DAY_MS).changes;
 
-    return { logs, events, valuations, monitors, views };
+    const quarantined = db.prepare("DELETE FROM quarantined_events WHERE received_at < ?").run(cutoff).changes;
+
+    return { logs, events, valuations, monitors, views, quarantined };
   })();
 }
 
