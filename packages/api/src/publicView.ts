@@ -69,10 +69,11 @@ function publicClose(c: ClosedTradeRow & { entryOrderId?: string | null; exitOrd
   };
 }
 
-type Keyed = { key: string };
+type Keyed = { key: string; venues?: string[] };
 
-function relabelKeys<T extends Keyed>(rows: T[]): T[] {
-  return rows.map((r) => ({ ...r, key: publicSymbol(r.key) }));
+/** Instrument keys pass; the venue symbols behind them name broker profiles and are dropped. */
+function relabelKeys<T extends Keyed>(rows: T[]): Array<Omit<T, "venues">> {
+  return rows.map(({ venues: _venues, ...r }) => ({ ...r, key: publicSymbol(r.key) }));
 }
 
 /**

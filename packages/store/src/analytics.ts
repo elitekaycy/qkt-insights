@@ -360,6 +360,17 @@ function closesCoverRange(db: Db, f: AnalyticsFilter, firstCloseTs: number): boo
   return true;
 }
 
+/**
+ * The traded instrument behind a venue symbol: qkt prefixes each symbol with the broker profile
+ * that saw it ("ICM_S05:XAUUSD"), so one instrument on one account arrives under several names.
+ * e.g. "ICM_S05:XAUUSD" -> "XAUUSD", "XAUUSD" -> "XAUUSD".
+ */
+export function instrumentOf(symbol: string | null | undefined): string {
+  if (!symbol) return "";
+  const i = symbol.lastIndexOf(":");
+  return i >= 0 ? symbol.slice(i + 1) : symbol;
+}
+
 function utcDay(ts: number): string {
   return new Date(ts).toISOString().slice(0, 10);
 }
@@ -556,6 +567,8 @@ export function performanceReport(db: Db, f: AnalyticsFilter): PerformanceReport
 
 export interface BreakdownRow {
   key: string;
+  /** bySymbol only: the venue symbols (profile-prefixed) folded into this instrument. */
+  venues?: string[];
   net: number;
   trades: number;
   wins: number;
@@ -589,7 +602,7 @@ export function tradeBreakdowns(db: Db, f: AnalyticsFilter): TradeBreakdowns | n
 
   const samples = new Map<string, number[]>();
   const acc = (map: Map<string, BreakdownRow>, key: string, r: ClosedTradeRow) => {
-    const cur = map.get(key) ?? { key, net: 0, trades: 0, wins: 0, se: null };
+    const cur = map.get(key) ?? { key, net: 0, trades: 0, wins: 0, se: null, ...(map === bySymbol ? { venues: [] } : {}) };
     cur.net += r.realized;
     cur.trades++;
     if (r.realized > 0) cur.wins++;
@@ -611,7 +624,9 @@ export function tradeBreakdowns(db: Db, f: AnalyticsFilter): TradeBreakdowns | n
   let withEntry = 0;
   for (const r of rows) {
     const d = new Date(r.ts);
-    acc(bySymbol, r.symbol, r);
+    acc(bySymbol, instrumentOf(r.symbol), r);
+    const row = bySymbol.get(instrumentOf(r.symbol))!;
+    if (!row.venues!.includes(r.symbol)) row.venues!.push(r.symbol);
     acc(byHour, String(d.getUTCHours()).padStart(2, "0"), r);
     acc(byDow, DOW[(d.getUTCDay() + 6) % 7]!, r);
     acc(byVolume, r.qty.toFixed(2), r);
@@ -806,6 +821,8 @@ export function costDecomposition(db: Db, f: AnalyticsFilter): CostDecomposition
 
 export interface ContributionRow {
   key: string;
+  /** bySymbol only: the venue symbols (profile-prefixed) folded into this instrument. */
+  venues?: string[];
   net: number;
   trades: number;
   /** Percentage 0-100. */
@@ -823,7 +840,7 @@ export interface ContributionRanking {
 }
 
 /**
- * Where the money comes from: ranked net contribution by symbol and by
+ * Where the money comes from: ranked net contribution by instrument and by
  * position direction, each row carrying expectancy and n so size-driven
  * contribution is distinguishable from per-trade edge. share is signed —
  * a profitable symbol inside a losing total reports a negative share.
@@ -832,19 +849,21 @@ export function contributionRanking(db: Db, f: AnalyticsFilter): ContributionRan
   const rows = closes(db, f);
   if (rows.length === 0) return null;
   const totalNet = rows.reduce((a, r) => a + r.realized, 0);
-  const build = (key: (r: ClosedTradeRow) => string): ContributionRow[] => {
-    const m = new Map<string, { net: number; trades: number; wins: number }>();
+  const build = (key: (r: ClosedTradeRow) => string, venues: boolean): ContributionRow[] => {
+    const m = new Map<string, { net: number; trades: number; wins: number; venues: Set<string> }>();
     for (const r of rows) {
       const k = key(r);
-      const cur = m.get(k) ?? { net: 0, trades: 0, wins: 0 };
+      const cur = m.get(k) ?? { net: 0, trades: 0, wins: 0, venues: new Set<string>() };
       cur.net += r.realized;
       cur.trades++;
       if (r.realized > 0) cur.wins++;
+      cur.venues.add(r.symbol);
       m.set(k, cur);
     }
     return [...m.entries()]
       .map(([k, v]) => ({
         key: k,
+        ...(venues ? { venues: [...v.venues] } : {}),
         net: v.net,
         trades: v.trades,
         winRate: (v.wins / v.trades) * 100,
@@ -853,7 +872,7 @@ export function contributionRanking(db: Db, f: AnalyticsFilter): ContributionRan
       }))
       .sort((a, b) => b.net - a.net);
   };
-  return { bySymbol: build((r) => r.symbol), byDirection: build((r) => r.side), totalNet };
+  return { bySymbol: build((r) => instrumentOf(r.symbol), true), byDirection: build((r) => r.side, false), totalNet };
 }
 
 export interface ExcursionRow {

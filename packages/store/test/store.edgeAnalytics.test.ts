@@ -191,10 +191,26 @@ describe("contributionRanking", () => {
     roundTrip(db, 3, { openTs: T0, closeTs: T0 + 3 * HOUR, profit: -5, symbol: "EXNESS:EURUSD", side: "SELL" });
     const c = contributionRanking(db, F)!;
     expect(c.totalNet).toBeCloseTo(15);
-    expect(c.bySymbol[0]).toMatchObject({ key: "EXNESS:XAUUSD", net: 20, trades: 2, winRate: 50, expectancy: 10 });
+    expect(c.bySymbol[0]).toMatchObject({ key: "XAUUSD", net: 20, trades: 2, winRate: 50, expectancy: 10 });
     expect(c.bySymbol[0]!.share).toBeCloseTo(20 / 15);
     expect(c.bySymbol[1]!.share).toBeCloseTo(-5 / 15);
     expect(c.byDirection.map((r) => r.key).sort()).toEqual(["BUY", "SELL"]);
+  });
+
+  it("folds broker-profile symbols of one instrument into one row, keeping the venues as detail", () => {
+    const db = openDb(":memory:");
+    seedStrategy(db, 10000);
+    roundTrip(db, 1, { openTs: T0, closeTs: T0 + HOUR, profit: 12, symbol: "ICM_S01:XAUUSD" });
+    roundTrip(db, 2, { openTs: T0, closeTs: T0 + 2 * HOUR, profit: -4, symbol: "ICM_S05:XAUUSD" });
+    roundTrip(db, 3, { openTs: T0, closeTs: T0 + 3 * HOUR, profit: 7, symbol: "ICMARKETS:XAUUSD" });
+    roundTrip(db, 4, { openTs: T0, closeTs: T0 + 4 * HOUR, profit: -2, symbol: "ICM_S01:EURUSD" });
+    const c = contributionRanking(db, F)!;
+    expect(c.bySymbol.map((r) => [r.key, r.trades])).toEqual([["XAUUSD", 3], ["EURUSD", 1]]);
+    expect(c.bySymbol[0]!.net).toBeCloseTo(15);
+    expect(c.bySymbol[0]!.venues!.sort()).toEqual(["ICMARKETS:XAUUSD", "ICM_S01:XAUUSD", "ICM_S05:XAUUSD"]);
+    const b = tradeBreakdowns(db, F)!;
+    expect(b.bySymbol.map((r) => [r.key, r.trades])).toEqual([["XAUUSD", 3], ["EURUSD", 1]]);
+    expect(b.bySymbol[0]!.venues).toHaveLength(3);
   });
 
   it("shares stay signed against a negative total", () => {

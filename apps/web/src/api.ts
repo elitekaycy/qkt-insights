@@ -407,6 +407,8 @@ export interface AccountEquityPoint {
 
 export interface BreakdownRow {
   key: string;
+  /** bySymbol only: venue symbols folded into this instrument (absent on shared links). */
+  venues?: string[];
   net: number;
   trades: number;
   wins: number;
@@ -451,6 +453,8 @@ export interface CostDecomposition {
 }
 export interface ContributionRow {
   key: string;
+  /** bySymbol only: venue symbols folded into this instrument (absent on shared links). */
+  venues?: string[];
   net: number;
   trades: number;
   winRate: number;

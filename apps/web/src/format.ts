@@ -77,3 +77,13 @@ export function age(ms: number): string {
   if (s < 86400) return `${Math.floor(s / 3600)}h ago`;
   return `${Math.floor(s / 86400)}d ago`;
 }
+
+/**
+ * The instrument behind a venue symbol: qkt prefixes each symbol with the broker profile that saw
+ * it, e.g. "ICM_S05:XAUUSD" -> "XAUUSD". Aggregate by this; show the full symbol as detail.
+ */
+export function instrumentOf(symbol: string | null | undefined): string {
+  if (!symbol) return "";
+  const i = symbol.lastIndexOf(":");
+  return i >= 0 ? symbol.slice(i + 1) : symbol;
+}

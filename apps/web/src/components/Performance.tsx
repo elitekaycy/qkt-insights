@@ -1,6 +1,6 @@
 import { useState, type ReactNode } from "react";
 import type { ClosedTradeRow, DayNet, PerformanceBundle, PerformanceReport } from "../api";
-import { duration, money, num, price, tsShort } from "../format";
+import { duration, instrumentOf, money, num, price, tsShort } from "../format";
 import { EChart, qktChartAxis, qktChartGrid, qktChartTooltip, qktInsideZoom, type QktChartOption } from "./EChart";
 import { BucketBoxplot, ContributionBars, CostStack } from "./EdgeCharts";
 import { Cell, DataList, Empty, Panel, Pill, Row, Select, Stat, Table, TimeCell, type Tone } from "./ui";
@@ -539,7 +539,7 @@ function holdBucket(c: ClosedTradeRow): string {
 function dimKey(c: ClosedTradeRow, dim: TradeDimension): string {
   const d = new Date(c.ts);
   if (dim === "side") return sideKey(c.side);
-  if (dim === "symbol") return c.symbol;
+  if (dim === "symbol") return instrumentOf(c.symbol);
   if (dim === "hour") return String(d.getUTCHours()).padStart(2, "0");
   if (dim === "weekday") return WEEKDAYS[(d.getUTCDay() + 6) % 7]!;
   if (dim === "lot") return c.qty.toFixed(2);
@@ -610,10 +610,10 @@ function TradeAnalysis({ bundle }: { bundle: PerformanceBundle }) {
   const [dimension, setDimension] = useState<TradeDimension>("side");
   const [metric, setMetric] = useState<TradeMetric>("net");
   const closes = bundle.closes;
-  const symbols = [...new Set(closes.map((c) => c.symbol))].sort();
+  const symbols = [...new Set(closes.map((c) => instrumentOf(c.symbol)))].sort();
   const filtered = closes.filter((c) => {
     if (side && sideKey(c.side) !== side) return false;
-    if (symbol && c.symbol !== symbol) return false;
+    if (symbol && instrumentOf(c.symbol) !== symbol) return false;
     if (outcome === "wins" && c.realized <= 0) return false;
     if (outcome === "losses" && c.realized >= 0) return false;
     return true;
@@ -914,7 +914,7 @@ export function EdgeDetailPanels({ bundle }: { bundle: PerformanceBundle }) {
             <Empty>Cost split needs broker deals — paper instances carry realized P&L without a commission/swap breakdown.</Empty>
           )}
         </Panel>
-        <Panel title="Where the money comes from" hint="net contribution by symbol · n labels · expectancy in tooltip" stagger={5}>
+        <Panel title="Where the money comes from" hint="net contribution by instrument (broker-profile symbols folded) · n labels · expectancy in tooltip" stagger={5}>
           {contribution && contribution.bySymbol.length > 0 ? (
             <div className="grid gap-3 p-3">
               <ContributionBars ranking={contribution} />
@@ -926,7 +926,7 @@ export function EdgeDetailPanels({ bundle }: { bundle: PerformanceBundle }) {
                   empty="No closed trades to attribute yet."
                   cells={(r) => (
                     <>
-                      <Cell className="font-semibold text-bright">{r.key}</Cell>
+                      <Cell className="font-semibold text-bright"><span title={r.venues?.join(", ")}>{r.key}</span></Cell>
                       <Cell className={`font-mono ${r.net >= 0 ? "text-up" : "text-down"}`}>{money(r.net)}</Cell>
                       <Cell className="font-mono text-muted">{r.trades}</Cell>
                       <Cell className="font-mono text-muted">{r.winRate.toFixed(0)}%</Cell>
