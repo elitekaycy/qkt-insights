@@ -3,6 +3,7 @@ import { listInstances, listStrategies, listTrades, searchEvents, equityCurve, i
 import { requireSession } from "./auth.js";
 import { TtlCache } from "./cache.js";
 import { performanceBundle } from "./performance.js";
+import { Revalidated } from "./revalidate.js";
 
 export interface RestDeps {
   db: Db; liveState: LiveStateStore; monitors: Monitors;
@@ -12,10 +13,21 @@ export interface RestDeps {
 
 const LIMIT = (q: Record<string, string | undefined>) => Math.min(Number(q.limit ?? 200), 1000);
 
+/** Points /account/equity returns unless the caller asks for more (`points`) or every minute (`resolution=full`). */
+export const ACCOUNT_EQUITY_POINTS = 2000;
+const ACCOUNT_EQUITY_MAX_POINTS = 20_000;
+
+function accountEquityPoints(q: Record<string, string | undefined>): number | undefined {
+  if (q.resolution === "full") return undefined;
+  const n = Number(q.points);
+  return Number.isFinite(n) && n > 0 ? Math.min(n, ACCOUNT_EQUITY_MAX_POINTS) : ACCOUNT_EQUITY_POINTS;
+}
+
 export function registerRest(app: FastifyInstance, deps: RestDeps): void {
   const guard = { preHandler: requireSession };
   // Hot reads only — /live/state must stay uncached so WS reconciliation sees broker truth.
   const cache = new TtlCache();
+  const versioned = new Revalidated(deps.db);
   const need = (reply: any, v: string | undefined, name: string): v is string => {
     if (!v) { reply.code(400).send({ error: `${name} required` }); return false; }
     return true;
@@ -38,7 +50,7 @@ export function registerRest(app: FastifyInstance, deps: RestDeps): void {
   // caching only bounds how many of those get the same DB round trip.
   app.get<{ Querystring: Record<string, string> }>("/trades", guard, async (req, reply) => {
     const q = req.query; const i = q.instance; if (!need(reply, i, "instance")) return;
-    return cache.get(req.url, () => listTrades(deps.db, { instanceId: i, strategyId: q.strategy, symbol: q.symbol, limit: LIMIT(q) }));
+    return versioned.send(req, reply, [{ instance: i }], () => listTrades(deps.db, { instanceId: i, strategyId: q.strategy, symbol: q.symbol, limit: LIMIT(q) }));
   });
 
   app.get<{ Querystring: Record<string, string> }>("/search", guard, async (req, reply) => {
@@ -66,7 +78,10 @@ export function registerRest(app: FastifyInstance, deps: RestDeps): void {
     if (!need(reply, q.instance, "instance") || !need(reply, q.strategy, "strategy")) return;
     const f = { instanceId: q.instance, strategyId: q.strategy,
       from: q.from ? Number(q.from) : undefined, to: q.to ? Number(q.to) : undefined };
-    return cache.get(req.url, () => performanceBundle(deps.db, f, q.include, q.window));
+    // Excursions read position marks, which move while a position is open; the rest never does.
+    const marks = typeof q.include !== "string" || q.include.split(",").includes("excursions");
+    const scopes = [{ strategy: f }, ...(marks ? [{ marks: f.instanceId }] : [])];
+    return versioned.send(req, reply, scopes, () => performanceBundle(deps.db, f, q.include, q.window));
   });
 
   app.get<{ Querystring: Record<string, string> }>("/equity", guard, async (req, reply) => {
@@ -75,7 +90,7 @@ export function registerRest(app: FastifyInstance, deps: RestDeps): void {
     const f = { instanceId: q.instance, strategyId: q.strategy,
       from: q.from ? Number(q.from) : undefined, to: q.to ? Number(q.to) : undefined,
       points: q.points ? Math.min(Number(q.points), 5000) : undefined };
-    return cache.get(req.url, () => equityCurve(deps.db, f));
+    return versioned.send(req, reply, [{ strategy: f }], () => equityCurve(deps.db, f));
   });
 
   app.get("/live/state", guard, async () => deps.liveState.snapshot(Date.now()));
@@ -84,24 +99,25 @@ export function registerRest(app: FastifyInstance, deps: RestDeps): void {
     const q = req.query; if (!need(reply, q.instance, "instance")) return;
     const f = { instanceId: q.instance, strategyId: q.strategy, limit: LIMIT(q),
       before: q.before ? Number(q.before) : undefined };
-    return cache.get(req.url, () => listDeals(deps.db, f));
+    return versioned.send(req, reply, [{ instance: q.instance }], () => listDeals(deps.db, f));
   });
 
+  // At most ACCOUNT_EQUITY_POINTS points by default: the full minute series is megabytes.
   app.get<{ Querystring: Record<string, string> }>("/account/equity", guard, async (req, reply) => {
-    const q = req.query; if (!need(reply, q.instance, "instance")) return;
-    return accountEquity(deps.db, { instanceId: q.instance,
-      from: q.from ? Number(q.from) : undefined, to: q.to ? Number(q.to) : undefined });
+    const q = req.query; const i = q.instance; if (!need(reply, i, "instance")) return;
+    return versioned.send(req, reply, [{ account: i }], () => accountEquity(deps.db, { instanceId: i,
+      from: q.from ? Number(q.from) : undefined, to: q.to ? Number(q.to) : undefined, points: accountEquityPoints(q) }));
   });
 
   app.get<{ Querystring: Record<string, string> }>("/account/drawdown", guard, async (req, reply) => {
-    const q = req.query; if (!need(reply, q.instance, "instance")) return;
-    return accountDrawdown(deps.db, { instanceId: q.instance });
+    const q = req.query; const i = q.instance; if (!need(reply, i, "instance")) return;
+    return versioned.send(req, reply, [{ account: i }], () => accountDrawdown(deps.db, { instanceId: i }));
   });
 
   // Every close on the account: retired strategies and unattributed deals included.
   app.get<{ Querystring: Record<string, string> }>("/account/summary", guard, async (req, reply) => {
     const q = req.query; const i = q.instance; if (!need(reply, i, "instance")) return;
-    return cache.get(req.url, () => accountPerformance(deps.db, { instanceId: i,
+    return versioned.send(req, reply, [{ instance: i }, { account: i }], () => accountPerformance(deps.db, { instanceId: i,
       from: q.from ? Number(q.from) : undefined, to: q.to ? Number(q.to) : undefined }));
   });
 

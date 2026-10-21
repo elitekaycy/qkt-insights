@@ -1,5 +1,7 @@
 import type { Db } from "./db.js";
 import type { Envelope } from "@qkt-insights/contract";
+import { statement } from "./statements.js";
+import { bumpAccount } from "./versions.js";
 
 export interface AccountState {
   broker: string; currency: string; balance: number; equity: number;
@@ -131,16 +133,19 @@ export class LiveStateStore {
    */
   flushRollup(db: Db, now: number, staleAfterMs = 90_000): void {
     const minute = Math.floor(now / 60_000) * 60_000;
-    const up = db.prepare(
+    const up = statement(db,
       `INSERT INTO account_equity (instance_id, broker, minute_ts, balance, equity, open_profit, account)
        VALUES (?,?,?,?,?,?,?) ON CONFLICT(instance_id, broker, minute_ts)
        DO UPDATE SET balance=excluded.balance, equity=excluded.equity, open_profit=excluded.open_profit,
          account=COALESCE(excluded.account, account)`,
     );
+    const flushed = new Set<string>();
     for (const a of this.accounts.values()) {
       if (now - a.lastSeen > staleAfterMs) continue;
       up.run(a.instanceId, a.broker, minute, a.balance, a.equity, a.openProfit ?? null, accountIdentity(a));
+      flushed.add(a.instanceId);
     }
+    for (const instanceId of flushed) bumpAccount(db, instanceId);
   }
 }
 

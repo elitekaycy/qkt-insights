@@ -3,6 +3,7 @@ import argon2 from "argon2";
 import cookie from "@fastify/cookie";
 import websocket from "@fastify/websocket";
 import fastifyStatic from "@fastify/static";
+import compress from "@fastify/compress";
 import { openDb, checkpoint, LiveBus, LiveStateStore, MarketDataEpisodes, Monitors, Sessions, Shares, Views, pruneRetention, pruneStaleStrategies, replaceStrategyCapital } from "@qkt-insights/store";
 import { registerCollector } from "@qkt-insights/collector";
 import {
@@ -89,6 +90,9 @@ export async function buildServer(mode: Mode) {
   // prefix on every alert from this box.
   const brand = process.env.INSIGHTS_NAME?.trim() || null;
 
+  // Before any route: the plugin attaches itself to each route as it is declared. Request bodies
+  // are never decompressed; qkt posts plain JSON.
+  await app.register(compress, { global: true, encodings: ["br", "gzip"], globalDecompression: false });
   registerSecurity(app, { requestsPerMinute: REQUESTS_PER_MINUTE });
   app.get("/healthz", async () => ({ ok: true, mode }));
 

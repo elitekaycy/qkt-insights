@@ -1,7 +1,7 @@
 import type { Db } from "./db.js";
 import { VALUATION_HEARTBEAT_MS } from "./write.js";
 import { accountSeries } from "./accountRisk.js";
-import { closedTrades, hasClosingDeals, MIN_RATIO_DAYS, SNAPSHOT_EQUITY, strategyBase, strategyEquityCurve, tradePnls, type StrategyEquityPoint } from "./analytics.js";
+import { closedTrades, hasClosingDeals, MIN_RATIO_DAYS, SNAPSHOT_EQUITY, strategyBase, strategyEquityCurve, tradePnls, withAnalyticsScope, type StrategyEquityPoint } from "./analytics.js";
 
 // A strategy stays "active" while its roster bump is within this window of the
 // instance's newest bump. Comfortably exceeds the state-poll cadence (~30s) times the
@@ -107,6 +107,13 @@ export function searchEvents(db: Db, f: { q: string; instanceId?: string; limit:
  * the full series server-side, so the numbers stay exact.
  */
 export function equityCurve(
+  db: Db,
+  f: { instanceId: string; strategyId: string; from?: number; to?: number; points?: number },
+): EquityPoint[] {
+  return withAnalyticsScope(db, () => equitySeries(db, f));
+}
+
+function equitySeries(
   db: Db,
   f: { instanceId: string; strategyId: string; from?: number; to?: number; points?: number },
 ): EquityPoint[] {
@@ -348,9 +355,11 @@ export function listLogs(db: Db, f: { instanceId: string; strategyId?: string; l
   const cl: string[] = ["instance_id=@instanceId"];
   if (f.strategyId) cl.push("strategy_id=@strategyId");
   if (f.level) cl.push("level=@level");
+  // The whole instance reads idx_logs_instance_ts; lines of one millisecond stay in write order.
+  const order = f.strategyId || f.level ? "ts DESC" : "ts DESC, rowid ASC";
   return db.prepare(
     `SELECT id, strategy_id strategyId, level, logger, message, ts FROM logs
-     WHERE ${cl.join(" AND ")} ORDER BY ts DESC LIMIT @limit`,
+     WHERE ${cl.join(" AND ")} ORDER BY ${order} LIMIT @limit`,
   ).all(f) as LogRow[];
 }
 
@@ -382,14 +391,46 @@ export interface AccountEquityPoint {
   account: string;
 }
 
-export function accountEquity(db: Db, f: { instanceId: string; from?: number; to?: number }): AccountEquityPoint[] {
+/**
+ * The account equity minutes in a range, oldest first. With `points`, a range holding more rows is
+ * cut into equal time buckets and only the LAST minute of each label in each bucket is kept, the
+ * way equityCurve samples: every returned point is a stored minute, never an average, and the
+ * whole series stays at most `points` long. Drawdown and risk figures read the full series.
+ */
+export function accountEquity(db: Db, f: { instanceId: string; from?: number; to?: number; points?: number }): AccountEquityPoint[] {
   const cl: string[] = ["instance_id=@instanceId"];
   if (f.from != null) cl.push("minute_ts>=@from");
   if (f.to != null) cl.push("minute_ts<=@to");
-  const rows = db.prepare(
+  const where = cl.join(" AND ");
+  const params = { instanceId: f.instanceId, from: f.from, to: f.to };
+  let rows: Array<Omit<AccountEquityPoint, "account">> | null = null;
+  if (f.points != null) {
+    const points = Math.max(2, Math.floor(f.points));
+    const span = db.prepare(
+      `SELECT COUNT(*) n, COUNT(DISTINCT minute_ts) minutes, MIN(minute_ts) lo, MAX(minute_ts) hi FROM account_equity WHERE ${where}`,
+    ).get(params) as { n: number; minutes: number; lo: number | null; hi: number | null };
+    if (span.n > points && span.lo != null && span.hi != null) {
+      // Labels reporting in the same minutes each keep a point per bucket, so fewer buckets.
+      const perBucket = Math.ceil(span.n / Math.max(1, span.minutes));
+      let bucket = Math.max(60_000, Math.ceil((span.hi - span.lo + 1) / Math.max(1, Math.floor(points / perBucket))));
+      const sample = db.prepare(
+        `SELECT broker, MAX(minute_ts) minuteTs, balance, equity, open_profit openProfit
+         FROM account_equity WHERE ${where}
+         GROUP BY broker, CAST((minute_ts - @lo) / @bucket AS INTEGER)
+         ORDER BY minuteTs ASC, broker ASC`,
+      );
+      // A label handover can put two labels in one bucket; widen until the cap holds.
+      for (;;) {
+        rows = sample.all({ ...params, lo: span.lo, bucket }) as Array<Omit<AccountEquityPoint, "account">>;
+        if (rows.length <= points) break;
+        bucket = Math.max(bucket + 1, Math.ceil((bucket * rows.length) / points));
+      }
+    }
+  }
+  rows ??= db.prepare(
     `SELECT broker, minute_ts minuteTs, balance, equity, open_profit openProfit
-     FROM account_equity WHERE ${cl.join(" AND ")} ORDER BY minute_ts ASC`,
-  ).all(f) as Array<Omit<AccountEquityPoint, "account">>;
+     FROM account_equity WHERE ${where} ORDER BY minute_ts ASC, broker ASC`,
+  ).all(params) as Array<Omit<AccountEquityPoint, "account">>;
   const accountOf = new Map<string, string>();
   for (const s of accountSeries(db, { instanceId: f.instanceId, to: f.to })) for (const l of s.labels) accountOf.set(l, s.key);
   return rows.map((r) => ({ ...r, account: accountOf.get(r.broker) ?? r.broker }));
@@ -525,6 +566,10 @@ export interface StrategyStats {
  *   a strategy that stopped sending snapshot.equity would otherwise show a frozen figure.
  */
 export function strategyStats(db: Db, f: { instanceId: string; strategyId: string; to?: number; closedPositionsOnly?: boolean }, now = Date.now()): StrategyStats {
+  return withAnalyticsScope(db, () => statsOf(db, f, now));
+}
+
+function statsOf(db: Db, f: { instanceId: string; strategyId: string; to?: number; closedPositionsOnly?: boolean }, now: number): StrategyStats {
   const t: any = db.prepare(
     `SELECT COUNT(*) c,
             SUM(CASE WHEN json_extract(payload,'$.side')='BUY' THEN 1 ELSE 0 END) buys,

@@ -1,5 +1,6 @@
 import type { Database } from "better-sqlite3";
 import { VIEW_RETENTION_DAYS } from "./views.js";
+import { bumpEpoch } from "./versions.js";
 
 /** Days of operational history kept before the weekly prune. Trade events (the analytics source of
  * truth) and marks for still-open positions are exempt regardless of age. */
@@ -69,6 +70,7 @@ export function pruneRetention(db: Database, now: number, retentionDays = RETENT
 
     const quarantined = db.prepare("DELETE FROM quarantined_events WHERE received_at < ?").run(cutoff).changes;
 
+    bumpEpoch(db);
     return { logs, events, valuations, monitors, views, quarantined };
   })();
 }
@@ -127,6 +129,7 @@ export function pruneStaleStrategies(db: Database, now: number, retentionDays = 
            (SELECT instance_id, broker, ticket FROM positions_current)`,
       ).run(i, s).changes;
     }
+    if (rows > 0) bumpEpoch(db);
     return { strategies: stale.length, rows };
   })();
 }

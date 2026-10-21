@@ -8,6 +8,7 @@ import { isSameOrigin, requireSession } from "./auth.js";
 import type { TtlCache } from "./cache.js";
 import { WindowCounter } from "./limits.js";
 import { performanceBundle } from "./performance.js";
+import { ACCOUNT_EQUITY_POINTS } from "./rest.js";
 import { accountLabeller, publicAccountSummary, publicBundle, publicDeal, publicStrategy, publicTrade } from "./publicView.js";
 
 export const PUBLIC_REQUESTS_PER_MINUTE = 240;
@@ -499,7 +500,7 @@ export function registerPublic(app: FastifyInstance, deps: PublicDeps): void {
     compute: (scope, p, cutoff) => {
       const label = accountLabeller(liveAccountCount(scope.instanceId) <= 1);
       const accountLabel = accountLabeller(liveAccountCount(scope.instanceId) <= 1);
-      return accountEquity(deps.db, { instanceId: scope.instanceId, from: presetFrom(p.range, cutoff), to: cutoff })
+      return accountEquity(deps.db, { instanceId: scope.instanceId, from: presetFrom(p.range, cutoff), to: cutoff, points: ACCOUNT_EQUITY_POINTS })
         .map((row) => ({ ...row, broker: label(row.broker), account: accountLabel(row.account) }));
     },
   });

@@ -72,7 +72,18 @@ The response is 400 only for a body that is not JSON or not a batch (`invalid ba
 
 `status` is `accepted`, `duplicate` (the id was already stored) or `quarantined`; a redelivered quarantined envelope
 is reported `quarantined` again. `accepted`, `ack` and `acknowledgedIds` keep their earlier meaning; every envelope
-in a 200 batch is acknowledged.
+in a 200 batch is acknowledged. `ack.observations` is always empty: duplicates are reported per envelope instead.
+A `snapshot.equity` already stored for its strategy at the same `ts` is a `duplicate`; one that repeats the
+strategy's previous snapshot is acknowledged but stored only once per 5-minute heartbeat.
+
+## Reads
+
+Every JSON and static response is compressed (brotli, else gzip) when the client accepts it. The heavier reads
+(`/performance`, `/equity`, `/deals`, `/trades`, `/account/equity`, `/account/drawdown`, `/account/summary`) carry
+a weak `ETag` derived from a version of the rows they read, with `Cache-Control: private, no-cache`; a browser
+revalidates with `If-None-Match` and gets `304` with no body until those rows change. `/account/equity` returns at
+most 2,000 points by default (the last stored minute of each time bucket), `?points=N` up to 20,000, and
+`?resolution=full` for every minute.
 
 Design notes live in [`specs/`](specs/) and the implementation plans in [`plans/`](plans/).
 
