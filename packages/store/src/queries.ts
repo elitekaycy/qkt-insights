@@ -387,6 +387,7 @@ export interface DealRow {
 
 export function listDeals(db: Db, f: { instanceId: string; strategyId?: string; limit: number; before?: number }): DealRow[] {
   // One row per venue deal: profiles sharing an account each store a copy (see canonicalDeal).
+  refreshProjections(db);
   const cl: string[] = ["instance_id=@instanceId", "canonical=1"];
   if (f.strategyId) cl.push("strategy_id=@strategyId");
   if (f.before != null) cl.push("ts<@before");

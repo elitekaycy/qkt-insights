@@ -128,6 +128,31 @@ export function positionKeysAfter(db: Db, after: { instanceId: string; key: stri
   return out;
 }
 
+/**
+ * Takes in deals stored since the last call, by whatever writer: flags each row's canonical copy
+ * and queues its position. O(new rows); nothing to do is one seek.
+ */
+export function takeNewDeals(db: Db): void {
+  const wm = (statement(db, "SELECT last_rowid r FROM projection_watermarks WHERE source='deals'").get() as { r: number } | undefined)?.r ?? 0;
+  const max = (statement(db, "SELECT MAX(rowid) m FROM deals").get() as { m: number | null }).m ?? 0;
+  if (max <= wm) {
+    if (max < wm) statement(db, "UPDATE projection_watermarks SET last_rowid=? WHERE source='deals'").run(max);
+    return;
+  }
+  statement(db,
+    `UPDATE deals SET canonical = NOT EXISTS (
+       SELECT 1 FROM deals d WHERE d.instance_id=deals.instance_id AND d.deal_ticket=deals.deal_ticket AND d.rowid<deals.rowid)
+     WHERE rowid > ?`,
+  ).run(wm);
+  statement(db,
+    `INSERT INTO projection_dirty (kind, instance_id, key)
+     SELECT DISTINCT 'position', n.instance_id, COALESCE('p:' || n.position_ticket, 'd:' || n.rowid) FROM deals n
+     WHERE n.rowid > ? AND NOT EXISTS (SELECT 1 FROM projection_dirty q WHERE q.kind='position' AND q.instance_id=n.instance_id
+                                         AND q.key=COALESCE('p:' || n.position_ticket, 'd:' || n.rowid))`,
+  ).run(wm);
+  statement(db, "INSERT INTO projection_watermarks (source, last_rowid) VALUES ('deals', ?) ON CONFLICT(source) DO UPDATE SET last_rowid=excluded.last_rowid").run(max);
+}
+
 /** Empties the closed-trade projection before a full rebuild. */
 export function clearClosedTrades(db: Db): void {
   statement(db,
@@ -137,4 +162,7 @@ export function clearClosedTrades(db: Db): void {
   statement(db, "DELETE FROM position_closures").run();
   statement(db, "DELETE FROM round_trips").run();
   statement(db, "DELETE FROM projection_dirty WHERE kind IN ('position','ticket')").run();
+  statement(db,
+    "INSERT INTO projection_watermarks (source, last_rowid) SELECT 'deals', COALESCE(MAX(rowid), 0) FROM deals WHERE true ON CONFLICT(source) DO UPDATE SET last_rowid=excluded.last_rowid",
+  ).run();
 }

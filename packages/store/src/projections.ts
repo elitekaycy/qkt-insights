@@ -1,6 +1,6 @@
 import type { Db } from "./db.js";
 import { statement } from "./statements.js";
-import { clearClosedTrades, positionKeysAfter, recomputePosition, recomputeTicket, type ClosedTradeKey } from "./closedTrades.js";
+import { clearClosedTrades, positionKeysAfter, recomputePosition, recomputeTicket, takeNewDeals, type ClosedTradeKey } from "./closedTrades.js";
 import { accountRebuildStep, clearAccountProjection, recomputeAccountKeys } from "./accountProjection.js";
 import { recomputeRoundTrip } from "./roundTrips.js";
 import { clearExcursions, excursionsAfter, recomputeExcursions, recomputeTicketExcursions } from "./excursions.js";
@@ -99,8 +99,11 @@ const DRAIN_ORDER = ["ticket", "position", "excursion", "daily", "account"] as c
 
 /** Brings every projection up to date with the writes recorded since the last call. Cheap when nothing changed. */
 export function refreshProjections(db: Db): void {
-  if (statement(db, "SELECT 1 FROM projection_dirty LIMIT 1").get() == null) return;
+  const newDeals = (statement(db, "SELECT MAX(rowid) m FROM deals").get() as { m: number | null }).m
+    !== (statement(db, "SELECT last_rowid r FROM projection_watermarks WHERE source='deals'").get() as { r: number } | undefined)?.r;
+  if (!newDeals && statement(db, "SELECT 1 FROM projection_dirty LIMIT 1").get() == null) return;
   db.transaction(() => {
+    takeNewDeals(db);
     const take = statement(db, "SELECT instance_id instanceId, key FROM projection_dirty WHERE kind=? LIMIT ?");
     const done = statement(db, "DELETE FROM projection_dirty WHERE kind=? AND instance_id=? AND key=?");
     for (const kind of DRAIN_ORDER) {

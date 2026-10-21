@@ -50,37 +50,6 @@ CREATE INDEX IF NOT EXISTS idx_round_trips_held ON round_trips (instance_id, hol
 CREATE INDEX IF NOT EXISTS idx_round_trips_side ON round_trips (instance_id, side, exit_ts);
 CREATE INDEX IF NOT EXISTS idx_round_trips_ended ON round_trips (instance_id, ended, exit_ts);
 
--- An engine order learning its broker id links the position whose IN leg carries that ticket.
+-- An engine order learning its broker id links the position whose IN leg carries that ticket
+-- (ingest marks it, write.ts markRoundTrips).
 CREATE INDEX IF NOT EXISTS idx_deals_order ON deals (instance_id, order_ticket);
-
-CREATE TRIGGER IF NOT EXISTS orders_round_trip_insert AFTER INSERT ON orders WHEN NEW.broker_order_id IS NOT NULL BEGIN
-  INSERT INTO projection_dirty (kind, instance_id, key)
-  SELECT DISTINCT 'position', d.instance_id, 'p:' || d.position_ticket FROM deals d INDEXED BY idx_deals_order
-  WHERE d.instance_id=NEW.instance_id AND d.order_ticket=NEW.broker_order_id AND d.position_ticket IS NOT NULL
-    AND NOT EXISTS (SELECT 1 FROM projection_dirty q WHERE q.kind='position' AND q.instance_id=d.instance_id AND q.key='p:' || d.position_ticket);
-END;
-
-CREATE TRIGGER IF NOT EXISTS orders_round_trip_update AFTER UPDATE OF broker_order_id ON orders
-WHEN NEW.broker_order_id IS NOT NULL AND OLD.broker_order_id IS NOT NEW.broker_order_id BEGIN
-  INSERT INTO projection_dirty (kind, instance_id, key)
-  SELECT DISTINCT 'position', d.instance_id, 'p:' || d.position_ticket FROM deals d INDEXED BY idx_deals_order
-  WHERE d.instance_id=NEW.instance_id AND d.order_ticket=NEW.broker_order_id AND d.position_ticket IS NOT NULL
-    AND NOT EXISTS (SELECT 1 FROM projection_dirty q WHERE q.kind='position' AND q.instance_id=d.instance_id AND q.key='p:' || d.position_ticket);
-END;
-
--- The engine events a round trip reads: the opening order's bracket, a close order for the ticket,
--- a `qkt bot close`, and a fill naming its broker ticket.
--- Each branch is one index seek (the position or the order-ticket index).
-CREATE TRIGGER IF NOT EXISTS events_round_trip_insert AFTER INSERT ON events
-WHEN NEW.type IN ('order.submit', 'order.filled', 'bot.close') BEGIN
-  INSERT INTO projection_dirty (kind, instance_id, key)
-  SELECT 'position', NEW.instance_id, 'p:' || p.ticket FROM (
-    SELECT d.position_ticket ticket FROM deals d WHERE d.instance_id=NEW.instance_id AND d.position_ticket=json_extract(NEW.payload, '$.ticket')
-    UNION SELECT d.position_ticket FROM deals d WHERE d.instance_id=NEW.instance_id AND d.position_ticket=json_extract(NEW.payload, '$.closesTicket')
-    UNION SELECT d.position_ticket FROM deals d INDEXED BY idx_deals_order WHERE d.instance_id=NEW.instance_id AND d.order_ticket=json_extract(NEW.payload, '$.brokerOrderId')
-    UNION SELECT d.position_ticket FROM orders o JOIN deals d INDEXED BY idx_deals_order ON d.instance_id=o.instance_id AND d.order_ticket=o.broker_order_id
-      WHERE o.instance_id=NEW.instance_id AND o.order_id=json_extract(NEW.payload, '$.orderId')
-  ) p
-  WHERE p.ticket IS NOT NULL
-    AND NOT EXISTS (SELECT 1 FROM projection_dirty q WHERE q.kind='position' AND q.instance_id=NEW.instance_id AND q.key='p:' || p.ticket);
-END;
