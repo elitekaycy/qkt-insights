@@ -18,12 +18,12 @@
   <a href="docs/assets/qkt-insights-full-dark.mp4">
     <picture>
       <source media="(prefers-color-scheme: dark)" srcset="docs/assets/qkt-insights-loop-dark.webp">
-      <img alt="Start the collector, send it a trade, sign in and read the trade back" src="docs/assets/qkt-insights-loop-light.webp" width="840">
+      <img alt="Start the collector and check it is up, then the dashboard: a trade arrives on Home, its strategy's journal opens, the day it closed on the calendar, the trade drawer, and back to Home" src="docs/assets/qkt-insights-loop-light.webp" width="840">
     </picture>
   </a>
 </p>
 
-<p align="center"><sub>Every command in this clip was run for real.<br/><a href="docs/assets/qkt-insights-full-dark.mp4">Watch the full walkthrough</a></sub></p>
+<p align="center"><sub>Every command in this clip was run for real. The dashboard is a demo paper account: seven weeks of qkt backtests replayed into the collector.<br/><a href="docs/assets/qkt-insights-full-dark.mp4">Watch the full walkthrough</a></sub></p>
 
 <br/>
 
