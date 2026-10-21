@@ -9,9 +9,9 @@ import { roundMoney } from "@qkt-insights/contract/money";
 
 const DAY_MS = 86_400_000;
 
-/** The account's risk row for a live account: by login@server, then by label, then the only one. */
-export function riskRowFor(account: Pick<LiveAccount, "broker" | "login" | "server">, rows: AccountRiskRow[]): AccountRiskRow | null {
-  const identity = account.login && account.server ? `${account.login}@${account.server}` : null;
+/** The account's risk row for a live account: by its account id, then by label, then the only one. */
+export function riskRowFor(account: Pick<LiveAccount, "broker" | "accountId">, rows: AccountRiskRow[]): AccountRiskRow | null {
+  const identity = account.accountId ?? null;
   return (identity != null ? rows.find((r) => r.account === identity) : undefined)
     ?? rows.find((r) => r.label === account.broker || r.account === account.broker)
     ?? (rows.length === 1 ? rows[0]! : null);

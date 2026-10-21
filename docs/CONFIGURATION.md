@@ -27,8 +27,9 @@ covers the proxy, two-factor sign-in and sign-in alerts. The production image ex
 ## Account risk limits
 
 The Overview's risk budget and "Account DD" measure each venue account against limits that
-belong to the account. Set them with `INSIGHTS_ACCOUNT_LIMITS`, a JSON object keyed by
-`login@server` (as the state poller reports it), the broker label, or `*` for every account:
+belong to the account. Set them with `INSIGHTS_ACCOUNT_LIMITS`, a JSON object keyed by the
+account id qkt reports (`mt5:login@server`, `vgp:adapter:login`; a bare MT5 `login@server` names
+the same account), the broker label, or `*` for every account:
 
 ```bash
 INSIGHTS_ACCOUNT_LIMITS='{"12345678@Broker-Server":{"basis":"static","startBalance":50000,"dailyLossPct":5,"maxDrawdownPct":10,"dailyResetHour":0,"timezone":"Europe/Athens","dailyLossIncludesFloating":true}}'

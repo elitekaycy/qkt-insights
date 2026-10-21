@@ -20,3 +20,4 @@ export * from "./tripQueries.js";
 export * from "./tripAnalytics.js";
 export * from "./logSearch.js";
 export * from "./money.js";
+export { inferenceCounts, onInference, type Inference } from "./inferredVenueFacts.js";

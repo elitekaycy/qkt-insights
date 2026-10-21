@@ -3,6 +3,35 @@ import { z } from "zod";
 const side = z.enum(["BUY", "SELL"]);
 const object = <T extends z.ZodRawShape>(shape: T) => z.object(shape).passthrough();
 
+/*
+ * Facts qkt states about venue envelopes and fills, so the collector reads them instead of inferring
+ * them from MT5 conventions. Every field is optional: older qkt releases send none of them, and a
+ * value of an unexpected shape must not cost the envelope, so enums are plain strings.
+ */
+const opt = <T extends z.ZodTypeAny>(t: T) => t.nullable().optional();
+/** Which connector, venue and config entry an envelope is about: `{connector: "mt5", adapter: "exness", label: "EXNESS"}`. */
+const venue = object({ connector: opt(z.string()), adapter: opt(z.string()), label: opt(z.string()) });
+/** What one instrument is: qkt's symbol, the venue's code, its kind, contract size, tick, quote currency and account value of a point. */
+const instrument = object({
+  symbol: opt(z.string()), venueCode: opt(z.string()), kind: opt(z.string()), contractSize: opt(z.number()),
+  tickSize: opt(z.number()), quoteCurrency: opt(z.string()), valuePerPoint: opt(z.number()),
+});
+/** A typed venue cost; `amount` is positive when paid. */
+const cost = object({ kind: z.string(), amount: z.number(), currency: opt(z.string()) });
+/** `venue` and `accountId` on every venue envelope (`mt5:<login>@<server>`, `vgp:<adapter>:<login>`). */
+const venueFacts = { venue: venue.optional(), accountId: opt(z.string()) };
+/**
+ * What qkt resolved about a fill: the position it belongs to, the leg it made (IN, OUT, INOUT), why a
+ * closing fill closed (STOP, TAKE_PROFIT, SIGNAL, MANUAL, TIMED, STOP_OUT, LIQUIDATION, EXPIRY), its
+ * strategy with how it was known (order, position, comment, none), an entry's bracket and risk in
+ * account currency, and the instrument.
+ */
+const fillFacts = {
+  positionId: opt(z.string()), nextPositionId: opt(z.string()), legEntry: opt(z.string()), closeReason: opt(z.string()),
+  attribution: opt(z.string()), initialStop: opt(z.number()), initialTarget: opt(z.number()), riskAmount: opt(z.number()),
+  instrument: instrument.nullable().optional(),
+};
+
 export const payloadByType = {
   signal: object({ symbol: z.string(), side, qty: z.number().optional(), intent: z.string().optional(), note: z.string().optional(), order: z.unknown().optional() }),
   "signal.cancel": object({ symbol: z.string(), intent: z.string().optional() }),
@@ -55,8 +84,10 @@ export const payloadByType = {
     outerBracket: z.unknown().nullable().optional(),
   }),
   "order.accepted": object({ orderId: z.string(), brokerOrderId: z.string().optional() }),
-  "order.filled": object({ orderId: z.string(), brokerOrderId: z.string().optional(), symbol: z.string(), price: z.number(), qty: z.number(), venueCosts: z.number().optional() }),
-  "order.partially_filled": object({ orderId: z.string(), brokerOrderId: z.string().optional(), symbol: z.string(), side: side.optional(), price: z.number(), qty: z.number(), cumulativeQty: z.number(), venueCosts: z.number().optional(), typedVenueCosts: z.array(z.unknown()).optional() }),
+  "order.filled": object({ orderId: z.string(), brokerOrderId: z.string().optional(), symbol: z.string(), price: z.number(), qty: z.number(), venueCosts: z.number().optional(),
+    strategyId: opt(z.string()), ...fillFacts }),
+  "order.partially_filled": object({ orderId: z.string(), brokerOrderId: z.string().optional(), symbol: z.string(), side: side.optional(), price: z.number(), qty: z.number(), cumulativeQty: z.number(), venueCosts: z.number().optional(), typedVenueCosts: z.array(z.unknown()).optional(),
+    strategyId: opt(z.string()), ...fillFacts }),
   "order.cancelled": object({ orderId: z.string(), brokerOrderId: z.string().optional(), reason: z.string().optional() }),
   "order.rejected": object({ orderId: z.string(), brokerOrderId: z.string().optional(), reason: z.string() }),
   "order.modified": object({
@@ -174,10 +205,10 @@ export const payloadByType = {
   "position.closed": object({ symbol: z.string(), side: side.optional(), qty: z.number().optional(), exitPrice: z.number().optional(), ticket: z.string().optional(), broker: z.string().optional(), strategyId: z.string().nullable().optional() }),
   "position.valued": object({ symbol: z.string(), side: side.optional(), qty: z.number(), entryPrice: z.number().optional(), currentPrice: z.number().optional(), profit: z.number().optional(), ticket: z.string().optional(), broker: z.string().optional(), strategyId: z.string().nullable().optional() }),
   "balances.updated": object({ balances: z.record(z.number()) }),
-  "gateway.unreachable": object({ detail: z.string() }),
-  "broker.connected": object({ broker: z.string(), state: z.string().optional(), reason: z.string().optional(), ts: z.number().optional() }),
-  "broker.disconnected": object({ broker: z.string(), state: z.string().optional(), reason: z.string().optional(), consecutiveFailures: z.number().optional(), ts: z.number().optional() }),
-  "broker.reconnected": object({ broker: z.string(), state: z.string().optional(), reason: z.string().optional(), consecutiveFailures: z.number().optional(), ts: z.number().optional() }),
+  "gateway.unreachable": object({ detail: z.string(), ...venueFacts }),
+  "broker.connected": object({ broker: z.string(), state: z.string().optional(), reason: z.string().optional(), ts: z.number().optional(), ...venueFacts }),
+  "broker.disconnected": object({ broker: z.string(), state: z.string().optional(), reason: z.string().optional(), consecutiveFailures: z.number().optional(), ts: z.number().optional(), ...venueFacts }),
+  "broker.reconnected": object({ broker: z.string(), state: z.string().optional(), reason: z.string().optional(), consecutiveFailures: z.number().optional(), ts: z.number().optional(), ...venueFacts }),
   "marketdata.connected": object({ source: z.string(), symbols: z.array(z.string()).optional(), state: z.string().optional(), reason: z.string().optional(), ts: z.number().optional() }),
   "marketdata.disconnected": object({ source: z.string(), symbols: z.array(z.string()).optional(), state: z.string().optional(), reason: z.string().optional(), ts: z.number().optional() }),
   "marketdata.reconnected": object({ source: z.string(), symbols: z.array(z.string()).optional(), state: z.string().optional(), reason: z.string().optional(), ts: z.number().optional() }),
@@ -192,12 +223,13 @@ export const payloadByType = {
   // needs no reducer change and must not cost the envelope.
   log: object({ level: z.string().min(1), logger: z.string(), message: z.string() }),
   "trade.closed": object({ orderId: z.string(), symbol: z.string(), side, qty: z.number(), price: z.number(),
-    realized: z.number(), entryTs: z.number().optional(), ts: z.number() }),
+    realized: z.number(), entryTs: z.number().optional(), ts: z.number(), strategyId: opt(z.string()), ...fillFacts }),
   "state.account": object({
     broker: z.string(), currency: z.string(), balance: z.number(), equity: z.number(),
     margin: z.number().optional(), marginFree: z.number().optional(),
     openProfit: z.number().optional(), marginLevel: z.number().optional(),
     login: z.string().optional(), server: z.string().optional(), name: z.string().optional(),
+    ...venueFacts,
   }),
   "state.positions": object({
     broker: z.string(),
@@ -209,7 +241,10 @@ export const payloadByType = {
       stopLoss: z.number().optional(), takeProfit: z.number().optional(),
       requestedStopLoss: z.number().optional(), requestedTakeProfit: z.number().optional(),
       magic: z.number().optional(), clientOrderId: z.string().optional(),
+      positionId: opt(z.string()), attribution: opt(z.string()), instrument: instrument.nullable().optional(),
+      initialStop: opt(z.number()), initialTarget: opt(z.number()), riskAmount: opt(z.number()),
     })),
+    ...venueFacts,
   }),
   "state.orders": object({
     broker: z.string(),
@@ -220,7 +255,9 @@ export const payloadByType = {
       expiresAt: z.number().optional(), createdAt: z.number().optional(),
       magic: z.number().optional(), clientOrderId: z.string().optional(),
       strategyId: z.string().nullable().optional(),
+      attribution: opt(z.string()), instrument: instrument.nullable().optional(),
     })),
+    ...venueFacts,
   }),
   "broker.deal": object({
     broker: z.string(), dealTicket: z.string(), positionTicket: z.string().optional(),
@@ -230,6 +267,9 @@ export const payloadByType = {
     fee: z.number().optional(), magic: z.number().optional(), comment: z.string().optional(),
     clientOrderId: z.string().optional(), ts: z.number(),
     strategyId: z.string().nullable().optional(),
+    // profit is gross; costs[] (when sent) replaces commission/swap/fee, which then repeat it.
+    costs: z.array(cost).optional(), realizedSource: opt(z.string()),
+    ...fillFacts, ...venueFacts,
   }),
   "portfolio.configured": object({ portfolioId: z.string(), ts: z.number().optional() }),
   "portfolio.allocation.updated": object({ portfolioId: z.string(), ts: z.number().optional() }),

@@ -8,24 +8,24 @@ const acct = (broker: string, lastSeen: number, extra: Partial<LiveAccount> = {}
 
 describe("groupAccounts", () => {
   it("folds a relabelled account's quiet label into the label reporting now", () => {
-    const g = groupAccounts([acct("ICM", 1_000, { stale: true }), acct("ICMARKETS", 900_000, { login: "1234567", server: "S" })]);
+    const g = groupAccounts([acct("ICM", 1_000, { stale: true }), acct("ICMARKETS", 900_000, { accountId: "mt5:1234567@S" })]);
     expect(g).toHaveLength(1);
     expect(g[0]!.account.broker).toBe("ICMARKETS");
     expect(g[0]!.labels).toEqual(["ICMARKETS", "ICM"]);
   });
 
-  it("groups labels of one login@server even when both report", () => {
-    const g = groupAccounts([acct("A", 5_000, { login: "1", server: "S" }), acct("B", 6_000, { login: "1", server: "S" })]);
+  it("groups labels of one account id even when both report", () => {
+    const g = groupAccounts([acct("A", 5_000, { accountId: "mt5:1@S" }), acct("B", 6_000, { accountId: "mt5:1@S" })]);
     expect(g.map((x) => x.account.broker)).toEqual(["B"]);
   });
 
   it("keeps two genuinely different accounts apart, quiet or not", () => {
-    expect(groupAccounts([acct("A", 5_000, { login: "1", server: "S" }), acct("B", 6_000, { login: "2", server: "S" })])).toHaveLength(2);
-    expect(groupAccounts([acct("A", 5_000, { login: "1", server: "S", stale: true }), acct("B", 600_000, { login: "2", server: "S" })])).toHaveLength(2);
+    expect(groupAccounts([acct("A", 5_000, { accountId: "mt5:1@S" }), acct("B", 6_000, { accountId: "mt5:2@S" })])).toHaveLength(2);
+    expect(groupAccounts([acct("A", 5_000, { accountId: "mt5:1@S", stale: true }), acct("B", 600_000, { accountId: "mt5:2@S" })])).toHaveLength(2);
   });
 
   it("folds a long-quiet label even when the account itself has just gone quiet too", () => {
-    const g = groupAccounts([acct("ICM", 1_000, { stale: true }), acct("ICMARKETS", 900_000, { stale: true, login: "1", server: "S" })]);
+    const g = groupAccounts([acct("ICM", 1_000, { stale: true }), acct("ICMARKETS", 900_000, { stale: true, accountId: "mt5:1@S" })]);
     expect(g.map((x) => x.labels)).toEqual([["ICMARKETS", "ICM"]]);
   });
 

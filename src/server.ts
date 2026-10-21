@@ -5,7 +5,7 @@ import websocket from "@fastify/websocket";
 import fastifyStatic from "@fastify/static";
 import compress from "@fastify/compress";
 import { setImmediate as yieldToEventLoop } from "node:timers/promises";
-import { openDb, checkpoint, reclaimFreePages, rebuildProjection, PROJECTIONS, LiveBus, LiveStateStore, MarketDataEpisodes, Monitors, Sessions, Shares, Views, pruneRetentionSteps, pruneStaleStrategiesSteps, replaceStrategyCapital, type PruneSteps } from "@qkt-insights/store";
+import { openDb, checkpoint, reclaimFreePages, rebuildProjection, PROJECTIONS, LiveBus, LiveStateStore, MarketDataEpisodes, Monitors, Sessions, Shares, Views, onInference, pruneRetentionSteps, pruneStaleStrategiesSteps, replaceStrategyCapital, type PruneSteps } from "@qkt-insights/store";
 import { registerCollector } from "@qkt-insights/collector";
 import {
   REQUESTS_PER_MINUTE, TotpVerifier, TtlCache, generateTotpSecret, hasSession, registerAuth, registerLive, registerPublic, registerRest, registerSecurity,
@@ -90,6 +90,12 @@ export async function buildServer(mode: Mode) {
   // label that tells the installed apps apart on a phone's home screen and the
   // prefix on every alert from this box.
   const brand = process.env.INSIGHTS_NAME?.trim() || null;
+  // A fact inferred from MT5 conventions means a producer stated none (an older qkt): logged on its
+  // first use and every thousandth, so a deployment can tell whether anything still needs them.
+  const offInference = onInference((kind, count) => {
+    if (count === 1 || count % 1000 === 0) app.log.info({ kind, count }, "venue fact inferred from MT5 conventions");
+  });
+  app.addHook("onClose", async () => { offInference(); });
 
   // Before any route: the plugin attaches itself to each route as it is declared. Request bodies
   // are never decompressed; qkt posts plain JSON.

@@ -4,7 +4,7 @@ import type { LiveAccount } from "./api";
  * One strip per real venue account. qkt reports an account under a broker label, and a relabel
  * (ICM became ICMARKETS) or a per-profile copy leaves the old label in collector memory with its
  * last balance. Labels of one account are grouped the way the server stitches its equity series:
- * by "login@server" when the poller reported it, else by taking turns, which live state shows as
+ * by account id when one is known, else by taking turns, which live state shows as
  * one label still reporting while the other has gone quiet.
  */
 
@@ -15,9 +15,9 @@ export interface AccountGroup {
   labels: string[];
 }
 
-/** "login@server" when the poller reported both, else null. */
-export function accountIdentity(a: Pick<LiveAccount, "login" | "server">): string | null {
-  return a.login && a.server ? `${a.login}@${a.server}` : null;
+/** The venue account the collector resolved for the label, else null. */
+export function accountIdentity(a: Pick<LiveAccount, "accountId">): string | null {
+  return a.accountId ?? null;
 }
 
 /** A login with all but its last four characters hidden, e.g. "•••4821". */

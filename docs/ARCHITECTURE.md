@@ -77,6 +77,27 @@ in a 200 batch is acknowledged. `ack.observations` is always empty: duplicates a
 A `snapshot.equity` already stored for its strategy at the same `ts` is a `duplicate`; one that repeats the
 strategy's previous snapshot is acknowledged but stored only once per 5-minute heartbeat.
 
+### Venue facts
+
+qkt states what the collector would otherwise infer from MT5 conventions; every field is optional, and an
+envelope without it is read the way older qkt releases need (`packages/store/src/inferredVenueFacts.ts`, which
+counts each inference and logs its first use and every thousandth: `venue fact inferred from MT5 conventions`).
+
+| stated fact | where | used for | inferred when absent from |
+|---|---|---|---|
+| `venue{connector,adapter,label}`, `accountId` | every venue envelope | one account per `accountId`, shown under `venue.label` | `login@server` (as `mt5:login@server`), the label without its `_S<n>` profile suffix |
+| `strategyId` + `attribution` | deals, positions, orders, fills | the strategy of a deal | a `dsl-<strategy>` deal comment |
+| `positionId`, `legEntry`, `nextPositionId` | deals, fills, `trade.closed` | round-trip identity and leg | `positionTicket`, `entry`; the entry order by its broker ticket |
+| `closeReason` | closing deals, fills, `trade.closed` | `ended`: STOP stop, TAKE_PROFIT tp, STOP_OUT/LIQUIDATION/EXPIRY venue, MANUAL manual, SIGNAL/TIMED signal | `[sl` / `[tp` / `[so` deal comments, then `qkt bot close` and close orders near the exit |
+| `costs[]` | deals | commission, swap (funding, borrow), fee (the rest): the deal's costs, once | the `commission` / `swap` / `fee` scalars, which repeat them when `costs` is sent |
+| `realizedSource` | deals | kept per leg: `venue`, or `engine` for a venue that reports no P&L | |
+| `initialStop`, `initialTarget`, `riskAmount` | entry fills, positions | a round trip's stop, target, risk and R | the entry order's submitted bracket; risk from the venue's gross over the move |
+| `instrument.tickSize`, `instrument.valuePerPoint` | deals, fills, positions | price precision; slippage in money | the decimals of observed prices and metal/FX names; the gross over the move |
+
+An engine close (`trade.closed`) is a round trip of its own only while neither its strategy nor its broker (the
+symbol's `LABEL:` prefix) has stored a venue deal, so an instance that trades an MT5 account and a venue that sends
+no deals shows both.
+
 ## Reads
 
 Every JSON and static response is compressed (brotli, else gzip) when the client accepts it. The heavier reads

@@ -2,6 +2,7 @@ import type { Db } from "./db.js";
 import { statement } from "./statements.js";
 import { refreshProjections } from "./projections.js";
 import { instanceMoneyDigits, roundMoney } from "./money.js";
+import { endedFromDealComment, endedFromEngineEvents, entryOrderByTicket, type Ended, type EventsNear } from "./inferredVenueFacts.js";
 
 /** Window around a leg in which the engine events that explain it are looked for. */
 const BEFORE_MS = 10 * 60_000;
@@ -12,7 +13,7 @@ const CLOSING = new Set(["OUT", "INOUT", "OUT_BY"]);
 interface Leg {
   broker: string; symbol: string | null; side: string | null; entry: string | null; qty: number | null; price: number | null;
   profit: number | null; commission: number | null; swap: number | null; fee: number | null; comment: string | null;
-  strategyId: string | null; orderTicket: string | null; ts: number;
+  strategyId: string | null; orderTicket: string | null; closeReason: string | null; attribution: string | null; ts: number;
 }
 
 export interface RoundTripRow {
@@ -20,9 +21,26 @@ export interface RoundTripRow {
   side: "long" | "short"; entryTs: number | null; entryPrice: number | null; exitTs: number | null; exitPrice: number | null; qty: number | null;
   realized: number; gross: number; commission: number; swap: number; fee: number; legs: number;
   entryOrderId: string | null; entryOrderTicket: string | null; stopPrice: number | null; targetPrice: number | null;
-  ended: "stop" | "tp" | "so" | "manual" | "signal" | null; holdMs: number | null; open: boolean;
-  /** "deal": a venue position from its deals; "ledger": one engine close of an instance without deals. */
+  ended: Ended | null; holdMs: number | null; open: boolean;
+  /** "deal": a venue position from its deals; "ledger": one engine close no venue deal stands for. */
   source: "deal" | "ledger";
+  /** Why the position closed, as qkt stated it (STOP, TAKE_PROFIT, SIGNAL, MANUAL, TIMED, STOP_OUT, ...); null when not stated. */
+  closeReason: string | null;
+  /** The entry's money at risk to its initial stop, as qkt stated it; null when not stated. */
+  riskAmount: number | null;
+}
+
+/**
+ * The `ended` code of each close reason qkt states: a stop or target, the venue (a stop-out, a
+ * liquidation, an expiry), a person, or the strategy's own exit (its signal or its timed hold).
+ */
+const ENDED_BY_REASON: Record<string, Ended> = {
+  STOP: "stop", TAKE_PROFIT: "tp", STOP_OUT: "so", LIQUIDATION: "so", EXPIRY: "so", MANUAL: "manual", SIGNAL: "signal", TIMED: "signal",
+};
+
+/** The `ended` code of a stated close reason; null for none or one this release does not know. */
+export function endedByReason(reason: string | null | undefined): Ended | null {
+  return reason == null ? null : ENDED_BY_REASON[reason.toUpperCase()] ?? null;
 }
 
 function instrument(symbol: string | null): string {
@@ -55,7 +73,8 @@ function weighted(legs: Leg[]): number | null {
  */
 export function recomputeRoundTrip(db: Db, instanceId: string, position: string): void {
   const legs = statement(db,
-    `SELECT broker, symbol, side, entry, qty, price, profit, commission, swap, fee, comment, strategy_id strategyId, order_ticket orderTicket, ts
+    `SELECT broker, symbol, side, entry, qty, price, profit, commission, swap, fee, comment, strategy_id strategyId, order_ticket orderTicket,
+       close_reason closeReason, attribution, ts
      FROM deals WHERE instance_id=? AND position_ticket=? AND canonical=1 ORDER BY ts, rowid`,
   ).all(instanceId, position) as Leg[];
   const prior = statement(db,
@@ -84,7 +103,11 @@ export function recomputeRoundTrip(db: Db, instanceId: string, position: string)
   const exitTs = last?.ts ?? null;
 
   const entryOrderTicket = ins[0]?.orderTicket ?? null;
-  const { orderId: entryOrderId, submit } = openingOrder(db, instanceId, entryOrderTicket, entryTs);
+  const near: EventsNear = (type, ts) => eventsNear(db, instanceId, type, ts);
+  // A producer that states the facts (qkt names how it attributed every deal it sends) is read by them alone.
+  const stated = legs.some((l) => l.attribution != null);
+  const entry = entryOf(db, instanceId, position, entryOrderTicket, entryTs, near, stated);
+  const closeReason = open || last == null ? null : last.closeReason;
 
   const row: RoundTripRow = {
     instanceId,
@@ -102,90 +125,82 @@ export function recomputeRoundTrip(db: Db, instanceId: string, position: string)
     realized,
     gross, commission, swap, fee,
     legs: legs.length,
-    entryOrderId,
+    entryOrderId: entry.orderId,
     entryOrderTicket,
-    stopPrice: (submit ? level(submit.stopLoss) : null) ?? prior?.stopPrice ?? null,
-    targetPrice: (submit ? level(submit.takeProfit) : null) ?? prior?.targetPrice ?? null,
-    ended: open || last == null ? null : endedBy(db, instanceId, position, last, prior?.ended ?? null),
+    stopPrice: entry.stop ?? prior?.stopPrice ?? null,
+    targetPrice: entry.target ?? prior?.targetPrice ?? null,
+    ended: open || last == null ? null
+      : endedByReason(closeReason)
+        ?? (stated ? null : endedFromDealComment(last.comment) ?? endedFromEngineEvents(near, position, last.ts, prior?.ended ?? null)),
     holdMs: !open && entryTs != null && exitTs != null ? exitTs - entryTs : null,
     open,
     source: "deal",
+    closeReason,
+    riskAmount: entry.risk,
   };
   statement(db,
     `INSERT INTO round_trips (instance_id, position_ticket, broker, strategy_id, instrument, symbol, side, entry_ts, entry_price,
        exit_ts, exit_price, qty, realized, gross, commission, swap, fee, legs, entry_order_id, entry_order_ticket, stop_price,
-       target_price, ended, hold_ms, open, source)
+       target_price, ended, hold_ms, open, source, close_reason, risk_amount)
      VALUES (@instanceId, @positionTicket, @broker, @strategyId, @instrument, @symbol, @side, @entryTs, @entryPrice,
        @exitTs, @exitPrice, @qty, @realized, @gross, @commission, @swap, @fee, @legs, @entryOrderId, @entryOrderTicket, @stopPrice,
-       @targetPrice, @ended, @holdMs, @open, @source)`,
+       @targetPrice, @ended, @holdMs, @open, @source, @closeReason, @riskAmount)`,
   ).run({ ...row, open: row.open ? 1 : 0 });
 }
 
-/** Whether the instance has stored a broker deal: its round trips are then its venue positions only. */
-export function hasDeals(db: Db, instanceId: string): boolean {
-  return statement(db, "SELECT 1 FROM deals INDEXED BY idx_deals_order WHERE instance_id=? LIMIT 1").get(instanceId) != null;
+/**
+ * The entry of position `position`: its opening order, and that order's initial stop, target and
+ * money at risk. A fill that names the position it opened (`positionId`, leg IN) states all of it;
+ * none, from a producer that `stated` its facts, means no engine order of this instance opened it
+ * (another tool's trade on the account). An engine that names no position is read by the venue
+ * ticket convention, with the bracket of the order's submit and no stated risk.
+ */
+function entryOf(db: Db, instanceId: string, position: string, ticket: string | null, entryTs: number | null, near: EventsNear,
+  stated: boolean): { orderId: string | null; stop: number | null; target: number | null; risk: number | null } {
+  if (entryTs != null) {
+    const fill = near("order.filled", entryTs).concat(near("order.partially_filled", entryTs)).find((p) =>
+      typeof p.orderId === "string" && (
+        (p.positionId === position && p.legEntry === "IN") || (p.nextPositionId === position && p.legEntry === "INOUT")));
+    if (fill) return { orderId: fill.orderId as string, stop: num(fill.initialStop), target: num(fill.initialTarget), risk: num(fill.riskAmount) };
+  }
+  if (stated) return { orderId: null, stop: null, target: null, risk: null };
+  const { orderId, submit } = entryOrderByTicket(db, instanceId, ticket, entryTs, near);
+  return { orderId, stop: submit ? level(submit.stopLoss) : null, target: submit ? level(submit.takeProfit) : null, risk: null };
 }
 
 /**
- * Rewrites the round trip of one engine close (trade_closes id) for an instance that has no broker
- * deals, such as a paper engine: the close is the whole story the instance has. `side` on the close
- * is the closing fill's, so the position ran the other way. No entry price, stop or cost split is
- * known; realized is the engine's net after its costs.
+ * SQL: whether broker deals stand for engine close `c` (a trade_closes row): its strategy has a deal,
+ * or the broker its symbol trades on ("EXNESS:BTCUSD" -> EXNESS) has one. Its round trips are then
+ * that venue's positions, and the close is not one. Chosen per close, not per instance: one engine
+ * trading an MT5 account and a venue that sends no deals keeps the latter's closes.
+ */
+export const LEDGER_COVERED = (c: string) => `(EXISTS (SELECT 1 FROM deals d INDEXED BY idx_deals_strategy
+    WHERE d.instance_id=${c}.instance_id AND d.strategy_id=${c}.strategy_id)
+  OR EXISTS (SELECT 1 FROM deals d INDEXED BY idx_deals_broker
+    WHERE d.instance_id=${c}.instance_id AND d.broker=upper(substr(${c}.symbol, 1, instr(${c}.symbol, ':') - 1))))`;
+
+/**
+ * Rewrites the round trip of one engine close (trade_closes id) that no broker deal stands for
+ * (LEDGER_COVERED), such as a paper engine's: the close is the whole story there is. `side` on the
+ * close is the closing fill's, so the position ran the other way. No entry price, stop or cost split
+ * is known; realized is the engine's net after its costs.
  */
 export function recomputeLedgerTrip(db: Db, instanceId: string, closeId: string): void {
   statement(db, "DELETE FROM round_trips WHERE instance_id=? AND position_ticket=? AND source='ledger'").run(instanceId, closeId);
-  if (hasDeals(db, instanceId)) return;
   const c = statement(db,
-    "SELECT strategy_id strategyId, symbol, side, qty, price, realized, entry_ts entryTs, ts FROM trade_closes WHERE instance_id=? AND id=?",
-  ).get(instanceId, closeId) as { strategyId: string | null; symbol: string; side: string; qty: number; price: number; realized: number; entryTs: number | null; ts: number } | undefined;
+    `SELECT strategy_id strategyId, symbol, side, qty, price, realized, entry_ts entryTs, ts, close_reason closeReason
+     FROM trade_closes c WHERE instance_id=? AND id=? AND NOT ${LEDGER_COVERED("c")}`,
+  ).get(instanceId, closeId) as { strategyId: string | null; symbol: string; side: string; qty: number; price: number; realized: number;
+    entryTs: number | null; ts: number; closeReason: string | null } | undefined;
   if (!c) return;
   const realized = roundMoney(c.realized, instanceMoneyDigits(db, instanceId));
   statement(db,
     `INSERT INTO round_trips (instance_id, position_ticket, broker, strategy_id, instrument, symbol, side, entry_ts, entry_price,
        exit_ts, exit_price, qty, realized, gross, commission, swap, fee, legs, entry_order_id, entry_order_ticket, stop_price,
-       target_price, ended, hold_ms, open, source)
-     VALUES (?, ?, NULL, ?, ?, ?, ?, ?, NULL, ?, ?, ?, ?, ?, 0, 0, 0, 1, NULL, NULL, NULL, NULL, NULL, ?, 0, 'ledger')`,
+       target_price, ended, hold_ms, open, source, close_reason)
+     VALUES (?, ?, NULL, ?, ?, ?, ?, ?, NULL, ?, ?, ?, ?, ?, 0, 0, 0, 1, NULL, NULL, NULL, NULL, ?, ?, 0, 'ledger', ?)`,
   ).run(instanceId, closeId, c.strategyId, instrument(c.symbol), c.symbol, c.side === "BUY" ? "short" : "long", c.entryTs,
-    c.ts, c.price, c.qty, realized, realized, c.entryTs != null ? c.ts - c.entryTs : null);
-}
-
-/**
- * The engine order that opened the position and its submit. The orders table maps the venue ticket
- * to the order id; when it does not (the accept never reached that row, or the id belongs to
- * another run), the `order.accepted` near the entry that carries the ticket names the order. An
- * order id repeats across engine restarts, so only the submit near the entry is its own.
- */
-function openingOrder(db: Db, instanceId: string, ticket: string | null, entryTs: number | null): { orderId: string | null; submit: Record<string, unknown> | undefined } {
-  if (ticket == null) return { orderId: null, submit: undefined };
-  const stored = (statement(db,
-    "SELECT order_id o FROM orders WHERE instance_id=? AND broker_order_id=? ORDER BY created_ts ASC LIMIT 1",
-  ).get(instanceId, ticket) as { o: string } | undefined)?.o ?? null;
-  if (entryTs == null) return { orderId: stored, submit: undefined };
-  const submits = eventsNear(db, instanceId, "order.submit", entryTs);
-  const submitOf = (id: string | null) => (id == null ? undefined : submits.find((p) => p.orderId === id));
-  const own = submitOf(stored);
-  if (own) return { orderId: stored, submit: own };
-  const accepted = eventsNear(db, instanceId, "order.accepted", entryTs)
-    .find((p) => p.brokerOrderId != null && String(p.brokerOrderId) === ticket && typeof p.orderId === "string");
-  const acceptedId = (accepted?.orderId as string | undefined) ?? null;
-  const viaAccept = submitOf(acceptedId);
-  return viaAccept ? { orderId: acceptedId, submit: viaAccept } : { orderId: stored ?? acceptedId, submit: undefined };
-}
-
-/**
- * How the position ended. The venue's comment on the closing deal is the truth for its stops,
- * targets and stop-outs; otherwise the engine's events near the close say who closed it: a
- * `qkt bot close` of the ticket is a person, an engine order closing the ticket is the strategy.
- * Nothing found: what an earlier read of those events said (they age out), else null.
- */
-function endedBy(db: Db, instanceId: string, position: string, last: Leg, prior: string | null): RoundTripRow["ended"] {
-  const c = (last.comment ?? "").toLowerCase();
-  if (c.startsWith("[sl")) return "stop";
-  if (c.startsWith("[tp")) return "tp";
-  if (c.startsWith("[so")) return "so";
-  if (eventsNear(db, instanceId, "bot.close", last.ts).some((p) => p.ticket === position)) return "manual";
-  if (eventsNear(db, instanceId, "order.submit", last.ts).some((p) => p.closesTicket === position)) return "signal";
-  return prior === "manual" || prior === "signal" ? prior : null;
+    c.ts, c.price, c.qty, realized, realized, endedByReason(c.closeReason), c.entryTs != null ? c.ts - c.entryTs : null, c.closeReason);
 }
 
 /** A strategy's (or the instance's) round trips, newest exit first: the stored rows as they are. */
@@ -195,7 +210,7 @@ export function storedRoundTrips(db: Db, f: { instanceId: string; strategyId?: s
     `SELECT instance_id instanceId, position_ticket positionTicket, broker, strategy_id strategyId, instrument, symbol, side,
        entry_ts entryTs, entry_price entryPrice, exit_ts exitTs, exit_price exitPrice, qty, realized, gross, commission, swap, fee,
        legs, entry_order_id entryOrderId, entry_order_ticket entryOrderTicket, stop_price stopPrice, target_price targetPrice,
-       ended, hold_ms holdMs, open, source
+       ended, hold_ms holdMs, open, source, close_reason closeReason, risk_amount riskAmount
      FROM round_trips WHERE instance_id=@instanceId ${f.strategyId != null ? "AND strategy_id=@strategyId" : ""}
      ORDER BY exit_ts DESC, position_ticket DESC`,
   ).all({ instanceId: f.instanceId, strategyId: f.strategyId }) as Array<Omit<RoundTripRow, "open"> & { open: number }>;
