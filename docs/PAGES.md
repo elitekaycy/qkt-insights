@@ -4,9 +4,12 @@ A tour of every page in the dashboard. The left rail (a bottom tab bar on phones
 Home, Strategies, Trades, Calendar, Equity & risk, Edge, Logs and Health, with Settings at the
 bottom. Every page, strategy, tab, instance, date range and filter is in the URL, so links,
 Back and reload work; shared links nest their pages under `/p/<token>/`. Dark is the default
-theme; a light theme is one click away and remembered per device. All times are UTC. Screenshots are from a live instance; the
-account number, broker name, and account holder on **Home** and **Health** are
-placeholders — everything else (balance, positions, strategies, trades, logs) is real.
+theme; a light theme is one click away and remembered per device. All times are UTC. Screenshots are from a demo collector: a paper account named
+`DEMO` (10,000 USD) holding three strategies (`btc_trend`, `eth_revert`, `gold_breakout`) whose
+seven weeks of qkt 0.61.0 backtests on Binance USD-M 15m bars (1 September to 20 October 2026)
+were replayed into it as the envelopes qkt sends. Every trade, price and result is the backtests'
+own, losses included; no real account or money is shown. How it was made:
+`scripts/export/insights-demo/` in [qkt-site](https://github.com/solol3veling/qkt.platform).
 
 ## Home
 
@@ -22,7 +25,7 @@ trades. Shared links show the same page 15 minutes behind, with open positions a
 total only. Instrument splits, monthly returns and drawdown periods live on Calendar, Equity &
 risk and the strategy pages.
 
-![Overview](assets/screenshots/overview.png)
+![Home](assets/screenshots/home.png)
 
 ## Equity & risk
 
@@ -32,6 +35,8 @@ underwater curve, and drawdown periods.
 ![Equity](assets/screenshots/equity.png)
 
 ## Strategies
+
+![Strategies](assets/screenshots/strategies.png)
 
 Every strategy on the instance in the sortable table Home uses: status (running, retired, or
 halted with the reason and how long ago under the name), Today on the account's trading day plus
@@ -74,7 +79,7 @@ closed round trip.
 Every bar, bucket, row and ring segment narrows the query to the trades behind it (a second click
 clears it), and every card says what clicking does. Explanations open on click or tap.
 
-![Strategies](assets/screenshots/strategies.png)
+![A strategy journal: eth_revert's overview](assets/screenshots/strategy.png)
 
 ## Calendar
 
@@ -82,6 +87,8 @@ The account's P&L calendar: Monday-first weeks with a week column, each day shad
 size, today marked in progress, and monthly returns on the account's base. Click a day for the
 round trips that closed on it (each opens the trade drawer, and "Open in Trades" lists them with
 `exit:<day>`), or a month for its breakdown.
+
+![Calendar](assets/screenshots/calendar.png)
 
 ## Edge
 
@@ -124,6 +131,8 @@ between steps; slippage against the engine's reference price, stop or target in 
 MAE/MFE from the position's marks; the venue's deals; and the raw events as copyable JSON.
 
 ![Trades](assets/screenshots/trades.png)
+
+![The trade drawer: one eth_revert round trip, from signal to close](assets/screenshots/trade-drawer.png)
 
 ## Logs
 
