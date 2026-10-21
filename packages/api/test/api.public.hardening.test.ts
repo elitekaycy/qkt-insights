@@ -107,7 +107,7 @@ describe("positions open at the cutoff stay invisible", () => {
     expect(b).toBe(a);
     const perf = JSON.parse(b) as Record<string, any>;
     expect(perf.execution).toBeUndefined();
-    expect(perf.normalized.averagePlannedRiskReward).toBeNull();
+    expect(perf.normalized).toBeUndefined();
   });
 
   it("a first close inside the delay window leaves the equity curve and costs untouched", async () => {

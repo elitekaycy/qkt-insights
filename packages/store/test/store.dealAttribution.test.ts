@@ -101,14 +101,16 @@ describe("broker.deal strategy resolution at ingest", () => {
     expect(strategyOf(db, "12")).toBe("hedge_straddle");
   });
 
-  it("drops unattributed account-wide backfill after the instance has a local strategy", () => {
+  it("keeps account deals no strategy claims, unattributed, instead of dropping them", () => {
     const db = openDb(":memory:");
     seedStrategy(db, "hedge_straddle");
     ingestEvents(db, "qkt-prod", [
       dealEnv({ ticket: "13", positionTicket: "201", strategyId: null, comment: "dsl-unrelated_strategy" }),
-      dealEnv({ ticket: "14", positionTicket: "202", strategyId: null, comment: "" }),
+      dealEnv({ ticket: "14", positionTicket: "202", entry: "OUT", strategyId: null, comment: "", profit: -49.5 }),
     ]);
-    expect(dealCount(db)).toBe(0);
+    expect(dealCount(db)).toBe(2);
+    expect(strategyOf(db, "13")).toBeNull();
+    expect(strategyOf(db, "14")).toBeNull();
   });
 
   it("keeps this instance's unattributed close by magic and adopts its owner from the opening deal (#1143)", () => {
@@ -133,10 +135,11 @@ describe("broker.deal strategy resolution at ingest", () => {
       dealEnv({ ticket: "40", positionTicket: "400", entry: "IN", strategyId: "gold_ema_pullback", magic: 20001, ts: T0 }),
       // A manual close of a position whose opening deal predates the backfill window.
       dealEnv({ ticket: "41", positionTicket: "401", entry: "OUT", strategyId: null, comment: null, magic: 20001, ts: T0 + 1 }),
-      // Another tool on the same account: different magic, dropped.
+      // Another tool on the same account: different magic, kept unattributed for the account totals.
       dealEnv({ ticket: "42", positionTicket: "402", entry: "OUT", strategyId: null, comment: null, magic: 777, ts: T0 + 2 }),
     ]);
-    expect(dealCount(db)).toBe(2);
+    expect(dealCount(db)).toBe(3);
+    expect(strategyOf(db, "42")).toBeNull();
     expect(strategyOf(db, "41")).toBeNull();
     // Its opening deal arrives later (a wider backfill): the close adopts the owner.
     ingestEvents(db, "qkt-prod", [
@@ -208,6 +211,7 @@ describe("006_deal_attribution migration", () => {
   it("creates the position lookup index", () => {
     const db = openDb(":memory:");
     const names = db.prepare("SELECT name FROM sqlite_master WHERE type='index'").all().map((r: any) => r.name);
-    expect(names).toContain("idx_deals_position");
+    expect(names).toContain("idx_deals_position_ts");
+    expect(names).not.toContain("idx_deals_position");
   });
 });

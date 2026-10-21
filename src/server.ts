@@ -3,7 +3,9 @@ import argon2 from "argon2";
 import cookie from "@fastify/cookie";
 import websocket from "@fastify/websocket";
 import fastifyStatic from "@fastify/static";
-import { openDb, checkpoint, LiveBus, LiveStateStore, MarketDataEpisodes, Monitors, Sessions, Shares, Views, pruneRetention, pruneStaleStrategies, replaceStrategyCapital } from "@qkt-insights/store";
+import compress from "@fastify/compress";
+import { setImmediate as yieldToEventLoop } from "node:timers/promises";
+import { openDb, checkpoint, reclaimFreePages, rebuildProjection, PROJECTIONS, LiveBus, LiveStateStore, MarketDataEpisodes, Monitors, Sessions, Shares, Views, onInference, pruneRetentionSteps, pruneStaleStrategiesSteps, replaceStrategyCapital, type PruneSteps } from "@qkt-insights/store";
 import { registerCollector } from "@qkt-insights/collector";
 import {
   REQUESTS_PER_MINUTE, TotpVerifier, TtlCache, generateTotpSecret, hasSession, registerAuth, registerLive, registerPublic, registerRest, registerSecurity,
@@ -11,6 +13,7 @@ import {
 } from "@qkt-insights/api";
 import { authAlertText, channelsFromEnv, parseHttpMonitors, parseMarketDataMonitor, sendAlert, startMonitors } from "./monitors.js";
 import { parseStrategyCapital } from "./capital.js";
+import { parseAccountLimits } from "./accountLimits.js";
 import { existsSync, readFileSync } from "node:fs";
 import { join, dirname } from "node:path";
 import { fileURLToPath } from "node:url";
@@ -76,6 +79,7 @@ export function totpSetupText(account: string): string {
 
 export async function buildServer(mode: Mode) {
   const capitals = parseStrategyCapital(process.env.STRATEGY_CAPITAL);
+  const accountLimits = parseAccountLimits(process.env.INSIGHTS_ACCOUNT_LIMITS);
   const db = openDb(env("INSIGHTS_DB", "/data/insights.db"));
   replaceStrategyCapital(db, capitals);
   const bus = new LiveBus();
@@ -86,7 +90,16 @@ export async function buildServer(mode: Mode) {
   // label that tells the installed apps apart on a phone's home screen and the
   // prefix on every alert from this box.
   const brand = process.env.INSIGHTS_NAME?.trim() || null;
+  // A fact inferred from MT5 conventions means a producer stated none (an older qkt): logged on its
+  // first use and every thousandth, so a deployment can tell whether anything still needs them.
+  const offInference = onInference((kind, count) => {
+    if (count === 1 || count % 1000 === 0) app.log.info({ kind, count }, "venue fact inferred from MT5 conventions");
+  });
+  app.addHook("onClose", async () => { offInference(); });
 
+  // Before any route: the plugin attaches itself to each route as it is declared. Request bodies
+  // are never decompressed; qkt posts plain JSON.
+  await app.register(compress, { global: true, encodings: ["br", "gzip"], globalDecompression: false });
   registerSecurity(app, { requestsPerMinute: REQUESTS_PER_MINUTE });
   app.get("/healthz", async () => ({ ok: true, mode }));
 
@@ -114,28 +127,65 @@ export async function buildServer(mode: Mode) {
 
   // Retention: prune operational logs/events and stale position marks past the window so the DB
   // does not grow unbounded (trade events and open-position history are kept — see pruneRetention).
-  // Run once shortly after boot (covers restart-heavy periods) and weekly thereafter. unref so
-  // neither timer holds the process open.
-  const prune = () => {
+  // Run once shortly after the server listens (covers restart-heavy periods) and weekly thereafter,
+  // never before: a backlog of ingest waits on boot, and a prune on a large file takes minutes.
+  // The pages it frees go back to the filesystem in small steps between requests.
+  const reclaim = async () => {
     try {
-      const now = Date.now();
-      const r = pruneRetention(db, now);
-      if (r.logs || r.events || r.valuations || r.views)
-        app.log.info({ ...r }, "retention prune");
-      // Retire strategies that stopped reporting past the window (e.g. a swapped-out book) along
-      // with all their data, so old registrations don't linger in the dashboard forever.
-      if (r.monitors) app.log.info({ monitors: r.monitors }, "monitor history pruned");
-      const s = pruneStaleStrategies(db, now);
-      if (s.strategies)
-        app.log.info({ ...s }, "stale strategies pruned");
-    } catch (e) {
-      app.log.error(e, "retention prune failed");
+      let reclaimed = 0;
+      for (let free = reclaimFreePages(db); free > 0; free = reclaimFreePages(db)) {
+        reclaimed += 1;
+        await yieldToEventLoop();
+      }
+      if (reclaimed > 0) app.log.info({ steps: reclaimed }, "free pages returned to the filesystem");
+    } catch (err) {
+      app.log.error({ err }, "incremental vacuum failed");
     }
   };
-  const firstPrune = setTimeout(prune, 5 * 60_000);
-  firstPrune.unref();
-  const retention = setInterval(prune, 7 * 24 * 60 * 60_000);
-  retention.unref();
+  // The prune runs as short steps (a few hundred rows each, one transaction each) with the event
+  // loop free in between, so ingest and reads are never held up for the whole prune.
+  const runSteps = async <T>(steps: PruneSteps<T>): Promise<{ value: T; longestStepMs: number }> => {
+    let longestStepMs = 0;
+    for (;;) {
+      const started = performance.now();
+      const r = steps.next();
+      longestStepMs = Math.max(longestStepMs, performance.now() - started);
+      if (r.done) return { value: r.value, longestStepMs };
+      await yieldToEventLoop();
+    }
+  };
+  let pruning = false;
+  const prune = async () => {
+    if (pruning) return;
+    pruning = true;
+    try {
+      const now = Date.now();
+      const { value: r, longestStepMs } = await runSteps(pruneRetentionSteps(db, now));
+      if (r.logs || r.events || r.valuations || r.views || r.quarantined)
+        app.log.info({ ...r, longestStepMs: Math.round(longestStepMs) }, "retention prune");
+      if (r.monitors) app.log.info({ monitors: r.monitors }, "monitor history pruned");
+      // Strategies that stopped reporting (a swapped-out book) lose their operational rows only;
+      // their deals and closes stay in every all-time and account total.
+      const { value: st } = await runSteps(pruneStaleStrategiesSteps(db, now));
+      if (st.rows)
+        app.log.info({ ...st }, "retired strategies' operational history pruned");
+    } catch (e) {
+      app.log.error(e, "retention prune failed");
+    } finally {
+      pruning = false;
+    }
+    void reclaim();
+  };
+  let firstPrune: NodeJS.Timeout | undefined;
+  let retention: NodeJS.Timeout | undefined;
+  app.addHook("onListen", async () => {
+    firstPrune ??= setTimeout(() => void prune(), 5 * 60_000).unref();
+    retention ??= setInterval(() => void prune(), 7 * 24 * 60 * 60_000).unref();
+  });
+  app.addHook("onClose", async () => {
+    clearTimeout(firstPrune);
+    clearInterval(retention);
+  });
 
   if (mode === "serve" || mode === "run") {
     await app.register(cookie);
@@ -160,13 +210,13 @@ export async function buildServer(mode: Mode) {
         if (text) void sendAlert(text, { kind: `auth.${e.kind}`, ip: e.ip }, { channels, brand, log: app.log });
       },
     });
-    registerRest(app, { db, liveState, monitors });
+    registerRest(app, { db, liveState, monitors, accountLimits });
     registerLive(app, { bus, authenticate: hasSession });
     const shares = new Shares(db);
     const views = new Views(db);
     const publicCache = new TtlCache(60_000, 1000);
     registerShares(app, { db, shares, cache: publicCache, views });
-    registerPublic(app, { db, liveState, shares, cache: publicCache, delayMs: publicDelayMinutes(process.env.PUBLIC_DELAY_MINUTES) * 60_000, views });
+    registerPublic(app, { db, liveState, shares, cache: publicCache, delayMs: publicDelayMinutes(process.env.PUBLIC_DELAY_MINUTES) * 60_000, views, accountLimits });
     registerViews(app, { views });
     // Links whose subject stopped being public without an admin change (deploy metadata moved a
     // strategy, a strategy was pruned) are replaced within a minute.
@@ -224,9 +274,36 @@ export async function buildServer(mode: Mode) {
   return app;
 }
 
+/**
+ * `rebuild <projection|all>`: rebuilds write-time projections from their source tables
+ * (docs/operations/projections.md). Run it with the server stopped; progress goes to `print`.
+ */
+export function rebuildCommand(args: string[], dbPath: string, print: (line: string) => void = (l) => process.stdout.write(`${l}\n`)): void {
+  const names = Object.keys(PROJECTIONS);
+  const which = args[0];
+  if (!which || (which !== "all" && !names.includes(which))) {
+    throw new Error(`usage: rebuild <${[...names, "all"].join("|")}>`);
+  }
+  const db = openDb(dbPath);
+  try {
+    for (const name of which === "all" ? names : [which]) {
+      let batches = 0;
+      const r = rebuildProjection(db, name, { force: true, onBatch: () => { if (++batches % 20 === 0) print(`${name}: ${batches} batches`); } });
+      print(`${name}: rebuilt in ${r.batches} batches, ${Math.round(r.ms)} ms`);
+    }
+    checkpoint(db);
+  } finally {
+    db.close();
+  }
+}
+
 async function main() {
   if (process.argv[2] === "totp-setup") {
     process.stdout.write(totpSetupText(process.argv[3] ?? process.env.INSIGHTS_NAME?.trim() ?? "admin"));
+    return;
+  }
+  if (process.argv[2] === "rebuild") {
+    rebuildCommand(process.argv.slice(3), env("INSIGHTS_DB", "/data/insights.db"));
     return;
   }
   const mode = parseMode(process.argv.slice(2));

@@ -1,6 +1,8 @@
 import { describe, it, expect } from "vitest";
 import { openDb } from "../src/db.js";
 import { pruneRetention, pruneStaleStrategies } from "../src/retention.js";
+import { quarantineEnvelopes } from "../src/write.js";
+import { listStrategies } from "../src/queries.js";
 
 const NOW = 1_700_000_000_000;
 const DAY = 86_400_000;
@@ -53,7 +55,7 @@ describe("pruneRetention", () => {
 
     const r = pruneRetention(db, NOW);
 
-    expect(r).toEqual({ logs: 1, events: 1, valuations: 1, monitors: 0, views: 0 });
+    expect(r).toEqual({ logs: 1, events: 1, valuations: 1, monitors: 0, views: 0, quarantined: 0 });
 
     const logIds = db.prepare("SELECT id FROM logs ORDER BY id").all().map((x: any) => x.id);
     expect(logIds).toEqual(["log-new"]);
@@ -72,11 +74,21 @@ describe("pruneRetention", () => {
     expect(marks).toEqual([`closed@${RECENT}`, `open@${OLD}`]);
   });
 
+  it("prunes quarantined envelopes by when they were received, not by their own ts", () => {
+    const db = openDb(":memory:");
+    const quarantine = (id: string, receivedAt: number, ts: number) =>
+      quarantineEnvelopes(db, "qkt-prod", [{ id, instanceId: "qkt-prod", type: "signal.future", v: 1, ts, reason: "unknown type", raw: { id } }], receivedAt);
+    quarantine("q-old", OLD, RECENT);
+    quarantine("q-new", RECENT, OLD);
+    expect(pruneRetention(db, NOW).quarantined).toBe(1);
+    expect(db.prepare("SELECT id FROM quarantined_events").all()).toEqual([{ id: "q-new" }]);
+  });
+
   it("is a no-op on an empty window (nothing older than cutoff)", () => {
     const db = openDb(":memory:");
     seedLog(db, "log-new", RECENT, "new line");
     seedEvent(db, "ev-new", RECENT, "insights.health");
-    expect(pruneRetention(db, NOW)).toEqual({ logs: 0, events: 0, valuations: 0, monitors: 0, views: 0 });
+    expect(pruneRetention(db, NOW)).toEqual({ logs: 0, events: 0, valuations: 0, monitors: 0, views: 0, quarantined: 0 });
   });
 });
 
@@ -94,29 +106,50 @@ function seedStratLog(db: any, id: string, sid: string, ts: number) {
   db.prepare("INSERT INTO logs_fts (text, instance_id, log_rowid) VALUES (?,?,?)").run("x", "qkt-prod", rowid);
 }
 
+function seedDeal(db: any, ticket: string, position: string, entry: string, sid: string, ts: number, profit: number) {
+  db.prepare(
+    `INSERT INTO deals (id, instance_id, broker, deal_ticket, position_ticket, symbol, side, entry, qty, price, profit, commission, strategy_id, ts)
+     VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?)`,
+  ).run(`d-${ticket}`, "qkt-prod", "exness", ticket, position, "XAUUSD", "BUY", entry, 0.1, 2350, profit, -0.5, sid, ts);
+}
+
 describe("pruneStaleStrategies", () => {
-  it("removes strategies (and all their data) that stopped reporting past the window; keeps active ones", () => {
+  it("keeps a retired strategy's money history and all-time totals; clears only its operational rows", () => {
     const db = openDb(":memory:");
-    // 'gone' is a swapped-out strategy last seen 40d ago; 'live' still reports (5d ago)
-    seedStrategy(db, "gone", OLD);
+    // 'gone' is a swapped-out strategy silent for 31+ days; 'live' still reports (5d ago)
+    seedStrategy(db, "gone", OLD); // silent 40 days, 35 behind its sibling
     seedStrategy(db, "live", RECENT);
     seedStratLog(db, "gl1", "gone", OLD);
     seedStratLog(db, "gl2", "gone", OLD);
     seedStratLog(db, "ll1", "live", RECENT);
-    db.prepare(
-      "INSERT INTO deals (id, instance_id, broker, deal_ticket, symbol, side, entry, qty, price, strategy_id, ts) VALUES (?,?,?,?,?,?,?,?,?,?,?)",
-    ).run("d-gone", "qkt-prod", "exness", "1", "XAUUSD", "BUY", "IN", 0.1, 2350, "gone", OLD);
+    seedDeal(db, "1", "p1", "IN", "gone", OLD, 0);
+    seedDeal(db, "2", "p1", "OUT", "gone", OLD + 3_600_000, 120);
+    seedDeal(db, "3", "p2", "IN", "gone", OLD + 7_200_000, 0);
+    seedDeal(db, "4", "p2", "OUT", "gone", OLD + 9_000_000, -45);
+    db.prepare("INSERT INTO trade_closes (id, instance_id, strategy_id, symbol, side, qty, price, realized, ts, order_id) VALUES (?,?,?,?,?,?,?,?,?,?)")
+      .run("tc-gone", "qkt-prod", "gone", "XAUUSD", "BUY", 0.1, 2350, 75, OLD, "o1");
+    const before = listStrategies(db, "qkt-prod").find((s) => s.strategyId === "gone")!.realizedNet;
 
     const r = pruneStaleStrategies(db, NOW);
 
     expect(r.strategies).toBe(1);
-    expect(r.rows).toBeGreaterThanOrEqual(3); // 2 logs + 1 deal
-    expect(db.prepare("SELECT strategy_id FROM strategies ORDER BY strategy_id").all().map((x: any) => x.strategy_id)).toEqual(["live"]);
+    expect(r.rows).toBe(2); // the two logs, nothing else
+    // Registration, deals and closes survive; the strategy only leaves the active roster.
+    const roster = listStrategies(db, "qkt-prod");
+    const gone = roster.find((s) => s.strategyId === "gone")!;
+    expect(gone.active).toBe(false);
+    expect(roster.find((s) => s.strategyId === "live")!.active).toBe(true);
+    expect(db.prepare("SELECT COUNT(*) c FROM deals WHERE strategy_id='gone'").get().c).toBe(4);
+    expect(db.prepare("SELECT COUNT(*) c FROM trade_closes WHERE strategy_id='gone'").get().c).toBe(1);
+    // all-time: 120 - 45 less four 0.5 commissions
+    expect(before).toBeCloseTo(73, 9);
+    expect(gone.realizedNet).toBeCloseTo(73, 9);
+    expect(gone.dealCount).toBe(2);
     expect(db.prepare("SELECT COUNT(*) c FROM logs WHERE strategy_id='gone'").get().c).toBe(0);
-    expect(db.prepare("SELECT COUNT(*) c FROM logs_fts").get().c).toBe(1); // only 'live' log's mirror remains
-    expect(db.prepare("SELECT COUNT(*) c FROM deals WHERE strategy_id='gone'").get().c).toBe(0);
-    // active strategy untouched
+    expect(db.prepare("SELECT COUNT(*) c FROM logs_fts").get().c).toBe(1);
     expect(db.prepare("SELECT COUNT(*) c FROM logs WHERE strategy_id='live'").get().c).toBe(1);
+    // A second sweep finds nothing more to delete.
+    expect(pruneStaleStrategies(db, NOW).rows).toBe(0);
   });
 
   it("is a no-op when every strategy is inside the window", () => {
@@ -124,5 +157,37 @@ describe("pruneStaleStrategies", () => {
     seedStrategy(db, "a", RECENT);
     seedStrategy(db, "b", NOW - 29 * DAY);
     expect(pruneStaleStrategies(db, NOW)).toEqual({ strategies: 0, rows: 0 });
+  });
+});
+
+describe("pruneRetentionSteps", () => {
+  it("prunes in short transactions that let writes in between, removing what the one-shot prune removes", async () => {
+    const { pruneRetentionSteps } = await import("../src/retention.js");
+    const db = openDb(":memory:");
+    for (let k = 0; k < 2600; k++) {
+      seedLog(db, `log-${k}`, k % 3 ? OLD : RECENT, `line ${k}`);
+      seedEvent(db, `ev-${k}`, k % 4 ? OLD : RECENT, k % 5 ? "insights.health" : "trade");
+    }
+    openPosition(db, "open");
+    for (let k = 0; k < 900; k++) seedMark(db, k % 7 ? `closed-${k % 11}` : "open", OLD + k);
+    const steps = pruneRetentionSteps(db, NOW);
+    let yielded = 0;
+    let r = steps.next();
+    while (!r.done) {
+      yielded++;
+      // Ingest between steps: an old line written mid-prune is removed or kept, never half of it.
+      if (yielded === 3) seedLog(db, "log-mid", RECENT, "mid line");
+      r = steps.next();
+    }
+    expect(yielded).toBeGreaterThan(10);
+    expect(r.value).toMatchObject({ logs: 1733, events: 1560, valuations: 771 });
+    const q = (sql: string) => (db.prepare(sql).get() as { n: number }).n;
+    expect(q("SELECT COUNT(*) n FROM logs WHERE ts < " + (NOW - 30 * DAY))).toBe(0);
+    expect(q("SELECT COUNT(*) n FROM logs")).toBe(868);
+    expect(q("SELECT COUNT(*) n FROM logs_fts")).toBe(868);
+    expect(q("SELECT COUNT(*) n FROM events")).toBe(2600 - 1560);
+    expect(q("SELECT COUNT(*) n FROM events_fts f LEFT JOIN events e ON e.rowid=f.event_rowid WHERE e.rowid IS NULL")).toBe(0);
+    expect(q("SELECT COUNT(*) n FROM position_valuations WHERE ticket <> 'open'")).toBe(0);
+    expect(q("SELECT COUNT(*) n FROM position_valuations WHERE ticket = 'open'")).toBe(129);
   });
 });

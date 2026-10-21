@@ -25,9 +25,16 @@ don't carry.
   install, an ABI mismatch error means: `pnpm rebuild better-sqlite3`.
 - Commands: `pnpm build:all` (packages + web), `pnpm test`, `pnpm lint`,
   `pnpm --filter @qkt-insights/web build` (web only).
-- `pnpm build` copies `packages/store/src/migrations/*.sql` into `dist/` —
+- `pnpm build` syncs `packages/store/src/migrations/*.sql` into `dist/`
+  (`scripts/copy-migrations.mjs`: copies them and deletes `.sql` files the
+  source no longer has, so a renamed migration cannot run from a stale dist) —
   a migration edit without a rebuild tests the OLD schema. Always rebuild
   before trusting a migration test.
+- Read paths answer from write-time projections (`packages/store/src/projections.ts`,
+  `docs/operations/projections.md`), maintained through triggers on their source tables. A
+  change to what a reducer stores must bump its `version` in `PROJECTIONS` (the next open
+  rebuilds it); a new reader of a projection calls `refreshProjections(db)` first. Response
+  equality old vs new is the acceptance test: sums must keep their order.
 
 ## 2. Workspace layout and the alignment rule
 

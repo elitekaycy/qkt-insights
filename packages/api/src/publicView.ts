@@ -1,5 +1,5 @@
 import { createHmac, randomBytes } from "node:crypto";
-import type { ClosedTradeRow, DealRow, StrategyRow, TradeRow } from "@qkt-insights/store";
+import type { AccountSummary, ClosedTradeRow, DealRow, StrategyRow, TripAnalytics, TripBucket, TripRow, TradeRow } from "@qkt-insights/store";
 import type { PerformanceBundle } from "./performance.js";
 
 /*
@@ -69,24 +69,21 @@ function publicClose(c: ClosedTradeRow & { entryOrderId?: string | null; exitOrd
   };
 }
 
-type Keyed = { key: string };
+type Keyed = { key: string; venues?: string[] };
 
-function relabelKeys<T extends Keyed>(rows: T[]): T[] {
-  return rows.map((r) => ({ ...r, key: publicSymbol(r.key) }));
+/** Instrument keys pass; the venue symbols behind them name broker profiles and are dropped. */
+function relabelKeys<T extends Keyed>(rows: T[]): Array<Omit<T, "venues">> {
+  return rows.map(({ venues: _venues, ...r }) => ({ ...r, key: publicSymbol(r.key) }));
 }
 
 /**
- * Report, daily nets, drawdown periods, post-loss rows, day/hour cells, rolling points, costs,
- * normalized and execution figures are numbers keyed by time or bucket, so they pass as built.
+ * Report, daily nets, drawdown periods, post-loss rows, day/hour cells, rolling points and costs
+ * are numbers keyed by time or bucket, so they pass as built.
  * Everything that can carry a venue id or a broker-prefixed symbol is rebuilt.
  */
 export function publicBundle(b: PerformanceBundle) {
   return {
     ...b,
-    // Order latency and fill counts describe orders whose positions may still be open; planned R:R
-    // comes from every bracket submitted, open or not. Neither belongs on a public page.
-    execution: undefined,
-    normalized: b.normalized && { ...b.normalized, averagePlannedRiskReward: null, plannedRiskRewardSample: 0 },
     closes: b.closes?.map(publicClose),
     breakdowns: b.breakdowns && { ...b.breakdowns, bySymbol: relabelKeys(b.breakdowns.bySymbol) },
     contribution: b.contribution && { ...b.contribution, bySymbol: relabelKeys(b.contribution.bySymbol) },
@@ -97,6 +94,15 @@ export function publicBundle(b: PerformanceBundle) {
         mae: r.mae, mfe: r.mfe, capturePct: r.capturePct, observations: r.observations,
       })),
     },
+  };
+}
+
+/** The account roll-up of a shared overview: built from its public strategies only, ids opaque. */
+export function publicAccountSummary(s: AccountSummary) {
+  return {
+    ...s,
+    closes: s.closes.map((c) => ({ ...publicClose(c), strategyId: c.strategyId, instrument: c.instrument })),
+    byInstrument: relabelKeys(s.byInstrument.map((b) => ({ ...b, key: b.key ?? "" }))),
   };
 }
 
@@ -113,6 +119,36 @@ export function publicDeal(d: DealRow & { fee?: number | null }) {
     id: opaqueId(d.id), broker: "Account", dealTicket: opaqueId(d.dealTicket), positionTicket: opaqueId(d.positionTicket), orderTicket: opaqueId(d.orderTicket),
     symbol: publicSymbol(d.symbol), side: d.side, entry: d.entry, qty: d.qty, price: d.price, profit: d.profit, commission: d.commission,
     swap: d.swap, fee: d.fee ?? null, magic: null, comment: null, strategyId: d.strategyId, ts: d.ts,
+  };
+}
+
+/** A round trip without its venue ticket, order ids, broker profile, stop or target. */
+export function publicRoundTrip(r: TripRow) {
+  return {
+    id: opaqueId(r.id), broker: null, strategyId: r.strategyId, symbol: publicSymbol(r.symbol), instrument: r.instrument,
+    side: r.side, status: r.status, entryTs: r.entryTs, entryPrice: r.entryPrice, exitTs: r.exitTs, exitPrice: r.exitPrice, qty: r.qty,
+    pnl: r.pnl, holdMs: r.holdMs, stopPrice: null, targetPrice: null, risk: null, r: r.r, ended: r.ended, legs: r.legs, entryOrderId: null, source: r.source, priceDigits: r.priceDigits,
+  };
+}
+
+const publicBucket = (b: TripBucket): TripBucket => ({ key: b.key, label: b.label, filter: b.filter, n: b.n, wins: b.wins, losses: b.losses, pnl: b.pnl });
+
+/** The journal aggregates with every trade id made opaque. */
+export function publicTripAnalytics(a: TripAnalytics): TripAnalytics {
+  const ref = (t: { id: string; pnl: number } | null) => (t ? { id: opaqueId(t.id) ?? "", pnl: t.pnl } : null);
+  return {
+    total: a.total, matched: a.matched, closed: a.closed, open: a.open, pnl: a.pnl, grossWin: a.grossWin, grossLoss: a.grossLoss,
+    wins: a.wins, losses: a.losses, breakeven: a.breakeven, winRate: a.winRate, profitFactor: a.profitFactor, avgWin: a.avgWin,
+    avgLoss: a.avgLoss, payoff: a.payoff, expectancy: a.expectancy, r: { n: a.r.n, avg: a.r.avg, total: a.r.total },
+    best: ref(a.best), worst: ref(a.worst), avgHoldMs: a.avgHoldMs, maxDd: a.maxDd, maxDdWindow: a.maxDdWindow ? { from: a.maxDdWindow.from, to: a.maxDdWindow.to } : null,
+    streaks: { current: a.streaks.current, maxWin: a.streaks.maxWin, maxLoss: a.streaks.maxLoss },
+    postLoss: a.postLoss.map((p) => ({ n: p.n, sample: p.sample, nextWinRate: p.nextWinRate, nextAvg: p.nextAvg })),
+    trades: a.trades.map((t) => ({ id: opaqueId(t.id) ?? "", exitTs: t.exitTs, pnl: t.pnl, cum: t.cum })),
+    tradesTruncated: a.tradesTruncated,
+    daily: a.daily.map((d) => ({ day: d.day, n: d.n, wins: d.wins, losses: d.losses, pnl: d.pnl })),
+    monthly: a.monthly.map((m) => ({ day: m.day, n: m.n, wins: m.wins, losses: m.losses, pnl: m.pnl, grossWin: m.grossWin, grossLoss: m.grossLoss })),
+    side: a.side.map(publicBucket), ended: a.ended.map(publicBucket), hold: a.hold.map(publicBucket), instrument: a.instrument.map(publicBucket),
+    weekday: a.weekday.map(publicBucket), hour: a.hour.map(publicBucket),
   };
 }
 

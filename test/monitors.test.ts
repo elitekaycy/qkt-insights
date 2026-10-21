@@ -1,7 +1,7 @@
 import { describe, it, expect, beforeAll, afterAll } from "vitest";
 import Fastify from "fastify";
 import type { Envelope } from "@qkt-insights/contract";
-import { ingestEvents, openDb, MarketDataEpisodes, Monitors, touchInstance, type Db } from "@qkt-insights/store";
+import { COLLECTOR_MONITOR, ingestEvents, listMonitorEvents, monitorSummaries, openDb, MarketDataEpisodes, Monitors, touchInstance, type Db } from "@qkt-insights/store";
 import {
   HEARTBEAT_STALE_MS, channelsFromEnv, episodeDuration, formatEpisodes, formatTransition, parseHttpMonitors, parseMarketDataMonitor,
   probe, startMonitors, tick, type MonitorRunnerDeps,
@@ -224,6 +224,9 @@ describe("market-data monitor", () => {
     quoteAge(d.db, "PROP_S01:GBPUSD", NOW + 11 * MIN);
     // first failing checks, then the third straight failure is the outage
     expect(await at(d, NOW + 11.5 * MIN)).toEqual([]);
+    // Nothing ticked for 11 minutes: that stall is the collector's own outage, announced on its own.
+    expect(telegram.map((m) => (m as { text: string }).text.split(" was DOWN")[0])).toEqual(["bot1 · insights collector", "bot1 · qkt-live"]);
+    telegram.length = 0; hooks.length = 0;
     expect(await at(d, NOW + 12 * MIN)).toEqual([]);
     const [down] = await at(d, NOW + 12.5 * MIN);
     expect(down).toMatchObject({ name: "qkt-live market data", status: "down",
@@ -282,6 +285,75 @@ describe("market-data monitor", () => {
     const first = await tick(d, NOW);
     expect(first.map((t) => [t.name, t.kind, t.status])).toEqual([["qkt-live", "heartbeat", "up"]]);
     expect(d.monitors.list().map((m) => [m.name, m.status])).toEqual([["qkt-live", "up"], ["qkt-live market data", "pending"]]);
+  });
+});
+
+describe("outages the collector slept through", () => {
+  const MIN = 60_000;
+  const at = (hhmmss: string, day = "2026-10-16") => Date.parse(`${day}T${hhmmss}Z`);
+  /** qkt's 30s health pulse: stamped on the instance's clock, heard on the collector's. */
+  const pulse = (db: Db, id: string, ts: number, heard = ts) => touchInstance(db, id, ts, 0, heard);
+  const events = (db: Db) => listMonitorEvents(db, 50).map((e) => [e.monitor, e.status, new Date(e.ts).toISOString().slice(0, 19)]).reverse();
+
+  async function running(d: MonitorRunnerDeps, id: string, from: number, to: number) {
+    for (let t = from; t <= to; t += 30_000) {
+      pulse(d.db, id, t);
+      await tick(d, t + 1_000);
+    }
+  }
+
+  it("bot2 2026-10-16: host and qkt dark 08:51 to 15:26, the collector back first; both outages are written", async () => {
+    const d = deps();
+    await running(d, "forward-bench", at("08:21:00"), at("08:51:00"));
+    // The host hangs: nothing ticks and nothing is heard until the reboot.
+    const boot = at("15:25:00");
+    const rebooted = { ...d, monitors: new Monitors(d.db) };
+    expect(await tick(rebooted, boot)).toEqual([]);
+    // Last heard before the collector came back: held, not judged, while a replay could arrive.
+    expect(rebooted.monitors.list()[0]).toMatchObject({ name: "forward-bench", status: "up" });
+    // qkt starts afresh: its first pulse is stamped now, 6h35m after its last one.
+    pulse(d.db, "forward-bench", at("15:26:00"));
+    expect(await tick(rebooted, at("15:26:10"))).toEqual([]);
+    await running(rebooted, "forward-bench", at("15:26:30"), at("16:00:00"));
+
+    expect(events(d.db)).toEqual([
+      ["forward-bench", "up", "2026-10-16T08:21:01"],
+      [COLLECTOR_MONITOR, "down", "2026-10-16T08:51:01"],
+      ["forward-bench", "down", "2026-10-16T08:51:00"],
+      [COLLECTOR_MONITOR, "up", "2026-10-16T15:25:00"],
+      ["forward-bench", "up", "2026-10-16T15:26:00"],
+    ].sort((a, b) => a[2]!.localeCompare(b[2]!)));
+    const [bench] = monitorSummaries(d.db, rebooted.monitors, at("16:00:01"));
+    // 08:21..16:00 is 460 minutes: 31 checked before, 35 after, the 395 between are the outage.
+    expect(bench!.uptime24h).toBeCloseTo(66 / 460, 2);
+    expect(bench!.unchecked24h).toBe(0);
+    expect(bench!.strip.filter((b) => b.status === "down").length).toBeGreaterThanOrEqual(13);
+  });
+
+  it("bot1 2026-10-18: qkt crash-loops while the collector runs; the outage runs from last heard to first heard", async () => {
+    const d = deps();
+    await running(d, "the5ers", at("13:00:00", "2026-10-18"), at("13:32:00", "2026-10-18"));
+    pulse(d.db, "the5ers", at("13:32:14", "2026-10-18"));
+    for (let t = at("13:32:45", "2026-10-18"); t <= at("13:40:00", "2026-10-18"); t += 30_000) await tick(d, t);
+    expect(d.monitors.list()[0]).toMatchObject({ status: "down", since: at("13:32:14", "2026-10-18") });
+    pulse(d.db, "the5ers", at("14:54:46", "2026-10-20"));
+    const [up] = await tick(d, at("14:55:10", "2026-10-20"));
+    expect(up).toMatchObject({ name: "the5ers", status: "up", ts: at("14:54:46", "2026-10-20") });
+    expect(events(d.db).filter((e) => e[0] === "the5ers")).toEqual([
+      ["the5ers", "up", "2026-10-18T13:00:01"], ["the5ers", "down", "2026-10-18T13:32:14"], ["the5ers", "up", "2026-10-20T14:54:46"],
+    ]);
+  });
+
+  it("an instance that journaled through a collector outage is not down: only the collector is", async () => {
+    const d = deps();
+    await running(d, "qkt-live", at("11:30:00", "2026-10-21"), at("11:55:00", "2026-10-21"));
+    const boot = at("12:10:00", "2026-10-21");
+    const restarted = { ...d, monitors: new Monitors(d.db) };
+    await tick(restarted, boot);
+    // qkt replays its journal oldest first: a pulse every 30s through the outage, all heard now.
+    for (let t = at("11:55:30", "2026-10-21"); t <= boot; t += 30_000) pulse(d.db, "qkt-live", t, boot + 2_000);
+    await running(restarted, "qkt-live", boot + 30_000, boot + 10 * MIN);
+    expect(events(d.db).filter((e) => e[1] === "down")).toEqual([[COLLECTOR_MONITOR, "down", "2026-10-21T11:55:01"]]);
   });
 });
 

@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 import type { StrategyRow } from "./api";
-import { haltClearing, haltSummary, resumeCommand } from "./halt";
+import { haltClearing, haltSince, haltSummary, resumeCommand } from "./halt";
 
 const HALTED_AT = Date.UTC(2026, 8, 21, 14, 2, 11);
 
@@ -34,5 +34,14 @@ describe("halt display", () => {
       .toBe("Halted: no reason given · clears at the next UTC day");
     expect(haltSummary(row({ halted: false }))).toBeNull();
     expect(haltSummary(row({}))).toBeNull();
+  });
+
+  it("says 'before' when only a restart's re-assertion dates the halt, never 'since' the restart", () => {
+    const reasserted = row({ halted: true, haltReason: "strategy drawdown 0.0896 exceeds max 0.05", haltScope: "PERSISTENT", haltPersistent: true, haltedAt: HALTED_AT, haltedBefore: true });
+    expect(haltSince(reasserted)).toBe("before 2026-09-21 14:02:11 UTC");
+    expect(haltSummary(reasserted)).toBe("Halted: strategy drawdown 0.0896 exceeds max 0.05 · before 2026-09-21 14:02:11 UTC (re-asserted at a restart; its start is not stored)"
+      + " · stays halted until an operator resumes it · qkt resume gold_paper");
+    expect(haltSince(row({ halted: true, haltedAt: HALTED_AT, haltedBefore: false }))).toBe("since 2026-09-21 14:02:11 UTC");
+    expect(haltSince(row({ halted: true, haltedAt: null }))).toBeNull();
   });
 });

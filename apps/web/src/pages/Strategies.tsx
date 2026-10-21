@@ -1,26 +1,21 @@
-import { useState } from "react";
+import { realAccounts } from "../accounts";
 import { useQuery } from "@tanstack/react-query";
-import { get, type EquityPoint, type LogRow, type PerformanceBundle, type StrategyRow, type StrategyStats, type TradeRow, type TradeView } from "../api";
-import { CalendarView } from "../components/Calendar";
-import { TradeDetail } from "../components/detail";
-import { EquityChart } from "../components/EquityChart";
-import { EdgeDetailPanels, PerformancePanels, TradeAnalysisPanels } from "../components/Performance";
-import { Sparkline } from "../components/Sparkline";
-import {
-  Card, Cell, DataList, Empty, Field, IconButton, Loadable, LoadMore, Modal, PageHeader, Panel, Pill, RangeSelect, rangeStart, ReturnPct, Row, SearchInput, Select, SideTag, Stat, Table, TimeCell,
-  type RangeKey,
-} from "../components/ui";
-import { LogLine } from "../components/LogLine";
-import { age, money, num, pct, price, ts, tsShort } from "../format";
-import { buildCloseMap } from "../useCloses";
+import { get, type AccountRiskRow, type AccountSummary, type StrategyRow } from "../api";
+import { StrategySearch, StrategyTable, type StrategyLine } from "../components/HomeStrategies";
+import { Card, Cell, Empty, Loadable, PageHeader, Panel, Pill, Pnl, Popover, ReturnPct, Row, Stat, Table } from "../components/ui";
+import { age, count, money, openPnl, pct } from "../format";
+import { floatingByStrategy, riskRowFor, strategyLines, strategyPeriods } from "../home";
+import { Link, routePath, useRoute } from "../router";
 import { useLiveState } from "../useLiveState";
-import { physicalPortfolioId, portfolioGroupId, strategyCapital, strategyDisplayName as displayName, summarizePortfolio } from "../portfolio";
+import { portfolioGroupId, strategyCapital, strategyDisplayName as displayName, summarizePortfolio } from "../portfolio";
 import { ShareControl } from "../components/ShareControl";
 import { usePublicPageView, useView } from "../view";
-import { haltClearing, haltSummary, resumeCommand } from "../halt";
+import { haltSummary } from "../halt";
+import { StrategyDetail } from "../strategy/StrategyPage";
 
-/** The strategy page keeps only the latest log lines; the Logs page holds the history. */
-const RECENT_LOGS = 7;
+export { StrategyDetail };
+
+const DAY_MS = 86_400_000;
 
 /**
  * Open P&L per strategy from the live broker positions of one instance, with a staleness flag.
@@ -37,13 +32,8 @@ function useOpenByStrategy(instanceId: string | null) {
   const open = new Map<string, number>();
   for (const g of groups)
     for (const p of g.list)
-      if (p.strategyId) open.set(p.strategyId, (open.get(p.strategyId) ?? 0) + (p.profit ?? 0));
+      if (p.strategyId) open.set(p.strategyId, (open.get(p.strategyId) ?? 0) + openPnl(p));
   return { open, hasState: groups.length > 0, stale: groups.length > 0 && groups.every((g) => g.stale) };
-}
-
-function metaString(meta: Record<string, unknown> | null | undefined, key: string): string | null {
-  const v = meta?.[key];
-  return typeof v === "string" && v.length > 0 ? v : null;
 }
 
 function metaNumber(meta: Record<string, unknown> | null | undefined, key: string): number | null {
@@ -51,323 +41,146 @@ function metaNumber(meta: Record<string, unknown> | null | undefined, key: strin
   return typeof v === "number" ? v : null;
 }
 
-function metaStringList(meta: Record<string, unknown> | null | undefined, key: string): string[] {
-  const v = meta?.[key];
-  return Array.isArray(v) ? v.filter((x): x is string => typeof x === "string") : [];
-}
-
-function portfolioId(row: StrategyRow): string | null {
-  return portfolioGroupId(row);
-}
-
 function portfolioAlias(row: StrategyRow): string | null {
-  return metaString(row.metadata, "portfolioAlias");
+  const v = row.metadata?.portfolioAlias;
+  return typeof v === "string" && v.length > 0 ? v : null;
 }
 
-export default function Strategies({
-  instanceId,
-  focus = null,
-  onClearFocus,
-}: {
-  instanceId: string | null;
-  focus?: string | null;
-  onClearFocus?: () => void;
-}) {
+/**
+ * Every strategy on the instance as the sortable table Home uses (status and halt reason, Today,
+ * 7D, MTD, all-time, max drawdown, trades, win rate, last close), one table per portfolio and one
+ * for standalone strategies; a row opens the strategy.
+ */
+export default function Strategies({ instanceId }: { instanceId: string | null }) {
   const view = useView();
-  const [selected, setSelected] = useState<string | null>(focus);
-  const [selectedPortfolio, setSelectedPortfolio] = useState<string | null>(null);
+  const { route, navigate } = useRoute();
+  const selected = route.strategy ?? null;
+  const selectedPortfolio = route.portfolio ?? null;
   usePublicPageView(selected || selectedPortfolio ? null : "strategies");
-  const [showRetired, setShowRetired] = useState(false);
-
+  const enc = encodeURIComponent(instanceId ?? "");
   const strategies = useQuery({
     queryKey: ["strategies", instanceId],
-    queryFn: () => get<StrategyRow[]>(`/strategies?instance=${encodeURIComponent(instanceId!)}`),
+    queryFn: () => get<StrategyRow[]>(`/strategies?instance=${enc}`),
     enabled: !!instanceId,
     refetchInterval: 30_000,
   });
-  const live = useOpenByStrategy(instanceId);
+  const listing = !selected && !selectedPortfolio;
+  // the same figures as Home's table: every close on the account, on the account's trading day
+  const summary = useQuery({
+    queryKey: ["accountSummary", instanceId],
+    queryFn: () => get<AccountSummary>(`/account/summary?instance=${enc}`),
+    enabled: !!instanceId && listing,
+    refetchInterval: 60_000,
+  });
+  const risk = useQuery({
+    queryKey: ["accountRisk", instanceId],
+    queryFn: () => get<AccountRiskRow[]>(`/account/risk?instance=${enc}`),
+    enabled: !!instanceId && listing,
+    refetchInterval: 60_000,
+  });
+  const liveState = useLiveState();
 
   if (!instanceId) return <Card className="p-8 text-center text-faint">No instance selected.</Card>;
-  if (selected)
-    return (
-      <StrategyDetail
-        instanceId={instanceId}
-        strategyId={selected}
-        onBack={() => {
-          setSelected(null);
-          onClearFocus?.();
-        }}
-      />
-    );
+  if (selected) return <StrategyDetail instanceId={instanceId} strategyId={selected} />;
 
-  const allRows = strategies.data ?? [];
-  const retiredCount = allRows.filter((row) => !row.active).length;
-  // Default to the live deployed roster; ids left over from a prior bench topology
-  // (active=false) are hidden unless the operator opts to see them.
-  const rows = showRetired ? allRows : allRows.filter((row) => row.active);
-  const portfolioGroups = rows.reduce((acc, row) => {
-    const id = portfolioId(row);
-    if (!id) return acc;
-    const group = acc.get(id) ?? [];
-    group.push(row);
-    acc.set(id, group);
-    return acc;
-  }, new Map<string, StrategyRow[]>());
-  const standalone = rows.filter((row) => !portfolioId(row));
-  const portfolio =
-    selectedPortfolio == null
-      ? null
-      : (portfolioGroups.get(selectedPortfolio) ?? null);
-  if (selectedPortfolio && portfolio) {
+  const rows = strategies.data ?? [];
+  if (selectedPortfolio) {
+    const children = rows.filter((r) => portfolioGroupId(r) === selectedPortfolio);
     return (
-      <PortfolioDetail
-        instanceId={instanceId}
-        portfolioId={selectedPortfolio}
-        children={portfolio}
-        onBack={() => setSelectedPortfolio(null)}
-        onSelectChild={(strategyId) => {
-          setSelectedPortfolio(null);
-          setSelected(strategyId);
-        }}
-      />
+      <Loadable loading={strategies.isPending} error={strategies.isError} retry={() => strategies.refetch()} what="the portfolio">
+        {children.length > 0 ? (
+          <PortfolioDetail instanceId={instanceId} portfolioId={selectedPortfolio} children={children} onSelectChild={(id) => navigate(routePath({ page: "strategies", strategy: id }), { from: selectedPortfolio })} />
+        ) : (
+          <Card className="p-8 text-center text-muted">No portfolio {selectedPortfolio} on this instance.</Card>
+        )}
+      </Loadable>
     );
   }
 
-  const portfolioEntries = [...portfolioGroups.entries()];
-  const childRows = portfolioEntries.flatMap(([, children]) => children);
+  const now = view.public ? Date.now() - view.meta.delayMinutes * 60_000 : Date.now();
+  const accounts = realAccounts((liveState.data?.accounts ?? []).filter((a) => a.instanceId === instanceId));
+  const positions = (liveState.data?.positions ?? []).filter((g) => g.instanceId === instanceId).flatMap((g) => g.list);
+  const riskRows = risk.data ?? [];
+  const primaryRisk = accounts[0] ? riskRowFor(accounts[0], riskRows) : riskRows[0] ?? null;
+  const dayStart = primaryRisk?.dailyLoss.dayStart ?? Math.floor(now / DAY_MS) * DAY_MS;
+  const floating = view.public
+    ? new Map<string | null, number>(Object.entries(liveState.data?.openByStrategy ?? {}))
+    : floatingByStrategy(positions);
+  const periods = summary.data ? strategyPeriods(summary.data.closes, { now, dayStart, floating }) : null;
+  const lines: StrategyLine[] = periods ? strategyLines(rows, periods) : [];
+  const groups = new Map<string, StrategyLine[]>();
+  const standalone: StrategyLine[] = [];
+  for (const l of lines) {
+    const g = l.row ? portfolioGroupId(l.row) : null;
+    if (g) groups.set(g, [...(groups.get(g) ?? []), l]);
+    else standalone.push(l);
+  }
+  const halted = rows.filter((r) => r.active && r.halted).length;
+  const live = rows.filter((r) => r.active).length;
+
   return (
-    <div>
+    <div className="grid gap-4">
       <PageHeader
         title="Strategies"
-        sub={`${rows.length} deployed · ${standalone.length} standalone · ${portfolioGroups.size} portfolio${portfolioGroups.size === 1 ? "" : "s"}${retiredCount > 0 ? ` · ${retiredCount} retired` : ""}`}
-        right={
-          retiredCount > 0 && !view.public ? (
-            <button
-              onClick={() => setShowRetired((v) => !v)}
-              className="h-8 rounded-lg border border-line bg-raised px-3 text-xs font-semibold text-muted transition hover:border-line-strong hover:text-body"
-            >
-              {showRetired ? "Hide retired" : `Show ${retiredCount} retired`}
-            </button>
-          ) : undefined
-        }
+        sub={`${live} deployed${halted ? ` · ${halted} halted` : ""}${groups.size ? ` · ${groups.size} portfolio${groups.size === 1 ? "" : "s"}` : ""} · realized P&L from every close on the account, Today on the account's trading day${view.public ? `, ${view.meta.delayMinutes} minutes behind` : ""}`}        right={<StrategySearch />}
       />
       <Loadable
-        loading={strategies.isPending}
-        error={strategies.isError}
-        retry={() => strategies.refetch()}
-        what="strategies"
+        loading={strategies.isPending || summary.isPending}
+        error={strategies.isError || summary.isError}
+        retry={() => { void strategies.refetch(); void summary.refetch(); }}
+        what="the strategies"
+        lines={6}
       >
-        {rows.length === 0 && (
-          <Card className="mt-6 p-8 text-center text-faint">
-            No strategies yet.
-          </Card>
-        )}
-        {portfolioEntries.length > 0 && (
-          <section className="mt-6">
-            <h3 className="text-xs font-bold uppercase tracking-[0.1em] text-muted">
-              Portfolios
-            </h3>
-            <div className="mt-3 grid grid-cols-1 gap-4 md:grid-cols-2 xl:grid-cols-3">
-              {portfolioEntries.map(([id, children], i) => {
-                const physicalIds = new Set(children.map(physicalPortfolioId).filter((value): value is string => value != null));
-                const haltedCount = children.filter((child) => child.halted).length;
-                const summary = summarizePortfolio(
-                  id,
-                  children,
-                  live.open,
-                  live.hasState,
-                );
-                return (
-                  <button
-                    key={id}
-                    onClick={() => setSelectedPortfolio(id)}
-                    className="group text-left"
-                  >
-                    <Card
-                      className="flex h-full flex-col justify-between p-5 transition group-hover:border-accent/50 group-hover:bg-raised"
-                      stagger={i}
-                    >
-                      <div className="flex items-start justify-between gap-3">
-                        <span className="min-w-0 truncate font-bold text-bright">
-                          {id}
-                        </span>
-                        <span className="shrink-0 text-xs text-faint">
-                          {age(summary.lastSeen)}
-                        </span>
-                      </div>
-                      <div className="mt-2 flex flex-wrap items-center gap-1.5">
-                        <Pill tone="accent">portfolio</Pill>
-                        <Pill tone={summary.tradedCount > 0 ? "accent" : undefined}>
-                          {summary.tradedCount}/{summary.childCount} traded
-                        </Pill>
-                        {physicalIds.size > 1 && <Pill>{physicalIds.size} shards</Pill>}
-                        {haltedCount > 0 && (
-                          <span title="sleeves the engine has halted; open the portfolio for each reason">
-                            <Pill tone="warn">{haltedCount} halted</Pill>
-                          </span>
-                        )}
-                      </div>
-                      <div
-                        className="mt-4 flex items-baseline gap-3"
-                        title="realized + open P&L attributed to this portfolio's sleeves — not the shared broker account equity"
-                      >
-                        <span
-                          className={`font-mono text-2xl font-semibold ${
-                            summary.netPnl == null || live.stale
-                              ? "text-faint"
-                              : summary.netPnl > 0
-                                ? "text-up"
-                                : summary.netPnl < 0
-                                  ? "text-down"
-                                  : "text-bright"
-                          }`}
-                        >
-                          {money(summary.netPnl)}
-                        </span>
-                        <ReturnPct
-                          net={summary.netPnl}
-                          base={summary.allocatedCapital}
-                          dim={live.stale}
-                        />
-                      </div>
-                    </Card>
-                  </button>
-                );
-              })}
-            </div>
-          </section>
-        )}
-        {standalone.length > 0 && (
-          <section className="mt-7">
-            <h3 className="text-xs font-bold uppercase tracking-[0.1em] text-muted">
-              Standalone strategies
-            </h3>
-            <div className="mt-3 grid grid-cols-1 gap-4 md:grid-cols-2 xl:grid-cols-3">
-              {standalone.map((s, i) => {
-                const realized = s.realizedNet;
-                const open =
-                  live.open.get(s.strategyId) ?? (live.hasState ? 0 : null);
-                const net =
-                  realized == null && open == null
-                    ? null
-                    : (realized ?? 0) + (open ?? 0);
-                return (
-                  <StrategyCard
-                    key={s.strategyId}
-                    row={s}
-                    net={net}
-                    open={open}
-                    liveStale={live.stale}
-                    stagger={i}
-                    onClick={() => setSelected(s.strategyId)}
-                  />
-                );
-              })}
-            </div>
-          </section>
-        )}
-        {childRows.length > 0 && (
-          <section className="mt-7">
-            <h3 className="text-xs font-bold uppercase tracking-[0.1em] text-muted">
-              Portfolio child strategies
-            </h3>
-            <div className="mt-3 grid grid-cols-1 gap-4 md:grid-cols-2 xl:grid-cols-3">
-              {childRows.map((s, i) => {
-                const realized = s.realizedNet;
-                const open =
-                  live.open.get(s.strategyId) ?? (live.hasState ? 0 : null);
-                const net =
-                  realized == null && open == null
-                    ? null
-                    : (realized ?? 0) + (open ?? 0);
-                return (
-                  <StrategyCard
-                    key={s.strategyId}
-                    row={s}
-                    net={net}
-                    open={open}
-                    liveStale={live.stale}
-                    stagger={i}
-                    onClick={() => setSelected(s.strategyId)}
-                  />
-                );
-              })}
-            </div>
-          </section>
+        {rows.length === 0 && lines.length === 0 ? (
+          <Card className="p-8 text-center text-muted">No strategies yet: they appear with the first strategy.started from qkt.</Card>
+        ) : (
+          <>
+            {[...groups.entries()].map(([id, group]) => {
+              const all = group.reduce((a, l) => a + l.periods.all + l.periods.floating, 0);
+              const children = group.flatMap((l) => (l.row ? [l.row] : []));
+              const capital = summarizePortfolio(id, children, new Map(), false).allocatedCapital;
+              return (
+                <StrategyTable
+                  key={id}
+                  origin="Strategies"
+                  lines={group}
+                  now={now}
+                  title={id}
+                  hint="portfolio"
+                  footer="the portfolio's sleeves; realized from their closes, Today adds what they float"
+                  right={
+                    <>
+                      <Pnl value={all} className="text-sm font-semibold" />
+                      <ReturnPct net={all} base={capital} />
+                      <Link to={routePath({ page: "strategies", portfolio: id })} from="Strategies" className="text-xs font-medium text-accent-ink hover:underline">Portfolio →</Link>
+                    </>
+                  }
+                />
+              );
+            })}
+            {standalone.length > 0 && (
+              <StrategyTable
+                origin="Strategies"
+                lines={standalone}
+                now={now}
+                title={groups.size ? "Standalone strategies" : "Strategies"}
+              />
+            )}
+          </>
         )}
       </Loadable>
     </div>
   );
 }
 
-function StrategyCard({
-  row: s,
-  net,
-  liveStale,
-  stagger,
-  onClick,
-}: {
-  row: StrategyRow;
-  net: number | null;
-  open: number | null;
-  liveStale: boolean;
-  stagger: number;
-  onClick: () => void;
-}) {
-  return (
-    <button onClick={onClick} className="group text-left">
-      <Card
-        className="flex h-full flex-col justify-between p-5 transition group-hover:border-accent/50 group-hover:bg-raised"
-        stagger={stagger}
-      >
-        <div className="flex items-start justify-between gap-3">
-          <span className="min-w-0 truncate font-bold text-bright" title={s.strategyId}>
-            {displayName(s)}
-          </span>
-          <span className="flex shrink-0 items-center gap-2">
-            <HaltBadge row={s} />
-            <span className="text-xs text-faint">{age(s.lastSeen)}</span>
-          </span>
-        </div>
-        <div
-          className="mt-4 flex items-baseline gap-3"
-          title="net P&L = realized + open (this strategy, on a shared account)"
-        >
-          <span
-            className={`font-mono text-2xl font-semibold ${net == null || liveStale ? "text-faint" : net >= 0 ? "text-up" : "text-down"}`}
-          >
-            {net == null
-              ? "—"
-              : `${net >= 0 ? "+" : "−"}${money(Math.abs(net))}`}
-          </span>
-          <ReturnPct net={net} base={strategyCapital(s).amount} dim={liveStale} />
-        </div>
-      </Card>
-    </button>
-  );
-}
-
-/** Engine risk halt on a strategy row: the reason, how it ends and the resume command are in the tooltip. */
+/** Engine risk halt on a strategy row: tap or click for the reason, how it ends and the resume command. */
 function HaltBadge({ row }: { row: StrategyRow }) {
   const summary = haltSummary(row);
   if (!summary) return null;
   return (
-    <span title={summary} aria-label={summary}>
-      <Pill tone="warn">halted</Pill>
-    </span>
-  );
-}
-
-/** The halt spelled out on the strategy page, where a tooltip alone would not reach touch screens. */
-function HaltDetail({ row }: { row: StrategyRow }) {
-  const command = resumeCommand(row);
-  return (
-    <div className="mt-2 flex max-w-xl flex-wrap items-center gap-x-2 gap-y-1 text-xs">
-      <span className="font-semibold text-warn">Halted: {row.haltReason ?? "no reason given"}</span>
-      {row.haltedAt != null && <span className="text-muted">since {ts(row.haltedAt)} UTC · {age(row.haltedAt)}</span>}
-      <span className="text-muted">{haltClearing(row)}</span>
-      {command && <span className="rounded bg-raised px-1.5 py-0.5 font-mono text-body">{command}</span>}
-    </div>
+    <Popover label="Why this strategy is halted" align="right" trigger={<Pill tone="warn">halted</Pill>}>
+      {summary}
+    </Popover>
   );
 }
 
@@ -375,14 +188,11 @@ function PortfolioDetail({
   instanceId,
   portfolioId: id,
   children,
-  onBack,
   onSelectChild,
 }: {
   instanceId: string;
   portfolioId: string;
   children: StrategyRow[];
-  /** Absent on a shared portfolio link, which has nowhere to go back to. */
-  onBack?: () => void;
   onSelectChild: (strategyId: string) => void;
 }) {
   const view = useView();
@@ -390,20 +200,12 @@ function PortfolioDetail({
   const live = useOpenByStrategy(instanceId);
   const state = useLiveState();
   const summary = summarizePortfolio(id, children, live.open, live.hasState);
-  const accounts = (state.data?.accounts ?? []).filter(
+  const accounts = realAccounts((state.data?.accounts ?? [])).filter(
     (account) => account.instanceId === instanceId,
   );
   const account = accounts.length === 1 ? accounts[0] : null;
   return (
     <div>
-      {onBack && (
-        <button
-          onClick={onBack}
-          className="rise text-sm text-muted transition hover:text-body"
-        >
-          ← strategies
-        </button>
-      )}
       <PageHeader
         title={id}
         sub={`${summary.childCount} child strategies · ${summary.dealCount} attributed deals`}
@@ -422,32 +224,17 @@ function PortfolioDetail({
         />
         <Stat
           label="Net P&L"
-          value={money(summary.netPnl)}
-          tone={
-            summary.netPnl == null
-              ? "neutral"
-              : summary.netPnl >= 0
-                ? "up"
-                : "down"
-          }
+          signed={summary.netPnl}
           sub="realized + open"
         />
         <Stat
           label="Realized"
-          value={money(summary.realizedPnl)}
-          tone={summary.realizedPnl >= 0 ? "up" : "down"}
+          signed={summary.realizedPnl}
           sub="closed child deals"
         />
         <Stat
           label="Open"
-          value={money(summary.openPnl)}
-          tone={
-            summary.openPnl == null
-              ? "neutral"
-              : summary.openPnl >= 0
-                ? "up"
-                : "down"
-          }
+          signed={summary.openPnl}
           sub={live.stale ? "broker state stale" : "attributed positions"}
         />
         {!view.public && (
@@ -467,7 +254,6 @@ function PortfolioDetail({
       <div className={`mt-6 grid gap-6 ${view.public ? "" : "xl:grid-cols-[2fr_1fr]"}`}>
         <Panel
           title="Child contribution"
-          hint="click a strategy for full analytics"
         >
           <div className="overflow-x-auto">
             <Table
@@ -507,18 +293,18 @@ function PortfolioDetail({
                         </div>
                       )}
                     </Cell>
-                    <Cell className="font-mono">{money(allocation)}</Cell>
-                    <Cell className="font-mono">{pct(weight)}</Cell>
-                    <Cell className="font-mono">
-                      {money(child.realizedNet ?? 0)}
+                    <Cell>{money(allocation)}</Cell>
+                    <Cell>{pct(weight)}</Cell>
+                    <Cell>
+                      <Pnl value={child.realizedNet ?? 0} glyphs={false} />
                     </Cell>
-                    <Cell className="font-mono">{money(open)}</Cell>
-                    <Cell
-                      className={`font-mono font-semibold ${net == null || live.stale ? "text-faint" : net >= 0 ? "text-up" : "text-down"}`}
-                    >
-                      {money(net)}
+                    <Cell>
+                      <Pnl value={open} glyphs={false} />
                     </Cell>
-                    <Cell className="font-mono">{child.dealCount}</Cell>
+                    <Cell className="font-semibold">
+                      <Pnl value={net} />
+                    </Cell>
+                    <Cell>{count(child.dealCount)}</Cell>
                     <Cell className="whitespace-nowrap text-faint">
                       {age(child.lastSeen)}
                     </Cell>
@@ -540,9 +326,9 @@ function PortfolioDetail({
                   <span className="font-semibold text-bright">{a.broker}</span>
                   {a.stale && <div className="text-xs text-warn">stale</div>}
                 </Cell>
-                <Cell className="font-mono">{a.currency}</Cell>
-                <Cell className="font-mono">{money(a.balance)}</Cell>
-                <Cell className="font-mono">{money(a.equity)}</Cell>
+                <Cell>{a.currency}</Cell>
+                <Cell>{money(a.balance)}</Cell>
+                <Cell>{money(a.equity)}</Cell>
               </Row>
             ))}
           </Table>
@@ -555,355 +341,23 @@ function PortfolioDetail({
 
 /** A shared portfolio link: the portfolio page, with its public children one click away. */
 export function SharedPortfolio({ instanceId, portfolioId: id }: { instanceId: string; portfolioId: string }) {
-  const [selected, setSelected] = useState<string | null>(null);
+  const { route, navigate } = useRoute();
+  const selected = route.strategy ?? null;
   const strategies = useQuery({
     queryKey: ["strategies", instanceId],
     queryFn: () => get<StrategyRow[]>(`/strategies?instance=${encodeURIComponent(instanceId)}`),
     refetchInterval: 30_000,
   });
-  if (selected) return <StrategyDetail instanceId={instanceId} strategyId={selected} onBack={() => setSelected(null)} />;
+  if (selected) return <StrategyDetail instanceId={instanceId} strategyId={selected} />;
   return (
     <Loadable loading={strategies.isPending} error={strategies.isError} retry={() => strategies.refetch()} what="the portfolio">
-      <PortfolioDetail instanceId={instanceId} portfolioId={id} children={strategies.data ?? []} onSelectChild={setSelected} />
+      <PortfolioDetail
+        instanceId={instanceId}
+        portfolioId={id}
+        children={strategies.data ?? []}
+        onSelectChild={(child) => navigate(routePath({ page: "strategies", strategy: child }), { from: id })}
+      />
     </Loadable>
   );
 }
 
-export function StrategyDetail({ instanceId, strategyId, onBack }: { instanceId: string; strategyId: string; onBack?: () => void }) {
-  const view = useView();
-  usePublicPageView("strategy", strategyId);
-  const qs = `instance=${encodeURIComponent(instanceId)}&strategy=${encodeURIComponent(strategyId)}`;
-  const stats = useQuery({
-    queryKey: ["stats", instanceId, strategyId],
-    queryFn: () => get<StrategyStats>(`/stats?${qs}`),
-    refetchInterval: 30_000,
-  });
-  const equity = useQuery({
-    queryKey: ["equity", instanceId, strategyId],
-    queryFn: () => get<EquityPoint[]>(`/equity?${qs}`),
-    refetchInterval: 30_000,
-  });
-  const trades = useQuery({
-    queryKey: ["trades", instanceId, strategyId],
-    queryFn: () => get<TradeRow[]>(`/trades?${qs}&limit=500`),
-    refetchInterval: 30_000,
-  });
-  const logs = useQuery({
-    queryKey: ["logs", instanceId, strategyId],
-    queryFn: () => get<LogRow[]>(`/logs?${qs}&limit=${RECENT_LOGS}`),
-    enabled: !view.public,
-    refetchInterval: 30_000,
-  });
-  const [tradeCap, setTradeCap] = useState(20);
-  const [runtimeOpen, setRuntimeOpen] = useState(false);
-  const [tradeQ, setTradeQ] = useState("");
-  const [tradeSide, setTradeSide] = useState("");
-  const [tradeSort, setTradeSort] = useState<"newest" | "oldest" | "qty" | "price" | "pnl">("newest");
-  const [openTrade, setOpenTrade] = useState<TradeRow | null>(null);
-  const [tab, setTab] = useState<"overview" | "performance" | "calendar">("overview");
-  const [range, setRange] = useState<RangeKey>("all");
-
-  const performance = useQuery({
-    queryKey: ["performance", instanceId, strategyId, range],
-    queryFn: () => {
-      const from = rangeStart(range);
-      return get<PerformanceBundle>(`/performance?${qs}${from > 0 ? `&from=${from}` : ""}`);
-    },
-    refetchInterval: 30_000,
-  });
-  const strategies = useQuery({
-    queryKey: ["strategies", instanceId],
-    queryFn: () => get<StrategyRow[]>(`/strategies?instance=${encodeURIComponent(instanceId)}`),
-    refetchInterval: 30_000,
-  });
-
-  const live = useOpenByStrategy(instanceId);
-  const row = (strategies.data ?? []).find((r) => r.strategyId === strategyId);
-  const metadata = row?.metadata ?? null;
-  const sourcePath = metaString(metadata, "sourcePath");
-  const sourceHash = metaString(metadata, "sourceSha256");
-  const parentPortfolio = metaString(metadata, "portfolioId");
-  const parentAlias = metaString(metadata, "portfolioAlias");
-  const streams = Array.isArray(metadata?.streams) ? metadata.streams as Array<Record<string, unknown>> : [];
-
-  const s = stats.data;
-  const capital = row ? strategyCapital(row) : { amount: s?.startingBalance ?? null, source: null };
-  const openPnl = live.open.get(strategyId) ?? (live.hasState ? 0 : null);
-  const heroNet = s?.realizedPnl == null && openPnl == null ? null : (s?.realizedPnl ?? 0) + (openPnl ?? 0);
-  // Closed trades rebuilt from broker deals (realized P&L built in) are the row
-  // source whenever the strategy has any; engine fills are the paper/backtest fallback.
-  const closes = performance.data?.closes ?? [];
-  const closeByOrder = buildCloseMap(closes);
-  const usingDealTrades = closes.length > 0;
-  const tradeNeedle = tradeQ.trim().toUpperCase();
-  const tradeRows: TradeView[] = (usingDealTrades
-    ? closes.map((c) => ({ key: `${c.orderId ?? "?"}-${c.ts}`, ts: c.ts, symbol: c.symbol, side: c.side, qty: c.qty, price: c.price, realized: c.realized, searchKey: c.orderId ?? "", raw: null }))
-    : (trades.data ?? []).map((t) => ({ key: t.id, ts: t.ts, symbol: t.payload.symbol, side: t.payload.side, qty: t.payload.qty, price: t.payload.price, realized: closeByOrder.get(t.payload.orderId)?.realized ?? null, searchKey: t.payload.orderId, raw: t })))
-    .filter((t) => (!tradeSide || t.side === tradeSide) && (!tradeNeedle || t.symbol.toUpperCase().includes(tradeNeedle) || t.searchKey.toUpperCase().includes(tradeNeedle)))
-    .sort((a, b) => {
-      switch (tradeSort) {
-        case "oldest": return a.ts - b.ts;
-        case "qty": return b.qty - a.qty;
-        case "price": return b.price - a.price;
-        case "pnl": return (b.realized ?? -Infinity) - (a.realized ?? -Infinity);
-        default: return b.ts - a.ts;
-      }
-    });
-  const logRows = logs.data ?? [];
-  return (
-    <div>
-      {onBack && (
-        <button onClick={onBack} className="rise text-sm text-muted transition hover:text-body">
-          ← strategies
-        </button>
-      )}
-      <div className="mt-2 flex flex-wrap items-end justify-between gap-4">
-        <div className="rise">
-          <div className="flex items-center gap-2">
-            <h2 className="min-w-0 truncate text-2xl font-extrabold tracking-tight text-bright" title={strategyId}>{row ? displayName(row) : strategyId}</h2>
-            {metadata && !view.public && (
-              <IconButton label="runtime details" onClick={() => setRuntimeOpen(true)} d="M15 3h6v6M9 21H3v-6M21 3l-7 7M3 21l7-7" />
-            )}
-          </div>
-          <div className="mt-2 flex flex-wrap items-center gap-1.5">
-            {parentPortfolio ? (
-              <>
-                <Pill tone="info">portfolio child</Pill>
-                <Pill>{parentPortfolio}</Pill>
-                {parentAlias && <Pill>{parentAlias}</Pill>}
-              </>
-            ) : (
-              <Pill>standalone</Pill>
-            )}
-            {row && <HaltBadge row={row} />}
-          </div>
-          {row?.halted && <HaltDetail row={row} />}
-          <div className="mt-2 flex items-baseline gap-3" title="net P&L = realized + open (this strategy, on a shared account)">
-            <span className={`font-mono text-4xl font-bold ${heroNet == null || live.stale ? "text-faint" : heroNet >= 0 ? "text-up" : "text-down"}`}>
-              {heroNet == null ? "—" : `${heroNet >= 0 ? "+" : "−"}${money(Math.abs(heroNet))}`}
-            </span>
-            <ReturnPct net={heroNet} base={capital.amount} dim={live.stale} />
-          </div>
-          <div className="mt-1 text-[11px] font-semibold uppercase tracking-[0.08em] text-faint">net P&L · this strategy</div>
-          <div className={`mt-1 text-xs ${live.stale ? "text-faint" : "text-muted"}`}>
-            realized {money(s?.realizedPnl)} · open {money(openPnl)}
-          </div>
-        </div>
-        <div className="rise -mb-1 w-64">
-          <Sparkline points={equity.data ?? []} height={56} />
-        </div>
-      </div>
-
-      <div className="rise mt-5 flex flex-wrap items-center gap-2">
-        {(["overview", "performance", "calendar"] as const).map((t) => (
-          <button
-            key={t}
-            onClick={() => setTab(t)}
-            className={`h-9 rounded-lg px-4 text-sm font-semibold capitalize transition ${
-              tab === t ? "bg-accent text-ink" : "border border-line bg-raised text-muted hover:border-line-strong hover:text-body"
-            }`}
-          >
-            {t}
-          </button>
-        ))}
-        <ShareControl instanceId={instanceId} kind="strategy" subject={strategyId} />
-        {tab !== "overview" && (
-          <div className="w-full sm:ml-auto sm:w-auto">
-            <RangeSelect value={range} onChange={setRange} />
-          </div>
-        )}
-      </div>
-
-      {tab === "performance" && (
-        <div className="mt-5 grid gap-5">
-          <Loadable loading={!performance.data} error={performance.isError} retry={() => performance.refetch()} what="performance" lines={6}>
-            {performance.data && <PerformancePanels bundle={performance.data} />}
-            {performance.data && <TradeAnalysisPanels bundle={performance.data} />}
-            {performance.data && <EdgeDetailPanels bundle={performance.data} />}
-          </Loadable>
-        </div>
-      )}
-
-      {tab === "calendar" && (
-        <div className="mt-5">
-          <Loadable loading={!performance.data} error={performance.isError} retry={() => performance.refetch()} what="the calendar" lines={6}>
-            {performance.data && (
-              <CalendarView
-                days={performance.data.dailyNets}
-                startingBalance={capital.amount}
-                trades={tradeRows}
-                onTrade={view.public ? undefined : setOpenTrade}
-              />
-            )}
-          </Loadable>
-        </div>
-      )}
-
-      {tab === "overview" && (
-        <>
-      <div className="mt-5">
-        <Loadable loading={stats.isPending} error={stats.isError} retry={() => stats.refetch()} what="strategy stats" lines={2}>
-      <div className="grid grid-cols-2 gap-3 md:grid-cols-3 xl:grid-cols-6">
-        <Stat label="Capital" value={money(capital.amount)} sub={capital.source ?? undefined} stagger={0} />
-        <Stat
-          label="Realized PnL"
-          value={money(s?.realizedPnl)}
-          tone={s?.realizedPnl == null ? "neutral" : s.realizedPnl >= 0 ? "up" : "down"}
-          stagger={1}
-        />
-        <Stat label="Sharpe" value={num(s?.sharpe)} stagger={2} />
-        <Stat label="Win rate" value={pct(s?.winRate)} stagger={3} />
-        <Stat label="Max drawdown" value={pct(s?.maxDrawdownPct)} tone={s?.maxDrawdownPct ? "down" : "neutral"} stagger={4} />
-        <Stat
-          label="Trades"
-          value={String(s?.tradeCount ?? "—")}
-          sub={s ? `${s.buyCount} buys · ${s.sellCount} sells · vol ${num(s.volume)}` : undefined}
-          stagger={5}
-        />
-      </div>
-        </Loadable>
-      </div>
-
-      <Panel
-        className="mt-6"
-        stagger={2}
-        title="Equity"
-        hint="this strategy's capital plus its own P&L — not the shared account equity"
-      >
-        <Loadable loading={equity.isPending} error={equity.isError} retry={() => equity.refetch()} what="the equity curve" lines={4}>
-          <div className="p-4">
-            <EquityChart points={equity.data ?? []} />
-          </div>
-        </Loadable>
-      </Panel>
-
-      {/* items-start: each list sizes to its own rows instead of stretching to its neighbour */}
-      <div className="mt-6 grid grid-cols-1 items-start gap-6 2xl:grid-cols-2">
-        <Panel
-          stagger={3}
-          title="Trades"
-          hint={usingDealTrades ? "broker deal closes" : "click a row to inspect"}
-          toolbar={
-            <>
-              <SearchInput
-                value={tradeQ}
-                onChange={(e) => {
-                  setTradeQ(e.target.value);
-                  setTradeCap(20);
-                }}
-                placeholder="search symbol, order id…"
-                className="w-full sm:w-56"
-              />
-              <Select
-                value={tradeSide}
-                onChange={(e) => {
-                  setTradeSide(e.target.value);
-                  setTradeCap(20);
-                }}
-              >
-                <option value="">any side</option>
-                <option value="BUY">BUY</option>
-                <option value="SELL">SELL</option>
-              </Select>
-              <Select value={tradeSort} onChange={(e) => setTradeSort(e.target.value as typeof tradeSort)}>
-                <option value="newest">newest first</option>
-                <option value="oldest">oldest first</option>
-                <option value="qty">biggest qty</option>
-                <option value="price">highest price</option>
-                <option value="pnl">best P&L</option>
-              </Select>
-            </>
-          }
-        >
-          <Loadable loading={!performance.data && trades.isPending} error={trades.isError} retry={() => { void trades.refetch(); void performance.refetch(); }} what="trades">
-          <DataList
-            head={["Time", "Symbol", "Side", "Qty", "Price", "P&L"]}
-            rows={tradeRows.slice(0, tradeCap)}
-            keyOf={(t) => t.key}
-            onRow={usingDealTrades || view.public ? undefined : (t) => t.raw && setOpenTrade(t.raw)}
-            empty="No trades yet"
-            cells={(t) => {
-              const r = t.realized;
-              return (
-                <>
-                  <TimeCell ts={t.ts} />
-                  <Cell className="font-semibold text-bright">{t.symbol}</Cell>
-                  <Cell>
-                    <SideTag side={t.side} />
-                  </Cell>
-                  <Cell className="font-mono">{t.qty}</Cell>
-                  <Cell className="whitespace-nowrap font-mono text-muted">@ {price(t.price)}</Cell>
-                  <Cell className={`font-mono font-semibold ${realizedTone(r)}`}>{r == null ? "—" : `${r > 0 ? "+" : ""}${r.toFixed(2)}`}</Cell>
-                </>
-              );
-            }}
-            card={(t) => {
-              const r = t.realized;
-              return (
-                <>
-                  <div className="flex items-baseline gap-2">
-                    <span className="min-w-0 truncate font-semibold text-bright">{t.symbol}</span>
-                    <SideTag side={t.side} />
-                    <span className={`ml-auto shrink-0 font-mono text-sm font-semibold ${realizedTone(r)}`}>
-                      {r == null ? "—" : `${r > 0 ? "+" : ""}${r.toFixed(2)}`}
-                    </span>
-                  </div>
-                  <div className="mt-1 flex items-center gap-2 font-mono text-xs text-faint">
-                    <span className="whitespace-nowrap">
-                      {t.qty} @ {price(t.price)}
-                    </span>
-                    <span className="ml-auto whitespace-nowrap">{tsShort(t.ts)}</span>
-                  </div>
-                </>
-              );
-            }}
-          />
-          <LoadMore shown={Math.min(tradeCap, tradeRows.length)} total={tradeRows.length} onMore={() => setTradeCap((c) => c + 20)} />
-          </Loadable>
-        </Panel>
-
-        {!view.public && (
-        <Panel stagger={4} title="Recent logs" hint={`latest ${RECENT_LOGS} · full history on Logs`}>
-          <Loadable loading={logs.isPending} error={logs.isError} retry={() => logs.refetch()} what="logs">
-          <div className="p-2">
-            {logRows.map((l) => (
-              <LogLine key={l.id} log={l} showStrategy={false} />
-            ))}
-            {logRows.length === 0 && <Empty>No logs yet</Empty>}
-          </div>
-          </Loadable>
-        </Panel>
-        )}
-      </div>
-        </>
-      )}
-
-      {!view.public && (
-        <TradeDetail trade={openTrade} instanceId={instanceId} onClose={() => setOpenTrade(null)} close={openTrade ? closeByOrder.get(openTrade.payload.orderId) : null} />
-      )}
-
-      {metadata && !view.public && (
-        <Modal open={runtimeOpen} onClose={() => setRuntimeOpen(false)} title="Runtime" hint="from latest strategy.started event" width="min(94vw, 760px)">
-          <div className="grid grid-cols-1 gap-3 p-4 sm:grid-cols-2 sm:p-5">
-            <Field label="Mode">{metaString(metadata, "runtimeMode") ?? "—"}</Field>
-            <Field label="DSL version">{metaNumber(metadata, "dslVersion") ?? "—"}</Field>
-            <Field label="Source" wide>{sourcePath ?? "—"}</Field>
-            <Field label="Source hash" wide>{sourceHash ?? "—"}</Field>
-            <Field label="Symbols" wide>{metaStringList(metadata, "symbols").join(", ") || "—"}</Field>
-            <Field label="Streams" wide>
-              {streams.length === 0
-                ? "—"
-                : streams.map((st) => `${String(st.alias ?? "?")}:${String(st.qktSymbol ?? st.symbol ?? "?")}@${String(st.timeframe ?? "?")}`).join(", ")}
-            </Field>
-          </div>
-        </Modal>
-      )}
-    </div>
-  );
-}
-
-function realizedTone(v: number | null | undefined): string {
-  if (v == null) return "text-faint";
-  if (v === 0) return "text-muted";
-  return v > 0 ? "text-up" : "text-down";
-}

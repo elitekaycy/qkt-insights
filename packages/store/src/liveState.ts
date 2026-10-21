@@ -1,11 +1,18 @@
 import type { Db } from "./db.js";
 import type { Envelope } from "@qkt-insights/contract";
+import { statement } from "./statements.js";
+import { bumpAccount } from "./versions.js";
+import { accountIdFromLogin, profileLabel } from "./inferredVenueFacts.js";
 
 export interface AccountState {
   broker: string; currency: string; balance: number; equity: number;
   margin?: number; marginFree?: number; openProfit?: number; marginLevel?: number;
   /** Broker account identity, so the dashboard can say whose equity it shows on a shared account. */
   login?: string; server?: string; name?: string;
+  /** The venue account (`mt5:<login>@<server>`, `vgp:<adapter>:<login>`): one account however many labels report it. */
+  accountId?: string;
+  /** The connector and venue behind the label, as qkt stated them. */
+  connector?: string; adapter?: string;
   lastSeen: number;
 }
 
@@ -22,6 +29,10 @@ export interface LivePosition {
   /** What the engine asked for — differs from venue truth while a modify is in flight. */
   requestedStopLoss?: number; requestedTakeProfit?: number;
   magic?: number; clientOrderId?: string;
+  /** The venue position this is (qkt's id where the venue names none), and how its strategy was known. */
+  positionId?: string; attribution?: string;
+  /** The entry's initial stop and target, and its money at risk to that stop in account currency, when it had a bracket. */
+  initialStop?: number; initialTarget?: number; riskAmount?: number;
 }
 
 /** A resting (pending) order at the broker: limit/stop waiting to trigger. */
@@ -60,13 +71,6 @@ function splitKey(key: string): [string, string] {
   return [key.slice(0, i), key.slice(i + 1)];
 }
 
-function decimalText(v: unknown): string | null {
-  if (v == null) return null;
-  if (typeof v === "string") return v;
-  if (typeof v === "number") return Number.isFinite(v) ? String(v) : null;
-  return null;
-}
-
 /**
  * Last-value broker state, kept in memory only: account snapshots and open
  * position lists keyed by `instance:broker`. Keyed maps make duplicate rows
@@ -75,22 +79,24 @@ function decimalText(v: unknown): string | null {
  */
 export class LiveStateStore {
   private accounts = new Map<string, StoredAccountState>();
-  private positions = new Map<string, { at: number; list: LivePosition[] }>();
-  private orders = new Map<string, { at: number; list: LivePendingOrder[] }>();
+  private positions = new Map<string, { at: number; list: LivePosition[]; accountId?: string }>();
+  private orders = new Map<string, { at: number; list: LivePendingOrder[]; accountId?: string }>();
 
   /** Returns true when the visible state changed (drives WS broadcasts). */
   upsert(instanceId: string, e: Envelope): boolean {
     if (e.type === "state.account") {
       const p = e.payload;
-      const key = accountKey(instanceId, p);
+      const accountId = p.accountId ?? accountIdFromLogin(p.login, p.server) ?? undefined;
+      const key = accountKey(instanceId, p.broker, accountId);
       const prev = this.accounts.get(key);
-      const next: StoredAccountState = { instanceId, broker: prev?.broker ?? displayBroker(p.broker), currency: p.currency, balance: p.balance, equity: p.equity,
+      const next: StoredAccountState = { instanceId, broker: prev?.broker ?? labelOf(p), currency: p.currency, balance: p.balance, equity: p.equity,
         margin: p.margin, marginFree: p.marginFree, openProfit: p.openProfit, marginLevel: p.marginLevel,
-        login: p.login, server: p.server, name: p.name,
+        login: p.login, server: p.server, name: p.name, accountId,
+        connector: p.venue?.connector ?? undefined, adapter: p.venue?.adapter ?? undefined,
         lastSeen: e.ts };
       this.accounts.set(key, next);
       if (!prev) return true;
-      return (["broker", "currency", "balance", "equity", "margin", "marginFree", "openProfit", "marginLevel", "login", "server", "name"] as const)
+      return (["broker", "currency", "balance", "equity", "margin", "marginFree", "openProfit", "marginLevel", "login", "server", "name", "accountId"] as const)
         .some((f) => prev[f] !== next[f]);
     }
     if (e.type === "state.positions") {
@@ -103,8 +109,9 @@ export class LiveStateStore {
         openedAt: x.openedAt, strategyId: x.strategyId ?? previousStrategies.get(x.ticket) ?? null,
         stopLoss: x.stopLoss, takeProfit: x.takeProfit,
         requestedStopLoss: x.requestedStopLoss, requestedTakeProfit: x.requestedTakeProfit,
-        magic: x.magic, clientOrderId: x.clientOrderId }));
-      this.positions.set(key, { at: e.ts, list });
+        magic: x.magic, clientOrderId: x.clientOrderId,
+        ...stated({ positionId: x.positionId, attribution: x.attribution, initialStop: x.initialStop, initialTarget: x.initialTarget, riskAmount: x.riskAmount }) }));
+      this.positions.set(key, { at: e.ts, list, accountId: p.accountId ?? undefined });
       return !prev || JSON.stringify(prev.list) !== JSON.stringify(list);
     }
     if (e.type === "state.orders") {
@@ -117,7 +124,7 @@ export class LiveStateStore {
         stopLoss: x.stopLoss, takeProfit: x.takeProfit, expiresAt: x.expiresAt, createdAt: x.createdAt,
         magic: x.magic, clientOrderId: x.clientOrderId,
         strategyId: x.strategyId ?? previousStrategies.get(x.ticket) ?? null }));
-      this.orders.set(key, { at: e.ts, list });
+      this.orders.set(key, { at: e.ts, list, accountId: p.accountId ?? undefined });
       return !prev || JSON.stringify(prev.list) !== JSON.stringify(list);
     }
     return false;
@@ -125,8 +132,9 @@ export class LiveStateStore {
 
   snapshot(now: number, staleAfterMs = 30_000): LiveStateSnapshot {
     const accounts = [...this.accounts.values()].map((a) => ({ ...a, stale: now - a.lastSeen > staleAfterMs }));
-    const positions = collapsePositions(this.positions, now, staleAfterMs);
-    const orders = collapseOrders(this.orders, now, staleAfterMs);
+    const shownLabel = new Map(accounts.flatMap((a) => (a.accountId ? [[`${a.instanceId}|${a.accountId}`, a.broker] as const] : [])));
+    const positions = collapsePositions(this.positions, now, staleAfterMs, shownLabel);
+    const orders = collapseOrders(this.orders, now, staleAfterMs, shownLabel);
     return { accounts, positions, orders };
   }
 
@@ -138,46 +146,57 @@ export class LiveStateStore {
    */
   flushRollup(db: Db, now: number, staleAfterMs = 90_000): void {
     const minute = Math.floor(now / 60_000) * 60_000;
-    const up = db.prepare(
-      `INSERT INTO account_equity
-         (instance_id, broker, minute_ts, balance, equity, open_profit,
-          balance_decimal, equity_decimal, open_profit_decimal)
-       VALUES (?,?,?,?,?,?,?,?,?) ON CONFLICT(instance_id, broker, minute_ts)
+    const up = statement(db,
+      `INSERT INTO account_equity (instance_id, broker, minute_ts, balance, equity, open_profit, account)
+       VALUES (?,?,?,?,?,?,?) ON CONFLICT(instance_id, broker, minute_ts)
        DO UPDATE SET balance=excluded.balance, equity=excluded.equity, open_profit=excluded.open_profit,
-         balance_decimal=excluded.balance_decimal, equity_decimal=excluded.equity_decimal,
-         open_profit_decimal=excluded.open_profit_decimal`,
+         account=COALESCE(excluded.account, account)`,
     );
+    const flushed = new Set<string>();
     for (const a of this.accounts.values()) {
       if (now - a.lastSeen > staleAfterMs) continue;
-      up.run(a.instanceId, a.broker, minute, a.balance, a.equity, a.openProfit ?? null,
-        decimalText(a.balance), decimalText(a.equity), decimalText(a.openProfit));
+      up.run(a.instanceId, a.broker, minute, a.balance, a.equity, a.openProfit ?? null, a.accountId ?? null);
+      flushed.add(a.instanceId);
     }
+    for (const instanceId of flushed) bumpAccount(db, instanceId);
   }
 }
 
-function accountKey(instanceId: string, p: { broker: string; login?: string; server?: string }): string {
-  if (p.login && p.server) return JSON.stringify([instanceId, p.server, p.login]);
-  return JSON.stringify([instanceId, p.broker]);
+/** One entry per venue account: its id when known (stated, or inferred from login and server), else its label. */
+function accountKey(instanceId: string, broker: string, accountId: string | undefined): string {
+  return accountId ? JSON.stringify([instanceId, accountId]) : JSON.stringify([instanceId, broker]);
 }
 
-function displayBroker(broker: string): string {
-  return broker.replace(/_S\d+$/u, "");
+/** The label an account is shown under: the config entry qkt named, else the label without its profile suffix. */
+function labelOf(p: { broker: string; venue?: { label?: string | null } }): string {
+  return p.venue?.label ?? profileLabel(p.broker);
 }
 
-function collapsedKey(instanceId: string, broker: string): string {
-  return JSON.stringify([instanceId, displayBroker(broker)]);
+/** The fields of `facts` that were stated, so an envelope without them adds no keys. */
+function stated<T extends Record<string, unknown>>(facts: T): Partial<T> {
+  return Object.fromEntries(Object.entries(facts).filter(([, v]) => v != null)) as Partial<T>;
+}
+
+/**
+ * Where a label's positions or orders are shown: with its account's when it states the account
+ * (under the label the account is shown with), else with the labels that share its profile prefix.
+ */
+function groupOf(instanceId: string, broker: string, accountId: string | undefined, shownLabel: Map<string, string>): { key: string; display: string } {
+  if (accountId) return { key: JSON.stringify([instanceId, accountId]), display: shownLabel.get(`${instanceId}|${accountId}`) ?? broker };
+  const display = profileLabel(broker);
+  return { key: JSON.stringify([instanceId, display]), display };
 }
 
 function collapsePositions(
-  positions: Map<string, { at: number; list: LivePosition[] }>,
+  positions: Map<string, { at: number; list: LivePosition[]; accountId?: string }>,
   now: number,
   staleAfterMs: number,
+  shownLabel: Map<string, string>,
 ): PositionGroup[] {
   const groups = new Map<string, PositionGroup>();
   for (const [key, value] of positions) {
     const [instanceId, broker] = splitKey(key);
-    const display = displayBroker(broker);
-    const groupKey = collapsedKey(instanceId, broker);
+    const { key: groupKey, display } = groupOf(instanceId, broker, value.accountId, shownLabel);
     const stale = now - value.at > staleAfterMs;
     const group = groups.get(groupKey) ?? { instanceId, broker: display, at: value.at, stale: true, list: [] };
     const byTicket = new Map(group.list.map((position) => [position.ticket, position]));
@@ -197,15 +216,15 @@ function collapsePositions(
 }
 
 function collapseOrders(
-  orders: Map<string, { at: number; list: LivePendingOrder[] }>,
+  orders: Map<string, { at: number; list: LivePendingOrder[]; accountId?: string }>,
   now: number,
   staleAfterMs: number,
+  shownLabel: Map<string, string>,
 ): OrderGroup[] {
   const groups = new Map<string, OrderGroup>();
   for (const [key, value] of orders) {
     const [instanceId, broker] = splitKey(key);
-    const display = displayBroker(broker);
-    const groupKey = collapsedKey(instanceId, broker);
+    const { key: groupKey, display } = groupOf(instanceId, broker, value.accountId, shownLabel);
     const stale = now - value.at > staleAfterMs;
     const group = groups.get(groupKey) ?? { instanceId, broker: display, at: value.at, stale: true, list: [] };
     const byTicket = new Map(group.list.map((order) => [order.ticket, order]));

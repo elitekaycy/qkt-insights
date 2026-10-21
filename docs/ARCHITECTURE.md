@@ -2,12 +2,13 @@
 
 ## Features
 
-- **Health** — every reporting instance, last-event age, sequence position, sink counters, journal backlog, live/idle status.
+- **Health** — every reporting instance, last-event age, sequence position, sink counters, journal backlog, quarantined envelopes by type, live/idle status.
 - **Uptime** — a heartbeat monitor per daemon and HTTP probes for anything else on the box (the MT5 gateway, with `mt5_status: connected` asserted); 24h strip, uptime %, incident timeline, and a Telegram/webhook alert on every down and recovery. A dead-man ping tells an outside service the collector itself is alive.
-- **Strategies** — per-strategy drill-down against the strategy's own capital: its equity curve (never the shared account), Sharpe, win rate, max drawdown, return, trades, the latest logs, and the deploy's runtime details one click from the name.
-- **Trades** — every fill, filterable by strategy and symbol.
-- **Logs** — engine logs shipped from qkt with level filters, full-text search, and a live tail.
-- **Search** — FTS5 full-text search across all events and logs: symbols, order ids, halt reasons, log text.
+- **Strategies** — every strategy in one sortable table, and per strategy the journal's sections (Overview, Calendar, Daily, Monthly, Trades, Time & risk, Logs) over its round trips, with net and return on the strategy's own capital, its halt, and the deploy's runtime details.
+- **Trades** — every round trip (one row per position, entry to exit, P&L after costs), searchable with the query bar,
+  sortable, exported as CSV, each one opening a drawer with its timeline from signal to close.
+- **Logs** — engine logs shipped from qkt, searched with the same query bar (`level:`, `strategy:`, `logger:`, `time:`,
+  free text), and a live tail.
 - **Equity** — all strategies on one normalized comparison chart; drawdown periods shaded on the focused curve.
 - **Edge** — when a strategy makes money: day-of-week × hour P&L heatmap (UTC), weekday/hour bars with per-bucket n and ±SE, rolling Sharpe/win-rate stability, strategy-comparison radar. Buckets under 30 trades render greyed — thin slices are noise, and the UI says so.
 - **Single-admin auth** — username + password from env, hashed with argon2 at startup, signed httpOnly session cookie; ingest guarded by a bearer token.
@@ -22,10 +23,112 @@ A pnpm workspace of small, single-purpose packages:
 |---|---|
 | `packages/contract` | the wire truth — Zod schemas for every envelope type; validation at the boundary, types everywhere else |
 | `packages/store` | the only SQLite writer — WAL, FTS5, forward-only migrations, order-state folding, stats (Sharpe, drawdown, win rate) |
-| `packages/collector` | `POST /ingest` — bearer auth, Zod-validated, idempotent on event id, timestamp/seq-aware order folding |
+| `packages/collector` | `POST /ingest` — bearer auth, Zod-validated per envelope, idempotent on event id, quarantines what it cannot read, timestamp/seq-aware order folding |
 | `packages/api` | REST + WS `/live` behind the session guard |
 | `apps/web` | React + Vite + Tailwind dashboard |
 | `src/server.ts` | one entry, boots subsystems by mode |
+
+## Ingest contract
+
+`POST /ingest` takes `{instanceId, events: [...]}` with `Authorization: Bearer <INGEST_TOKEN>`. The batch is checked
+only for that shape; each envelope is then checked on its own, so one envelope the collector cannot read never
+costs the rest of the batch (qkt's journal retries a rejected batch forever, which would freeze that bot's telemetry).
+
+Each envelope goes through, in order:
+
+1. **Envelope base** — `v` (integer), `instanceId`, `id`, `seq` (integer ≥ 0), `ts` (integer ms), `type` (string),
+   optional `strategyId`, and a `payload`.
+2. **Major version** — `v` must be a supported major (`1`).
+3. **Type and payload** — `type` must be in `packages/contract/src/payloads.ts` and the payload must match its schema.
+   Payload objects are passthrough: a field the contract does not know is kept in the stored JSON.
+
+An envelope that passes is stored exactly as before. One that fails any step is **quarantined**: stored raw in
+`quarantined_events` (keyed by instance and envelope id, so redelivery writes one row; an envelope with no id is
+keyed `sha256:<hex>` of its JSON) with the reason, acknowledged with 200, and counted per type and major on Health
+(`quarantined` on `GET /health/instances`).
+
+| change from qkt | result |
+|---|---|
+| new payload field | accepted, kept in the payload JSON |
+| unknown type | quarantined, the rest of the batch is stored |
+| `v` other than 1 | quarantined |
+| renamed required field, numeric sent as a string | quarantined (projections need the typed field) |
+| unknown `side` (e.g. `SHORT`) | quarantined: side sets the sign of P&L, so it is never guessed |
+| unknown log `level` (e.g. `TRACE`) | accepted as sent: logs are display-only |
+
+The response is 400 only for a body that is not JSON or not a batch (`invalid batch`) and for an envelope whose
+`instanceId` differs from the batch's (`instance mismatch`); 401/429 cover auth. A 200 response:
+
+```json
+{
+  "accepted": 1,
+  "quarantined": 1,
+  "envelopes": [
+    { "id": "t1", "status": "accepted" },
+    { "id": "f1", "status": "quarantined", "reason": "unknown type \"signal.future\"" }
+  ],
+  "ack": { "instanceId": "demo", "lastSeq": 1, "observations": [], "received": 2, "acknowledgedIds": ["t1", "f1"] }
+}
+```
+
+`status` is `accepted`, `duplicate` (the id was already stored) or `quarantined`; a redelivered quarantined envelope
+is reported `quarantined` again. `accepted`, `ack` and `acknowledgedIds` keep their earlier meaning; every envelope
+in a 200 batch is acknowledged. `ack.observations` is always empty: duplicates are reported per envelope instead.
+A `snapshot.equity` already stored for its strategy at the same `ts` is a `duplicate`; one that repeats the
+strategy's previous snapshot is acknowledged but stored only once per 5-minute heartbeat.
+
+### Venue facts
+
+qkt states what the collector would otherwise infer from MT5 conventions; every field is optional, and an
+envelope without it is read the way older qkt releases need (`packages/store/src/inferredVenueFacts.ts`, which
+counts each inference and logs its first use and every thousandth: `venue fact inferred from MT5 conventions`).
+
+| stated fact | where | used for | inferred when absent from |
+|---|---|---|---|
+| `venue{connector,adapter,label}`, `accountId` | every venue envelope | one account per `accountId`, shown under `venue.label` | `login@server` (as `mt5:login@server`), the label without its `_S<n>` profile suffix |
+| `strategyId` + `attribution` | deals, positions, orders, fills | the strategy of a deal | a `dsl-<strategy>` deal comment |
+| `positionId`, `legEntry`, `nextPositionId` | deals, fills, `trade.closed` | round-trip identity and leg | `positionTicket`, `entry`; the entry order by its broker ticket |
+| `closeReason` | closing deals, fills, `trade.closed` | `ended`: STOP stop, TAKE_PROFIT tp, STOP_OUT/LIQUIDATION/EXPIRY venue, MANUAL manual, SIGNAL/TIMED signal | `[sl` / `[tp` / `[so` deal comments, then `qkt bot close` and close orders near the exit |
+| `costs[]` | deals | commission, swap (funding, borrow), fee (the rest): the deal's costs, once | the `commission` / `swap` / `fee` scalars, which repeat them when `costs` is sent |
+| `realizedSource` | deals | kept per leg: `venue`, or `engine` for a venue that reports no P&L | |
+| `initialStop`, `initialTarget`, `riskAmount` | entry fills, positions | a round trip's stop, target, risk and R | the entry order's submitted bracket; risk from the venue's gross over the move |
+| `instrument.tickSize`, `instrument.valuePerPoint` | deals, fills, positions | price precision; slippage in money | the decimals of observed prices and metal/FX names; the gross over the move |
+
+An engine close (`trade.closed`) is a round trip of its own only while neither its strategy nor its broker (the
+symbol's `LABEL:` prefix) has stored a venue deal, so an instance that trades an MT5 account and a venue that sends
+no deals shows both.
+
+## Reads
+
+Every JSON and static response is compressed (brotli, else gzip) when the client accepts it. The heavier reads
+(`/performance`, `/equity`, `/deals`, `/trades`, `/account/equity`, `/account/drawdown`, `/account/summary`) carry
+a weak `ETag` derived from a version of the rows they read, with `Cache-Control: private, no-cache`; a browser
+revalidates with `If-None-Match` and gets `304` with no body until those rows change. `/account/equity` returns at
+most 2,000 points by default (the last stored minute of each time bucket), `?points=N` up to 20,000, and
+`?resolution=full` for every minute.
+
+### Round trips and the query language
+
+`/round-trips` serves one row per position from the `round_trips` projection (see
+[operations/projections.md](operations/projections.md)), read through `store/src/tripQueries.ts`, so a read is an index
+range scan, never a rebuild of history. Prices print at the instrument's precision, read from the decimals of its venue
+deals. The query text `q` is parsed by the same code as the
+web bar (`@qkt-insights/contract/query`) and compiled to bound SQL; tokens it cannot read come back in
+`query.errors` while the rest still apply.
+
+| Route | Answers |
+|---|---|
+| `GET /round-trips?instance&q&strategy&from&sort&dir&limit&cursor` | a page (keyset cursor, up to 500 rows) and, on the first page, `totals` of the whole match: matched, total in scope, net, wins, losses, win rate, average, best, worst |
+| `GET /round-trips/analytics?instance&q&strategy&from` | the journal aggregates of the same match (a strategy page's sections): counts, P&L, win rate, profit factor, payoff, expectancy, R, max drawdown, streaks, after-N-losses, the per-trade series, UTC exit days and months, and buckets by side, how it ended, hold time, instrument, UTC entry weekday and hour, each with the query token that lists its trades |
+| `GET /round-trips/facets?instance&strategy` | strategies, instruments, exit days and common sizes, for completions |
+| `GET /round-trips/export?…` | the whole match as CSV, streamed page by page |
+| `GET /round-trips/:ticket?instance` | the trade drawer: legs, timeline with latencies, slippage, MAE/MFE, raw events |
+| `GET /public/:token/round-trips`, `…/analytics`, `…/facets` | a shared link's closed round trips and their aggregates, without tickets, profiles or stops |
+
+`/logs` also takes `logger` (part of the name), `from` and `to` (ms); `q` is words, each matched literally through the FTS
+index (quoted, so `mt5-gateway`, `ICMARKETS:XAUUSD` or `0.1004` are words, not syntax; a trailing `*` is a prefix).
+`GET /logs/page` takes the same filters plus `cursor` and answers `{rows, nextCursor, total}`: newest first by
+(ts, arrival), keyset pages up to 1000 lines, and on the first page the number of lines the whole query matches.
 
 Design notes live in [`specs/`](specs/) and the implementation plans in [`plans/`](plans/).
 

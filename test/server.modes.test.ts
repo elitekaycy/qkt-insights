@@ -1,5 +1,11 @@
 import { describe, it, expect } from "vitest";
-import { buildServer, parseMode } from "../src/server.js";
+import { brotliDecompressSync, gunzipSync } from "node:zlib";
+import { mkdtempSync, rmSync } from "node:fs";
+import { tmpdir } from "node:os";
+import { join } from "node:path";
+import { openDb, ingestEvents } from "@qkt-insights/store";
+import type { Envelope } from "@qkt-insights/contract";
+import { buildServer, parseMode, rebuildCommand } from "../src/server.js";
 
 describe("parseMode", () => {
   it("defaults to run", () => expect(parseMode([])).toBe("run"));
@@ -126,6 +132,42 @@ describe("internet-facing defaults", () => {
   });
 });
 
+describe("response compression", () => {
+  it("compresses JSON for clients that accept brotli or gzip, and leaves others plain", async () => {
+    process.env.INSIGHTS_DB = ":memory:";
+    process.env.INGEST_TOKEN = "test-ingest-token-at-least-24-chars";
+    process.env.ADMIN_USERNAME = "admin";
+    process.env.ADMIN_PASSWORD = "admin-pass-long-enough";
+    delete process.env.ADMIN_TOTP_SECRET;
+    const app = await buildServer("serve");
+    try {
+      const events = Array.from({ length: 300 }, (_, i) => ({
+        v: 1, instanceId: "qkt-prod", id: `log-${i}`, seq: i, ts: 1718000000000 + i, type: "log",
+        payload: { level: "INFO", logger: "com.qkt.engine", message: `order working for XAUUSD ${i}` },
+      }));
+      const ingest = await app.inject({
+        method: "POST", url: "/ingest", headers: { authorization: "Bearer test-ingest-token-at-least-24-chars" },
+        payload: { instanceId: "qkt-prod", events },
+      });
+      expect(ingest.statusCode).toBe(200);
+      const login = await app.inject({ method: "POST", url: "/auth/login", payload: { username: "admin", password: "admin-pass-long-enough" } });
+      const cookie = String(login.headers["set-cookie"]).split(";")[0]!;
+      const url = "/logs?instance=qkt-prod&limit=1000";
+      const plain = await app.inject({ method: "GET", url, headers: { cookie } });
+      expect(plain.headers["content-encoding"]).toBeUndefined();
+      expect(plain.json()).toHaveLength(300);
+      for (const [accept, encoding, decode] of [["br", "br", brotliDecompressSync], ["gzip", "gzip", gunzipSync]] as const) {
+        const res = await app.inject({ method: "GET", url, headers: { cookie, "accept-encoding": accept } });
+        expect(res.headers["content-encoding"]).toBe(encoding);
+        expect(res.rawPayload.length).toBeLessThan(plain.rawPayload.length / 4);
+        expect(JSON.parse(decode(res.rawPayload).toString("utf8"))).toEqual(plain.json());
+      }
+    } finally {
+      await app.close();
+    }
+  });
+});
+
 describe("totp-setup", () => {
   it("prints a fresh secret and its authenticator URI", async () => {
     const { totpSetupText } = await import("../src/server.js");
@@ -165,5 +207,31 @@ describe("PUBLIC_DELAY_MINUTES", () => {
     expect(beacon.statusCode).toBe(404);
     expect(unknown.statusCode).toBe(404);
     expect(unknown.headers["x-robots-tag"]).toBe("noindex, nofollow");
+  });
+});
+
+describe("rebuild command", () => {
+  it("rebuilds a projection, or every one, from the source tables of a database file", () => {
+    const dir = mkdtempSync(join(tmpdir(), "insights-rebuild-"));
+    try {
+      const path = join(dir, "insights.db");
+      const db = openDb(path);
+      const deal = (ticket: string, entry: "IN" | "OUT", ts: number, profit: number): Envelope => ({
+        v: 1, instanceId: "i1", id: `d-${ticket}`, seq: 0, ts, type: "broker.deal",
+        payload: { broker: "B", dealTicket: ticket, positionTicket: "P", symbol: "XAUUSD", side: entry === "IN" ? "BUY" : "SELL", entry, qty: 1, price: 1, profit, strategyId: "s", ts },
+      } as Envelope);
+      ingestEvents(db, "i1", [deal("1", "IN", 1_000, 0), deal("2", "OUT", 2_000, 5)]);
+      const before = db.prepare("SELECT * FROM closed_trades").all();
+      db.close();
+      const lines: string[] = [];
+      rebuildCommand(["all"], path, (l) => lines.push(l));
+      expect(lines.map((l) => l.split(":")[0])).toEqual(["closed_trades", "strategy_daily", "position_excursions", "account_drawdown"]);
+      const after = openDb(path);
+      expect(after.prepare("SELECT * FROM closed_trades").all()).toEqual(before);
+      after.close();
+      expect(() => rebuildCommand(["nope"], path)).toThrow(/usage: rebuild/);
+    } finally {
+      rmSync(dir, { recursive: true, force: true });
+    }
   });
 });

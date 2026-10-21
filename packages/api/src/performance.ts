@@ -1,6 +1,6 @@
 import {
-  closedTrades, contributionRanking, costDecomposition, dailyNets, dowHourMatrix, drawdownPeriods, excursionStats, executionQuality,
-  normalizedPerformance, performanceReport, postLossStats, rollingStats, tradeBreakdowns, type AnalyticsFilter, type Db,
+  closedTrades, contributionRanking, costDecomposition, dailyNets, dowHourMatrix, drawdownPeriods, excursionStats,
+  performanceReport, postLossStats, rollingStats, tradeBreakdowns, withAnalyticsScope, type AnalyticsFilter, type Db,
 } from "@qkt-insights/store";
 
 /**
@@ -12,7 +12,7 @@ export function performanceBundle(db: Db, f: AnalyticsFilter, include?: string, 
   // A repeated ?include= arrives as an array; only a single string is a valid selection.
   const wanted = typeof include === "string" ? new Set(include.split(",")) : null;
   const want = (k: string) => wanted == null || wanted.has(k);
-  return {
+  return withAnalyticsScope(db, () => ({
     report: want("report") ? performanceReport(db, f) : undefined,
     dailyNets: want("dailyNets") ? dailyNets(db, f) : undefined,
     drawdownPeriods: want("drawdownPeriods") ? drawdownPeriods(db, f) : undefined,
@@ -23,10 +23,8 @@ export function performanceBundle(db: Db, f: AnalyticsFilter, include?: string, 
     rolling: want("rolling") ? rollingStats(db, f, typeof window === "string" ? Number(window) : undefined) : undefined,
     costs: want("costs") ? costDecomposition(db, f) : undefined,
     contribution: want("contribution") ? contributionRanking(db, f) : undefined,
-    normalized: want("normalized") ? normalizedPerformance(db, f) : undefined,
     excursions: want("excursions") ? excursionStats(db, f) : undefined,
-    execution: want("execution") ? executionQuality(db, f) : undefined,
-  };
+  }));
 }
 
 export type PerformanceBundle = ReturnType<typeof performanceBundle>;

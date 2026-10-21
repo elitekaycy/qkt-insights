@@ -244,12 +244,26 @@ describe("public links", () => {
     const account = (await pub(token, "/account/equity?instance=i1")).json() as Array<{ minuteTs: number; broker: string }>;
     expect(account.map((p) => p.minuteTs)).toEqual([BEFORE, NOW - 20 * MIN]);
     expect(account.every((p) => p.broker === "Account")).toBe(true);
+    expect(account.every((p) => (p as unknown as { account: string }).account === "Account")).toBe(true);
+
+    const risk = (await pub(token, "/account/risk")).json() as Array<{ account: string; label: string; equity: number; drawdown: { used: number } }>;
+    expect(risk.map((r) => [r.account, r.label, r.equity])).toEqual([["Account", "Account", 10025]]);
 
     const dd = (await pub(token, "/account/drawdown?instance=i1")).json() as Array<{ currentEquity: number }>;
     expect(dd[0]!.currentEquity).toBe(10025);
 
+    // The account roll-up covers the link's public strategies, closed by the cutoff, symbols without profiles.
+    const summary = (await pub(token, "/account/summary")).json() as {
+      totalNet: number; closes: Array<{ strategyId: string; symbol: string; ts: number }>; byInstrument: Array<Record<string, unknown>>;
+      byStrategy: Array<{ key: string | null }>;
+    };
+    expect(summary.totalNet).toBe(25);
+    expect(summary.closes.map((c) => [c.strategyId, c.symbol, c.ts])).toEqual([["gold", "GBPUSD", BEFORE]]);
+    expect(summary.byInstrument.every((b) => !("venues" in b))).toBe(true);
+    expect(summary.byStrategy.map((b) => b.key)).toEqual(["gold"]);
+
     for (const res of [perf]) expectNoSecrets(res.body);
-    for (const path of [`/stats${q}`, "/trades?limit=100", "/deals?limit=100", `/equity${q}`, "/account/equity", "/account/drawdown", "/live/state", "/strategies", "/meta"]) {
+    for (const path of [`/stats${q}`, "/trades?limit=100", "/deals?limit=100", `/equity${q}`, "/account/equity", "/account/drawdown", "/account/summary", "/account/risk", "/live/state", "/strategies", "/meta"]) {
       expectNoSecrets((await pub(token, path)).body);
     }
   });
@@ -260,6 +274,32 @@ describe("public links", () => {
     for (const path of ["/stats?strategy=secret", "/equity?strategy=secret", "/performance?strategy=secret", "/trades?strategy=secret", "/deals?strategy=secret"]) {
       expect((await pub(token, path)).statusCode, path).toBe(404);
     }
+  });
+
+  it("lists round trips of public strategies closed by the cutoff, without tickets, profiles or stops", async () => {
+    await share("strategy", "secret", "private");
+    const token = (await share("overview", "", "public")).overview.token!;
+    const res = await pub(token, "/round-trips?q=side:long");
+    expect(res.statusCode).toBe(200);
+    const body = res.json() as { rows: Array<Record<string, unknown>>; nextCursor: null; totals: { matched: number; net: number }; query: { canonical: string } };
+    // pos-after closed after the cutoff and pos-secret belongs to a private strategy
+    expect(body.rows).toHaveLength(1);
+    expect(body.rows[0]).toMatchObject({ strategyId: "gold", symbol: "GBPUSD", pnl: 25, broker: null, stopPrice: null, entryOrderId: null });
+    expect(body.rows[0]!.id).toMatch(/^[0-9a-f]{16}$/);
+    expect(body).toMatchObject({ nextCursor: null, totals: { matched: 1, net: 25 }, query: { canonical: "side:long" } });
+    // a ticket is not searchable on a shared link
+    expect(((await pub(token, "/round-trips?q=pos")).json() as { rows: unknown[] }).rows).toEqual([]);
+    expectNoSecrets(res.body);
+    const facets = await pub(token, "/round-trips/facets");
+    expect(facets.json()).toMatchObject({ strategies: [{ id: "gold", n: 1 }], instruments: [{ name: "GBPUSD", n: 1 }] });
+    expectNoSecrets(facets.body);
+    expect((await pub(token, "/round-trips?strategy=secret")).statusCode).toBe(404);
+    // the journal aggregates cover the same closed round trips, with opaque trade ids
+    const analytics = await pub(token, "/round-trips/analytics?q=side:long");
+    expect(analytics.json()).toMatchObject({ matched: 1, closed: 1, pnl: 25, best: { pnl: 25 }, query: { canonical: "side:long" } });
+    expect((analytics.json() as { trades: Array<{ id: string }> }).trades[0]!.id).toMatch(/^[0-9a-f]{16}$/);
+    expectNoSecrets(analytics.body);
+    expect((await pub(token, "/round-trips/analytics?strategy=secret")).statusCode).toBe(404);
   });
 
   it("shows account state without identity, and open positions only as a count and total marked at the cutoff", async () => {
@@ -285,6 +325,8 @@ describe("public links", () => {
     expect((await pub(token, "/stats?strategy=book:s0")).statusCode).toBe(404);
     expect((await pub(token, "/account/equity")).statusCode).toBe(404);
     expect((await pub(token, "/account/drawdown")).statusCode).toBe(404);
+    expect((await pub(token, "/account/summary")).statusCode).toBe(404);
+    expect((await pub(token, "/account/risk")).statusCode).toBe(404);
     const state = (await pub(token, "/live/state")).json() as { accounts: unknown[] };
     expect(state.accounts).toEqual([]);
   });

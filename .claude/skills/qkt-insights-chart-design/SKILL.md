@@ -14,9 +14,11 @@ become interactive. Preserve qkt's statistical honesty and broker-truth labels.
    rationale is that the data exists.
 2. Confirm source, unit, aggregation, time basis, and sample size in the store
    and API. Never repair an ambiguous metric with presentation alone.
-3. Reuse `EChart`, the shared theme builders, `ChartCard`, formatting helpers,
-   and existing query/range controls. Do not duplicate grid, axis, tooltip,
-   color, or empty-state configuration in a feature component.
+3. Reuse `EChart`, the shared theme builders (`qktChartGrid`, `qktXAxis`,
+   `qktChartAxis`, `qktChartTooltip`, `tipHtml`, `zeroLine`, `areaFade`,
+   `chartColors`, `tok`), `ChartCard`, the `format.ts` helpers, and existing
+   query/range controls. Do not duplicate grid, axis, tooltip, color, zoom, or
+   empty-state configuration in a feature component.
 4. Choose the smallest honest encoding:
    - line for ordered change over time;
    - diverging bars for signed category comparisons;
@@ -32,22 +34,40 @@ become interactive. Preserve qkt's statistical honesty and broker-truth labels.
 
 ## Visual contract
 
+The look is the qkt-backtester journal's, copied (not shared) the way labs
+did: tokens in `apps/web/src/index.css`, chart base in `components/EChart.tsx`.
+
 - Use sentence-case titles and one short muted description. Put filters and
   view toggles at the right edge of the header.
-- Use Archivo/system sans for titles, axes, and legends. Use JetBrains Mono
-  only for numbers, IDs, and tooltip values.
-- Hide axis lines and ticks. Render at most five useful Y ticks and faint solid
-  grid lines. Emphasize the zero line on signed charts.
-- Format axis values compactly (`$8.4k`, `2.1%`, `42m`). Put full precision in
-  the tooltip.
-- Use one stable primary-series color. Reserve green/red for positive/negative
-  meaning; never recolor a whole equity curve based on its last point.
+- Use Inter (tabular figures) for titles, axes, legends, tooltips and every
+  number. JetBrains Mono is only for IDs, tickets, hashes and log lines.
+- Colours are theme tokens, never hex: write `tok("gain-fill")` or
+  `chartColors.*` in options (the host resolves them for the active theme and
+  re-resolves on a theme switch), and `var(--color-*)` in tooltip HTML.
+- Quiet axes: the x axis keeps one hairline baseline, no ticks, no split lines;
+  value axes have no line, no ticks, at most five labels and faint gridlines.
+  Draw a dashed `zeroLine()` on signed charts.
+- Format axis values compactly (`8.4k`, `−56k`, true minus). The host applies
+  `compact` to value axes without their own formatter. Put the exact figure in
+  the tooltip via `tipHtml` (muted title with the time zone, one signed headline
+  with its glyph, aligned rows, a hint when a click does something).
+- Use one stable primary-series color (`chartColors.primary`). Gains are green,
+  losses red (`chartColors.gain`/`loss`, tokens `--color-gain*`/`--color-loss*`),
+  always paired with a sign or glyph (owner preference, 2026-10-21: green reads
+  as profit; it replaced the journal's blue). Never write a gain colour outside
+  those tokens. Status (Health, live dots) uses `ok`/`danger` with a dot and a
+  word, so it never reads as P&L. Never recolor a whole equity curve based on
+  its last point. Comparison lines and stacked parts use `chartColors.series`.
 - Do not smooth equity, P&L, balance, exposure, drawdown, or step-like accounting
   series. Every visible point or segment must correspond to stored truth.
-- Use area fill only for a single primary series and keep it subtle. Never fill
-  strategy-comparison lines or radar polygons.
-- Keep wheel/pinch/inside zoom available. Show a slider or brush only in an
-  expanded analysis view or when the user explicitly enables it.
+- Use area fill only for a single primary series and keep it subtle
+  (`areaFade`, 18% to transparent). Never fill strategy-comparison lines.
+- Zoom is the host's job, not the chart's: line/bar charts on a time or
+  category axis get drag-to-pan, a wheel that zooms only after the chart is
+  clicked (or with Ctrl/⌘ held) so the page keeps scrolling, a Reset zoom
+  button while zoomed, and a slider under the plot from 40 points
+  (`SLIDER_MIN_POINTS`). On touch screens panning starts after a tap. Do not add
+  `dataZoom` to an option unless the chart needs something different.
 - Prefer direct labels or a compact clickable legend. Limit simultaneous
   comparison lines to four unless the user selected more deliberately.
 - Tooltips show time/category first, then marker + label + formatted value; add

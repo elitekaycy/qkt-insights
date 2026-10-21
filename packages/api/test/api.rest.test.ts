@@ -55,10 +55,6 @@ describe("REST", () => {
     ingestEvents(db, "qkt-prod", [env({ id: "resume-1", seq: 3, ts: ts + 1, strategyId: "latch", type: "risk.resumed", payload: { strategyId: "latch" } })]);
     expect((await get("/strategies?instance=qkt-prod&_=2")).json()).toMatchObject([{ strategyId: "latch", halted: false }]);
   });
-  it("lists orders", async () => {
-    const rows = (await get("/orders?instance=qkt-prod&state=FILLED")).json();
-    expect(rows).toHaveLength(1);
-  });
   it("lists trades by symbol", async () => {
     const rows = (await get("/trades?instance=qkt-prod&symbol=XAUUSD")).json();
     expect(rows).toHaveLength(1);
@@ -68,7 +64,7 @@ describe("REST", () => {
     expect(rows.length).toBeGreaterThanOrEqual(1);
   });
   it("returns 400 when instance is missing on a scoped route", async () => {
-    expect((await get("/orders")).statusCode).toBe(400);
+    expect((await get("/trades")).statusCode).toBe(400);
   });
 });
 
@@ -148,15 +144,13 @@ describe("edge analytics REST", () => {
       deal("1", "IN", "BUY", T0),
       deal("2", "OUT", "SELL", T0 + 3_600_000, { profit: 10, commission: -0.5, swap: -0.25 }),
     ]);
-    const body = (await get("/performance?instance=qkt-prod&strategy=latch&include=dowHour,rolling,costs,contribution,normalized,excursions,execution")).json();
+    const body = (await get("/performance?instance=qkt-prod&strategy=latch&include=dowHour,rolling,costs,contribution,excursions")).json();
     expect(body.report).toBeUndefined();
     expect(body.dowHour).toEqual([{ dow: 0, hour: 1, n: 1, net: 9.25, mean: 9.25, winRate: 100 }]);
     expect(body.costs.total).toMatchObject({ grossProfit: 10, commission: -0.5, swap: -0.25 });
-    expect(body.contribution.bySymbol[0]).toMatchObject({ key: "EX:XAUUSD", trades: 1 });
+    expect(body.contribution.bySymbol[0]).toMatchObject({ key: "XAUUSD", venues: ["EX:XAUUSD"], trades: 1 });
     expect(Array.isArray(body.rolling)).toBe(true);
-    expect(body.normalized).toMatchObject({ trades: 1, totalQty: 0.01, netPerUnit: 925 });
     expect(body.excursions).toBeNull();
-    expect(body.execution).toMatchObject({ submitted: 0, accepted: 0, filled: 0, rejected: 0 });
     // A different include set must not reuse the cached bundle above.
     const other = (await get("/performance?instance=qkt-prod&strategy=latch&include=dowHour")).json();
     expect(other.costs).toBeUndefined();
@@ -236,14 +230,9 @@ describe("broker state REST", () => {
   });
 });
 
-describe("ingest observations REST", () => {
-  it("serves persisted duplicate observations", async () => {
-    const duplicate = env({ id: "duplicate-1", seq: 10, type: "trade",
-      payload: { orderId: "duplicate-1", symbol: "XAUUSD", side: "BUY", price: 2350, qty: 0.1, ts: 1718000000000 } });
-    ingestEvents(db, "qkt-prod", [duplicate]);
-    ingestEvents(db, "qkt-prod", [duplicate]);
-    expect((await get("/ingest/observations")).statusCode).toBe(400);
-    const rows = (await get("/ingest/observations?instance=qkt-prod&kind=duplicate")).json();
-    expect(rows[0]).toMatchObject({ kind: "duplicate", eventId: "duplicate-1", seq: 10 });
+describe("removed REST routes", () => {
+  it("no longer serves the order list or ingest observations", async () => {
+    expect((await get("/orders?instance=qkt-prod&state=FILLED")).statusCode).toBe(404);
+    expect((await get("/ingest/observations?instance=qkt-prod")).statusCode).toBe(404);
   });
 });

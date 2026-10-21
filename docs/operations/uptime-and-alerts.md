@@ -4,9 +4,27 @@ Every 30s the collector checks one **heartbeat** monitor per reporting instance 
 90s of silence — three missed pulses), every **http** monitor declared in
 `INSIGHTS_MONITORS`, and, when `INSIGHTS_MARKETDATA_MONITOR` is on, one **market data**
 monitor per instance (named `<instance> market data`). A monitor goes down after three straight failures and comes back on the
-first success; each transition is stored, shown on Health, and pushed to every configured
-channel. All of it is optional and off by default — with nothing set you still get the
-heartbeats and the Health page, just no alerts.
+first success; a heartbeat silent past 150s is down at once, stamped from when it was last heard,
+and its recovery is stamped when it was first heard again. Each transition is stored, shown on
+Health, and pushed to every configured channel. All of it is optional and off by default — with
+nothing set you still get the heartbeats and the Health page, just no alerts.
+
+**Outages nobody was watching.** When the host goes down the collector goes down with it, so no
+live check sees the outage. Two records fill it in, each written once as a down/up pair and
+announced as "was DOWN ... found after the fact":
+
+- `insights collector`: on boot the collector looks for stretches of the last 30 days in which
+  nothing was checked for longer than 150s (the last check before, to the first check after, or to
+  the boot), and at every tick for a stall since the previous one.
+- each instance: ingest notes a gap of more than 150s in the instance's own envelope stream (the
+  envelopes' own timestamps, so clock skew cannot fake one; the 30s health pulses are journaled and
+  replayed oldest first, so an instance that kept running while only the collector was down shows
+  no gap). A heartbeat last heard before the collector came back is held, neither up nor down, for
+  150s while that replay arrives.
+
+Uptime is the share of the window's minutes, from the monitor's first record, that were up. A
+minute inside an outage is down whether or not anything checked it; a minute nothing checked and
+no outage covers is "unchecked", which counts as not up and is shown beside the 30d figure.
 
 ```dotenv
 # HTTP probes: 2xx required; `expect` asserts top-level JSON fields, which is how a gateway

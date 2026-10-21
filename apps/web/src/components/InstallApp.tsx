@@ -20,7 +20,7 @@ const ROUTE: Record<InstallPlatform, { steps: [string, string]; then: string }> 
 function InstallHint({ id, platform }: { id: string; platform: InstallPlatform }) {
   const r = ROUTE[platform];
   return (
-    <div id={id} role="note" className="rise mt-2.5 rounded-lg border border-line bg-raised px-3 py-2.5 text-xs leading-relaxed text-muted">
+    <div id={id} role="note" className="mt-2.5 rounded-lg border border-line bg-raised px-3 py-2.5 text-xs leading-relaxed text-muted">
       Tap <span className="font-semibold text-body">{r.steps[0]}</span>, then <span className="font-semibold text-body">{r.steps[1]}</span>. {r.then}
     </div>
   );
@@ -47,7 +47,7 @@ export function InstallApp({ variant, iconsOnly }: { variant: "sidebar" | "login
     return (
       <div className="mt-5 border-t border-line pt-4">
         <button type="button" onClick={onClick} {...aria} className="mx-auto flex items-center gap-2 text-sm font-medium text-muted transition hover:text-bright">
-          <DownloadIcon className="h-4 w-4 text-accent" />
+          <DownloadIcon className="h-4 w-4 text-accent-ink" />
           {label}
         </button>
         {showHint && !canPrompt && <InstallHint id={hintId} platform={platform} />}

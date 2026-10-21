@@ -84,24 +84,43 @@ export interface InstanceRow {
   lastSeen: number;
   lastSeq: number;
   heardAt: number | null;
+  silentFrom: number | null;
+  silentTo: number | null;
 }
 export interface HealthRow {
   instanceId: string;
   lastSeen: number;
   lastSeq: number;
+  /** The newest envelope's sequence number (any type that carries one) and that envelope's time. */
+  latestSeq: number | null;
+  latestSeqTs: number | null;
+  /** Deployed now; retiredStrategies are rows a newer roster or a month of silence has left behind. */
   strategies: number;
+  retiredStrategies: number;
   insightsSent: number | null;
+  /** POST attempts that failed since qkt started; each is retried (from the journal when on), so it is not a loss. */
   insightsFailed: number | null;
+  /** Envelopes qkt gave up on: the only loss. */
   insightsDropped: number | null;
   insightsQueued: number | null;
   insightsJournalEnabled: boolean | number | null;
   insightsJournalPending: number | null;
   insightsHealthTs: number | null;
+  /** Envelopes /ingest acknowledged but kept raw (unknown type, bad payload, unsupported major), per type and major. */
+  quarantined: QuarantineCount[];
+}
+export interface QuarantineCount {
+  type: string | null;
+  v: number | null;
+  count: number;
+  lastReceivedAt: number;
+  /** The newest one's reason. */
+  reason: string;
 }
 export type MonitorStatus = "up" | "down" | "pending";
 export interface StripBucket {
   ts: number;
-  /** null = no checks recorded in the bucket (the collector was not running). */
+  /** null = no checks recorded in the bucket (the collector was not running) and no outage known in it. */
   status: "up" | "down" | null;
   checks: number;
   downs: number;
@@ -117,8 +136,12 @@ export interface MonitorSummary {
   detail: string | null;
   failures: number;
   strip: StripBucket[];
+  /** Minutes up over the window's minutes since the monitor's first record; outage minutes are down, unchecked ones not up. */
   uptime24h: number | null;
   uptime30d: number | null;
+  /** Share of those minutes nothing checked and no outage covers (counted against uptime). */
+  unchecked24h: number | null;
+  unchecked30d: number | null;
 }
 export interface MonitorEventRow {
   monitor: string;
@@ -150,6 +173,8 @@ export interface StrategyRow {
   /** True when only `qkt resume <name>` clears the halt; null when unknown. */
   haltPersistent?: boolean | null;
   haltedAt?: number | null;
+  /** True when haltedAt is only a bound (the halt began at or before it): a restart re-asserted it and no earlier record is stored. */
+  haltedBefore?: boolean;
 }
 export interface OrderRow {
   orderId: string;
@@ -170,19 +195,6 @@ export interface TradeRow {
   ts: number;
   payload: { orderId: string; symbol: string; side: string; price: number; qty: number; ts: number };
 }
-/** A unified blotter row: a broker-deal close (raw=null) or an engine fill (raw set). */
-export interface TradeView {
-  key: string;
-  ts: number;
-  symbol: string;
-  side: string;
-  qty: number;
-  price: number;
-  realized: number | null;
-  searchKey: string;
-  raw: TradeRow | null;
-}
-
 export interface LogRow {
   id: string;
   strategyId: string | null;
@@ -203,6 +215,8 @@ export interface StrategyStats {
   winRate: number | null;
   maxDrawdownPct: number | null;
   sharpe: number | null;
+  /** End-of-day points behind sharpe; it is null below MIN_RATIO_DAYS. */
+  ratioDays: number;
 }
 export interface EquityPoint {
   ts: number;
@@ -236,6 +250,8 @@ export interface PerformanceReport {
   sharpe: number | null;
   sortino: number | null;
   calmar: number | null;
+  /** End-of-day points behind the ratios; they are null below MIN_RATIO_DAYS (20). */
+  ratioDays: number;
   wins: number;
   losses: number;
   winRate: number | null;
@@ -295,9 +311,57 @@ export interface PerformanceBundle {
   rolling?: RollingPoint[];
   costs?: CostDecomposition | null;
   contribution?: ContributionRanking | null;
-  normalized?: NormalizedPerformance;
   excursions?: ExcursionStats | null;
-  execution?: ExecutionQuality;
+}
+/** A close anywhere on the account; strategyId null is a deal no strategy claimed. */
+export interface AccountClose extends ClosedTradeRow {
+  strategyId: string | null;
+  /** The symbol without its broker-profile prefix. */
+  instrument: string;
+}
+export interface AccountBucket {
+  key: string | null;
+  net: number;
+  trades: number;
+  wins: number;
+  losses: number;
+  venues?: string[];
+}
+/** Every close on the account: retired strategies and unattributed deals included. */
+export interface AccountSummary {
+  closes: AccountClose[];
+  dailyNets: DayNet[];
+  totalNet: number;
+  trades: number;
+  wins: number;
+  losses: number;
+  breakeven: number;
+  sumWins: number;
+  sumLosses: number;
+  /** Gross = before commission, swap and fee. Null without broker deals. */
+  costs: { grossProfit: number; commission: number; swap: number; fee: number; net: number } | null;
+  byInstrument: AccountBucket[];
+  byStrategy: AccountBucket[];
+  /** Capital each traded month's return is measured against. */
+  monthBases: PeriodBase[];
+}
+export interface PeriodBase { period: string; base: number; source: "account equity" | "start balance" }
+/** Drawdown and daily-loss consumption of one venue account against its own limits. */
+export interface AccountRiskRow {
+  account: string;
+  label: string;
+  source: "account limits" | "strategy risk config" | null;
+  basis: "peak" | "static";
+  startBalance: number | null;
+  startBalanceSource: "configured" | "strategy risk config" | "first recorded balance" | null;
+  balance: number | null;
+  equity: number | null;
+  peakEquity: number | null;
+  drawdown: { used: number | null; usedPct: number | null; reference: number | null; cap: number | null };
+  dailyLoss: {
+    used: number | null; cap: number | null; dayStart: number; resetHour: number; timezone: string;
+    includesFloating: boolean; dayStartBalance: number | null; realizedToday: number;
+  };
 }
 export interface AccountDrawdownRow {
   broker: string; currentEquity: number | null; peakEquity: number | null;
@@ -317,6 +381,10 @@ export interface LiveAccount {
   login?: string;
   server?: string;
   name?: string;
+  /** The venue account (`mt5:<login>@<server>`, `vgp:<adapter>:<login>`), as the collector resolved it. */
+  accountId?: string;
+  connector?: string;
+  adapter?: string;
   lastSeen: number;
   stale: boolean;
 }
@@ -391,6 +459,8 @@ export interface DealRow {
 }
 export interface AccountEquityPoint {
   broker: string;
+  /** The venue account the label belongs to: labels of one account share it. */
+  account: string;
   minuteTs: number;
   balance: number | null;
   equity: number | null;
@@ -399,6 +469,8 @@ export interface AccountEquityPoint {
 
 export interface BreakdownRow {
   key: string;
+  /** bySymbol only: venue symbols folded into this instrument (absent on shared links). */
+  venues?: string[];
   net: number;
   trades: number;
   wins: number;
@@ -420,7 +492,8 @@ export interface DowHourCell {
   n: number;
   net: number;
   mean: number;
-  winRate: number;
+  /** Wins over decided round trips, breakeven excluded; null when none was decided. */
+  winRate: number | null;
 }
 export interface RollingPoint {
   day: string;
@@ -443,9 +516,12 @@ export interface CostDecomposition {
 }
 export interface ContributionRow {
   key: string;
+  /** bySymbol only: venue symbols folded into this instrument (absent on shared links). */
+  venues?: string[];
   net: number;
   trades: number;
-  winRate: number;
+  /** Wins over decided round trips, breakeven excluded; null when none was decided. */
+  winRate: number | null;
   expectancy: number;
   share: number | null;
 }
@@ -453,14 +529,6 @@ export interface ContributionRanking {
   bySymbol: ContributionRow[];
   byDirection: ContributionRow[];
   totalNet: number;
-}
-export interface NormalizedPerformance {
-  trades: number;
-  totalQty: number;
-  netPerUnit: number | null;
-  averageQty: number | null;
-  averagePlannedRiskReward: number | null;
-  plannedRiskRewardSample: number;
 }
 export interface ExcursionRow {
   ticket: string;
@@ -480,21 +548,11 @@ export interface ExcursionStats {
   coveragePct: number;
   averageMae: number;
   averageMfe: number;
-  averageCapturePct: number | null;
+  /** Median exit/MFE over winning trades; null when none had a favorable excursion. */
+  medianWinnerCapturePct: number | null;
+  winnersWithCapture: number;
   sampled: true;
 }
-export interface ExecutionQuality {
-  submitted: number;
-  accepted: number;
-  filled: number;
-  rejected: number;
-  rejectionRate: number | null;
-  averageAcceptMs: number | null;
-  p95FillMs: number | null;
-  averageAdverseSlippage: number | null;
-  slippageSample: number;
-}
-
 export type ShareKind = "overview" | "portfolio" | "strategy";
 export type ShareVisibility = "public" | "private";
 
@@ -592,3 +650,6 @@ export function reportPublicView(page: string, strategy?: string | null): void {
   const sent = typeof navigator.sendBeacon === "function" && navigator.sendBeacon(url, new Blob([body], { type: "application/json" }));
   if (!sent) void fetch(url, { method: "POST", headers: { "content-type": "application/json" }, body, keepalive: true }).catch(() => undefined);
 }
+
+/** Sharpe, Sortino and Calmar need this many UTC days with a close; below it they show "—". */
+export const MIN_RATIO_DAYS = 20;

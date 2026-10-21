@@ -19,7 +19,7 @@ export default defineConfig({
       manifest: false,
       workbox: {
         // Live trading data — never let the service worker serve a stale API response.
-        navigateFallbackDenylist: [/^\/(auth|brand|instances|strategies|orders|trades|search|equity|health|live)(\/|$)/],
+        navigateFallbackDenylist: [/^\/(auth|brand|instances|strategies|orders|trades|round-trips|search|equity|health|live|logs|public)(\/|$)/],
         // Fonts are the one third-party fetch on every cold start; keep them so the
         // shell (and the offline splash) renders in the real typeface without a trip.
         runtimeCaching: [
@@ -39,11 +39,16 @@ export default defineConfig({
   ],
   build: {
     outDir: "../../dist/web",
+    // the charts chunk (ECharts core + the six chart types used) is ~630 kB raw, ~210 kB gzip,
+    // and loads only with a chart page; the shell and vendor chunks stay far below this
+    chunkSizeWarningLimit: 700,
     emptyOutDir: true,
     rollupOptions: {
       output: {
         manualChunks(id) {
           if (id.includes("node_modules/react") || id.includes("node_modules/@tanstack")) return "vendor";
+          // every chart page shares one charts chunk instead of each carrying a copy
+          if (id.includes("node_modules/echarts") || id.includes("node_modules/zrender")) return "charts";
         },
       },
     },

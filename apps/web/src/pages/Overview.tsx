@@ -1,398 +1,148 @@
-import { useQueries, useQuery } from "@tanstack/react-query";
-import { get, type AccountDrawdownRow, type DayNet, type EquityPoint, type HealthRow, type PerformanceBundle, type StrategyRow } from "../api";
-import { AccountSummary } from "../components/AccountSummary";
-import type { ComparisonSeries } from "../components/EquityChart";
-import { OverviewDashboard } from "../components/OverviewDashboard";
-import { Card, Cell, DataList, Empty, FlashValue, LiveDot, Loadable, PageHeader, Panel, Pill, SideTag, Stat } from "../components/ui";
-import { age, duration, money, num, price } from "../format";
-import { strategyCapital, strategyDisplayName } from "../portfolio";
+import { useQuery } from "@tanstack/react-query";
+import { get, type AccountRiskRow, type AccountSummary, type LivePositionRow, type StrategyRow } from "../api";
+import { groupAccounts } from "../accounts";
+import { AccountStrip } from "../components/HomeAccount";
+import { MonthCalendar, PnlChart } from "../components/HomeCharts";
+import { OpenPositions, PublicOpenPositions } from "../components/HomePositions";
+import { StrategyTable, type StrategyLine } from "../components/HomeStrategies";
+import { ShareControl } from "../components/ShareControl";
+import { Card, Loadable, PageHeader } from "../components/ui";
+import { day as utcDay } from "../format";
+import { dayBasisLabel, floatingByStrategy, HOME_RANGES, openRisk, riskRowFor, strategyLines, strategyPeriods, type HomeRange } from "../home";
+import { strategyDisplayName } from "../portfolio";
+import { useSearchParam } from "../router";
 import { useLiveState } from "../useLiveState";
 import { useLiveStream } from "../useLiveStream";
-import { ShareControl } from "../components/ShareControl";
 import { usePublicPageView, useView } from "../view";
 
-const PALETTE = ["#c8f74a", "#5cb8ff", "#a78bfa", "#3fe08c", "#fbbf24", "#ff6b6b", "#f472b6", "#22d3ee"];
-
-// Overview only needs broker state pushes for live account/position truth; raw
-// event inspection belongs on Logs/Search so payloads cannot stretch the layout.
+// Home needs only broker state pushes for live account and position truth.
 const FEED_TYPES = ["state.account", "state.positions"];
+const DAY_MS = 86_400_000;
 
-function aggregateDaily(rows: DayNet[]): DayNet[] {
-  const byDay = new Map<string, DayNet>();
-  for (const row of rows) {
-    const current = byDay.get(row.day) ?? { day: row.day, net: 0, trades: 0 };
-    current.net += row.net;
-    current.trades += row.trades;
-    byDay.set(row.day, current);
-  }
-  return [...byDay.values()].sort((a, b) => a.day.localeCompare(b.day));
-}
-
-function aggregateRiskCap(rows: StrategyRow[], keys: string[]): number | null {
-  let cap = 0;
-  let found = false;
-  for (const row of rows) {
-    if (row.startingBalance == null || row.startingBalance <= 0 || row.metadata == null) continue;
-    const risk = row.metadata.risk;
-    const sources = [row.metadata, risk && typeof risk === "object" ? risk as Record<string, unknown> : null];
-    let raw: number | null = null;
-    for (const source of sources) {
-      if (!source) continue;
-      for (const key of keys) {
-        const value = source[key];
-        const parsed = typeof value === "number" ? value : typeof value === "string" ? Number(value) : NaN;
-        if (Number.isFinite(parsed) && parsed > 0) { raw = parsed; break; }
-      }
-      if (raw != null) break;
-    }
-    if (raw == null) continue;
-    const fraction = raw <= 1 ? raw : raw / 100;
-    cap += row.startingBalance * fraction;
-    found = true;
-  }
-  return found ? cap : null;
-}
-
-export default function Overview({
-  instanceId,
-}: {
-  instanceId: string | null;
-  onOpenStrategy: (strategyId: string) => void;
-}) {
+/**
+ * Home answers "am I safe right now": the account strip (balance, equity, today, open risk to the
+ * stops, loss limits), the open positions, every strategy's periods, the realized P&L history and
+ * the month. Shared links show the same page 15 minutes behind, without positions.
+ */
+export default function Home({ instanceId }: { instanceId: string | null }) {
   const view = useView();
   usePublicPageView("overview");
+  const enc = encodeURIComponent(instanceId ?? "");
   const strategies = useQuery({
     queryKey: ["strategies", instanceId],
-    queryFn: () => get<StrategyRow[]>(`/strategies?instance=${encodeURIComponent(instanceId!)}`),
+    queryFn: () => get<StrategyRow[]>(`/strategies?instance=${enc}`),
     enabled: !!instanceId,
     refetchInterval: 30_000,
   });
-  const health = useQuery({
-    queryKey: ["health"],
-    queryFn: () => get<HealthRow[]>("/health/instances"),
-    enabled: !view.public,
-    refetchInterval: 15_000,
-  });
-
-  // Only the live deployed roster feeds the overview aggregates; ids left over from a
-  // prior bench topology (active=false) are excluded from counts, curves, and allocation.
-  const rows = (strategies.data ?? []).filter((s) => s.active);
-  const ids = rows.map((s) => s.strategyId);
-
-  const curves = useQueries({
-    queries: ids.map((id) => ({
-      queryKey: ["equity", instanceId, id],
-      queryFn: () =>
-        get<EquityPoint[]>(`/equity?instance=${encodeURIComponent(instanceId!)}&strategy=${encodeURIComponent(id)}`),
-      refetchInterval: 30_000,
-    })),
-  });
   const live = useLiveStream(instanceId, 40, FEED_TYPES);
   const liveState = useLiveState(live);
-  // One bounded bundle per strategy feeds every account-level review widget.
-  const perf = useQueries({
-    queries: ids.map((id) => ({
-      queryKey: ["perf-daily", instanceId, id],
-      queryFn: () =>
-        get<Partial<PerformanceBundle>>(`/performance?instance=${encodeURIComponent(instanceId!)}&strategy=${encodeURIComponent(id)}&include=dailyNets,report,closes,normalized,excursions,execution,costs,contribution`),
-      refetchInterval: 60000,
-    })),
+  // every close on the account: retired strategies and unattributed deals included
+  const summary = useQuery({
+    queryKey: ["accountSummary", instanceId],
+    queryFn: () => get<AccountSummary>(`/account/summary?instance=${enc}`),
+    enabled: !!instanceId,
+    refetchInterval: 60_000,
   });
+  const risk = useQuery({
+    queryKey: ["accountRisk", instanceId],
+    queryFn: () => get<AccountRiskRow[]>(`/account/risk?instance=${enc}`),
+    enabled: !!instanceId,
+    refetchInterval: 60_000,
+  });
+  const [rawRange, setRange] = useSearchParam("range", "all");
+  const range = (HOME_RANGES.find((r) => r.key === rawRange)?.key ?? "all") as HomeRange;
 
   if (!instanceId) {
     return (
       <Card className="p-10 text-center text-muted">
-        No instances reporting yet — enable the insights block on a qkt instance and it will appear here.
+        No instances reporting yet: enable the insights block on a qkt instance and it will appear here.
       </Card>
     );
   }
 
-  const drawdown = useQuery({
-    queryKey: ["accountDrawdown", instanceId],
-    queryFn: () => get<AccountDrawdownRow[]>(`/account/drawdown?instance=${encodeURIComponent(instanceId!)}`),
-    enabled: instanceId != null,
-    refetchInterval: 60_000,
-  });
-  const accounts = (liveState.data?.accounts ?? []).filter((a) => a.instanceId === instanceId);
-  const brokerPositions = (liveState.data?.positions ?? []).filter((p) => p.instanceId === instanceId);
-  const nameByStrategy = new Map(rows.map((r) => [r.strategyId, strategyDisplayName(r)]));
+  // a shared link is a still picture at its cutoff, never the live clock
+  const now = view.public ? Date.now() - view.meta.delayMinutes * 60_000 : Date.now();
+  const accountGroups = groupAccounts((liveState.data?.accounts ?? []).filter((a) => a.instanceId === instanceId));
+  const accounts = accountGroups.map((g) => g.account);
+  const groups = (liveState.data?.positions ?? []).filter((g) => g.instanceId === instanceId);
+  const positions: LivePositionRow[] = groups.flatMap((g) => g.list);
+  const rows = strategies.data ?? [];
+  const byId = new Map(rows.map((r) => [r.strategyId, r]));
+  const riskRows = risk.data ?? [];
 
-  // Live truth: account figures summed across brokers, open P&L attributed per strategy.
-  const accountEquity = accounts.length > 0 ? accounts.reduce((a, x) => a + x.equity, 0) : null;
-  const accountBalance = accounts.length > 0 ? accounts.reduce((a, x) => a + x.balance, 0) : null;
-  const accountOpenPnl = accounts.length > 0 ? accounts.reduce((a, x) => a + (x.openProfit ?? 0), 0) : null;
-  const totalAllocated = rows.reduce((a, s) => a + (strategyCapital(s).amount ?? 0), 0);
-  const combinedDaily = aggregateDaily(perf.flatMap((q) => q.data?.dailyNets ?? []));
-  const combinedCloses = perf.flatMap((q) => q.data?.closes ?? []);
-  const reports = perf.flatMap((q) => q.data?.report ? [q.data.report] : []);
-  const costs = perf.flatMap((q) => q.data?.costs ? [q.data.costs] : []);
-  const contribution = perf.flatMap((q) => q.data?.contribution ? [q.data.contribution] : []);
-  const normalized = perf.flatMap((q) => q.data?.normalized ? [q.data.normalized] : []);
-  const excursions = perf.flatMap((q) => q.data?.excursions ? [q.data.excursions] : []);
-  const execution = perf.flatMap((q) => q.data?.execution ? [q.data.execution] : []);
-  const dailyLossCap = aggregateRiskCap(rows, ["maxDailyDrawdownPct", "maxDailyLossPct", "max_daily_drawdown_pct"]);
-  const drawdownCap = aggregateRiskCap(rows, ["maxDrawdownPct", "max_drawdown_pct"]);
-
-  const series: ComparisonSeries[] = ids
-    .map((id, i) => {
-      const pts = curves[i]?.data ?? [];
-      const base = pts[0]?.equity;
-      return {
-        strategyId: id,
-        color: PALETTE[i % PALETTE.length]!,
-        points: base ? pts.map((p) => ({ ts: p.ts, pct: (p.equity / base - 1) * 100 })) : [],
-      };
-    })
-    .filter((s) => s.points.length > 0);
+  // Strategy Today follows the account's trading day; without a risk row it is the UTC day.
+  const primaryRisk = accounts[0] ? riskRowFor(accounts[0], riskRows) : riskRows[0] ?? null;
+  const dayStart = primaryRisk?.dailyLoss.dayStart ?? Math.floor(now / DAY_MS) * DAY_MS;
+  const dayLabel = primaryRisk ? dayBasisLabel(primaryRisk) : "day from 00:00 UTC";
+  const floating = view.public
+    ? new Map<string | null, number>(Object.entries(liveState.data?.openByStrategy ?? {}))
+    : floatingByStrategy(positions);
+  const periods = summary.data ? strategyPeriods(summary.data.closes, { now, dayStart, floating }) : null;
+  const lines: StrategyLine[] = periods ? strategyLines(rows, periods) : [];
+  // the account's realized today when it has no risk row yet: the strategies' sum over the same day
+  const realizedFallback = periods ? [...periods.values()].reduce((a, p) => a + p.todayRealized, 0) : 0;
 
   return (
-    <div>
+    <div className="grid gap-4">
       <PageHeader
-        title="Overview"
-        sub={view.public ? `${instanceId} · public view, figures ${view.meta.delayMinutes} minutes behind` : `Everything ${instanceId} is doing, right now.`}
+        title="Home"
+        sub={view.public ? `${instanceId} · shared view, figures ${view.meta.delayMinutes} minutes behind · times UTC` : `${instanceId}: where the account stands right now · times UTC`}
         right={<ShareControl instanceId={instanceId} kind="overview" />}
       />
 
-      <div className="mt-6">
-        <div className="rise flex items-baseline justify-between" style={{ "--stagger": 0 } as React.CSSProperties}>
-          <h3 className="text-sm font-bold uppercase tracking-[0.08em] text-body">Account</h3>
-          <span className="text-xs text-faint">broker-reported, whole account</span>
-        </div>
-        <Loadable
-          loading={liveState.isPending}
-          error={liveState.isError}
-          retry={() => liveState.refetch()}
-          what="broker account state"
-          lines={2}
-        >
-        {accounts.length === 0 && (
-          <Card className="mt-3 p-8 text-center text-faint" stagger={0}>
-            No broker account state yet — waiting for the state poller.
+      <Loadable loading={liveState.isPending} error={liveState.isError} retry={() => liveState.refetch()} what="the account" lines={3}>
+        {accounts.length === 0 ? (
+          <Card className="p-6 text-center text-sm text-muted">
+            {view.public
+              ? `Account figures appear ${view.meta.delayMinutes} minutes behind; none has reached this shared view yet.`
+              : "No account state yet: it arrives with the next state poll from qkt."}
           </Card>
-        )}
-        {accounts.map((a) => (
-          <div key={`${a.instanceId}:${a.broker}`} className={`mt-3 ${a.stale ? "opacity-50" : ""}`}>
-            <div className="flex flex-wrap items-center gap-2.5">
-              <LiveDot on={!a.stale} />
-              <span className="font-semibold text-bright">{a.broker}</span>
-              <Pill>{a.currency}</Pill>
-              {a.login && <span className="font-mono text-xs text-faint">#{a.login}</span>}
-              {a.server && <span className="text-xs text-faint">{a.server}</span>}
-              {a.name && <span className="text-xs text-muted">{a.name}</span>}
-              {a.stale && <Pill>stale {Math.max(0, Math.floor((Date.now() - a.lastSeen) / 1000))}s</Pill>}
-            </div>
-            <div className="mt-3 grid grid-cols-2 gap-4 sm:grid-cols-3 lg:grid-cols-6">
-              <Stat label="Balance" value={money(a.balance)} sub={a.currency} stagger={0} />
-              <Stat label="Equity" value={<FlashValue value={a.equity}>{money(a.equity)}</FlashValue>} stagger={0} />
-              <Stat
-                label="Open P&L"
-                value={<FlashValue value={a.openProfit}>{money(a.openProfit)}</FlashValue>}
-                tone={a.openProfit == null ? "neutral" : a.openProfit > 0 ? "up" : a.openProfit < 0 ? "down" : "neutral"}
-                stagger={1}
+        ) : (
+          accountGroups.map(({ account: a, labels }) => {
+            const row = riskRowFor(a, riskRows);
+            const own = groups.filter((g) => labels.includes(g.broker)).flatMap((g) => g.list);
+            return (
+              <AccountStrip
+                key={`${a.broker}:${a.login ?? ""}`}
+                account={a}
+                labels={labels}
+                risk={row}
+                realizedToday={row?.dailyLoss.realizedToday ?? realizedFallback}
+                dayLabel={row ? dayBasisLabel(row) : dayLabel}
+                open={view.public ? null : openRisk(accounts.length === 1 ? positions : own)}
+                isPublic={view.public}
               />
-              {!view.public && (
-                <Stat
-                  label="Margin level"
-                  value={a.marginLevel == null ? "—" : `${num(a.marginLevel)}%`}
-                  sub={a.margin != null ? `margin ${money(a.margin)}` : undefined}
-                  stagger={1}
-                />
-              )}
-              {(() => {
-                const all = drawdown.data ?? [];
-                // TOTAL spans broker relabels and multi-account portfolios; a
-                // single-label history has no TOTAL row and the label matches.
-                const dd = all.find((d) => d.broker === "TOTAL") ?? all.find((d) => d.broker === a.broker) ?? all[0];
-                const cur = dd?.currentDdPct; const max = dd?.maxDdPct;
-                return (
-                  <>
-                    <Stat
-                      label="DD from peak"
-                      value={cur == null ? "\u2014" : `${num(cur)}%`}
-                      sub={dd?.peakEquity != null ? `peak ${money(dd.peakEquity)}` : undefined}
-                      tone={cur == null ? "neutral" : cur > 5 ? "down" : cur > 0.005 ? "neutral" : "up"}
-                      stagger={2}
-                    />
-                    <Stat
-                      label="Max DD"
-                      value={max == null ? "\u2014" : `${num(max)}%`}
-                      sub="whole retained history"
-                      tone={max != null && max > 5 ? "down" : "neutral"}
-                      stagger={2}
-                    />
-                  </>
-                );
-              })()}
-            </div>
-          </div>
-        ))}
-        </Loadable>
-        <div className="mt-4">
-          {view.public ? (
-            <PublicOpenPositions summary={liveState.data?.openPositions ?? null} loading={liveState.isPending} />
-          ) : (
-          <Panel stagger={1} title="Open positions" hint="live broker tickets, broker-valued" scroll="max-h-[22rem]">
-            <Loadable
-              loading={liveState.isPending}
-              error={liveState.isError}
-              retry={() => liveState.refetch()}
-              what="open positions"
-            >
-            <DataList
-              head={["Ticket", "Symbol", "Side", "Qty", "Entry", "Current", "Held", "Profit", "Swap", "Strategy"]}
-              rows={brokerPositions.flatMap((g) => g.list.map((p) => ({ broker: g.broker, p })))}
-              keyOf={({ broker, p }) => `${broker}-${p.ticket}`}
-              empty={brokerPositions.length === 0 ? "No broker state yet." : "Flat — no open broker positions."}
-              cells={({ p }) => (
-                <>
-                  <Cell className="font-mono text-xs text-faint">{p.ticket}</Cell>
-                  <Cell className="font-semibold text-bright">{p.symbol}</Cell>
-                  <Cell>
-                    <SideTag side={p.side} />
-                  </Cell>
-                  <Cell className="font-mono">{p.qty}</Cell>
-                  <Cell className="whitespace-nowrap font-mono text-muted">@ {price(p.entryPrice)}</Cell>
-                  <Cell className="font-mono">{price(p.currentPrice)}</Cell>
-                  <Cell className="text-muted">
-                    <span title={p.openedAt ? new Date(p.openedAt).toISOString() : undefined}>
-                      {p.openedAt ? duration(Date.now() - p.openedAt) : "—"}
-                    </span>
-                  </Cell>
-                  <Cell className={`font-mono font-semibold ${profitTone(p.profit)}`}>
-                    <FlashValue value={p.profit}>
-                      {p.profit == null ? "—" : `${p.profit > 0 ? "+" : ""}${p.profit.toFixed(2)}`}
-                    </FlashValue>
-                  </Cell>
-                  <Cell className="font-mono text-muted">{p.swap ?? "—"}</Cell>
-                  <Cell>
-                    {p.strategyId ? (
-                      <span title={p.strategyId}>{nameByStrategy.get(p.strategyId) ?? p.strategyId}</span>
-                    ) : (
-                      <Pill>unattributed</Pill>
-                    )}
-                  </Cell>
-                </>
-              )}
-              card={({ p }) => (
-                <>
-                  <div className="flex items-baseline gap-2">
-                    <span className="min-w-0 truncate font-semibold text-bright">{p.symbol}</span>
-                    <SideTag side={p.side} />
-                    <span className={`ml-auto shrink-0 font-mono text-sm font-semibold ${profitTone(p.profit)}`}>
-                      <FlashValue value={p.profit}>
-                        {p.profit == null ? "—" : `${p.profit > 0 ? "+" : ""}${p.profit.toFixed(2)}`}
-                      </FlashValue>
-                    </span>
-                  </div>
-                  <div className="mt-1 flex items-center gap-2 text-xs text-faint">
-                    <span className="min-w-0 truncate">
-                      {p.strategyId ? nameByStrategy.get(p.strategyId) ?? p.strategyId : "unattributed"}
-                    </span>
-                    <span className="ml-auto shrink-0 whitespace-nowrap font-mono">
-                      {p.qty} @ {price(p.entryPrice)} · {p.openedAt ? duration(Date.now() - p.openedAt) : "—"}
-                    </span>
-                  </div>
-                </>
-              )}
-            />
-            </Loadable>
-          </Panel>
-          )}
-        </div>
-      </div>
-
-      <Loadable
-        loading={rows.length > 0 && (perf.some((query) => query.isPending) || curves.some((query) => query.isPending))}
-        error={perf.some((query) => query.isError) || curves.some((query) => query.isError)}
-        retry={() => { void Promise.all([...perf, ...curves].map((query) => query.refetch())); }}
-        what="overview analysis"
-        lines={8}
-      >
-        <AccountSummary
-          daily={combinedDaily}
-          closes={combinedCloses}
-          reports={reports}
-          costs={costs}
-          contribution={contribution}
-          accountEquity={accountEquity}
-          accountBalance={accountBalance}
-          totalAllocated={totalAllocated}
-        />
-        <OverviewDashboard
-          data={{
-            instanceId,
-            dailyNets: combinedDaily,
-            closes: combinedCloses,
-            reports,
-            normalized,
-            excursions,
-            execution,
-            series,
-            accountEquity,
-            accountBalance,
-            accountOpenPnl,
-            totalAllocated,
-            dailyLossCap,
-            drawdownCap,
-            health: health.data?.find((h) => h.instanceId === instanceId) ?? null,
-            recentStateEvents: live.length,
-            strategies: rows.length,
-          }}
-        />
+            );
+          })
+        )}
       </Loadable>
 
-
-      {!view.public && (
-      <div className="mt-8">
-        <Panel stagger={6} title="Instances" hint="every qkt box the collector has heard from">
-          <Loadable loading={health.isPending} error={health.isError} retry={() => health.refetch()} what="instance health" lines={1}>
-          <div className="flex flex-wrap gap-3 p-4">
-            {(health.data ?? []).length === 0 && <Empty>No instances reporting yet</Empty>}
-            {(health.data ?? []).map((h) => {
-              const fresh = Date.now() - h.lastSeen < 30_000;
-              return (
-                <div
-                  key={h.instanceId}
-                  className="flex w-full flex-wrap items-center gap-x-3 gap-y-1 rounded-lg border border-line bg-raised px-4 py-2.5 sm:w-auto"
-                >
-                  <LiveDot on={fresh} />
-                  <span className="min-w-0 flex-1 truncate font-semibold text-bright sm:flex-none">{h.instanceId}</span>
-                  <span className="order-last basis-full text-xs text-muted sm:order-none sm:basis-auto">
-                    {age(h.lastSeen)} · <span className="font-mono text-faint">seq {h.lastSeq}</span>
-                  </span>
-                  <Pill tone={fresh ? "up" : "neutral"}>{fresh ? "live" : "idle"}</Pill>
-                </div>
-              );
-            })}
-          </div>
-          </Loadable>
-        </Panel>
-      </div>
+      {view.public ? (
+        <PublicOpenPositions summary={liveState.data?.openPositions ?? null} />
+      ) : (
+        liveState.data && <OpenPositions positions={positions} now={now} freshness={groups.length ? { at: Math.max(...groups.map((g) => g.at)), stale: groups.every((g) => g.stale) } : null} strategyName={(id) => (byId.get(id) ? strategyDisplayName(byId.get(id)!) : id)} />
       )}
+
+      <Loadable
+        loading={summary.isPending || strategies.isPending}
+        error={summary.isError || strategies.isError}
+        retry={() => { void summary.refetch(); void strategies.refetch(); }}
+        what="the strategies"
+        lines={5}
+      >
+        <StrategyTable lines={lines} now={now} search origin="Home" />
+      </Loadable>
+
+      <Loadable loading={summary.isPending} error={summary.isError} retry={() => summary.refetch()} what="the P&L history" lines={6}>
+        {summary.data && (
+          <div className="grid gap-4 lg:grid-cols-3">
+            <div className="min-w-0 lg:col-span-2">
+              <PnlChart days={summary.data.dailyNets} range={range} onRange={(r) => setRange(r, { push: true })} now={now} />
+            </div>
+            <MonthCalendar key={utcDay(now).slice(0, 7)} days={summary.data.dailyNets} now={now} />
+          </div>
+        )}
+      </Loadable>
     </div>
   );
-}
-
-/** Shared links show how many positions are open and their P&L, never what or where they are. */
-function PublicOpenPositions({ summary, loading }: { summary: { count: number; unrealized: number | null } | null; loading: boolean }) {
-  const count = summary?.count ?? 0;
-  const unrealized = summary?.unrealized ?? null;
-  return (
-    <Card className="flex flex-wrap items-baseline gap-x-6 gap-y-1 px-5 py-4" stagger={1}>
-      <span className="text-[11px] font-semibold uppercase tracking-[0.12em] text-muted">Open positions</span>
-      <span className="font-mono text-xl font-semibold text-bright">{loading ? "…" : count}</span>
-      <span className={`font-mono text-xl font-semibold ${profitTone(unrealized)}`}>
-        {unrealized == null ? "—" : `${unrealized > 0 ? "+" : ""}${money(unrealized)}`}
-      </span>
-      <span className="text-xs text-faint">
-        unrealized · details stay private until each position closes
-      </span>
-    </Card>
-  );
-}
-
-function profitTone(v: number | null | undefined): string {
-  if (v == null) return "text-faint";
-  if (v === 0) return "text-muted";
-  return v > 0 ? "text-up" : "text-down";
 }

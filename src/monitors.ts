@@ -1,5 +1,8 @@
 import type { FastifyBaseLogger } from "fastify";
-import { listInstances, RETENTION_DAYS, type Db, type MarketDataEpisode, type MarketDataEpisodes, type MonitorCheck, type MonitorTransition, type Monitors } from "@qkt-insights/store";
+import {
+  listInstances, OUTAGE_AFTER_MS, RETENTION_DAYS,
+  type BackfilledOutage, type Db, type MarketDataEpisode, type MarketDataEpisodes, type MonitorCheck, type MonitorTransition, type Monitors,
+} from "@qkt-insights/store";
 
 /*
  * The uptime loop. Every tick it derives one heartbeat monitor per reporting
@@ -45,7 +48,7 @@ export interface MonitorRunnerDeps {
   log: FastifyBaseLogger;
 }
 
-/** Three missed 30s pulses, matching the guardian's own healthcheck. */
+/** Three missed 30s pulses, matching the guardian's own healthcheck. Silence past OUTAGE_AFTER_MS is an outage at once. */
 export const HEARTBEAT_STALE_MS = 90_000;
 export const TICK_MS = 30_000;
 const PROBE_TIMEOUT_MS = 5_000;
@@ -176,6 +179,21 @@ export async function probe(m: HttpMonitor): Promise<MonitorCheck> {
   }
 }
 
+/** e.g. "bot2 · forward-bench was DOWN 2026-10-16 08:51 → 15:26 UTC (6h35m): silent from ...". */
+export function formatBackfill(o: BackfilledOutage, brand: string | null): string {
+  const who = brand ? `${brand} · ${o.monitor}` : o.monitor;
+  const at = (ms: number) => new Date(ms).toISOString().slice(0, 16).replace("T", " ");
+  return `${who} was DOWN ${at(o.from)} → ${at(o.to).slice(11)} UTC, found after the fact: ${o.detail}`;
+}
+
+/** "the instance's own envelopes stopped from 08:51 to 15:26 UTC (6h35m)". */
+function silenceDetail(from: number, to: number): string {
+  const at = (ms: number) => new Date(ms).toISOString().slice(11, 16);
+  const m = Math.round((to - from) / 60_000);
+  const span = m < 60 ? `${m}m` : `${Math.floor(m / 60)}h${String(m % 60).padStart(2, "0")}m`;
+  return `silent: its own envelopes stopped from ${at(from)} to ${at(to)} UTC (${span})`;
+}
+
 export function formatTransition(t: MonitorTransition, brand: string | null): string {
   const who = brand ? `${brand} · ${t.name}` : t.name;
   if (t.status === "up") return `${who} is UP`;
@@ -231,6 +249,10 @@ export async function tick(deps: MonitorRunnerDeps, now = Date.now()): Promise<M
   const transitions: MonitorTransition[] = [];
   const names = new Set<string>();
   const push = (t: MonitorTransition | null) => { if (t) transitions.push(t); };
+  // Outages nothing saw live: the collector's own (it was not running, or stalled), then any
+  // silence in an instance's own envelope stream that no live check turned into an incident.
+  const backfilled = deps.monitors.noteTick(now);
+  const resumed = deps.monitors.resumedAt();
 
   // Silence is measured on the collector's clock (heard_at), never the instance's: a VPS
   // with a skewed clock must not read as dead. An instance silent past the retention
@@ -242,11 +264,24 @@ export async function tick(deps: MonitorRunnerDeps, now = Date.now()): Promise<M
   const md = deps.marketData;
   const monitored = new Set<string>();
   for (const inst of listInstances(deps.db)) {
-    const silentMs = now - (inst.heardAt ?? inst.lastSeen);
+    const heard = inst.heardAt ?? inst.lastSeen;
+    const silentMs = now - heard;
     if (silentMs > RETENTION_DAYS * 86_400_000) continue;
     names.add(inst.id);
-    push(deps.monitors.record(inst.id, "heartbeat", HEARTBEAT_TARGET,
-      { up: silentMs <= HEARTBEAT_STALE_MS, detail: `silent for ${Math.round(silentMs / 1000)}s` }, now));
+    // Last heard before the collector itself came back: its journal replay may still be on the
+    // way, so it is not judged until an outage's worth of time has passed; the replay (or its
+    // absence) then tells whether it was down too.
+    const replaying = resumed != null && heard < resumed && now - resumed < OUTAGE_AFTER_MS;
+    const check: MonitorCheck = silentMs <= HEARTBEAT_STALE_MS
+      ? { up: true, upSince: inst.silentTo ?? undefined }
+      : { up: false, detail: `silent for ${Math.round(silentMs / 1000)}s`, since: heard, outage: silentMs > OUTAGE_AFTER_MS, hold: replaying };
+    push(deps.monitors.record(inst.id, "heartbeat", HEARTBEAT_TARGET, check, now));
+    if (inst.silentFrom != null && inst.silentTo != null) {
+      const detail = silenceDetail(inst.silentFrom, inst.silentTo);
+      if (deps.monitors.recordOutage(inst.id, inst.silentFrom, inst.silentTo, detail)) {
+        backfilled.push({ monitor: inst.id, from: inst.silentFrom, to: inst.silentTo, detail });
+      }
+    }
     if (md) {
       const name = marketDataMonitorName(inst.id);
       names.add(name);
@@ -267,6 +302,10 @@ export async function tick(deps: MonitorRunnerDeps, now = Date.now()): Promise<M
   for (const t of transitions) {
     deps.log.info({ monitor: t.name, status: t.status, detail: t.detail }, "monitor transition");
     await notify(t, deps);
+  }
+  for (const o of backfilled) {
+    deps.log.info({ monitor: o.monitor, from: o.from, to: o.to, detail: o.detail }, "monitor outage backfilled");
+    await sendAlert(formatBackfill(o, deps.brand), { ...o, status: "down", backfilled: true }, deps);
   }
 
   if (deps.channels.deadman) {

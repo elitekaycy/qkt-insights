@@ -158,7 +158,7 @@ describe("deals-backed analytics", () => {
 
   it("tradeBreakdowns builds from the deals rows with hold times", () => {
     const b = tradeBreakdowns(seeded(), F)!;
-    expect(b.bySymbol[0]).toMatchObject({ key: "EXNESS:XAUUSD", trades: 4, wins: 3 });
+    expect(b.bySymbol[0]).toMatchObject({ key: "XAUUSD", venues: ["EXNESS:XAUUSD"], trades: 4, wins: 3 });
     expect(b.bySymbol[0]!.net).toBeCloseTo(7.67);
     expect(b.holdTime).not.toBeNull();
   });
@@ -315,9 +315,9 @@ describe("dealClosedTrades: entry-leg costs", () => {
     const rows = dealClosedTrades(bothLegs(), F);
     expect(rows.find((r) => r.orderId === "200")!.realized).toBeCloseTo(9.0);
   });
-  it("charges the IN leg once across partial closes, on the first close", () => {
+  it("charges the IN leg once across partial closes, shared by closed volume", () => {
     const partials = dealClosedTrades(bothLegs(), F).filter((r) => r.orderId === "201");
-    expect(partials.map((r) => r.realized)).toEqual([expect.closeTo(3.25, 5), expect.closeTo(2.75, 5)]);
+    expect(partials.map((r) => r.realized)).toEqual([expect.closeTo(3.5, 5), expect.closeTo(2.5, 5)]);
     expect(partials.reduce((a, r) => a + r.realized, 0)).toBeCloseTo(6.0);   // 7 gross - 1.0 total costs
   });
   it("leaves close-only venues unchanged", () => {

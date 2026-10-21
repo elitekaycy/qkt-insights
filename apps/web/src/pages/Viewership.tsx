@@ -4,7 +4,7 @@ import { get, type StrategyRow, type ViewBreakdown, type ViewRow, type ViewSumma
 import { ChartCard } from "../components/ChartCard";
 import { ViewsChart } from "../components/ViewsChart";
 import { Card, Cell, DataList, Loadable, LoadMore, PageHeader, Panel, Pill, SearchInput, Select, Stat, TimeCell } from "../components/ui";
-import { tsShort } from "../format";
+import { pct, tsShort } from "../format";
 import { strategyDisplayName } from "../portfolio";
 import { fillDays, linkLabel, withShares } from "../viewership";
 
@@ -58,8 +58,8 @@ function BreakdownPanel({
               <div className="absolute inset-y-1 left-0 rounded-r bg-accent/10" style={{ width: `${Math.max(2, r.share * 100)}%` }} aria-hidden />
               <div className="relative flex items-baseline justify-between gap-3 text-sm">
                 <span className={`min-w-0 truncate ${r.key == null ? "text-faint" : "text-body"}`}>{label(r.key)}</span>
-                <span className="shrink-0 font-mono text-xs text-muted">
-                  {r.views} · {(r.share * 100).toFixed(r.share < 0.1 ? 1 : 0)}%
+                <span className="shrink-0 text-xs text-muted">
+                  {r.views} · {pct(r.share, r.share < 0.1 ? 1 : 0)}
                 </span>
               </div>
             </li>
@@ -146,13 +146,13 @@ export default function Viewership({ instanceId }: { instanceId: string | null }
 
       <Loadable loading={summary.isPending} error={summary.isError} retry={() => summary.refetch()} what="viewership" lines={3}>
         <div className="mt-6 grid grid-cols-2 gap-3 md:grid-cols-4">
-          <Stat label="Views" value={String(total)} sub="repeats within 30 min count once" stagger={0} />
-          <Stat label="Unique visitors" value={String(s?.visitors ?? 0)} sub="summed per UTC day" stagger={1} />
-          <Stat label="Links viewed" value={String(s?.links.length ?? 0)} stagger={2} />
-          <Stat label="Countries" value={String((s?.countries ?? []).filter((c) => c.key != null).length)} sub="needs Cloudflare in front" stagger={3} />
+          <Stat label="Views" value={String(total)} sub="repeats within 30 min count once" />
+          <Stat label="Unique visitors" value={String(s?.visitors ?? 0)} sub="summed per UTC day" />
+          <Stat label="Links viewed" value={String(s?.links.length ?? 0)} />
+          <Stat label="Countries" value={String((s?.countries ?? []).filter((c) => c.key != null).length)} sub="needs Cloudflare in front" />
         </div>
 
-        <ChartCard className="mt-6" title="Views per day" description="Bars are views, the line is unique visitors that day" meta={`UTC days · n = ${total} views`} stagger={2}>
+        <ChartCard className="mt-6" title="Views per day" description="Bars are views, the line is unique visitors that day" meta={`UTC days · n = ${total} views`}>
           <ViewsChart days={days} />
         </ChartCard>
 
@@ -203,7 +203,7 @@ export default function Viewership({ instanceId }: { instanceId: string | null }
       >
         <Loadable loading={recent.isPending} error={recent.isError} retry={() => recent.refetch()} what="recent views">
           <DataList
-            head={["Time", "Link", "Page", "Browser", "System", "Device", "Country", "Referrer"]}
+            head={["Time (UTC)", "Link", "Page", "Browser", "System", "Device", "Country", "Referrer"]}
             rows={rows.slice(0, cap)}
             keyOf={(r) => `${r.ts}-${r.visitor}-${r.page}-${r.strategyId ?? ""}`}
             empty={q ? "No views match the search." : "No views yet."}
@@ -218,7 +218,7 @@ export default function Viewership({ instanceId }: { instanceId: string | null }
                 <Cell>{r.browser ?? "—"}</Cell>
                 <Cell className="text-muted">{r.os ?? "—"}</Cell>
                 <Cell className="text-muted">{r.device ?? "—"}</Cell>
-                <Cell className="font-mono text-xs">{r.country ?? "—"}</Cell>
+                <Cell className="text-xs">{r.country ?? "—"}</Cell>
                 <Cell className="text-muted">{r.referrer ?? "direct"}</Cell>
               </>
             )}
@@ -227,7 +227,7 @@ export default function Viewership({ instanceId }: { instanceId: string | null }
                 <div className="flex items-baseline gap-2">
                   <span className="min-w-0 truncate font-semibold text-bright">{linkLabel(r.kind, r.subject, names)}</span>
                   <Pill>{PAGE_LABELS[r.page] ?? r.page}</Pill>
-                  <span className="ml-auto shrink-0 font-mono text-xs text-faint">{tsShort(r.ts)}</span>
+                  <span className="ml-auto shrink-0 text-xs text-faint">{tsShort(r.ts)} UTC</span>
                 </div>
                 <div className="mt-1 text-xs text-faint">{[r.browser, r.os, r.device, r.country, r.referrer ?? "direct"].filter(Boolean).join(" · ")}</div>
               </>

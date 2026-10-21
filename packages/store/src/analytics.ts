@@ -1,4 +1,12 @@
 import type { Db } from "./db.js";
+import { OUT_LEGS } from "./closedTrades.js";
+import { refreshProjections } from "./projections.js";
+import { statement } from "./statements.js";
+import { addMoney, instanceMoneyDigits, roundMoney } from "./money.js";
+import { dailyRows, strategyTotals, type DailyRow } from "./strategyDaily.js";
+import { excursionsOf } from "./excursions.js";
+
+export { OUT_LEGS };
 
 /**
  * Trading-performance analytics. Sources, in order of trust:
@@ -14,6 +22,50 @@ import type { Db } from "./db.js";
  */
 
 const DAY = 86_400_000;
+
+/**
+ * One request's analytics memo. Every aggregate rebuilds its figures from the same few
+ * primitives (the closed-trade list, the equity series, the starting balance), so a bundle of
+ * a dozen aggregates would otherwise run each primitive a dozen times over identical rows.
+ * Analytics are synchronous, so the scope covers exactly the calls made inside `fn`.
+ */
+interface AnalyticsScope { db: Db; values: Map<string, unknown> }
+let activeScope: AnalyticsScope | null = null;
+
+/** Runs `fn` with the analytics primitives computed at most once per distinct filter. */
+export function withAnalyticsScope<T>(db: Db, fn: () => T): T {
+  if (activeScope) return fn();
+  activeScope = { db, values: new Map() };
+  try {
+    return fn();
+  } finally {
+    activeScope = null;
+  }
+}
+
+/** The memoized value of a primitive inside a scope; callers must treat it as read-only. */
+function memo<T>(db: Db, name: string, f: { instanceId: string; strategyId?: string; from?: number; to?: number; closedPositionsOnly?: boolean }, compute: () => T): T {
+  if (activeScope == null || activeScope.db !== db) return compute();
+  const key = `${name}\u0000${f.instanceId}\u0000${f.strategyId ?? ""}\u0000${f.from ?? ""}\u0000${f.to ?? ""}\u0000${f.closedPositionsOnly ? 1 : 0}`;
+  if (activeScope.values.has(key)) return activeScope.values.get(key) as T;
+  const value = compute();
+  activeScope.values.set(key, value);
+  return value;
+}
+
+/**
+ * Sharpe, Sortino and Calmar need at least this many end-of-day points (UTC days with a close);
+ * below it they are null: a ratio from a handful of days says nothing.
+ */
+export const MIN_RATIO_DAYS = 20;
+
+/**
+ * The one win-rate definition: winning closed round trips over winning plus losing ones, in
+ * percent. Breakeven closes (net exactly 0) are excluded; null when none was decided.
+ */
+export function winRatePct(wins: number, losses: number): number | null {
+  return wins + losses > 0 ? (wins / (wins + losses)) * 100 : null;
+}
 
 export interface AnalyticsFilter {
   instanceId: string;
@@ -60,6 +112,8 @@ export interface PerformanceReport {
   sharpe: number | null;
   sortino: number | null;
   calmar: number | null;
+  /** End-of-day points the ratios use; they are null below MIN_RATIO_DAYS. */
+  ratioDays: number;
   wins: number;
   losses: number;
   winRate: number | null;
@@ -82,12 +136,14 @@ interface SnapRow { ts: number; realized: number; equity: number }
  * (STRATEGY_CAPITAL) when set, else the starting balance the daemon reported.
  */
 export function strategyBase(db: Db, f: { instanceId: string; strategyId: string }): number | null {
-  const row = db.prepare(
-    `SELECT COALESCE(
-       (SELECT capital FROM strategy_capital WHERE strategy_id=@strategyId),
-       (SELECT starting_balance FROM strategies WHERE instance_id=@instanceId AND strategy_id=@strategyId)) base`,
-  ).get({ instanceId: f.instanceId, strategyId: f.strategyId }) as { base: number | null };
-  return row.base;
+  return memo(db, "strategyBase", { instanceId: f.instanceId, strategyId: f.strategyId }, () => {
+    const row = db.prepare(
+      `SELECT COALESCE(
+         (SELECT capital FROM strategy_capital WHERE strategy_id=@strategyId),
+         (SELECT starting_balance FROM strategies WHERE instance_id=@instanceId AND strategy_id=@strategyId)) base`,
+    ).get({ instanceId: f.instanceId, strategyId: f.strategyId }) as { base: number | null };
+    return row.base;
+  });
 }
 
 /**
@@ -100,6 +156,10 @@ export const SNAPSHOT_EQUITY = "(@base + realized + unrealized)";
 function snapshots(db: Db, f: AnalyticsFilter): SnapRow[] {
   // Snapshot equity carries unrealized P&L of open positions, which closedPositionsOnly excludes.
   if (f.closedPositionsOnly) return [];
+  return memo(db, "snapshots", f, () => snapshotRows(db, f));
+}
+
+function snapshotRows(db: Db, f: AnalyticsFilter): SnapRow[] {
   const cl = ["instance_id=@instanceId", "strategy_id=@strategyId"];
   if (f.from != null) cl.push("ts>=@from");
   if (f.to != null) cl.push("ts<=@to");
@@ -140,8 +200,6 @@ export interface DealClosedTrade extends ClosedTradeRow {
   exitOrderId: string | null;
 }
 
-const OUT_LEGS = "('OUT','INOUT','OUT_BY')";
-
 /** True when broker deals closed positions for this strategy — the deals source is authoritative then. */
 
 /**
@@ -152,29 +210,21 @@ const OUT_LEGS = "('OUT','INOUT','OUT_BY')";
  * attribution occasionally guessed differently. The first-stored row is the
  * canonical one: it comes from the poller that owned the fill and attributed
  * it, so summing anything over deals without this predicate multiplies P&L by
- * the number of profiles.
+ * the number of profiles. The flag is set when the row is stored (migration 028).
  */
-function canonicalDeal(alias: string): string {
-  return `${alias}.rowid = (SELECT MIN(dd.rowid) FROM deals dd
-    WHERE dd.instance_id=${alias}.instance_id AND dd.deal_ticket=${alias}.deal_ticket)`;
+export function canonicalDeal(alias: string): string {
+  return `${alias}.canonical=1`;
 }
 
 /**
  * `alias.position_ticket` belongs to a position whose IN volume was fully matched by OUT legs at
  * or before @to. Reversal (INOUT) positions never qualify: their legs cannot be split into a
- * closed part and an open part.
+ * closed part and an open part. Reads the closure ranges stored per position (closedTrades.ts).
  */
-function fullyClosedPosition(alias: string): string {
-  // Correlated on the position so it reads only that position's legs through
-  // idx_deals_position_ts, instead of grouping every deal of the instance per query.
-  return `(SELECT CASE WHEN SUM(CASE WHEN fc.entry='INOUT' THEN 1 ELSE 0 END) = 0
-                        AND SUM(CASE WHEN fc.entry='IN' THEN fc.qty ELSE 0 END) > 0
-                        AND SUM(CASE WHEN fc.entry IN ('OUT','OUT_BY') THEN fc.qty ELSE 0 END)
-                            >= SUM(CASE WHEN fc.entry='IN' THEN fc.qty ELSE 0 END) - 1e-9
-                   THEN 1 ELSE 0 END
-      FROM deals fc
-      WHERE fc.instance_id=${alias}.instance_id AND fc.position_ticket=${alias}.position_ticket
-        AND fc.ts<=@to AND ${canonicalDeal("fc")}) = 1`;
+export function fullyClosedPosition(alias: string): string {
+  return `EXISTS (SELECT 1 FROM position_closures pc
+    WHERE pc.instance_id=${alias}.instance_id AND pc.position_ticket=${alias}.position_ticket
+      AND pc.from_ts<=@to AND (pc.until_ts IS NULL OR pc.until_ts>@to))`;
 }
 
 function requireCutoff(f: { to?: number; closedPositionsOnly?: boolean }): void {
@@ -183,20 +233,28 @@ function requireCutoff(f: { to?: number; closedPositionsOnly?: boolean }): void 
 
 /** Position tickets fully closed by `to` on the instance (see fullyClosedPosition). */
 export function fullyClosedPositions(db: Db, f: { instanceId: string; to: number }): Set<string> {
-  const rows = db.prepare(
-    `SELECT DISTINCT d.position_ticket p FROM deals d
-     WHERE d.instance_id=@instanceId AND d.entry IN ${OUT_LEGS} AND d.ts<=@to AND d.position_ticket IS NOT NULL
-       AND ${fullyClosedPosition("d")}`,
+  refreshProjections(db);
+  const rows = statement(db,
+    `SELECT pc.position_ticket p FROM position_closures pc
+     WHERE pc.instance_id=@instanceId AND pc.from_ts<=@to AND (pc.until_ts IS NULL OR pc.until_ts>@to)
+       AND EXISTS (SELECT 1 FROM deals d WHERE d.instance_id=pc.instance_id AND d.position_ticket=pc.position_ticket
+                     AND d.entry IN ${OUT_LEGS} AND d.ts<=@to)`,
   ).all({ instanceId: f.instanceId, to: f.to }) as Array<{ p: string }>;
   return new Set(rows.map((r) => r.p));
 }
 
 export function hasClosingDeals(db: Db, f: { instanceId: string; strategyId: string; to?: number; closedPositionsOnly?: boolean }): boolean {
   requireCutoff(f);
-  const cl = ["d.instance_id=@instanceId", "d.strategy_id=@strategyId", `d.entry IN ${OUT_LEGS}`, canonicalDeal("d")];
-  if (f.to != null) cl.push("d.ts<=@to");
-  if (f.closedPositionsOnly) cl.push(fullyClosedPosition("d"));
-  return db.prepare(`SELECT 1 FROM deals d WHERE ${cl.join(" AND ")} LIMIT 1`)
+  return memo(db, "hasClosingDeals", { instanceId: f.instanceId, strategyId: f.strategyId, to: f.to, closedPositionsOnly: f.closedPositionsOnly },
+    () => closingDealExists(db, f));
+}
+
+function closingDealExists(db: Db, f: { instanceId: string; strategyId: string; to?: number; closedPositionsOnly?: boolean }): boolean {
+  refreshProjections(db);
+  const cl = ["ct.instance_id=@instanceId", "ct.strategy_id=@strategyId"];
+  if (f.to != null) cl.push("ct.ts<=@to");
+  if (f.closedPositionsOnly) cl.push(fullyClosedPosition("ct"));
+  return statement(db, `SELECT 1 FROM closed_trades ct WHERE ${cl.join(" AND ")} LIMIT 1`)
     .get({ instanceId: f.instanceId, strategyId: f.strategyId, to: f.to }) != null;
 }
 
@@ -206,63 +264,93 @@ export function hasClosingDeals(db: Db, f: { instanceId: string; strategyId: str
  * the closing leg. A position closed in parts yields one row per closing leg,
  * all sharing the same IN. side is the POSITION's direction (the IN side), not
  * the close leg's. realized is the closing leg's profit + commission + swap +
- * fee, PLUS the IN leg's commission/swap/fee charged to the position's FIRST
- * closing leg only. Venues differ: Exness books commission on the close, The5ers
+ * fee, PLUS its share (closed volume over opened volume) of every IN leg's
+ * commission/swap/fee. Venues differ: Exness books commission on the close, The5ers
  * on both legs (2026-08-31..09-04 the entry legs carried -212 of -239 total), and
  * counting only the close leg reported EURUSD RSI fade at +72 when the venue said
- * -113. Charging the IN cost once, on the first close, keeps a partially-closed
- * position from paying it per partial.
+ * -113. Sharing the IN costs by volume keeps a partially-closed position from
+ * paying them per partial, and charges a scaled-in position for every entry. The
+ * rows are the closed_trades projection.
  */
 export function dealClosedTrades(db: Db, f: AnalyticsFilter): DealClosedTrade[] {
   requireCutoff(f);
-  const cl = ["o.instance_id=@instanceId", "o.strategy_id=@strategyId", `o.entry IN ${OUT_LEGS}`, canonicalDeal("o")];
-  if (f.from != null) cl.push("o.ts>=@from");
-  if (f.to != null) cl.push("o.ts<=@to");
-  if (f.closedPositionsOnly) cl.push(fullyClosedPosition("o"));
-  // The order-id lookups are scalar subselects, NOT joins: several order rows can
-  // share a broker_order_id (one per broker profile after a multi-profile deploy),
-  // and a join would fan each closing deal out into one row per copy — every
-  // extra row re-counting the close's realized P&L.
-  const rows = db.prepare(
-    `SELECT o.position_ticket orderId, o.symbol, o.side outSide, i.side inSide, o.qty,
-            i.price entryPrice, o.price exitPrice, i.ts entryTs, o.ts ts,
-            o.profit + COALESCE(o.commission,0) + COALESCE(o.swap,0) + COALESCE(o.fee,0)
-              + CASE WHEN o.rowid = (
-                  SELECT f.rowid FROM deals f
-                  WHERE f.instance_id=o.instance_id AND f.position_ticket=o.position_ticket
-                    AND f.entry IN ${OUT_LEGS} AND ${canonicalDeal("f")}
-                  ORDER BY f.ts ASC, f.rowid ASC LIMIT 1)
-                THEN COALESCE(i.commission,0) + COALESCE(i.swap,0) + COALESCE(i.fee,0) ELSE 0 END realized,
+  return memo(db, "dealClosedTrades", f, () => dealClosedTradeRows(db, f));
+}
+
+function dealClosedTradeRows(db: Db, f: AnalyticsFilter): DealClosedTrade[] {
+  return closedTradeRows(db, f).map((r) => {
+    const { strategyId: _owner, ...row } = r;
+    closeDealRowid.set(row, closeDealRowid.get(r)!);
+    return row;
+  });
+}
+
+/** The closing deal behind each row the close readers return, for joins on the projection. */
+const closeDealRowid = new WeakMap<object, number>();
+
+/** The closed_trades rowid (closing deal) behind a row closedTradeRows or dealClosedTrades returned. */
+export function closeDealOf(row: object): number | undefined {
+  return closeDealRowid.get(row);
+}
+
+export interface CloseRowFilter {
+  instanceId: string;
+  strategyId?: string;
+  /** JSON array of strategy ids the closes must belong to. */
+  strategyIds?: string | null;
+  from?: number;
+  to?: number;
+  closedPositionsOnly?: boolean;
+}
+
+/**
+ * Closed trades from the closed_trades projection, oldest first (closes sharing a timestamp in
+ * deal order), each with the canonical copy's owner (null when unattributed). One index range
+ * scan; the engine order ids resolve per row through the orders index. The order-id lookups are
+ * scalar subselects, NOT joins: several order rows can share a broker_order_id (one per broker
+ * profile after a multi-profile deploy), and a join would fan each close out into one row per copy.
+ */
+export function closedTradeRows(db: Db, f: CloseRowFilter): Array<DealClosedTrade & { strategyId: string | null }> {
+  refreshProjections(db);
+  const cl = ["ct.instance_id=@instanceId"];
+  if (f.strategyId != null) cl.push("ct.strategy_id=@strategyId");
+  if (f.from != null) cl.push("ct.ts>=@from");
+  if (f.to != null) cl.push("ct.ts<=@to");
+  if (f.closedPositionsOnly) cl.push(fullyClosedPosition("ct"));
+  if (f.strategyIds != null) cl.push("ct.strategy_id IN (SELECT value FROM json_each(@ids))");
+  const rows = statement(db,
+    `SELECT ct.deal_rowid dealRowid, ct.position_ticket orderId, ct.symbol, ct.out_side outSide, ct.in_side inSide, ct.qty,
+            ct.strategy_id owner, ct.entry_price entryPrice, ct.exit_price exitPrice, ct.entry_ts entryTs, ct.ts, ct.realized,
             (SELECT eo.order_id FROM orders eo
-              WHERE eo.instance_id=o.instance_id AND eo.broker_order_id=i.order_ticket
+              WHERE eo.instance_id=ct.instance_id AND eo.broker_order_id=ct.entry_order_ticket
               ORDER BY eo.created_ts ASC LIMIT 1) entryOrderId,
             (SELECT xo.order_id FROM orders xo
-              WHERE xo.instance_id=o.instance_id AND xo.broker_order_id=o.order_ticket
+              WHERE xo.instance_id=ct.instance_id AND xo.broker_order_id=ct.exit_order_ticket
               ORDER BY xo.created_ts ASC LIMIT 1) exitOrderId
-     FROM deals o
-     LEFT JOIN deals i ON i.rowid = (
-       SELECT rowid FROM deals x
-       WHERE x.instance_id=o.instance_id AND x.position_ticket=o.position_ticket AND x.entry='IN'
-       ORDER BY x.ts ASC LIMIT 1
-     )
+     FROM closed_trades ct
      WHERE ${cl.join(" AND ")}
-     ORDER BY o.ts ASC`,
-  ).all({ instanceId: f.instanceId, strategyId: f.strategyId, from: f.from, to: f.to }) as any[];
-  return rows.map((r) => ({
-    orderId: r.orderId,
-    symbol: r.symbol,
-    side: r.inSide ?? (r.outSide === "BUY" ? "SELL" : r.outSide === "SELL" ? "BUY" : r.outSide),
-    qty: r.qty,
-    price: r.exitPrice,
-    entryPrice: r.entryPrice ?? null,
-    exitPrice: r.exitPrice,
-    entryTs: r.entryTs ?? null,
-    ts: r.ts,
-    realized: r.realized,
-    holdMs: r.entryTs != null ? r.ts - r.entryTs : null,
-    entryOrderId: r.entryOrderId ?? null,
-    exitOrderId: r.exitOrderId ?? null,
-  }));
+     ORDER BY ct.ts ASC, ct.deal_rowid ASC`,
+  ).all({ instanceId: f.instanceId, strategyId: f.strategyId, from: f.from, to: f.to, ids: f.strategyIds ?? null }) as any[];
+  return rows.map((r) => {
+    const row = {
+      orderId: r.orderId,
+      symbol: r.symbol,
+      side: r.inSide ?? (r.outSide === "BUY" ? "SELL" : r.outSide === "SELL" ? "BUY" : r.outSide),
+      qty: r.qty,
+      price: r.exitPrice,
+      entryPrice: r.entryPrice ?? null,
+      exitPrice: r.exitPrice,
+      entryTs: r.entryTs ?? null,
+      ts: r.ts,
+      realized: r.realized,
+      holdMs: r.entryTs != null ? r.ts - r.entryTs : null,
+      entryOrderId: r.entryOrderId ?? null,
+      exitOrderId: r.exitOrderId ?? null,
+      strategyId: r.owner ?? null,
+    };
+    closeDealRowid.set(row, r.dealRowid);
+    return row;
+  });
 }
 
 export interface StrategyEquityPoint { ts: number; equity: number; realized: number; unrealized: number }
@@ -279,15 +367,23 @@ export function strategyEquityCurve(
   db: Db,
   f: { instanceId: string; strategyId: string; from?: number; to?: number; closedPositionsOnly?: boolean },
 ): StrategyEquityPoint[] {
+  return memo(db, "strategyEquityCurve", f, () => strategyEquityPoints(db, f));
+}
+
+function strategyEquityPoints(
+  db: Db,
+  f: { instanceId: string; strategyId: string; from?: number; to?: number; closedPositionsOnly?: boolean },
+): StrategyEquityPoint[] {
   // Rows stop at `to` (a later close must not anchor or extend the curve); `from` filters after
   // the cumulative sum so a window still shows true levels.
   const rows = closes(db, { instanceId: f.instanceId, strategyId: f.strategyId, to: f.to, closedPositionsOnly: f.closedPositionsOnly });
   if (rows.length === 0) return [];
   const sb = strategyBase(db, f) ?? 0;
   const pts: StrategyEquityPoint[] = [{ ts: rows[0]!.entryTs ?? rows[0]!.ts, equity: sb, realized: 0, unrealized: 0 }];
+  const digits = instanceMoneyDigits(db, f.instanceId);
   let cum = 0;
   for (const r of rows) {
-    cum += r.realized;
+    cum = addMoney(cum, r.realized, digits);
     pts.push({ ts: r.ts, equity: sb + cum, realized: cum, unrealized: 0 });
   }
   if (f.from == null && f.to == null) return pts;
@@ -297,12 +393,15 @@ export function strategyEquityCurve(
 function ledgerCloses(db: Db, f: AnalyticsFilter): ClosedTradeRow[] {
   // trade.closed rows carry no position identity, so a partial close cannot be told from a full one.
   if (f.closedPositionsOnly) return [];
-  const cl = ["instance_id=@instanceId", "strategy_id=@strategyId"];
-  if (f.from != null) cl.push("ts>=@from");
-  if (f.to != null) cl.push("ts<=@to");
-  return db.prepare(
-    `SELECT ts, symbol, side, qty, price, realized, entry_ts entryTs, order_id orderId FROM trade_closes WHERE ${cl.join(" AND ")} ORDER BY ts ASC`,
-  ).all(f) as ClosedTradeRow[];
+  return memo(db, "ledgerCloses", f, () => {
+    const cl = ["instance_id=@instanceId", "strategy_id=@strategyId"];
+    if (f.from != null) cl.push("ts>=@from");
+    if (f.to != null) cl.push("ts<=@to");
+    const digits = instanceMoneyDigits(db, f.instanceId);
+    return (db.prepare(
+      `SELECT ts, symbol, side, qty, price, realized, entry_ts entryTs, order_id orderId FROM trade_closes WHERE ${cl.join(" AND ")} ORDER BY ts ASC`,
+    ).all(f) as ClosedTradeRow[]).map((r) => ({ ...r, realized: roundMoney(r.realized, digits) }));
+  });
 }
 
 /**
@@ -313,7 +412,7 @@ function ledgerCloses(db: Db, f: AnalyticsFilter): ClosedTradeRow[] {
 function dealBacked(db: Db, f: AnalyticsFilter): boolean {
   if (!f.closedPositionsOnly) return hasClosingDeals(db, f);
   requireCutoff(f);
-  return db.prepare("SELECT 1 FROM deals WHERE instance_id=? AND strategy_id=? AND ts<=? LIMIT 1").get(f.instanceId, f.strategyId, f.to) != null;
+  return memo(db, "dealBacked", f, () => db.prepare("SELECT 1 FROM deals WHERE instance_id=? AND strategy_id=? AND ts<=? LIMIT 1").get(f.instanceId, f.strategyId, f.to) != null);
 }
 
 /** Per-trade rows oldest-first: broker deals when they exist, else trade.closed rows. */
@@ -328,7 +427,7 @@ function series(db: Db, f: AnalyticsFilter): SnapRow[] {
 
 /** Every closed trade in the range, newest first — the rows behind the performance numbers. */
 export function closedTrades(db: Db, f: AnalyticsFilter): ClosedTradeRow[] {
-  return closes(db, f).reverse();
+  return [...closes(db, f)].reverse();
 }
 
 /**
@@ -340,6 +439,10 @@ export function closedTrades(db: Db, f: AnalyticsFilter): ClosedTradeRow[] {
  * after the first close is fully covered and reports exact.
  */
 export function tradePnls(db: Db, f: AnalyticsFilter): { pnls: number[]; exact: boolean } {
+  return memo(db, "tradePnls", f, () => tradePnlSeries(db, f));
+}
+
+function tradePnlSeries(db: Db, f: AnalyticsFilter): { pnls: number[]; exact: boolean } {
   if (dealBacked(db, f)) {
     return { pnls: dealClosedTrades(db, f).map((c) => c.realized).filter((r) => r !== 0), exact: true };
   }
@@ -360,22 +463,55 @@ function closesCoverRange(db: Db, f: AnalyticsFilter, firstCloseTs: number): boo
   return true;
 }
 
+/**
+ * The traded instrument behind a venue symbol: qkt prefixes each symbol with the broker profile
+ * that saw it ("ICM_S05:XAUUSD"), so one instrument on one account arrives under several names.
+ * e.g. "ICM_S05:XAUUSD" -> "XAUUSD", "XAUUSD" -> "XAUUSD".
+ */
+export function instrumentOf(symbol: string | null | undefined): string {
+  if (!symbol) return "";
+  const i = symbol.lastIndexOf(":");
+  return i >= 0 ? symbol.slice(i + 1) : symbol;
+}
+
 function utcDay(ts: number): string {
   return new Date(ts).toISOString().slice(0, 10);
 }
 
 export function dailyNets(db: Db, f: AnalyticsFilter): DayNet[] {
+  return memo(db, "dailyNets", f, () => dayNets(db, f));
+}
+
+/**
+ * The strategy_daily rows that answer `f`, when they can: the projection holds whole days of the
+ * whole history, so a `from` window, a cutoff before the newest close, or closedPositionsOnly
+ * (which drops closes per cutoff) is computed from the closes instead. Null also when the source
+ * the strategy's figures come from has no closes (the snapshot fallback applies).
+ */
+function projectedDays(db: Db, f: AnalyticsFilter): { rows: DailyRow[]; dealBacked: boolean } | null {
+  if (f.closedPositionsOnly || f.from != null) return null;
+  const deal = dealBacked(db, f);
+  refreshProjections(db);
+  const totals = strategyTotals(db, f.instanceId, f.strategyId, deal ? "deal" : "ledger");
+  if (!totals || (f.to != null && f.to < totals.lastTs)) return null;
+  return { rows: dailyRows(db, f.instanceId, f.strategyId, deal ? "deal" : "ledger"), dealBacked: deal };
+}
+
+function dayNets(db: Db, f: AnalyticsFilter): DayNet[] {
+  const projected = projectedDays(db, f);
+  if (projected) return projected.rows.map((d) => ({ day: d.day, net: d.net, trades: d.trades }));
   // Closed-trades path: group per UTC day — net is the day's realized sum, trades the number of
   // closing legs. Uses closes() so it falls back to trade.closed rows when broker deals were not
   // polled (engine-native fills), matching report/contribution; otherwise a live book that trades
   // but has no deals shows an empty calendar/equity while the report shows the P&L.
   const trades = closes(db, f);
   if (trades.length > 0) {
+    const digits = instanceMoneyDigits(db, f.instanceId);
     const byDay = new Map<string, DayNet>();
     for (const c of trades) {
       const day = utcDay(c.ts);
       const cur = byDay.get(day) ?? { day, net: 0, trades: 0 };
-      cur.net += c.realized;
+      cur.net = addMoney(cur.net, c.realized, digits);
       cur.trades++;
       byDay.set(day, cur);
     }
@@ -496,12 +632,12 @@ export function performanceReport(db: Db, f: AnalyticsFilter): PerformanceReport
   const periods = snaps.length > 0 ? walkPeriods(snaps) : [];
   const drawdownDurationDays = periods.length > 0 ? Math.max(...periods.map((p) => p.lengthDays)) : null;
 
-  // Ratios from end-of-day equity returns; null under 5 daily points (too little to pretend).
+  // Ratios from end-of-day equity returns; null under MIN_RATIO_DAYS daily points (too little to pretend).
   const byDay = new Map<string, number>();
   for (const s of snaps) byDay.set(utcDay(s.ts), s.equity);
   const dailyEq = [...byDay.entries()].sort((a, b) => (a[0] < b[0] ? -1 : 1)).map(([, eq]) => eq);
   let sharpe: number | null = null, sortino: number | null = null, calmar: number | null = null;
-  if (dailyEq.length >= 5) {
+  if (dailyEq.length >= MIN_RATIO_DAYS) {
     const rets: number[] = [];
     for (let i = 1; i < dailyEq.length; i++) {
       const prev = dailyEq[i - 1]!;
@@ -538,6 +674,7 @@ export function performanceReport(db: Db, f: AnalyticsFilter): PerformanceReport
     sharpe,
     sortino,
     calmar,
+    ratioDays: dailyEq.length,
     wins: wins.length,
     losses: losses.length,
     winRate: winRate != null ? winRate * 100 : null,
@@ -556,6 +693,8 @@ export function performanceReport(db: Db, f: AnalyticsFilter): PerformanceReport
 
 export interface BreakdownRow {
   key: string;
+  /** bySymbol only: the venue symbols (profile-prefixed) folded into this instrument. */
+  venues?: string[];
   net: number;
   trades: number;
   wins: number;
@@ -589,7 +728,7 @@ export function tradeBreakdowns(db: Db, f: AnalyticsFilter): TradeBreakdowns | n
 
   const samples = new Map<string, number[]>();
   const acc = (map: Map<string, BreakdownRow>, key: string, r: ClosedTradeRow) => {
-    const cur = map.get(key) ?? { key, net: 0, trades: 0, wins: 0, se: null };
+    const cur = map.get(key) ?? { key, net: 0, trades: 0, wins: 0, se: null, ...(map === bySymbol ? { venues: [] } : {}) };
     cur.net += r.realized;
     cur.trades++;
     if (r.realized > 0) cur.wins++;
@@ -611,7 +750,9 @@ export function tradeBreakdowns(db: Db, f: AnalyticsFilter): TradeBreakdowns | n
   let withEntry = 0;
   for (const r of rows) {
     const d = new Date(r.ts);
-    acc(bySymbol, r.symbol, r);
+    acc(bySymbol, instrumentOf(r.symbol), r);
+    const row = bySymbol.get(instrumentOf(r.symbol))!;
+    if (!row.venues!.includes(r.symbol)) row.venues!.push(r.symbol);
     acc(byHour, String(d.getUTCHours()).padStart(2, "0"), r);
     acc(byDow, DOW[(d.getUTCDay() + 6) % 7]!, r);
     acc(byVolume, r.qty.toFixed(2), r);
@@ -671,8 +812,8 @@ export interface DowHourCell {
   n: number;
   net: number;
   mean: number;
-  /** Percentage 0-100. */
-  winRate: number;
+  /** Percentage 0-100 (winRatePct); null when every close was breakeven. */
+  winRate: number | null;
 }
 
 /**
@@ -684,28 +825,29 @@ export interface DowHourCell {
 export function dowHourMatrix(db: Db, f: AnalyticsFilter): DowHourCell[] | null {
   const rows = closes(db, f);
   if (rows.length === 0) return null;
-  const cells = new Map<number, DowHourCell & { wins: number }>();
+  const cells = new Map<number, DowHourCell & { wins: number; losses: number }>();
   for (const r of rows) {
     const d = new Date(r.ts);
     const dow = (d.getUTCDay() + 6) % 7;
     const hour = d.getUTCHours();
     const k = dow * 24 + hour;
-    const cur = cells.get(k) ?? { dow, hour, n: 0, net: 0, mean: 0, winRate: 0, wins: 0 };
+    const cur = cells.get(k) ?? { dow, hour, n: 0, net: 0, mean: 0, winRate: null, wins: 0, losses: 0 };
     cur.n++;
     cur.net += r.realized;
     if (r.realized > 0) cur.wins++;
+    else if (r.realized < 0) cur.losses++;
     cells.set(k, cur);
   }
   return [...cells.values()]
     .sort((a, b) => a.dow * 24 + a.hour - (b.dow * 24 + b.hour))
-    .map(({ wins, ...c }) => ({ ...c, mean: c.net / c.n, winRate: (wins / c.n) * 100 }));
+    .map(({ wins, losses, ...c }) => ({ ...c, mean: c.net / c.n, winRate: winRatePct(wins, losses) }));
 }
 
 export interface RollingPoint {
   day: string;
   /** Annualized (√252) Sharpe over the window's daily equity returns; null during warmup. */
   sharpe: number | null;
-  /** Percentage of traded days in the window that were net-positive; null when none traded. */
+  /** Percentage of traded days in the window that were net-positive (winning days, not trades); null when none traded. */
   winRate: number | null;
   /** Mean net P&L per traded day in the window; null when none traded. */
   meanNet: number | null;
@@ -720,10 +862,8 @@ export interface RollingPoint {
  */
 export function rollingStats(db: Db, f: AnalyticsFilter, windowDays = 30): RollingPoint[] {
   const win = Number.isFinite(windowDays) ? Math.min(180, Math.max(7, Math.floor(windowDays))) : 30;
-  const snaps = series(db, f);
-  if (snaps.length === 0) return [];
-  const eqByDay = new Map<string, number>();
-  for (const s of snaps) eqByDay.set(utcDay(s.ts), s.equity);
+  const eqByDay = endOfDayEquity(db, f);
+  if (eqByDay.size === 0) return [];
   const days = [...eqByDay.keys()].sort();
   const nets = new Map(dailyNets(db, f).map((d) => [d.day, d.net]));
 
@@ -750,6 +890,28 @@ export function rollingStats(db: Db, f: AnalyticsFilter, windowDays = 30): Rolli
       meanNet: dayNets.length > 0 ? dayNets.reduce((a, b) => a + b, 0) / dayNets.length : null,
     };
   });
+}
+
+/**
+ * Last equity of each UTC day in the money-over-time series (series()). For the deals-rebuilt
+ * curve that is the starting base plus the running realized total at the day's last close, with
+ * the base itself on the day the first traded position opened: strategy_daily holds the running
+ * totals, so this is O(days). Snapshot series are read as before.
+ */
+function endOfDayEquity(db: Db, f: AnalyticsFilter): Map<string, number> {
+  const projected = projectedDays(db, f);
+  if (projected?.dealBacked) {
+    const totals = strategyTotals(db, f.instanceId, f.strategyId, "deal")!;
+    const sb = strategyBase(db, f) ?? 0;
+    const out = new Map<string, number>();
+    const anchor = totals.firstEntryTs ?? totals.firstTs;
+    if (f.to == null || anchor <= f.to) out.set(utcDay(anchor), sb);
+    for (const d of projected.rows) out.set(d.day, sb + d.closeCum);
+    return out;
+  }
+  const out = new Map<string, number>();
+  for (const s of series(db, f)) out.set(utcDay(s.ts), s.equity);
+  return out;
 }
 
 export interface CostRow {
@@ -806,10 +968,12 @@ export function costDecomposition(db: Db, f: AnalyticsFilter): CostDecomposition
 
 export interface ContributionRow {
   key: string;
+  /** bySymbol only: the venue symbols (profile-prefixed) folded into this instrument. */
+  venues?: string[];
   net: number;
   trades: number;
-  /** Percentage 0-100. */
-  winRate: number;
+  /** Percentage 0-100 (winRatePct); null when every close was breakeven. */
+  winRate: number | null;
   /** Mean net per trade. */
   expectancy: number;
   /** Signed fraction of total net (net/totalNet); null when total is 0. */
@@ -823,7 +987,7 @@ export interface ContributionRanking {
 }
 
 /**
- * Where the money comes from: ranked net contribution by symbol and by
+ * Where the money comes from: ranked net contribution by instrument and by
  * position direction, each row carrying expectancy and n so size-driven
  * contribution is distinguishable from per-trade edge. share is signed —
  * a profitable symbol inside a losing total reports a negative share.
@@ -832,66 +996,31 @@ export function contributionRanking(db: Db, f: AnalyticsFilter): ContributionRan
   const rows = closes(db, f);
   if (rows.length === 0) return null;
   const totalNet = rows.reduce((a, r) => a + r.realized, 0);
-  const build = (key: (r: ClosedTradeRow) => string): ContributionRow[] => {
-    const m = new Map<string, { net: number; trades: number; wins: number }>();
+  const build = (key: (r: ClosedTradeRow) => string, venues: boolean): ContributionRow[] => {
+    const m = new Map<string, { net: number; trades: number; wins: number; losses: number; venues: Set<string> }>();
     for (const r of rows) {
       const k = key(r);
-      const cur = m.get(k) ?? { net: 0, trades: 0, wins: 0 };
+      const cur = m.get(k) ?? { net: 0, trades: 0, wins: 0, losses: 0, venues: new Set<string>() };
       cur.net += r.realized;
       cur.trades++;
       if (r.realized > 0) cur.wins++;
+      else if (r.realized < 0) cur.losses++;
+      cur.venues.add(r.symbol);
       m.set(k, cur);
     }
     return [...m.entries()]
       .map(([k, v]) => ({
         key: k,
+        ...(venues ? { venues: [...v.venues] } : {}),
         net: v.net,
         trades: v.trades,
-        winRate: (v.wins / v.trades) * 100,
+        winRate: winRatePct(v.wins, v.losses),
         expectancy: v.net / v.trades,
         share: totalNet !== 0 ? v.net / totalNet : null,
       }))
       .sort((a, b) => b.net - a.net);
   };
-  return { bySymbol: build((r) => r.symbol), byDirection: build((r) => r.side), totalNet };
-}
-
-export interface NormalizedPerformance {
-  trades: number;
-  totalQty: number;
-  netPerUnit: number | null;
-  averageQty: number | null;
-  averagePlannedRiskReward: number | null;
-  plannedRiskRewardSample: number;
-}
-
-/** Size-normalized results plus planned price R:R from numeric bracket submits. */
-export function normalizedPerformance(db: Db, f: AnalyticsFilter): NormalizedPerformance {
-  const rows = closes(db, f);
-  const totalQty = rows.reduce((a, r) => a + Math.abs(r.qty), 0);
-  const totalNet = rows.reduce((a, r) => a + r.realized, 0);
-  const cl = ["instance_id=@instanceId", "type='order.submit'", "COALESCE(strategy_id,json_extract(payload,'$.strategyId'))=@strategyId"];
-  if (f.from != null) cl.push("ts>=@from");
-  if (f.to != null) cl.push("ts<=@to");
-  const submits = db.prepare(`SELECT payload FROM events WHERE ${cl.join(" AND ")}`).all(f) as { payload: string }[];
-  const planned: number[] = [];
-  for (const row of submits) {
-    const p = JSON.parse(row.payload) as Record<string, unknown>;
-    const entry = finite(p.entryPrice) ?? finite(p.limitPrice) ?? finite(p.stopPrice);
-    const stop = finite(p.stopLoss);
-    const target = finite(p.takeProfit);
-    if (entry == null || stop == null || target == null) continue;
-    const risk = Math.abs(entry - stop);
-    if (risk > 0) planned.push(Math.abs(target - entry) / risk);
-  }
-  return {
-    trades: rows.length,
-    totalQty,
-    netPerUnit: totalQty > 0 ? totalNet / totalQty : null,
-    averageQty: rows.length > 0 ? totalQty / rows.length : null,
-    averagePlannedRiskReward: planned.length > 0 ? planned.reduce((a, b) => a + b, 0) / planned.length : null,
-    plannedRiskRewardSample: planned.length,
-  };
+  return { bySymbol: build((r) => instrumentOf(r.symbol), true), byDirection: build((r) => r.side, false), totalNet };
 }
 
 export interface ExcursionRow {
@@ -913,30 +1042,32 @@ export interface ExcursionStats {
   coveragePct: number;
   averageMae: number;
   averageMfe: number;
-  averageCapturePct: number | null;
+  /**
+   * Median of exit P&L / MFE over winning trades that had a favorable excursion. A mean over all
+   * trades is meaningless: a loser with a tiny MFE scores -900%.
+   */
+  medianWinnerCapturePct: number | null;
+  /** Winning trades behind the median. */
+  winnersWithCapture: number;
   sampled: true;
 }
 
 /**
  * Sampled MAE/MFE from the broker position poll. Values between polls are not
  * observed, so coverage and the sampled flag are part of the result contract.
+ * Each close's lowest and highest mark inside its held window (entry to this close; a ticket
+ * closed in parts is measured once per close) come from the position_excursions projection.
  */
 export function excursionStats(db: Db, f: AnalyticsFilter): ExcursionStats | null {
   if (!hasClosingDeals(db, f)) return null;
   const trades = dealClosedTrades(db, f);
+  const marks = excursionsOf(db, trades.map((t) => closeDealRowid.get(t)!));
   const rows: ExcursionRow[] = [];
   for (const trade of trades) {
-    if (!trade.orderId || trade.entryTs == null) continue;
-    const values = db.prepare(
-      `SELECT profit, ts FROM position_valuations
-       WHERE instance_id=? AND ticket=? AND ts>=? AND ts<=?
-         AND (strategy_id=? OR strategy_id IS NULL)
-       ORDER BY ts ASC`,
-    ).all(f.instanceId, trade.orderId, trade.entryTs, trade.ts, f.strategyId) as Array<{ profit: number | null; ts: number }>;
-    const pnl = values.map((x) => x.profit).filter((x): x is number => x != null && Number.isFinite(x));
-    if (pnl.length === 0) continue;
-    const mae = pnl.reduce((lowest, value) => Math.min(lowest, value), 0);
-    const mfe = pnl.reduce((highest, value) => Math.max(highest, value), 0);
+    const m = marks.get(closeDealRowid.get(trade)!);
+    if (!trade.orderId || m == null || m.marks === 0) continue;
+    const mae = Math.min(m.lowest ?? 0, 0);
+    const mfe = Math.max(m.highest ?? 0, 0);
     rows.push({
       ticket: trade.orderId,
       symbol: trade.symbol,
@@ -946,11 +1077,13 @@ export function excursionStats(db: Db, f: AnalyticsFilter): ExcursionStats | nul
       mae,
       mfe,
       capturePct: mfe > 0 ? (trade.realized / mfe) * 100 : null,
-      observations: pnl.length,
+      observations: m.marks,
     });
   }
   if (rows.length === 0) return null;
-  const captures = rows.map((x) => x.capturePct).filter((x): x is number => x != null && Number.isFinite(x));
+  const captures = rows.filter((x) => x.exitPnl > 0).map((x) => x.capturePct)
+    .filter((x): x is number => x != null && Number.isFinite(x)).sort((a, b) => a - b);
+  const mid = Math.floor(captures.length / 2);
   return {
     rows,
     closedTrades: trades.length,
@@ -958,88 +1091,10 @@ export function excursionStats(db: Db, f: AnalyticsFilter): ExcursionStats | nul
     coveragePct: trades.length > 0 ? (rows.length / trades.length) * 100 : 0,
     averageMae: rows.reduce((a, x) => a + x.mae, 0) / rows.length,
     averageMfe: rows.reduce((a, x) => a + x.mfe, 0) / rows.length,
-    averageCapturePct: captures.length > 0 ? captures.reduce((a, x) => a + x, 0) / captures.length : null,
+    medianWinnerCapturePct: captures.length === 0 ? null : captures.length % 2 ? captures[mid]! : (captures[mid - 1]! + captures[mid]!) / 2,
+    winnersWithCapture: captures.length,
     sampled: true,
   };
-}
-
-export interface ExecutionQuality {
-  submitted: number;
-  accepted: number;
-  filled: number;
-  rejected: number;
-  rejectionRate: number | null;
-  averageAcceptMs: number | null;
-  p95FillMs: number | null;
-  averageAdverseSlippage: number | null;
-  slippageSample: number;
-}
-
-/** Order lifecycle latency and price slippage reconstructed from stored events. */
-export function executionQuality(db: Db, f: AnalyticsFilter): ExecutionQuality {
-  const cl = ["instance_id=@instanceId", "type='order.submit'", "COALESCE(strategy_id,json_extract(payload,'$.strategyId'))=@strategyId"];
-  if (f.from != null) cl.push("ts>=@from");
-  if (f.to != null) cl.push("ts<=@to");
-  const submits = db.prepare(`SELECT ts, payload FROM events WHERE ${cl.join(" AND ")} ORDER BY ts`).all(f) as Array<{ ts: number; payload: string }>;
-  // Lifecycle events stop at `to` too: a fill after the window must not count for a submit inside it.
-  const events = db.prepare(
-    `SELECT type, ts, payload FROM events
-     WHERE instance_id=? AND type IN ('order.accepted','order.filled','order.partially_filled','order.rejected') AND ts<=?
-     ORDER BY ts ASC`,
-  ).all(f.instanceId, f.to ?? Number.MAX_SAFE_INTEGER) as Array<{ type: string; ts: number; payload: string }>;
-  const byOrder = new Map<string, Array<{ type: string; ts: number; payload: Record<string, unknown> }>>();
-  for (const event of events) {
-    const payload = JSON.parse(event.payload) as Record<string, unknown>;
-    if (typeof payload.orderId !== "string") continue;
-    const list = byOrder.get(payload.orderId) ?? [];
-    list.push({ ...event, payload });
-    byOrder.set(payload.orderId, list);
-  }
-  const accepts: number[] = [], fills: number[] = [], slippage: number[] = [];
-  let accepted = 0, filled = 0, rejected = 0;
-  for (const submit of submits) {
-    const p = JSON.parse(submit.payload) as Record<string, unknown>;
-    if (typeof p.orderId !== "string") continue;
-    const lifecycle = (byOrder.get(p.orderId) ?? []).filter((x) => x.ts >= submit.ts);
-    const accept = lifecycle.find((x) => x.type === "order.accepted");
-    const fill = lifecycle.find((x) => x.type === "order.filled" || x.type === "order.partially_filled");
-    const reject = lifecycle.find((x) => x.type === "order.rejected");
-    if (accept) { accepted++; accepts.push(accept.ts - submit.ts); }
-    if (fill) {
-      filled++;
-      fills.push(fill.ts - submit.ts);
-      // Market entries carry no price of their own; qkt stamps the sided quote it saw at
-      // submission as referencePrice so the fill can be measured against it.
-      const expected = finite(p.entryPrice) ?? finite(p.limitPrice) ?? finite(p.stopPrice) ?? finite(p.referencePrice);
-      const actual = finite(fill.payload.price);
-      if (expected != null && actual != null && (p.side === "BUY" || p.side === "SELL")) {
-        slippage.push(p.side === "BUY" ? actual - expected : expected - actual);
-      }
-    }
-    if (reject) rejected++;
-  }
-  return {
-    submitted: submits.length,
-    accepted,
-    filled,
-    rejected,
-    rejectionRate: submits.length > 0 ? (rejected / submits.length) * 100 : null,
-    averageAcceptMs: accepts.length > 0 ? accepts.reduce((a, b) => a + b, 0) / accepts.length : null,
-    p95FillMs: percentile(fills, 0.95),
-    averageAdverseSlippage: slippage.length > 0 ? slippage.reduce((a, b) => a + b, 0) / slippage.length : null,
-    slippageSample: slippage.length,
-  };
-}
-
-function finite(value: unknown): number | null {
-  const parsed = typeof value === "number" ? value : typeof value === "string" ? Number(value) : NaN;
-  return Number.isFinite(parsed) ? parsed : null;
-}
-
-function percentile(values: number[], q: number): number | null {
-  if (values.length === 0) return null;
-  const sorted = [...values].sort((a, b) => a - b);
-  return sorted[Math.min(sorted.length - 1, Math.ceil(sorted.length * q) - 1)]!;
 }
 
 function walkPeriods(snaps: SnapRow[]): DrawdownPeriod[] {

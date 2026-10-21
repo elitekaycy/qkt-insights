@@ -1,14 +1,17 @@
 import { createHash } from "node:crypto";
 import type { FastifyInstance, FastifyReply, FastifyRequest } from "fastify";
 import {
-  accountDrawdown, accountEquity, closedTrades, fullyClosedPositions, listDeals, listStrategyRoster, listTrades, openPositionsAt, portfolioGroupOf,
-  resolveVisibility, strategyEquityCurve, strategyStats, type Db, type LiveStateStore, type ShareKind, type ShareRow, type Shares, type StrategyRow, type Views,
+  accountDrawdown, accountEquity, accountPerformance, accountRisk, closedTrades, fullyClosedPositions, listDeals, listRoundTrips, listStrategyRoster, listTrades, openPositionsAt, portfolioGroupOf,
+  roundTripAnalytics, roundTripFacets, roundTripTotals, ROUND_TRIP_SORTS, type RoundTripScope, type RoundTripSort,
+  resolveVisibility, strategyEquityCurve, strategyStats, type AccountLimits, type Db, type LiveStateStore, type ShareKind, type ShareRow, type Shares, type StrategyRow, type Views,
 } from "@qkt-insights/store";
 import { isSameOrigin, requireSession } from "./auth.js";
 import type { TtlCache } from "./cache.js";
 import { WindowCounter } from "./limits.js";
 import { performanceBundle } from "./performance.js";
-import { accountLabeller, publicBundle, publicDeal, publicStrategy, publicTrade } from "./publicView.js";
+import { ACCOUNT_EQUITY_POINTS } from "./rest.js";
+import { accountLabeller, publicAccountSummary, publicBundle, publicDeal, publicRoundTrip, publicStrategy, publicTrade, publicTripAnalytics } from "./publicView.js";
+import { parseFor } from "./roundTrips.js";
 
 export const PUBLIC_REQUESTS_PER_MINUTE = 240;
 /** Uncached public computations allowed per minute for one link, and for one client IP. */
@@ -160,6 +163,8 @@ export interface PublicDeps {
   computeMsPerMinute?: number;
   /** When present, shared pages can report views through POST /public/:token/view. */
   views?: Views;
+  /** Per-account risk limits (INSIGHTS_ACCOUNT_LIMITS). */
+  accountLimits?: AccountLimits;
 }
 
 interface Scope {
@@ -218,7 +223,9 @@ function rangePreset(v: unknown, cutoff: number): string {
   return best[0];
 }
 
+/** Where a preset begins before `cutoff`: 7d is the cutoff's UTC day and the six before it, as the dashboard's 7D; the others roll. */
 function presetFrom(preset: string, cutoff: number): number | undefined {
+  if (preset === "7d") return Math.floor(cutoff / DAY_MS) * DAY_MS - 6 * DAY_MS;
   const ms = RANGE_PRESETS.find(([key]) => key === preset)?.[1];
   return ms == null ? undefined : cutoff - ms;
 }
@@ -229,7 +236,7 @@ function snap(v: unknown, choices: number[], fallback: number): number {
   return choices.reduce((best, c) => (Math.abs(n - c) < Math.abs(n - best) ? c : best), choices[0]!);
 }
 
-const INCLUDABLE = new Set(["report", "dailyNets", "drawdownPeriods", "postLoss", "breakdowns", "closes", "dowHour", "rolling", "costs", "contribution", "normalized", "excursions"]);
+const INCLUDABLE = new Set(["report", "dailyNets", "drawdownPeriods", "postLoss", "breakdowns", "closes", "dowHour", "rolling", "costs", "contribution", "excursions"]);
 
 const NOT_FOUND = Symbol("not found");
 
@@ -460,6 +467,52 @@ export function registerPublic(app: FastifyInstance, deps: PublicDeps): void {
     },
   });
 
+  // Round trips of the link's strategies, fully closed by the cutoff. No cursor (it would carry a
+  // ticket): one page of at most 500, with the totals of the whole match beside it.
+  const roundTripScope = (scope: Scope, strategy: string | null, cutoff: number): RoundTripScope =>
+    ({ instanceId: scope.instanceId, allowed: strategy ? [strategy] : [...scope.allowed], closedBy: cutoff });
+  route("/round-trips", {
+    params: (q, scope) => {
+      const s = optionalStrategy(q, scope);
+      if (s === NOT_FOUND) return NOT_FOUND;
+      const sort = text(q.sort) ?? "exit";
+      return {
+        ...s, q: (text(q.q) ?? "").slice(0, 500), sort: Object.hasOwn(ROUND_TRIP_SORTS, sort) ? sort as RoundTripSort : "exit",
+        dir: q.dir === "asc" ? "asc" as const : "desc" as const, limit: snap(q.limit, [100, 200, 500], 200),
+      };
+    },
+    compute: (scope, p, cutoff) => {
+      const base = roundTripScope(scope, p.strategy, cutoff);
+      const parsed = parseFor(deps.db, base, p.q);
+      const q = { ...base, filter: parsed.filter, sort: p.sort, dir: p.dir, limit: p.limit };
+      return {
+        rows: listRoundTrips(deps.db, q).rows.map(publicRoundTrip), nextCursor: null, totals: roundTripTotals(deps.db, q),
+        query: { canonical: parsed.canonical, errors: parsed.errors },
+      };
+    },
+  });
+
+  // The journal aggregates over the same closed round trips; trade ids are opaque, as in the list.
+  route("/round-trips/analytics", {
+    params: (q, scope, cutoff) => {
+      const s = optionalStrategy(q, scope);
+      return s === NOT_FOUND ? NOT_FOUND : { ...s, q: (text(q.q) ?? "").slice(0, 500), range: rangePreset(q.from, cutoff) };
+    },
+    compute: (scope, p, cutoff) => {
+      const base = { ...roundTripScope(scope, p.strategy, cutoff), since: presetFrom(p.range, cutoff) };
+      const parsed = parseFor(deps.db, base, p.q);
+      return { ...publicTripAnalytics(roundTripAnalytics(deps.db, { ...base, filter: parsed.filter })), query: { canonical: parsed.canonical, errors: parsed.errors } };
+    },
+  });
+
+  route("/round-trips/facets", {
+    params: (q, scope) => optionalStrategy(q, scope),
+    compute: (scope, p, cutoff) => {
+      const f = roundTripFacets(deps.db, roundTripScope(scope, p.strategy, cutoff));
+      return { ...f, strategies: f.strategies.filter((s) => s.id != null) };
+    },
+  });
+
   /** How many distinct broker accounts the instance reports now; labels are collapsed when it is one. */
   const liveAccountCount = (instanceId: string) => {
     const keys = new Set(deps.liveState.snapshot(now()).accounts.filter((a) => a.instanceId === instanceId).map((a) => (a.login && a.server ? `${a.server}:${a.login}` : a.broker)));
@@ -472,7 +525,8 @@ export function registerPublic(app: FastifyInstance, deps: PublicDeps): void {
       // Open P&L per strategy, as marked at the cutoff: never live, never per position.
       const open = openPositionsAt(deps.db, { instanceId: scope.instanceId, at: cutoff }).filter((p) => p.strategyId != null && scope.allowed.has(p.strategyId));
       const openByStrategy: Record<string, number> = {};
-      for (const p of open) openByStrategy[p.strategyId!] = (openByStrategy[p.strategyId!] ?? 0) + (p.profit ?? 0);
+      // Open P&L includes swap, as the venue's floating P&L does.
+      for (const p of open) openByStrategy[p.strategyId!] = (openByStrategy[p.strategyId!] ?? 0) + (p.profit ?? 0) + (p.swap ?? 0);
       if (!scope.accountLevel) return { accounts: [], positions: [], orders: [], openByStrategy };
       const liveAccounts = liveAccountCount(scope.instanceId);
       const currency = deps.liveState.snapshot(now()).accounts.find((a) => a.instanceId === scope.instanceId)?.currency ?? "USD";
@@ -486,7 +540,7 @@ export function registerPublic(app: FastifyInstance, deps: PublicDeps): void {
         instanceId: scope.instanceId, broker: label(broker), currency, balance: p.balance ?? 0, equity: p.equity ?? 0,
         openProfit: p.openProfit ?? 0, lastSeen: p.minuteTs, stale: false,
       }));
-      const unrealized = open.reduce((a, p) => a + (p.profit ?? 0), 0);
+      const unrealized = open.reduce((a, p) => a + (p.profit ?? 0) + (p.swap ?? 0), 0);
       return { accounts, positions: [], orders: [], openPositions: { count: open.length, unrealized: open.length > 0 ? unrealized : null }, openByStrategy };
     },
   });
@@ -495,7 +549,27 @@ export function registerPublic(app: FastifyInstance, deps: PublicDeps): void {
     params: (q, scope, cutoff) => (scope.accountLevel ? { range: rangePreset(q.from, cutoff) } : NOT_FOUND),
     compute: (scope, p, cutoff) => {
       const label = accountLabeller(liveAccountCount(scope.instanceId) <= 1);
-      return accountEquity(deps.db, { instanceId: scope.instanceId, from: presetFrom(p.range, cutoff), to: cutoff }).map((row) => ({ ...row, broker: label(row.broker) }));
+      const accountLabel = accountLabeller(liveAccountCount(scope.instanceId) <= 1);
+      return accountEquity(deps.db, { instanceId: scope.instanceId, from: presetFrom(p.range, cutoff), to: cutoff, points: ACCOUNT_EQUITY_POINTS })
+        .map((row) => ({ ...row, broker: label(row.broker), account: accountLabel(row.account) }));
+    },
+  });
+
+  // The shared overview's account roll-up covers its public strategies, closed by the cutoff.
+  route("/account/summary", {
+    params: (_q, scope) => (scope.accountLevel ? {} : NOT_FOUND),
+    compute: (scope, _p, cutoff) => publicAccountSummary(accountPerformance(deps.db, {
+      instanceId: scope.instanceId, strategyIds: scope.allowed, to: cutoff, closedPositionsOnly: true,
+    })),
+  });
+
+  // Limits and consumption as of the cutoff; daily realized loss counts the link's public strategies only.
+  route("/account/risk", {
+    params: (_q, scope) => (scope.accountLevel ? {} : NOT_FOUND),
+    compute: (scope, _p, cutoff) => {
+      const label = accountLabeller(liveAccountCount(scope.instanceId) <= 1);
+      return accountRisk(deps.db, { instanceId: scope.instanceId, limits: deps.accountLimits, now: cutoff, strategyIds: scope.allowed, closedPositionsOnly: true })
+        .map((row) => ({ ...row, account: label(row.account), label: label(row.label) }));
     },
   });
 

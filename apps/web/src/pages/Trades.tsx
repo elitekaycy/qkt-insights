@@ -1,254 +1,92 @@
-import { useEffect, useState } from "react";
-import { useQuery, useQueryClient } from "@tanstack/react-query";
-import { get, type DealRow, type StrategyRow, type TradeRow } from "../api";
-import { TradeDetail } from "../components/detail";
-import {
-  Card, Cell, DataList, Loadable, LoadMore, PageHeader, Panel, Pill, RangeSelect, rangeStart, SearchInput, Select, SideTag, TimeCell,
-  type RangeKey,
-} from "../components/ui";
-import { price, tsShort } from "../format";
-import { realizedLabel, useCloseMap } from "../useCloses";
-import { useLiveStream } from "../useLiveStream";
+import { useCallback, useMemo, useState } from "react";
+import { TRADE_KEYS } from "@qkt-insights/contract/query";
+import { Card, PageHeader, RangeChips, rangeStart, useRangeParam } from "../components/ui";
+import { useSearchParam } from "../router";
+import { QueryBar, TRADE_PRESETS } from "../query/QueryBar";
+import { tripParams, useTripFacets, type RoundTripTotals, type TripScope } from "../trades/data";
+import { RoundTripTable } from "../trades/RoundTripTable";
+import { TripCount, useSortParams } from "../trades/scope";
 import { usePublicPageView, useView } from "../view";
-
-// a pushed deal or fill means the history just grew — refetch instead of waiting out the poll
-const HISTORY_TYPES = ["broker.deal", "trade"];
 
 export default function Trades({ instanceId }: { instanceId: string | null }) {
   usePublicPageView("trades");
   const view = useView();
-  const [strategy, setStrategy] = useState("");
-  const [q, setQ] = useState("");
-  const [range, setRange] = useState<RangeKey>("all");
-  const [cap, setCap] = useState(30);
-  const [open, setOpen] = useState<TradeRow | null>(null);
-  const closeMap = useCloseMap(instanceId);
-
-  const strategies = useQuery({
-    queryKey: ["strategies", instanceId],
-    queryFn: () => get<StrategyRow[]>(`/strategies?instance=${encodeURIComponent(instanceId!)}`),
-    enabled: !!instanceId,
-  });
-
-  const trades = useQuery({
-    queryKey: ["trades-page", instanceId, strategy],
-    queryFn: () => {
-      const p = new URLSearchParams({ instance: instanceId!, limit: "1000" });
-      if (strategy) p.set("strategy", strategy);
-      return get<TradeRow[]>(`/trades?${p}`);
-    },
-    enabled: !!instanceId,
-    refetchInterval: 30_000,
-  });
-  // Broker deal history; when the instance has any, it wins over engine fills.
-  // Strategy filtering happens client-side so an empty filter result doesn't
-  // flip the page back to the fills view.
-  const deals = useQuery({
-    queryKey: ["deals-page", instanceId],
-    queryFn: () => get<DealRow[]>(`/deals?instance=${encodeURIComponent(instanceId!)}&limit=1000`),
-    enabled: !!instanceId,
-    refetchInterval: 30_000,
-  });
-
-  const qc = useQueryClient();
-  const historyLive = useLiveStream(instanceId, 5, HISTORY_TYPES);
-  const newest = historyLive[0];
-  useEffect(() => {
-    if (!newest) return;
-    void qc.invalidateQueries({ queryKey: [newest.type === "trade" ? "trades-page" : "deals-page", instanceId] });
-  }, [newest, qc, instanceId]);
+  const [q, setQ] = useSearchParam("q");
+  const [range, setRange] = useRangeParam();
+  const [sort, dir, setSort] = useSortParams();
+  const facets = useTripFacets(instanceId);
+  const [totals, setTotals] = useState<{ t: RoundTripTotals | null; errors: string[]; loading: boolean }>({ t: null, errors: [], loading: true });
+  const onTotals = useCallback((t: RoundTripTotals | null, query: { errors: string[] } | null, loading: boolean) => {
+    setTotals((cur) => ({ t: t ?? cur.t, errors: query?.errors ?? cur.errors, loading }));
+  }, []);
+  const from = rangeStart(range);
+  const scope: TripScope | null = useMemo(() => (instanceId ? { instanceId, from: from > 0 ? Math.floor(from / 60_000) * 60_000 : undefined } : null), [instanceId, from]);
+  const data = useMemo(
+    () => ({
+      strategies: (facets.data?.strategies ?? []).flatMap((s) => (s.id ? [s.id] : [])),
+      instruments: (facets.data?.instruments ?? []).map((i) => i.name),
+      days: facets.data?.days ?? [],
+      sizes: facets.data?.sizes ?? [],
+    }),
+    [facets.data],
+  );
 
   if (!instanceId) return <Card className="p-8 text-center text-faint">No instance selected.</Card>;
 
-  const usingDeals = (deals.data?.length ?? 0) > 0;
-  const needle = q.trim().toUpperCase();
-  const start = rangeStart(range);
-  const filtered = (trades.data ?? []).filter(
-    (t) =>
-      t.ts >= start &&
-      (!needle ||
-        t.payload.symbol.toUpperCase().includes(needle) ||
-        t.payload.orderId.toUpperCase().includes(needle) ||
-        (t.strategyId ?? "").toUpperCase().includes(needle)),
-  );
-  const shown = filtered.slice(0, cap);
-  const dealNet = (d: DealRow) => (d.profit ?? 0) + (d.commission ?? 0) + (d.swap ?? 0);
-  const filteredDeals = (deals.data ?? []).filter(
-    (d) =>
-      d.ts >= start &&
-      (!strategy || d.strategyId === strategy) &&
-      (!needle ||
-        (d.symbol ?? "").toUpperCase().includes(needle) ||
-        d.dealTicket.toUpperCase().includes(needle) ||
-        (d.strategyId ?? "").toUpperCase().includes(needle)),
-  );
-  const shownDeals = filteredDeals.slice(0, cap);
+  const exportHref = scope ? `/round-trips/export?${tripParams(scope, q, sort, dir)}` : "#";
 
   return (
     <div>
       <PageHeader
         title="Trades"
-        sub={
-          usingDeals
-            ? `Broker deal history for ${instanceId} — every executed in/out leg as the venue recorded it.`
-            : `Every fill recorded for ${instanceId}. Click a row for the full story.`
+        sub={`Every round trip on ${instanceId}, entry to exit: one row per position, P&L after costs, times UTC${view.public ? `, ${view.meta.delayMinutes} minutes behind` : ""}.`}
+        right={
+          !view.public && (
+            <a
+              href={exportHref}
+              download
+              className="inline-flex h-8 items-center gap-1.5 rounded-lg border border-ctl bg-raised px-3 text-sm font-medium text-bright transition hover:bg-well"
+              title="Every round trip the query matches, as CSV"
+            >
+              <svg viewBox="0 0 24 24" className="h-3.5 w-3.5" fill="none" stroke="currentColor" strokeWidth="1.75" strokeLinecap="round" strokeLinejoin="round" aria-hidden>
+                <path d="M12 3v12M7 10l5 5 5-5M5 21h14" />
+              </svg>
+              Export CSV
+            </a>
+          )
+        }
+        scope={
+          <>
+            <QueryBar
+              value={q}
+              onChange={(v) => setQ(v)}
+              keys={TRADE_KEYS}
+              data={data}
+              page="Trades"
+              presets={TRADE_PRESETS}
+              errors={totals.errors}
+              placeholder="Search or filter: gold, win, side:short, pnl:<0, held:<1h, ended:stop, exit:2026-10, #ticket…"
+              trailing={
+                <>
+                  <RangeChips value={range} onChange={setRange} />
+                  <TripCount totals={totals.t} loading={totals.loading} />
+                </>
+              }
+            />
+          </>
         }
       />
-      <Panel
-        className="mt-5"
-        stagger={1}
-        title={usingDeals ? "Deals" : "Fills"}
-        hint={usingDeals ? "source: broker deals" : "source: engine fills"}
-        scroll="max-h-[calc(100vh-15rem)]"
-        toolbar={
-          <>
-            <SearchInput
-              value={q}
-              onChange={(e) => {
-                setQ(e.target.value);
-                setCap(30);
-              }}
-              placeholder={usingDeals ? "search symbol, deal ticket, strategy…" : "search symbol, order id, strategy…"}
-              className="w-full sm:w-72"
-            />
-            <Select
-              value={strategy}
-              onChange={(e) => {
-                setStrategy(e.target.value);
-                setCap(30);
-              }}
-            >
-              <option value="">all strategies</option>
-              {(strategies.data ?? []).map((s) => (
-                <option key={s.strategyId} value={s.strategyId}>
-                  {s.strategyId}
-                </option>
-              ))}
-            </Select>
-            <RangeSelect
-              value={range}
-              onChange={(v) => {
-                setRange(v);
-                setCap(30);
-              }}
-            />
-          </>
-        }
-      >
-        <Loadable
-          loading={trades.isPending || deals.isPending}
-          error={trades.isError || deals.isError}
-          retry={() => {
-            void trades.refetch();
-            void deals.refetch();
-          }}
-          what="trade history"
-        >
-        {usingDeals ? (
-          <>
-            <DataList
-              head={["Time", "Strategy", "Symbol", "Side", "Entry", "Qty", "Price", "Net", "Deal"]}
-              rows={shownDeals}
-              keyOf={(d) => d.id}
-              empty="No deals match"
-              cells={(d) => {
-                const n = dealNet(d);
-                return (
-                  <>
-                    <TimeCell ts={d.ts} />
-                    <Cell>{d.strategyId ?? <Pill>unattributed</Pill>}</Cell>
-                    <Cell className="font-semibold text-bright">{d.symbol ?? "—"}</Cell>
-                    <Cell>
-                      <SideTag side={d.side} />
-                    </Cell>
-                    <Cell className="font-mono text-muted">{d.entry ?? "—"}</Cell>
-                    <Cell className="font-mono">{d.qty ?? "—"}</Cell>
-                    <Cell className="font-mono">{price(d.price)}</Cell>
-                    <Cell className={`font-mono font-semibold ${n > 0 ? "text-up" : n < 0 ? "text-down" : "text-muted"}`}>
-                      {n > 0 ? "+" : ""}
-                      {n.toFixed(2)}
-                    </Cell>
-                    <Cell className="font-mono text-xs text-faint">{d.dealTicket}</Cell>
-                  </>
-                );
-              }}
-              card={(d) => {
-                const n = dealNet(d);
-                return (
-                  <>
-                    <div className="flex items-baseline gap-2">
-                      <span className="min-w-0 truncate font-semibold text-bright">{d.symbol ?? "—"}</span>
-                      <SideTag side={d.side} />
-                      <span className={`ml-auto shrink-0 font-mono text-sm font-semibold ${n > 0 ? "text-up" : n < 0 ? "text-down" : "text-muted"}`}>
-                        {n > 0 ? "+" : ""}
-                        {n.toFixed(2)}
-                      </span>
-                    </div>
-                    <div className="mt-1 flex items-center gap-2 text-xs text-faint">
-                      <span className="min-w-0 truncate">{d.strategyId ?? "unattributed"}</span>
-                      <span className="ml-auto shrink-0 whitespace-nowrap font-mono">
-                        {d.qty ?? "—"} @ {price(d.price)} · {tsShort(d.ts)}
-                      </span>
-                    </div>
-                  </>
-                );
-              }}
-            />
-            <LoadMore shown={shownDeals.length} total={filteredDeals.length} onMore={() => setCap((c) => c + 30)} />
-          </>
-        ) : (
-          <>
-            <DataList
-              head={["Time", "Strategy", "Symbol", "Side", "Qty", "Price", "P&L", "Order"]}
-              rows={shown}
-              keyOf={(t) => t.id}
-              onRow={view.public ? undefined : (t) => setOpen(t)}
-              empty="No trades match"
-              cells={(t) => {
-                const r = realizedLabel(closeMap.get(t.payload.orderId));
-                return (
-                  <>
-                    <TimeCell ts={t.ts} />
-                    <Cell>{t.strategyId ?? "—"}</Cell>
-                    <Cell className="font-semibold text-bright">{t.payload.symbol}</Cell>
-                    <Cell>
-                      <SideTag side={t.payload.side} />
-                    </Cell>
-                    <Cell className="font-mono">{t.payload.qty}</Cell>
-                    <Cell className="font-mono">{price(t.payload.price)}</Cell>
-                    <Cell className={`font-mono ${r.className}`}>{r.text}</Cell>
-                    <Cell className="font-mono text-xs text-faint">{t.payload.orderId}</Cell>
-                  </>
-                );
-              }}
-              card={(t) => {
-                const r = realizedLabel(closeMap.get(t.payload.orderId));
-                return (
-                  <>
-                    <div className="flex items-baseline gap-2">
-                      <span className="min-w-0 truncate font-semibold text-bright">{t.payload.symbol}</span>
-                      <SideTag side={t.payload.side} />
-                      <span className={`ml-auto shrink-0 font-mono text-sm font-semibold ${r.className}`}>{r.text}</span>
-                    </div>
-                    <div className="mt-1 flex items-center gap-2 text-xs text-faint">
-                      <span className="min-w-0 truncate">{t.strategyId ?? "unattributed"}</span>
-                      <span className="ml-auto shrink-0 whitespace-nowrap font-mono">
-                        {t.payload.qty} @ {price(t.payload.price)} · {tsShort(t.ts)}
-                      </span>
-                    </div>
-                  </>
-                );
-              }}
-            />
-            <LoadMore shown={shown.length} total={filtered.length} onMore={() => setCap((c) => c + 30)} />
-          </>
-        )}
-        </Loadable>
-      </Panel>
-
-      {!view.public && (
-        <TradeDetail trade={open} instanceId={instanceId} onClose={() => setOpen(null)} close={open ? closeMap.get(open.payload.orderId) : null} />
-      )}
+      <Card className="mt-5 overflow-hidden">
+        <div className="flex items-baseline gap-2 border-b border-line px-4 py-3">
+          <h3 className="text-sm font-medium text-body">Round trips</h3>
+          <span className="hidden text-xs text-muted sm:inline">one row per entry-to-exit · {view.public ? "closed positions only" : "P&L after costs"}</span>
+          <span className="ml-auto hidden text-xs text-faint lg:inline">
+            <kbd className="font-mono">/</kbd> search · <kbd className="font-mono">j</kbd>/<kbd className="font-mono">k</kbd> move · <kbd className="font-mono">Enter</kbd> open
+          </span>
+        </div>
+        <RoundTripTable scope={scope} q={q} sort={sort} dir={dir} onSort={setSort} onTotals={onTotals} height="calc(100dvh - 19rem)" />
+      </Card>
     </div>
   );
 }
+

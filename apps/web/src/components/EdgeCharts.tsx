@@ -1,6 +1,8 @@
-import type { BreakdownRow, ContributionRanking, CostDecomposition, DowHourCell, PerformanceReport, RollingPoint } from "../api";
-import { money } from "../format";
-import { EChart, qktBottomLegend, qktChartAxis, qktChartGrid, qktChartTooltip, useNarrowChart, type QktChartOption } from "./EChart";
+import type { BreakdownRow, DowHourCell, RollingPoint } from "../api";
+import { money, pct, signedMoney, winPct } from "../format";
+import { rollingCoverage } from "../rolling";
+import { token } from "../theme";
+import { chartColors, EChart, qktBottomLegend, qktChartAxis, qktChartGrid, qktChartTooltip, qktLegend, qktXAxis, tok, useNarrowChart, type QktChartOption } from "./EChart";
 
 /*
  * Edge-analytics charts. Shared design rules (the institutional contract):
@@ -12,10 +14,9 @@ import { EChart, qktBottomLegend, qktChartAxis, qktChartGrid, qktChartTooltip, u
 /** Buckets with fewer trades than this are visually "not enough data". */
 export const MIN_N = 30;
 
-const MONO = "JetBrains Mono, ui-monospace, monospace";
-const UP = "#3fe08c";
-const DOWN = "#ff6b6b";
-const MUTED = "#5b636d";
+const UP = chartColors.gain;
+const DOWN = chartColors.loss;
+const MUTED = chartColors.muted;
 const DOW = ["Mon", "Tue", "Wed", "Thu", "Fri", "Sat", "Sun"];
 
 /** Symmetric diverging range so 0 always sits on the neutral midpoint. */
@@ -32,7 +33,6 @@ export function DowHourHeatmap({ cells, height = 320 }: { cells: DowHourCell[]; 
   // below, every third hour is labelled, and cells rely on color alone — the
   // tooltip still carries n and the exact numbers.
   const option: QktChartOption = {
-    backgroundColor: "transparent",
     grid: narrow ? { ...qktChartGrid, left: 40, right: 6, top: 10, bottom: 74 } : { ...qktChartGrid, left: 58, right: 76, top: 24, bottom: 36 },
     tooltip: {
       ...qktChartTooltip(),
@@ -41,7 +41,7 @@ export function DowHourHeatmap({ cells, height = 320 }: { cells: DowHourCell[]; 
         const c = p.data?.cell;
         if (!c) return "";
         const warn = c.n < MIN_N ? ` — under ${MIN_N} trades, treat as noise` : "";
-        return `${DOW[c.dow]} ${String(c.hour).padStart(2, "0")}:00 UTC<br/>n ${c.n}${warn}<br/>net ${money(c.net)} · mean ${money(c.mean)}<br/>win rate ${c.winRate.toFixed(0)}%`;
+        return `${DOW[c.dow]} ${String(c.hour).padStart(2, "0")}:00 UTC<br/>n ${c.n}${warn}<br/>net ${signedMoney(c.net)} · mean ${signedMoney(c.mean)}<br/>win rate ${winPct(c.winRate)} (breakeven excluded)`;
       },
     },
     xAxis: {
@@ -66,8 +66,8 @@ export function DowHourHeatmap({ cells, height = 320 }: { cells: DowHourCell[]; 
           itemWidth: 10,
           itemHeight: 140,
           text: ["mean +", "mean −"],
-          textStyle: { color: "#f2f4f6", fontFamily: MONO, fontSize: 10 },
-          inRange: { color: [DOWN, "#22272d", UP] },
+          textStyle: { color: tok("bright"), fontSize: 10 },
+          inRange: { color: [DOWN, tok("raised"), UP] },
         }
       : {
           min: -ext,
@@ -78,23 +78,22 @@ export function DowHourHeatmap({ cells, height = 320 }: { cells: DowHourCell[]; 
           top: "center",
           itemHeight: 120,
           text: ["mean +", "mean −"],
-          textStyle: { color: "#f2f4f6", fontFamily: MONO, fontSize: 10 },
-          inRange: { color: [DOWN, "#22272d", UP] },
+          textStyle: { color: tok("bright"), fontSize: 10 },
+          inRange: { color: [DOWN, tok("raised"), UP] },
         },
     series: [
       {
         type: "heatmap",
         label: {
           show: !narrow,
-          fontFamily: MONO,
           fontSize: 9,
-          color: "#f2f4f6",
+          color: tok("bright"),
           formatter: (p: unknown) => {
             const cell = (p as { data: { cell: DowHourCell } }).data.cell;
-            return cell.n >= MIN_N ? money(cell.net) : `n${cell.n}`;
+            return cell.n >= MIN_N ? signedMoney(cell.net, 0) : `n${cell.n}`;
           },
         },
-        itemStyle: { borderColor: "#12161a", borderWidth: narrow ? 1 : 2 },
+        itemStyle: { borderColor: tok("panel"), borderWidth: narrow ? 1 : 2 },
         data: cells.map((c) => ({
           value: [c.hour, c.dow, c.mean],
           cell: c,
@@ -114,7 +113,6 @@ export function DowHourHeatmap({ cells, height = 320 }: { cells: DowHourCell[]; 
  */
 export function HonestBucketBars({ rows, height = 260 }: { rows: BreakdownRow[]; height?: number }) {
   const option: QktChartOption = {
-    backgroundColor: "transparent",
     grid: qktChartGrid,
     tooltip: {
       ...qktChartTooltip(),
@@ -126,10 +124,10 @@ export function HonestBucketBars({ rows, height = 260 }: { rows: BreakdownRow[];
         const mean = r.trades > 0 ? r.net / r.trades : 0;
         const se = r.se != null ? ` ± ${money(r.se)} SE` : "";
         const warn = r.trades < MIN_N ? `<br/><span style="color:${MUTED}">n < ${MIN_N} — not enough data for a verdict</span>` : "";
-        return `${r.key} (UTC)<br/>n ${r.trades} · win ${((r.wins / r.trades) * 100).toFixed(0)}%<br/>net ${money(r.net)}<br/>mean ${money(mean)}${se}${warn}`;
+        return `${r.key} (UTC)<br/>n ${r.trades} · win ${pct(r.wins / r.trades, 0)}<br/>net ${signedMoney(r.net)}<br/>mean ${signedMoney(mean)}${se}${warn}`;
       },
     },
-    xAxis: { type: "category", data: rows.map((r) => r.key), ...qktChartAxis },
+    xAxis: { type: "category", data: rows.map((r) => r.key), ...qktXAxis },
     yAxis: { type: "value", ...qktChartAxis },
     series: [
       {
@@ -144,9 +142,8 @@ export function HonestBucketBars({ rows, height = 260 }: { rows: BreakdownRow[];
           label: {
             show: true,
             position: r.net >= 0 ? "top" : "bottom",
-            fontFamily: MONO,
-            fontSize: 9,
-            color: r.trades < MIN_N ? MUTED : "#f2f4f6",
+              fontSize: 9,
+            color: r.trades < MIN_N ? MUTED : tok("bright"),
             formatter: () => `n${r.trades}`,
           },
         })),
@@ -167,7 +164,7 @@ export function HonestBucketBars({ rows, height = 260 }: { rows: BreakdownRow[];
           const line = (x1: number, y1: number, x2: number, y2: number) => ({
             type: "line" as const,
             shape: { x1, y1, x2, y2 },
-            style: { stroke: "#f2f4f6", lineWidth: 1, opacity: r.trades < MIN_N ? 0.3 : 0.8 },
+            style: { stroke: token("--color-bright"), lineWidth: 1, opacity: r.trades < MIN_N ? 0.3 : 0.8 },
           });
           return {
             type: "group" as const,
@@ -183,199 +180,45 @@ export function HonestBucketBars({ rows, height = 260 }: { rows: BreakdownRow[];
   return <EChart option={option} height={height} />;
 }
 
-/** Rolling Sharpe + win rate on twin axes; warmup nulls leave visible gaps. */
-export function RollingChart({ points, height = 260 }: { points: RollingPoint[]; height?: number }) {
+/** Rolling Sharpe + share of winning days (net-positive UTC days, not trades) on twin axes; warmup nulls leave visible gaps. */
+export function RollingChart({ points, window, height = 260 }: { points: RollingPoint[]; window: number; height?: number }) {
   const narrow = useNarrowChart();
-  const below = qktBottomLegend(true);
-  const option: QktChartOption = {
-    backgroundColor: "transparent",
-    color: ["#c8f74a", "#5cb8ff"],
-    // the top-right legend would sit on the left axis name once the plot is phone-wide
-    grid: narrow ? { ...qktChartGrid, left: 46, right: 44, top: 24, bottom: below.gridBottom } : { ...qktChartGrid, right: 58 },
-    tooltip: { ...qktChartTooltip(), trigger: "axis" },
-    legend: narrow ? below.legend : { top: 0, right: 0, textStyle: { color: "#f2f4f6", fontFamily: MONO } },
-    xAxis: { type: "category", data: points.map((p) => p.day), ...qktChartAxis },
-    yAxis: [
-      { type: "value", name: "sharpe", ...qktChartAxis },
-      {
-        type: "value",
-        min: 0,
-        max: 100,
-        ...qktChartAxis,
-        axisLabel: { ...qktChartAxis.axisLabel, formatter: "{value}%" },
-        splitLine: { show: false },
-      },
-    ],
-    series: [
-      { name: "rolling Sharpe", type: "line", showSymbol: false, connectNulls: false, data: points.map((p) => p.sharpe) },
-      { name: "rolling win rate", type: "line", yAxisIndex: 1, showSymbol: false, connectNulls: false, data: points.map((p) => p.winRate) },
-    ],
+  const below = qktBottomLegend();
+  const shown = rollingCoverage(points, window);
+  const percentAxis = {
+    type: "value" as const,
+    min: 0,
+    max: 100,
+    ...qktChartAxis,
+    axisLabel: { ...qktChartAxis.axisLabel, formatter: "{value}%" },
   };
-  return <EChart option={option} height={height} />;
-}
-
-/** Gross profit vs commission vs swap per month — what trading actually cost. */
-export function CostStack({ costs, height = 260 }: { costs: CostDecomposition; height?: number }) {
-  const rows = costs.byMonth;
-  const option: QktChartOption = {
-    backgroundColor: "transparent",
-    color: [UP, "#ffb86b", "#5cb8ff", "#a78bfa"],
-    grid: qktChartGrid,
-    tooltip: {
-      ...qktChartTooltip(),
-      trigger: "axis",
-      formatter: (params: unknown) => {
-        const list = params as { dataIndex: number }[];
-        const r = rows[list[0]?.dataIndex ?? 0];
-        if (!r) return "";
-        return `${r.key}<br/>gross ${money(r.grossProfit)}<br/>commission ${money(r.commission)}<br/>swap ${money(r.swap)}<br/>fee ${money(r.fee)}<br/><b>net ${money(r.net)}</b> · ${r.trades} closes`;
-      },
-    },
-    legend: { top: 0, right: 0, textStyle: { color: "#f2f4f6", fontFamily: MONO } },
-    xAxis: { type: "category", data: rows.map((r) => r.key), ...qktChartAxis },
-    yAxis: { type: "value", ...qktChartAxis },
-    series: [
-      { name: "gross", type: "bar", data: rows.map((r) => r.grossProfit), itemStyle: { color: UP, opacity: 0.9 } },
-      { name: "commission", type: "bar", stack: "cost", data: rows.map((r) => r.commission), itemStyle: { color: "#ffb86b" } },
-      { name: "swap", type: "bar", stack: "cost", data: rows.map((r) => r.swap), itemStyle: { color: "#5cb8ff" } },
-      { name: "fee", type: "bar", stack: "cost", data: rows.map((r) => r.fee), itemStyle: { color: "#a78bfa" } },
-    ],
-  };
-  return <EChart option={option} height={height} />;
-}
-
-/** Ranked net contribution bars (horizontal), expectancy in the tooltip. */
-export function ContributionBars({ ranking, height = 260 }: { ranking: ContributionRanking; height?: number }) {
-  const rows = [...ranking.bySymbol].reverse(); // horizontal bars read bottom-up
-  const option: QktChartOption = {
-    backgroundColor: "transparent",
-    grid: { ...qktChartGrid, left: 110 },
-    tooltip: {
-      ...qktChartTooltip(),
-      formatter: (params: unknown) => {
-        const p = params as { dataIndex: number };
-        const r = rows[p.dataIndex];
-        if (!r) return "";
-        const share = r.share != null ? ` · ${(r.share * 100).toFixed(0)}% of net` : "";
-        return `${r.key}<br/>net ${money(r.net)}${share}<br/>n ${r.trades} · win ${r.winRate.toFixed(0)}% · expectancy ${money(r.expectancy)}`;
-      },
-    },
-    xAxis: { type: "value", ...qktChartAxis },
-    yAxis: { type: "category", data: rows.map((r) => r.key), ...qktChartAxis, splitLine: { show: false } },
-    series: [
-      {
-        type: "bar",
-        data: rows.map((r) => ({
-          value: r.net,
-          itemStyle: { color: r.net >= 0 ? UP : DOWN, opacity: r.trades < MIN_N ? 0.35 : 0.95 },
-          label: { show: true, position: r.net >= 0 ? "right" : "left", fontFamily: MONO, fontSize: 9, color: "#f2f4f6", formatter: () => `n${r.trades}` },
-        })),
-      },
-    ],
-  };
-  return <EChart option={option} height={height} />;
-}
-
-export interface RadarEntry { strategyId: string; report: PerformanceReport }
-
-const RADAR_COLORS = ["#c8f74a", "#5cb8ff", "#ff9ff3", "#ffb86b"];
-
-/**
- * Strategy-comparison radar: outline-only (filled areas distort quadratically),
- * capped at 4 polygons, min-max normalized across the shown strategies — the
- * shape is only meaningful relative to the other polygons on screen.
- */
-export function StrategyRadar({ entries, height = 320 }: { entries: RadarEntry[]; height?: number }) {
-  const narrow = useNarrowChart();
-  const shown = entries.slice(0, 4);
-  const axes = [
-    { name: "win rate", get: (r: PerformanceReport) => r.winRate ?? 0 },
-    { name: "profit factor", get: (r: PerformanceReport) => (r.profitFactor === "inf" ? 10 : r.profitFactor ?? 0) },
-    { name: "sharpe", get: (r: PerformanceReport) => r.sharpe ?? 0 },
-    { name: "low drawdown", get: (r: PerformanceReport) => -(r.maxDrawdownPct ?? 100) },
-    { name: "expectancy", get: (r: PerformanceReport) => r.expectancy ?? 0 },
+  // a series with no value anywhere gets neither a legend entry nor an axis; the note says why
+  const both = shown.sharpe && shown.winRate;
+  const series = [
+    ...(shown.sharpe ? [{ name: "rolling Sharpe", type: "line" as const, showSymbol: false, connectNulls: false, data: points.map((p) => p.sharpe) }] : []),
+    ...(shown.winRate ? [{ name: "rolling winning days", type: "line" as const, yAxisIndex: both ? 1 : 0, showSymbol: false, connectNulls: false, data: points.map((p) => p.winRate) }] : []),
   ];
-  const norm = axes.map((a) => {
-    const vs = shown.map((e) => a.get(e.report));
-    const lo = Math.min(...vs);
-    const hi = Math.max(...vs);
-    return (v: number) => (hi > lo ? (v - lo) / (hi - lo) : 0.5);
-  });
+  const yAxis = both
+    ? [{ type: "value" as const, name: "sharpe", ...qktChartAxis }, { ...percentAxis, splitLine: { show: false } }]
+    : shown.sharpe
+      ? [{ type: "value" as const, name: "sharpe", ...qktChartAxis }]
+      : [percentAxis];
   const option: QktChartOption = {
-    backgroundColor: "transparent",
-    color: RADAR_COLORS,
-    tooltip: qktChartTooltip(),
-    legend: narrow
-      ? { ...qktBottomLegend(true).legend, type: "plain", itemGap: 8 }
-      : { top: 0, textStyle: { color: "#f2f4f6", fontFamily: MONO } },
-    radar: {
-      // phone: at most four names wrap under the plot (no paging), and the
-      // polygon shrinks so the axis names ("profit factor", "expectancy") stay
-      // inside the card
-      center: ["50%", narrow ? "42%" : "58%"],
-      radius: narrow ? "46%" : "62%",
-      indicator: axes.map((a) => ({ name: a.name, max: 1 })),
-      axisName: { color: "#f2f4f6", fontFamily: MONO, fontSize: narrow ? 9 : 10 },
-      splitLine: { lineStyle: { color: "#22272d" } },
-      splitArea: { show: false },
-      axisLine: { lineStyle: { color: "#2f363e" } },
-    },
-    series: [
-      {
-        type: "radar",
-        symbolSize: 3,
-        data: shown.map((e, i) => ({
-          name: e.strategyId,
-          value: axes.map((a, ai) => norm[ai]!(a.get(e.report))),
-          lineStyle: { width: 2, color: RADAR_COLORS[i % RADAR_COLORS.length] },
-          areaStyle: undefined,
-          itemStyle: { color: RADAR_COLORS[i % RADAR_COLORS.length] },
-        })),
-      },
-    ],
+    color: shown.sharpe ? [chartColors.series[0], chartColors.series[1]] : [chartColors.series[1]],
+    // the top-right legend would sit on the left axis name once the plot is phone-wide; on wider
+    // screens the plot starts below the legend so neither axis's top label runs under it
+    grid: narrow ? { ...qktChartGrid, left: 46, right: both ? 44 : 12, top: 24, bottom: below.gridBottom } : { ...qktChartGrid, right: both ? 58 : 12, top: 34 },
+    tooltip: { ...qktChartTooltip(), trigger: "axis" },
+    legend: narrow ? below.legend : qktLegend(),
+    xAxis: { type: "category", data: points.map((p) => p.day), ...qktXAxis },
+    yAxis,
+    series,
   };
-  return <EChart option={option} height={height} />;
-}
-
-/** Per-bucket P&L box plots (box over violin under small n); whiskers = min/max. */
-export function BucketBoxplot({ groups, height = 260 }: { groups: { key: string; values: number[] }[]; height?: number }) {
-  const boxRow = (values: number[]): [number, number, number, number, number] => {
-    const s = [...values].sort((a, b) => a - b);
-    const q = (p: number) => {
-      const idx = (s.length - 1) * p;
-      const lo = Math.floor(idx);
-      const hi = Math.ceil(idx);
-      return s[lo]! + (s[hi]! - s[lo]!) * (idx - lo);
-    };
-    return [s[0]!, q(0.25), q(0.5), q(0.75), s[s.length - 1]!];
-  };
-  const usable = groups.filter((g) => g.values.length >= 2);
-  const option: QktChartOption = {
-    backgroundColor: "transparent",
-    grid: qktChartGrid,
-    tooltip: {
-      ...qktChartTooltip(),
-      formatter: (params: unknown) => {
-        const p = params as { dataIndex: number; data?: number[] };
-        const g = usable[p.dataIndex];
-        if (!g || !p.data) return "";
-        const [minV, q1, med, q3, maxV] = p.data.slice(1) as [number, number, number, number, number];
-        const warn = g.values.length < MIN_N ? `<br/><span style="color:${MUTED}">n < ${MIN_N}</span>` : "";
-        return `${g.key} (n ${g.values.length})<br/>max ${money(maxV)}<br/>q3 ${money(q3)}<br/>median ${money(med)}<br/>q1 ${money(q1)}<br/>min ${money(minV)}${warn}`;
-      },
-    },
-    xAxis: { type: "category", data: usable.map((g) => `${g.key} n${g.values.length}`), ...qktChartAxis },
-    yAxis: { type: "value", ...qktChartAxis },
-    series: [
-      {
-        type: "boxplot",
-        itemStyle: { color: "rgba(200,247,74,0.12)", borderColor: "#c8f74a" },
-        data: usable.map((g) => ({
-          value: boxRow(g.values),
-          itemStyle: g.values.length < MIN_N ? { borderColor: MUTED, color: "rgba(91,99,109,0.1)" } : undefined,
-        })),
-      },
-    ],
-  };
-  return <EChart option={option} height={height} />;
+  if (series.length === 0) return <p className="px-1 py-8 text-center text-sm text-muted">{shown.notes.join(" ")}</p>;
+  return (
+    <>
+      {shown.notes.length > 0 && <p className="px-1 pb-2 text-xs text-muted">{shown.notes.join(" ")}</p>}
+      <EChart option={option} height={height} />
+    </>
+  );
 }
