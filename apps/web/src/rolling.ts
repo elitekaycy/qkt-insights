@@ -17,11 +17,12 @@ export function rollingCoverage(points: readonly RollingPoint[], window: number)
   const sharpe = points.some((p) => p.sharpe != null);
   const winRate = points.some((p) => p.winRate != null);
   const notes: string[] = [];
-  if (!sharpe) {
+  // no traded day at all: the equity days without a close are not days the window can use
+  if (!winRate) notes.push("No closed trades in this range yet: the rolling view starts with the first day that closes a trade.");
+  else if (!sharpe) {
     // the first day is the starting base: every later day is one daily return
     const returns = Math.max(0, points.length - 1);
     notes.push(`Rolling Sharpe needs ≥ ${window} trading days with closes in the window; this range has ${returns}.`);
   }
-  if (!winRate) notes.push("No traded days in any window yet, so no winning-day rate.");
   return { sharpe, winRate, notes };
 }

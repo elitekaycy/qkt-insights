@@ -106,9 +106,9 @@ describe("Home figures over the real API", () => {
     expect(row.basis).toBe("static");
     const use = limitUse(row, state.accounts[0]!.equity);
     // day-start balance 9,800 minus live equity 9,690, floating included
-    expect(use.daily).toEqual({ used: 110, cap: 500, pct: 22 });
+    expect(use.daily).toEqual({ used: 110, cap: 500, pct: 22, reference: 9_800, usedPct: (110 / 9_800) * 100 });
     // start balance 10,000 minus live equity 9,690
-    expect(use.drawdown).toEqual({ used: 310, cap: 1_000, pct: 31 });
+    expect(use.drawdown).toEqual({ used: 310, cap: 1_000, pct: 31, reference: 10_000, usedPct: 3.1 });
   });
 
   it("sums open risk to the stops in money, counting positions without a stop apart", async () => {
@@ -147,5 +147,26 @@ describe("Home figures over the real API", () => {
     const all = [...periods.values()].reduce((a, r) => a + r.all, 0);
     expect(all).toBeCloseTo(summary.totalNet, 9);
     expect([...periods.values()].reduce((a, r) => a + r.trades, 0)).toBe(summary.trades);
+  });
+});
+
+describe("a position reported under a name the instance does not know", () => {
+  it("takes the strategy its own deals carry, as the trade journal does, and keeps a known one", async () => {
+    // a portfolio child's entry: the deal is the child's, the live position names the child's DSL
+    ingestEvents(db, I, [{
+      v: 1, instanceId: I, id: "deal-t9-in", seq: 900, ts: now - HOUR, type: "broker.deal",
+      payload: { broker: "ICM", dealTicket: "t9-in", positionTicket: "t9", orderTicket: "o-t9", symbol: "ICM:XAUUSD",
+        side: "BUY", entry: "IN", qty: 0.1, price: 4000, profit: 0, commission: 0, swap: 0, ts: now - HOUR, strategyId: "silver" },
+    } as unknown as Envelope]);
+    liveState.upsert(I, { v: 1, instanceId: I, id: "pos9", seq: 901, ts: now, type: "state.positions",
+      payload: { broker: "ICM_S09", positions: [
+        { ticket: "t9", symbol: "ICM_S09:XAUUSD", side: "BUY", qty: 0.1, entryPrice: 4000, currentPrice: 4001, profit: 10, swap: 0, strategyId: "silver_dsl_name" },
+      ] } } as unknown as Envelope);
+    const state = await get<LiveStateSnapshot>("/live/state");
+    const all = state.positions.flatMap((g) => g.list);
+    expect(all.find((p) => p.ticket === "t9")!.strategyId).toBe("silver");
+    expect(all.find((p) => p.ticket === "t1")!.strategyId).toBe("gold");
+    expect(all.find((p) => p.ticket === "t3")!.strategyId).toBeNull();
+    expect(floatingByStrategy(all).get("silver_dsl_name")).toBeUndefined();
   });
 });

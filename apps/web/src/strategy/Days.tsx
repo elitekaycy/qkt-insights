@@ -5,7 +5,7 @@ import { chartColors, EChart, qktChartAxis, qktChartGrid, qktChartTooltip, qktXA
 import { compact, count, DASH, monthName, pnl, polarity, signedMoney, signedPct, toneClass, winPct } from "../format";
 import type { TripDay, TripMonth } from "../trades/analytics";
 import { RoundTripTable } from "../trades/RoundTripTable";
-import { pickedSpan, profitFactorText, windowTotals, withCumulative, without } from "./journal";
+import { emptyHint, pickedSpan, profitFactorText, windowTotals, withCumulative, without } from "./journal";
 import type { SectionProps } from "./StrategyPage";
 import { ICON, Widget } from "./widgets";
 
@@ -25,10 +25,10 @@ function shade(net: number, maxAbs: number): string {
   return `color-mix(in srgb, ${net >= 0 ? "var(--color-gain-fill)" : "var(--color-loss-fill)"} ${Math.round(9 + 46 * k)}%, var(--color-panel))`;
 }
 
-function Empty({ q }: { q: string }) {
+function Empty({ q, from }: { q: string; from: number | undefined }) {
   return (
     <div className="rounded-card border border-line bg-panel px-6 py-10 text-center text-sm text-muted">
-      <b className="text-bright">No closed trades in this selection.</b> {q ? "Loosen the search above or widen the range." : "Widen the range: none closed in it."}
+      <b className="text-bright">No closed trades in this selection.</b> {emptyHint(q, from)}
     </div>
   );
 }
@@ -46,7 +46,7 @@ function PickedTrades({ scope, q, title, n }: { scope: SectionProps["scope"]; q:
 export function CalendarSection({ scope, q, toggle, base, capital }: SectionProps) {
   const { day, month } = pickedSpan(q);
   if (!base) return null;
-  if (base.daily.length === 0) return <Empty q={q} />;
+  if (base.daily.length === 0) return <Empty q={q} from={scope.from} />;
   return (
     <div className="grid gap-4">
       <CalendarView
@@ -92,7 +92,7 @@ export function DailySection({ scope, q, toggle, base, busy }: SectionProps) {
     }],
   }), [days, picked]);
   if (!base) return null;
-  if (days.length === 0) return <Empty q={q} />;
+  if (days.length === 0) return <Empty q={q} from={scope.from} />;
   const shown = windowTotals(days, zoom);
   const rows = [...days].reverse();
   return (
@@ -170,7 +170,7 @@ export function MonthlySection({ scope, q, toggle, base, busy, capital, goTab }:
     }],
   }), [months, picked]);
   if (!base) return null;
-  if (months.length === 0) return <Empty q={q} />;
+  if (months.length === 0) return <Empty q={q} from={scope.from} />;
   return (
     <div className="grid gap-4">
       <Widget icon={ICON.bars} title="Monthly P&L" busy={busy}>

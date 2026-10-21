@@ -49,6 +49,23 @@ describe("accountRisk", () => {
     expect(row!.dailyLoss.realizedToday).toBe(-300);
   });
 
+  it("measures a portfolio's account against the book's capital, not one sleeve's", () => {
+    const db = openDb(":memory:");
+    const risk = { maxDailyLoss: 200, maxDrawdownPct: 0.05, maxDailyDrawdownPct: 0.025, totalDdBasis: "STATIC" };
+    for (const alias of ["s0", "s1", "s2", "s3"]) {
+      db.prepare("INSERT INTO strategies (instance_id, strategy_id, first_seen, last_seen, starting_balance, metadata) VALUES (?,?,?,?,?,?)")
+        .run(I, `book:${alias}`, T0, T0, 10_000, JSON.stringify({ risk, kind: "portfolio_child", portfolioCapital: 40_000, allocatedCapital: 10_000 }));
+    }
+    equity(db, "BRK", T0 - 2 * HOUR, 40_000, 40_000);
+    equity(db, "BRK", T0 - HOUR, 39_000, 38_800);
+    const [row] = accountRisk(db, { instanceId: I, now: T0 });
+    expect(row!.startBalance).toBe(40_000);
+    expect(row!.startBalanceSource).toBe("strategy risk config");
+    expect(row!.drawdown.cap).toBe(2_000);
+    expect(row!.drawdown.used).toBe(1_200);
+    expect(row!.dailyLoss.cap).toBe(200);
+  });
+
   it("defaults to drawdown from the equity peak", () => {
     const db = openDb(":memory:");
     equity(db, "BRK", T0 - 3 * HOUR, 10_000, 10_000);
