@@ -336,6 +336,26 @@ export interface AccountSummary {
   costs: { grossProfit: number; commission: number; swap: number; fee: number; net: number } | null;
   byInstrument: AccountBucket[];
   byStrategy: AccountBucket[];
+  /** Capital each traded month's return is measured against. */
+  monthBases: PeriodBase[];
+}
+export interface PeriodBase { period: string; base: number; source: "account equity" | "start balance" }
+/** Drawdown and daily-loss consumption of one venue account against its own limits. */
+export interface AccountRiskRow {
+  account: string;
+  label: string;
+  source: "account limits" | "strategy risk config" | null;
+  basis: "peak" | "static";
+  startBalance: number | null;
+  startBalanceSource: "configured" | "strategy risk config" | "first recorded balance" | null;
+  balance: number | null;
+  equity: number | null;
+  peakEquity: number | null;
+  drawdown: { used: number | null; usedPct: number | null; reference: number | null; cap: number | null };
+  dailyLoss: {
+    used: number | null; cap: number | null; dayStart: number; resetHour: number; timezone: string;
+    includesFloating: boolean; dayStartBalance: number | null; realizedToday: number;
+  };
 }
 export interface AccountDrawdownRow {
   broker: string; currentEquity: number | null; peakEquity: number | null;
@@ -429,6 +449,8 @@ export interface DealRow {
 }
 export interface AccountEquityPoint {
   broker: string;
+  /** The venue account the label belongs to: labels of one account share it. */
+  account: string;
   minuteTs: number;
   balance: number | null;
   equity: number | null;

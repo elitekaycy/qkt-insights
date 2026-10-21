@@ -1,6 +1,6 @@
 import { useState } from "react";
-import type { AccountSummary as AccountSummaryData } from "../api";
-import { money, num, pct } from "../format";
+import type { AccountRiskRow, AccountSummary as AccountSummaryData } from "../api";
+import { fixed, money, num, pct } from "../format";
 import { CalendarView } from "./Calendar";
 import { Cell, Empty, Panel, Row, Select, Stat, Table } from "./ui";
 
@@ -27,15 +27,12 @@ function isoWeek(day: string): string {
 export function AccountSummary({
   summary,
   strategyName,
-  accountEquity,
-  accountBalance,
-  totalAllocated,
+  risk,
 }: {
   summary: AccountSummaryData;
   strategyName: (strategyId: string) => string;
-  accountEquity: number | null;
-  accountBalance: number | null;
-  totalAllocated: number;
+  /** The accounts' risk rows: the drawdown tile reads them. */
+  risk: AccountRiskRow[];
 }) {
   const [split, setSplit] = useState<"instrument" | "strategy">("instrument");
   const daily = summary.dailyNets;
@@ -65,7 +62,14 @@ export function AccountSummary({
   const weekPnl = weekTotals.get(thisWeek) ?? 0;
   const worstWeek = weekTotals.size ? Math.min(...weekTotals.values()) : 0;
 
-  const accountDD = accountBalance != null && accountEquity != null ? Math.max(0, accountBalance - accountEquity) : null;
+  // Real drawdown on each account's configured basis; balance minus equity is only the open P&L.
+  const ddRows = risk.filter((r) => r.drawdown.used != null);
+  const accountDD = ddRows.length > 0 ? ddRows.reduce((a, r) => a + r.drawdown.used!, 0) : null;
+  const ddSub = ddRows.length === 1
+    ? `${ddRows[0]!.basis === "static" ? "below start" : "from peak"} ${money(ddRows[0]!.drawdown.reference)} · ${fixed(ddRows[0]!.drawdown.usedPct ?? 0, 2)}%`
+    : ddRows.length > 1 ? `${ddRows.length} accounts, each on its basis` : "no account history yet";
+  const bases = new Map(summary.monthBases.map((b) => [b.period, b]));
+  const baseLabel = summary.monthBases.some((b) => b.source === "account equity") ? "account equity at month start" : "account start balance";
 
   const buckets = split === "instrument" ? summary.byInstrument : summary.byStrategy;
   const label = (key: string | null) => split === "instrument" ? key ?? "—" : key == null ? "Unattributed" : strategyName(key);
@@ -88,7 +92,7 @@ export function AccountSummary({
         <Stat label="Expectancy" value={dash(expectancy, (n) => money(n))} sub="per trade" tone={expectancy == null ? "neutral" : sign(expectancy)} stagger={1} />
         <Stat label="Trades" value={num(tradeCount, 0)} sub={`${longs} long · ${shorts} short`} stagger={1} />
         <Stat label="Trading days" value={num(tradingDays, 0)} sub="days with closes (UTC)" stagger={1} />
-        <Stat label="Account DD" value={dash(accountDD, (n) => money(-n))} sub="equity vs balance" tone={accountDD ? "down" : "neutral"} stagger={2} />
+        <Stat label={ddRows.length === 1 && ddRows[0]!.basis === "static" ? "Account DD · static" : "Account DD · from peak"} value={dash(accountDD, (n) => money(-n))} sub={ddSub} tone={accountDD ? "down" : "neutral"} stagger={2} />
         <Stat label="Worst day" value={money(worstDay)} tone={sign(worstDay)} stagger={2} />
         <Stat label="This week" value={money(weekPnl)} tone={sign(weekPnl)} stagger={2} />
         <Stat label="Worst week" value={money(worstWeek)} tone={sign(worstWeek)} stagger={2} />
@@ -123,7 +127,7 @@ export function AccountSummary({
           </Panel>
         </div>
         <div className="lg:col-span-2">
-          <CalendarView days={daily} startingBalance={totalAllocated} />
+          <CalendarView days={daily} returnBase={(month) => bases.get(month)?.base ?? null} baseLabel={baseLabel} />
         </div>
       </div>
     </section>

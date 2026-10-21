@@ -1,6 +1,6 @@
 import { useMemo, useState } from "react";
 import type { DayNet, TradeRow, TradeView } from "../api";
-import { human, money, price, ts } from "../format";
+import { fixed, human, money, price, ts } from "../format";
 import { Cell, Empty, Field, IconButton, Modal, Panel, Pill, Row, SideTag, Table } from "./ui";
 
 /*
@@ -30,12 +30,16 @@ function netClass(net: number): string {
 
 export function CalendarView({
   days,
-  startingBalance,
+  returnBase,
+  baseLabel = "starting capital",
   trades = [],
   onTrade,
 }: {
   days: DayNet[];
-  startingBalance: number | null;
+  /** Capital a month's (and its days') return is measured against; null hides the return. */
+  returnBase: (month: string) => number | null;
+  /** What the base is, e.g. "account equity at month start". */
+  baseLabel?: string;
   /** Closed trades / fills for the day-detail modal; pass what the page already fetched. */
   trades?: TradeView[];
   onTrade?: (raw: TradeRow) => void;
@@ -68,6 +72,11 @@ export function CalendarView({
   }, [days]);
 
   const year = month.slice(0, 4);
+  const pctOf = (net: number, month: string) => {
+    const base = returnBase(month);
+    return base ? `${fixed((net / base) * 100)}%` : "—";
+  };
+  const hasBase = monthly.some(([k]) => returnBase(k) != null);
   const ytd = monthly.filter(([k]) => k.startsWith(year)).reduce((a, [, v]) => a + v.net, 0);
   const monthlyMaxAbs = Math.max(0, ...monthly.map(([, v]) => Math.abs(v.net)));
 
@@ -144,8 +153,8 @@ export function CalendarView({
         </div>
       </Panel>
 
-      <Panel title="Monthly returns" hint={`YTD ${money(ytd)} · click a month`} stagger={1} scroll="max-h-[30rem]">
-        <Table head={["Month", "Net", startingBalance ? "Return" : "", "Fills"].filter(Boolean) as string[]}>
+      <Panel title="Monthly returns" hint={`YTD ${money(ytd)}${hasBase ? ` · return on ${baseLabel}` : ""} · click a month`} stagger={1} scroll="max-h-[30rem]">
+        <Table head={["Month", "Net", hasBase ? "Return" : "", "Fills"].filter(Boolean) as string[]}>
           {monthly.map(([k, v]) => (
             <Row
               key={k}
@@ -158,8 +167,8 @@ export function CalendarView({
               <Cell className={`font-mono ${netClass(v.net)}`}>
                 <span className="rounded px-2 py-0.5" style={{ background: tint(v.net, monthlyMaxAbs) }}>{money(v.net)}</span>
               </Cell>
-              {startingBalance ? (
-                <Cell className="font-mono text-muted">{((v.net / startingBalance) * 100).toFixed(2)}%</Cell>
+              {hasBase ? (
+                <Cell className="font-mono text-muted">{pctOf(v.net, k)}</Cell>
               ) : null}
               <Cell className="font-mono text-muted">{v.trades}</Cell>
             </Row>
@@ -179,9 +188,7 @@ export function CalendarView({
             <Field label="Day net P&L">
               <span className={netClass(dayInfo.net)}>{money(dayInfo.net)}</span>
             </Field>
-            <Field label="Return on starting capital">
-              {startingBalance ? `${((dayInfo.net / startingBalance) * 100).toFixed(2)}%` : "—"}
-            </Field>
+            <Field label={`Return on ${baseLabel}`}>{pctOf(dayInfo.net, monthKey(openDay))}</Field>
           </div>
           <div className="px-4 pb-1 text-[11px] font-semibold uppercase tracking-[0.12em] text-muted">
             Trades that day {onTrade && dayFills.some((t) => t.raw) ? "· click one to inspect" : ""}
@@ -218,9 +225,7 @@ export function CalendarView({
             <Field label="Month net P&L">
               <span className={netClass(openMonthNet)}>{money(openMonthNet)}</span>
             </Field>
-            <Field label="Return on starting capital">
-              {startingBalance ? `${((openMonthNet / startingBalance) * 100).toFixed(2)}%` : "—"}
-            </Field>
+            <Field label={`Return on ${baseLabel}`}>{pctOf(openMonthNet, openMonth)}</Field>
             <Field label="Best day">
               {bestDay ? (
                 <>

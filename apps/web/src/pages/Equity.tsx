@@ -8,10 +8,6 @@ import { duration, human, money, tsDay } from "../format";
 
 const PALETTE = ["#c8f74a", "#5cb8ff", "#a78bfa", "#3fe08c", "#fbbf24", "#ff6b6b", "#f472b6", "#22d3ee"];
 
-function accountBrokerGroup(broker: string): string {
-  return broker.replace(/_S\d+$/u, "");
-}
-
 export default function Equity({ instanceId }: { instanceId: string | null }) {
   usePublicPageView("equity");
   const strategies = useQuery({
@@ -66,11 +62,13 @@ export default function Equity({ instanceId }: { instanceId: string | null }) {
     })
     .filter((s) => s.points.length > 0);
 
-  // EquityChart wants EquityPoint; realized/unrealized are unused by the chart.
+  // One chart per venue account: the server stitches the labels one account reported under
+  // (login@server, else labels that take turns). EquityChart wants EquityPoint; realized/unrealized
+  // are unused by the chart.
   const accountByBrokerMinute = new Map<string, Map<number, EquityPoint>>();
   for (const p of account.data ?? []) {
     if (p.equity == null) continue;
-    const broker = accountBrokerGroup(p.broker);
+    const broker = p.account;
     const byMinute = accountByBrokerMinute.get(broker) ?? new Map<number, EquityPoint>();
     byMinute.set(p.minuteTs, { ts: p.minuteTs, equity: p.equity, realized: p.balance ?? 0, unrealized: p.openProfit ?? 0 });
     accountByBrokerMinute.set(broker, byMinute);

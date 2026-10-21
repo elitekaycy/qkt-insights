@@ -141,18 +141,24 @@ export class LiveStateStore {
     const up = db.prepare(
       `INSERT INTO account_equity
          (instance_id, broker, minute_ts, balance, equity, open_profit,
-          balance_decimal, equity_decimal, open_profit_decimal)
-       VALUES (?,?,?,?,?,?,?,?,?) ON CONFLICT(instance_id, broker, minute_ts)
+          balance_decimal, equity_decimal, open_profit_decimal, account)
+       VALUES (?,?,?,?,?,?,?,?,?,?) ON CONFLICT(instance_id, broker, minute_ts)
        DO UPDATE SET balance=excluded.balance, equity=excluded.equity, open_profit=excluded.open_profit,
+         account=COALESCE(excluded.account, account),
          balance_decimal=excluded.balance_decimal, equity_decimal=excluded.equity_decimal,
          open_profit_decimal=excluded.open_profit_decimal`,
     );
     for (const a of this.accounts.values()) {
       if (now - a.lastSeen > staleAfterMs) continue;
       up.run(a.instanceId, a.broker, minute, a.balance, a.equity, a.openProfit ?? null,
-        decimalText(a.balance), decimalText(a.equity), decimalText(a.openProfit));
+        decimalText(a.balance), decimalText(a.equity), decimalText(a.openProfit), accountIdentity(a));
     }
   }
+}
+
+/** "login@server" for an account the poller identified, else null. */
+export function accountIdentity(a: { login?: string; server?: string }): string | null {
+  return a.login && a.server ? `${a.login}@${a.server}` : null;
 }
 
 function accountKey(instanceId: string, p: { broker: string; login?: string; server?: string }): string {

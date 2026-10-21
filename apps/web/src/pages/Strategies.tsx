@@ -730,7 +730,8 @@ export function StrategyDetail({ instanceId, strategyId, onBack }: { instanceId:
             {performance.data && (
               <CalendarView
                 days={performance.data.dailyNets}
-                startingBalance={capital.amount}
+                returnBase={() => capital.amount}
+                baseLabel={capital.source ? `the strategy's ${capital.source}` : "the strategy's capital"}
                 trades={tradeRows}
                 onTrade={view.public ? undefined : setOpenTrade}
               />

@@ -1,8 +1,8 @@
 import { createHash } from "node:crypto";
 import type { FastifyInstance, FastifyReply, FastifyRequest } from "fastify";
 import {
-  accountDrawdown, accountEquity, accountSummary, closedTrades, fullyClosedPositions, listDeals, listStrategyRoster, listTrades, openPositionsAt, portfolioGroupOf,
-  resolveVisibility, strategyEquityCurve, strategyStats, type Db, type LiveStateStore, type ShareKind, type ShareRow, type Shares, type StrategyRow, type Views,
+  accountDrawdown, accountEquity, accountPerformance, accountRisk, closedTrades, fullyClosedPositions, listDeals, listStrategyRoster, listTrades, openPositionsAt, portfolioGroupOf,
+  resolveVisibility, strategyEquityCurve, strategyStats, type AccountLimits, type Db, type LiveStateStore, type ShareKind, type ShareRow, type Shares, type StrategyRow, type Views,
 } from "@qkt-insights/store";
 import { isSameOrigin, requireSession } from "./auth.js";
 import type { TtlCache } from "./cache.js";
@@ -160,6 +160,8 @@ export interface PublicDeps {
   computeMsPerMinute?: number;
   /** When present, shared pages can report views through POST /public/:token/view. */
   views?: Views;
+  /** Per-account risk limits (INSIGHTS_ACCOUNT_LIMITS). */
+  accountLimits?: AccountLimits;
 }
 
 interface Scope {
@@ -495,16 +497,28 @@ export function registerPublic(app: FastifyInstance, deps: PublicDeps): void {
     params: (q, scope, cutoff) => (scope.accountLevel ? { range: rangePreset(q.from, cutoff) } : NOT_FOUND),
     compute: (scope, p, cutoff) => {
       const label = accountLabeller(liveAccountCount(scope.instanceId) <= 1);
-      return accountEquity(deps.db, { instanceId: scope.instanceId, from: presetFrom(p.range, cutoff), to: cutoff }).map((row) => ({ ...row, broker: label(row.broker) }));
+      const accountLabel = accountLabeller(liveAccountCount(scope.instanceId) <= 1);
+      return accountEquity(deps.db, { instanceId: scope.instanceId, from: presetFrom(p.range, cutoff), to: cutoff })
+        .map((row) => ({ ...row, broker: label(row.broker), account: accountLabel(row.account) }));
     },
   });
 
   // The shared overview's account roll-up covers its public strategies, closed by the cutoff.
   route("/account/summary", {
     params: (_q, scope) => (scope.accountLevel ? {} : NOT_FOUND),
-    compute: (scope, _p, cutoff) => publicAccountSummary(accountSummary(deps.db, {
+    compute: (scope, _p, cutoff) => publicAccountSummary(accountPerformance(deps.db, {
       instanceId: scope.instanceId, strategyIds: scope.allowed, to: cutoff, closedPositionsOnly: true,
     })),
+  });
+
+  // Limits and consumption as of the cutoff; daily realized loss counts the link's public strategies only.
+  route("/account/risk", {
+    params: (_q, scope) => (scope.accountLevel ? {} : NOT_FOUND),
+    compute: (scope, _p, cutoff) => {
+      const label = accountLabeller(liveAccountCount(scope.instanceId) <= 1);
+      return accountRisk(deps.db, { instanceId: scope.instanceId, limits: deps.accountLimits, now: cutoff, strategyIds: scope.allowed, closedPositionsOnly: true })
+        .map((row) => ({ ...row, account: label(row.account), label: label(row.label) }));
+    },
   });
 
   route("/account/drawdown", {

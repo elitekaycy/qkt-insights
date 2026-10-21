@@ -1,10 +1,14 @@
 import type { FastifyInstance } from "fastify";
-import { listInstances, listStrategies, listOrders, listTrades, searchEvents, equityCurve, instanceHealth, listLogs, strategyStats, listDeals, accountEquity, accountDrawdown, accountSummary, listIngestObservations, monitorSummaries, listMonitorEvents, type Db, type LiveStateStore, type Monitors } from "@qkt-insights/store";
+import { listInstances, listStrategies, listOrders, listTrades, searchEvents, equityCurve, instanceHealth, listLogs, strategyStats, listDeals, accountEquity, accountDrawdown, accountPerformance, accountRisk, listIngestObservations, monitorSummaries, listMonitorEvents, type AccountLimits, type Db, type LiveStateStore, type Monitors } from "@qkt-insights/store";
 import { requireSession } from "./auth.js";
 import { TtlCache } from "./cache.js";
 import { performanceBundle } from "./performance.js";
 
-export interface RestDeps { db: Db; liveState: LiveStateStore; monitors: Monitors }
+export interface RestDeps {
+  db: Db; liveState: LiveStateStore; monitors: Monitors;
+  /** Per-account risk limits (INSIGHTS_ACCOUNT_LIMITS); the strategies' qkt risk config otherwise. */
+  accountLimits?: AccountLimits;
+}
 
 const LIMIT = (q: Record<string, string | undefined>) => Math.min(Number(q.limit ?? 200), 1000);
 
@@ -102,8 +106,14 @@ export function registerRest(app: FastifyInstance, deps: RestDeps): void {
   // Every close on the account: retired strategies and unattributed deals included.
   app.get<{ Querystring: Record<string, string> }>("/account/summary", guard, async (req, reply) => {
     const q = req.query; const i = q.instance; if (!need(reply, i, "instance")) return;
-    return cache.get(req.url, () => accountSummary(deps.db, { instanceId: i,
+    return cache.get(req.url, () => accountPerformance(deps.db, { instanceId: i,
       from: q.from ? Number(q.from) : undefined, to: q.to ? Number(q.to) : undefined }));
+  });
+
+  // Drawdown and daily loss against each account's own limits.
+  app.get<{ Querystring: Record<string, string> }>("/account/risk", guard, async (req, reply) => {
+    const i = req.query.instance; if (!need(reply, i, "instance")) return;
+    return cache.get(req.url, () => accountRisk(deps.db, { instanceId: i, limits: deps.accountLimits, now: Date.now() }));
   });
 
   app.get<{ Querystring: Record<string, string> }>("/ingest/observations", guard, async (req, reply) => {

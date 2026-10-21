@@ -16,9 +16,17 @@ export function tsShort(ms: number): string {
   return `${date} ${time}`;
 }
 
+/** toFixed that never prints "-0.00": a value that rounds to zero is unsigned. */
+export function fixed(v: number, digits = 2): string {
+  const s = v.toFixed(digits);
+  return Number(s) === 0 ? (0).toFixed(digits) : s;
+}
+
 export function money(v: number | null | undefined): string {
   if (v == null) return "—";
-  return v.toLocaleString("en-US", { minimumFractionDigits: 2, maximumFractionDigits: 2 });
+  // round first, so -0.004 prints "0.00" and never "-0.00"
+  const r = Number(v.toFixed(2)) || 0;
+  return r.toLocaleString("en-US", { minimumFractionDigits: 2, maximumFractionDigits: 2 });
 }
 
 /**
@@ -45,12 +53,12 @@ export function compact(v: number): string {
 
 export function pct(v: number | null | undefined): string {
   if (v == null) return "—";
-  return `${(v * 100).toFixed(1)}%`;
+  return `${fixed(v * 100, 1)}%`;
 }
 
 export function num(v: number | null | undefined, digits = 2): string {
   if (v == null) return "—";
-  return v.toFixed(digits);
+  return fixed(v, digits);
 }
 
 /** Full human-readable timestamp, e.g. "Wed, 11 Jun 2026 · 13:45:09". */

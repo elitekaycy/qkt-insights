@@ -1,5 +1,5 @@
 import type { ReactNode } from "react";
-import type { ClosedTradeRow, DayNet, ExcursionStats } from "../api";
+import type { AccountRiskRow, ClosedTradeRow, DayNet, ExcursionStats } from "../api";
 import { compact, duration, money } from "../format";
 import { ChartCard } from "./ChartCard";
 import { chartColors, EChart, qktChartAxis, qktChartGrid, qktChartTooltip, qktInsideZoom, type QktChartOption } from "./EChart";
@@ -38,11 +38,9 @@ export interface OverviewDashboardData {
   excursions: ExcursionStats[];
   series: ComparisonSeries[];
   accountEquity: number | null;
-  accountBalance: number | null;
   accountOpenPnl: number | null;
-  totalAllocated: number;
-  dailyLossCap: number | null;
-  drawdownCap: number | null;
+  /** Each venue account's drawdown and daily loss against its own limits. */
+  risk: AccountRiskRow[];
 }
 
 export function OverviewDashboard({ data }: { data: OverviewDashboardData }) {
@@ -128,29 +126,47 @@ function OutcomeWidget({ closes }: { closes: ClosedTradeRow[] }) {
 }
 
 function RiskWidget({ data }: { data: OverviewDashboardData }) {
-  const today = new Date().toISOString().slice(0, 10);
-  const todayNet = data.dailyNets.find((x) => x.day === today)?.net ?? 0;
-  const drawdown = data.accountBalance != null && data.accountEquity != null ? Math.max(0, data.accountBalance - data.accountEquity) : null;
+  const capital = data.risk.reduce<number | null>((a, r) => (r.startBalance == null ? a : (a ?? 0) + r.startBalance), null);
+  const one = data.risk.length === 1 ? data.risk[0]! : null;
   return (
     <Card className="h-full overflow-hidden">
-      <WidgetHeader title="Risk budget" description="Current consumption of configured loss and drawdown limits." />
-      <div className="grid gap-5 p-5 sm:grid-cols-2">
-        <Budget label="Daily loss" used={Math.max(0, -todayNet)} cap={data.dailyLossCap} detail={`today ${money(todayNet)} UTC`} />
-        <Budget label="Account drawdown" used={drawdown} cap={data.drawdownCap} detail={`equity ${money(data.accountEquity)}`} />
+      <WidgetHeader title="Risk budget" description="Consumption of each account's loss and drawdown limits; limits belong to the account, never summed per strategy." />
+      {data.risk.length === 0 && <WidgetEmpty>Account limits appear with the first broker account rollup.</WidgetEmpty>}
+      {data.risk.map((r) => (
+        <div key={r.account} className="grid gap-5 border-b border-line/70 p-5 sm:grid-cols-2">
+          {data.risk.length > 1 && <div className="text-[11px] font-semibold uppercase tracking-[0.12em] text-muted sm:col-span-2">{r.label}</div>}
+          <Budget
+            label={`Daily loss · ${r.dailyLoss.includesFloating ? "incl. floating" : "realized"}`}
+            used={r.dailyLoss.used}
+            cap={r.dailyLoss.cap}
+            detail={`day from ${String(r.dailyLoss.resetHour).padStart(2, "0")}:00 ${r.dailyLoss.timezone} · realized ${money(r.dailyLoss.realizedToday)}`}
+          />
+          <Budget
+            label={`Account drawdown · ${r.basis === "static" ? "static" : "from peak"}`}
+            used={r.drawdown.used}
+            cap={r.drawdown.cap}
+            detail={`${r.basis === "static" ? "below start balance" : "below peak equity"} ${money(r.drawdown.reference)} · equity ${money(r.equity)}`}
+          />
+          <div className="text-[11px] text-faint sm:col-span-2">
+            {r.source == null ? "No limits configured: set INSIGHTS_ACCOUNT_LIMITS or the strategies' qkt risk caps." : `Limits from ${r.source}.`}
+          </div>
+        </div>
+      ))}
+      <div className="grid grid-cols-2 gap-px bg-line/70">
         <Metric label="Open P&L" value={money(data.accountOpenPnl)} tone={(data.accountOpenPnl ?? 0) < 0 ? "down" : "up"} />
-        <Metric label="Allocated capital" value={money(data.totalAllocated)} />
+        <Metric label={one?.startBalanceSource === "first recorded balance" ? "Account capital · first balance" : "Account capital · start balance"} value={money(capital)} />
       </div>
     </Card>
   );
 }
 
 function Budget({ label, used, cap, detail }: { label: string; used: number | null; cap: number | null; detail: string }) {
-  const pct = used != null && cap != null && cap > 0 ? Math.min(100, (used / cap) * 100) : null;
+  const pct = used != null && cap != null && cap > 0 ? (used / cap) * 100 : null;
   return (
     <div>
       <div className="flex items-baseline justify-between gap-3"><span className="text-xs font-semibold text-body">{label}</span><span className="font-mono text-xs text-muted">{used == null ? "—" : money(used)} / {cap == null ? "no cap" : money(cap)}</span></div>
-      <div className="mt-2 h-2 overflow-hidden rounded-full bg-raised"><div className={`h-full rounded-full ${pct != null && pct >= 80 ? "bg-down" : pct != null && pct >= 55 ? "bg-warn" : "bg-info"}`} style={{ width: `${pct ?? 0}%` }} /></div>
-      <div className="mt-1.5 text-[11px] text-faint">{pct == null ? "Configure the strategy risk cap to activate this budget." : `${pct.toFixed(1)}% used · ${detail}`}</div>
+      <div className="mt-2 h-2 overflow-hidden rounded-full bg-raised"><div className={`h-full rounded-full ${pct != null && pct >= 80 ? "bg-down" : pct != null && pct >= 55 ? "bg-warn" : "bg-info"}`} style={{ width: `${Math.min(100, pct ?? 0)}%` }} /></div>
+      <div className="mt-1.5 text-[11px] text-faint">{pct == null ? detail : `${pct.toFixed(1)}% used · ${detail}`}</div>
     </div>
   );
 }

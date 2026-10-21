@@ -1,11 +1,11 @@
 import { useQueries, useQuery } from "@tanstack/react-query";
-import { get, type AccountDrawdownRow, type AccountSummary as AccountSummaryData, type EquityPoint, type PerformanceBundle, type StrategyRow } from "../api";
+import { get, type AccountDrawdownRow, type AccountRiskRow, type AccountSummary as AccountSummaryData, type EquityPoint, type PerformanceBundle, type StrategyRow } from "../api";
 import { AccountSummary } from "../components/AccountSummary";
 import type { ComparisonSeries } from "../components/EquityChart";
 import { OverviewDashboard } from "../components/OverviewDashboard";
 import { Card, Cell, DataList, FlashValue, LiveDot, Loadable, PageHeader, Panel, Pill, SideTag, Stat } from "../components/ui";
 import { duration, money, num, price } from "../format";
-import { strategyCapital, strategyDisplayName } from "../portfolio";
+import { strategyDisplayName } from "../portfolio";
 import { useLiveState } from "../useLiveState";
 import { useLiveStream } from "../useLiveStream";
 import { ShareControl } from "../components/ShareControl";
@@ -16,31 +16,6 @@ const PALETTE = ["#c8f74a", "#5cb8ff", "#a78bfa", "#3fe08c", "#fbbf24", "#ff6b6b
 // Overview only needs broker state pushes for live account/position truth; raw
 // event inspection belongs on Logs/Search so payloads cannot stretch the layout.
 const FEED_TYPES = ["state.account", "state.positions"];
-
-function aggregateRiskCap(rows: StrategyRow[], keys: string[]): number | null {
-  let cap = 0;
-  let found = false;
-  for (const row of rows) {
-    if (row.startingBalance == null || row.startingBalance <= 0 || row.metadata == null) continue;
-    const risk = row.metadata.risk;
-    const sources = [row.metadata, risk && typeof risk === "object" ? risk as Record<string, unknown> : null];
-    let raw: number | null = null;
-    for (const source of sources) {
-      if (!source) continue;
-      for (const key of keys) {
-        const value = source[key];
-        const parsed = typeof value === "number" ? value : typeof value === "string" ? Number(value) : NaN;
-        if (Number.isFinite(parsed) && parsed > 0) { raw = parsed; break; }
-      }
-      if (raw != null) break;
-    }
-    if (raw == null) continue;
-    const fraction = raw <= 1 ? raw : raw / 100;
-    cap += row.startingBalance * fraction;
-    found = true;
-  }
-  return found ? cap : null;
-}
 
 export default function Overview({
   instanceId,
@@ -90,6 +65,13 @@ export default function Overview({
     })),
   });
 
+  const risk = useQuery({
+    queryKey: ["accountRisk", instanceId],
+    queryFn: () => get<AccountRiskRow[]>(`/account/risk?instance=${encodeURIComponent(instanceId!)}`),
+    enabled: instanceId != null,
+    refetchInterval: 60_000,
+  });
+
   const drawdown = useQuery({
     queryKey: ["accountDrawdown", instanceId],
     queryFn: () => get<AccountDrawdownRow[]>(`/account/drawdown?instance=${encodeURIComponent(instanceId!)}`),
@@ -111,12 +93,8 @@ export default function Overview({
 
   // Live truth: account figures summed across brokers, open P&L attributed per strategy.
   const accountEquity = accounts.length > 0 ? accounts.reduce((a, x) => a + x.equity, 0) : null;
-  const accountBalance = accounts.length > 0 ? accounts.reduce((a, x) => a + x.balance, 0) : null;
   const accountOpenPnl = accounts.length > 0 ? accounts.reduce((a, x) => a + (x.openProfit ?? 0), 0) : null;
-  const totalAllocated = rows.reduce((a, s) => a + (strategyCapital(s).amount ?? 0), 0);
   const excursions = perf.flatMap((q) => q.data?.excursions ? [q.data.excursions] : []);
-  const dailyLossCap = aggregateRiskCap(rows, ["maxDailyDrawdownPct", "maxDailyLossPct", "max_daily_drawdown_pct"]);
-  const drawdownCap = aggregateRiskCap(rows, ["maxDrawdownPct", "max_drawdown_pct"]);
 
   const series: ComparisonSeries[] = ids
     .map((id, i) => {
@@ -297,9 +275,7 @@ export default function Overview({
         <AccountSummary
           summary={summary.data}
           strategyName={(id) => nameByStrategy.get(id) ?? id}
-          accountEquity={accountEquity}
-          accountBalance={accountBalance}
-          totalAllocated={totalAllocated}
+          risk={risk.data ?? []}
         />
         <OverviewDashboard
           data={{
@@ -311,11 +287,8 @@ export default function Overview({
             excursions,
             series,
             accountEquity,
-            accountBalance,
             accountOpenPnl,
-            totalAllocated,
-            dailyLossCap,
-            drawdownCap,
+            risk: risk.data ?? [],
           }}
         />
         </>}

@@ -1,5 +1,6 @@
 import type { Db } from "./db.js";
 import { VALUATION_HEARTBEAT_MS } from "./write.js";
+import { accountSeries } from "./accountRisk.js";
 import { closedTrades, hasClosingDeals, SNAPSHOT_EQUITY, strategyBase, strategyEquityCurve, tradePnls, type StrategyEquityPoint } from "./analytics.js";
 
 // A strategy stays "active" while its roster bump is within this window of the
@@ -445,16 +446,23 @@ export function listDeals(db: Db, f: { instanceId: string; strategyId?: string; 
   ).all(f) as DealRow[];
 }
 
-export interface AccountEquityPoint { broker: string; minuteTs: number; balance: number | null; equity: number | null; openProfit: number | null }
+export interface AccountEquityPoint {
+  broker: string; minuteTs: number; balance: number | null; equity: number | null; openProfit: number | null;
+  /** The venue account the label belongs to (accountSeries): one chart per account, labels stitched. */
+  account: string;
+}
 
 export function accountEquity(db: Db, f: { instanceId: string; from?: number; to?: number }): AccountEquityPoint[] {
   const cl: string[] = ["instance_id=@instanceId"];
   if (f.from != null) cl.push("minute_ts>=@from");
   if (f.to != null) cl.push("minute_ts<=@to");
-  return db.prepare(
+  const rows = db.prepare(
     `SELECT broker, minute_ts minuteTs, balance, equity, open_profit openProfit
      FROM account_equity WHERE ${cl.join(" AND ")} ORDER BY minute_ts ASC`,
-  ).all(f) as AccountEquityPoint[];
+  ).all(f) as Array<Omit<AccountEquityPoint, "account">>;
+  const accountOf = new Map<string, string>();
+  for (const s of accountSeries(db, { instanceId: f.instanceId, to: f.to })) for (const l of s.labels) accountOf.set(l, s.key);
+  return rows.map((r) => ({ ...r, account: accountOf.get(r.broker) ?? r.broker }));
 }
 
 export interface AccountDrawdownRow {
