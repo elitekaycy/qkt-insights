@@ -14,18 +14,34 @@ export function useSortParams(): [SortKey, "asc" | "desc", (s: SortKey, d: "asc"
 }
 
 /** "Showing 12 of 1,304 round trips · net ▼ −550.00 · win rate 43%": always the numbers of what is listed. */
-export function TripCount({ totals, loading, unit = "round trips" }: { totals: RoundTripTotals | null; loading?: boolean; unit?: string }) {
+export function TripCount({ totals, loading, unit = "round trips", compactOnPhone = false }: {
+  totals: RoundTripTotals | null;
+  loading?: boolean;
+  unit?: string;
+  /** Phones keep the counts and the net, stacked on two short lines beside the range chips. */
+  compactOnPhone?: boolean;
+}) {
   if (!totals) return <span className="text-sm text-muted">{loading ? "Loading…" : ""}</span>;
+  const wide = compactOnPhone ? "max-sm:hidden" : "";
+  const phone = compactOnPhone ? "sm:hidden" : "hidden";
   return (
-    <span className={`text-sm text-muted ${loading ? "opacity-60" : ""}`} aria-live="polite">
-      Showing <b className="font-semibold text-bright">{count(totals.matched)}</b> of {count(totals.total)} {unit}
+    <span
+      className={`text-sm text-muted ${compactOnPhone ? "max-sm:ml-auto max-sm:flex max-sm:flex-col max-sm:items-end max-sm:text-[11px] max-sm:leading-tight" : ""} ${loading ? "opacity-60" : ""}`}
+      aria-live="polite"
+    >
+      <span>
+        <span className={wide}>Showing </span><b className="font-semibold text-bright">{count(totals.matched)}</b>
+        <span className={wide}> of {count(totals.total)} {unit}</span><span className={phone}> of {count(totals.total)}</span>
+      </span>
       {totals.matched > 0 && (
-        <>
-          {" · net "}
+        <span>
+          <span className={wide}>{" · net "}</span>
           <b className={`font-semibold ${toneClass(totals.net)}`}>{pnl(totals.net)}</b>
-          {" · win rate "}
-          <b className="font-semibold text-bright" title="Winning over decided closed round trips; breakeven ones excluded">{winPct(totals.winRate)}</b>
-        </>
+          <span className={wide}>
+            {" · win rate "}
+            <b className="font-semibold text-bright" title="Winning over decided closed round trips; breakeven ones excluded">{winPct(totals.winRate)}</b>
+          </span>
+        </span>
       )}
     </span>
   );

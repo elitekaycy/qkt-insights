@@ -1,11 +1,12 @@
-import { useMemo, type ReactNode } from "react";
+import { useMemo, useRef, useState, type ReactNode } from "react";
+import { flushSync } from "react-dom";
 import { useQuery } from "@tanstack/react-query";
-import { TRADE_KEYS } from "@qkt-insights/contract/query";
+import { parseQuery, TRADE_KEYS } from "@qkt-insights/contract/query";
 import { get, type LogRow, type StrategyRow, type StrategyStats } from "../api";
 import { LogLine } from "../components/LogLine";
 import { ShareControl } from "../components/ShareControl";
 import { Card, LiveDot, Loadable, Pill, Popover, rangeStart, ReturnPct, Segmented, useRangeParam, type RangeKey } from "../components/ui";
-import { age, DASH, money, openPnl, signedMoney } from "../format";
+import { age, DASH, glyph, money, openPnl, signedMoney, toneClass } from "../format";
 import { haltClearing, haltSince, resumeCommand } from "../halt";
 import { strategyCapital, strategyDisplayName } from "../portfolio";
 import { QueryBar, TRADE_PRESETS } from "../query/QueryBar";
@@ -148,6 +149,17 @@ export function StrategyDetail({ instanceId, strategyId, onBack }: { instanceId:
     }),
     [facets.data],
   );
+  const filterCount = useMemo(() => parseQuery(q, { instruments: suggestData.instruments }).chips.length, [q, suggestData.instruments]);
+  // phones: the header folds to one line and the query bar to a search button until tapped
+  const [details, setDetails] = useState(false);
+  const [searchOpen, setSearchOpen] = useState(false);
+  const searchBox = useRef<HTMLDivElement>(null);
+  const openSearch = () => {
+    if (searchOpen) return setSearchOpen(false);
+    // rendered before focusing, inside the tap, so a phone raises its keyboard
+    flushSync(() => setSearchOpen(true));
+    searchBox.current?.querySelector("input")?.focus();
+  };
   const chips = RANGE_CHIPS.includes(range) ? RANGE_CHIPS : [...RANGE_CHIPS.slice(0, -1), range, "all" as const];
 
   const props: SectionProps = {
@@ -161,16 +173,38 @@ export function StrategyDetail({ instanceId, strategyId, onBack }: { instanceId:
     <div className="grid gap-4">
       <div>
         {onBack && (
-          <button type="button" onClick={onBack} className="text-sm text-muted transition hover:text-body">
+          <button type="button" onClick={onBack} className="hidden text-sm text-muted transition hover:text-body sm:inline">
             ← Strategies
           </button>
         )}
+        <div className="flex min-w-0 items-center gap-1.5 sm:hidden">
+          {onBack && (
+            <button type="button" onClick={onBack} aria-label="Back to strategies" className="-ml-1 inline-flex h-8 w-7 shrink-0 items-center justify-center rounded-md text-muted transition hover:text-body">
+              ←
+            </button>
+          )}
+          <h1 className="min-w-0 truncate text-base font-headline text-bright" title={strategyId}>{row ? strategyDisplayName(row) : strategyId}</h1>
+          <Status row={row} isPublic={view.public} compact />
+          <span className={`ml-auto shrink-0 text-sm font-semibold tabular-nums ${open.stale ? "text-faint" : toneClass(net)}`}>
+            {net == null ? DASH : `${glyph(net)} ${signedMoney(net)}`}
+          </span>
+          <button
+            type="button"
+            aria-label={details ? "Hide strategy details" : "Show strategy details"}
+            aria-expanded={details}
+            onClick={() => setDetails((d) => !d)}
+            className="inline-flex h-8 w-7 shrink-0 items-center justify-center rounded-md text-muted transition hover:text-body"
+          >
+            <Icon d={details ? "M18 15l-6-6-6 6" : "M6 9l6 6 6-6"} className="h-4 w-4" />
+          </button>
+        </div>
         {row?.halted && <HaltBanner row={row} />}
-        <header className="mt-2 flex flex-wrap items-start justify-between gap-x-6 gap-y-3">
+        <header className={`mt-2 ${details ? "flex" : "hidden"} flex-wrap items-start justify-between gap-x-6 gap-y-3 sm:flex`}>
           <div className="min-w-0">
             <div className="flex flex-wrap items-center gap-2">
-              <h1 className="min-w-0 truncate text-xl font-headline text-bright" title={strategyId}>{row ? strategyDisplayName(row) : strategyId}</h1>
-              <Status row={row} isPublic={view.public} />
+              {/* phones show the name, status and net in the one-line header above */}
+              <h1 className="min-w-0 truncate text-xl font-headline text-bright max-sm:hidden" title={strategyId}>{row ? strategyDisplayName(row) : strategyId}</h1>
+              <span className="contents max-sm:hidden"><Status row={row} isPublic={view.public} /></span>
               {metaString(row?.metadata, "portfolioId") ? (
                 <Link to={routePath({ page: "strategies", portfolio: metaString(row?.metadata, "portfolioId")!.replace(/_\d+$/u, "") })} className="hover:opacity-80">
                   <Pill tone="info">in {metaString(row?.metadata, "portfolioName") ?? metaString(row?.metadata, "portfolioId")}</Pill>
@@ -180,7 +214,7 @@ export function StrategyDetail({ instanceId, strategyId, onBack }: { instanceId:
               )}
             </div>
             <div className="mt-2 flex flex-wrap items-baseline gap-x-3 gap-y-1">
-              <BigPnl value={net} className={open.stale ? "!text-faint" : ""} />
+              <BigPnl value={net} className={`max-sm:hidden ${open.stale ? "!text-faint" : ""}`} />
               <ReturnPct net={net} base={capital.amount} dim={open.stale} />
               <span className="text-sm text-muted">{capitalLabel}</span>
             </div>
@@ -197,7 +231,22 @@ export function StrategyDetail({ instanceId, strategyId, onBack }: { instanceId:
         </header>
       </div>
 
-      <nav className="-mx-1 overflow-x-auto px-1">
+      <nav aria-label="Strategy sections" className="-mx-4 flex gap-1.5 overflow-x-auto px-4 sm:hidden">
+        {STRATEGY_TABS.filter((t) => !(view.public && t === "logs")).map((t) => (
+          <button
+            key={t}
+            type="button"
+            aria-current={tab === t ? "page" : undefined}
+            onClick={() => goTab(t)}
+            className={`h-7 shrink-0 whitespace-nowrap rounded-full border px-3 text-[13px] font-medium transition ${
+              tab === t ? "border-accent-hi/50 bg-accent-soft text-bright" : "border-line bg-raised text-body"
+            }`}
+          >
+            {TAB_LABEL[t]}
+          </button>
+        ))}
+      </nav>
+      <nav className="-mx-1 hidden overflow-x-auto px-1 sm:block">
         <Segmented
           label="Strategy sections"
           value={tab}
@@ -213,6 +262,7 @@ export function StrategyDetail({ instanceId, strategyId, onBack }: { instanceId:
 
       {tab !== "logs" && (
         <div className="grid gap-2 border-b border-line pb-3">
+          <div ref={searchBox} className={searchOpen ? "" : "hidden sm:block"}>
           <QueryBar
             value={q}
             onChange={(v) => setQ(v)}
@@ -223,14 +273,27 @@ export function StrategyDetail({ instanceId, strategyId, onBack }: { instanceId:
             errors={a?.query.errors ?? []}
             placeholder="Search or filter: win, side:short, pnl:<0, held:<1h, ended:stop, weekday:mon, exit:2026-10…"
           />
-          <div className="flex flex-wrap items-center gap-x-3 gap-y-2">
-            <Segmented label="Date range" value={range} onChange={setRange} options={chips.map((k) => ({ key: k, label: RANGE_SHORT[k] }))} />
-            <TripCount totals={totals} loading={analytics.isFetching} />
+          </div>
+          <div className="flex flex-wrap items-center gap-x-3 gap-y-2 max-sm:gap-x-1.5">
+            <button
+              type="button"
+              aria-label={filterCount ? `Search and filter, ${filterCount} active` : "Search and filter"}
+              aria-expanded={searchOpen}
+              onClick={openSearch}
+              className={`relative inline-flex h-8 w-8 shrink-0 items-center justify-center rounded-lg border transition sm:hidden ${searchOpen ? "border-accent-hi bg-accent-soft text-bright" : "border-ctl bg-raised text-body"}`}
+            >
+              <Icon d="M11 19a8 8 0 1 0 0-16 8 8 0 0 0 0 16zM21 21l-4.35-4.35" className="h-4 w-4" />
+              {filterCount > 0 && (
+                <span className="absolute -right-1.5 -top-1.5 inline-flex h-4 min-w-4 items-center justify-center rounded-full bg-accent px-1 text-[10px] font-semibold text-on-accent">{filterCount}</span>
+              )}
+            </button>
+            <Segmented label="Date range" value={range} onChange={setRange} dense options={chips.map((k) => ({ key: k, label: RANGE_SHORT[k] }))} />
+            <TripCount totals={totals} loading={analytics.isFetching} compactOnPhone />
             {tab === "trades" && !view.public && (
               <a
                 href={`/round-trips/export?${tripParams(scope, q, "entry", "desc")}`}
                 download
-                className="ml-auto inline-flex h-8 items-center gap-1.5 rounded-lg border border-ctl bg-raised px-3 text-sm font-medium text-bright transition hover:bg-well"
+                className="inline-flex h-8 items-center gap-1.5 rounded-lg border sm:ml-auto border-ctl bg-raised px-3 text-sm font-medium text-bright transition hover:bg-well"
                 title="Every round trip the query matches, as CSV"
               >
                 Export CSV
@@ -261,11 +324,14 @@ export function StrategyDetail({ instanceId, strategyId, onBack }: { instanceId:
 }
 
 /** Status from the engine: halted (with why), retired, or running. */
-function Status({ row, isPublic }: { row: StrategyRow | null; isPublic: boolean }) {
+function Status({ row, isPublic, compact = false }: { row: StrategyRow | null; isPublic: boolean; compact?: boolean }) {
   if (!row) return null;
   if (row.halted) return <Pill tone="warn">halted</Pill>;
   if (!row.active) return <Pill>retired</Pill>;
-  return isPublic ? null : <span className="inline-flex items-center gap-1.5 text-xs text-muted"><LiveDot on /> running</span>;
+  if (isPublic) return null;
+  return compact
+    ? <span className="inline-flex shrink-0" title="running"><LiveDot on /><span className="sr-only">running</span></span>
+    : <span className="inline-flex items-center gap-1.5 text-xs text-muted"><LiveDot on /> running</span>;
 }
 
 /** The halt, at the top of the page where it cannot be missed: why, since when, how it ends. */

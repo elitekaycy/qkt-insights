@@ -1,5 +1,6 @@
 import type { BreakdownRow, DowHourCell, RollingPoint } from "../api";
 import { money, pct, signedMoney, winPct } from "../format";
+import { rollingCoverage } from "../rolling";
 import { token } from "../theme";
 import { chartColors, EChart, qktBottomLegend, qktChartAxis, qktChartGrid, qktChartTooltip, qktLegend, qktXAxis, tok, useNarrowChart, type QktChartOption } from "./EChart";
 
@@ -180,31 +181,44 @@ export function HonestBucketBars({ rows, height = 260 }: { rows: BreakdownRow[];
 }
 
 /** Rolling Sharpe + share of winning days (net-positive UTC days, not trades) on twin axes; warmup nulls leave visible gaps. */
-export function RollingChart({ points, height = 260 }: { points: RollingPoint[]; height?: number }) {
+export function RollingChart({ points, window, height = 260 }: { points: RollingPoint[]; window: number; height?: number }) {
   const narrow = useNarrowChart();
   const below = qktBottomLegend();
+  const shown = rollingCoverage(points, window);
+  const percentAxis = {
+    type: "value" as const,
+    min: 0,
+    max: 100,
+    ...qktChartAxis,
+    axisLabel: { ...qktChartAxis.axisLabel, formatter: "{value}%" },
+  };
+  // a series with no value anywhere gets neither a legend entry nor an axis; the note says why
+  const both = shown.sharpe && shown.winRate;
+  const series = [
+    ...(shown.sharpe ? [{ name: "rolling Sharpe", type: "line" as const, showSymbol: false, connectNulls: false, data: points.map((p) => p.sharpe) }] : []),
+    ...(shown.winRate ? [{ name: "rolling winning days", type: "line" as const, yAxisIndex: both ? 1 : 0, showSymbol: false, connectNulls: false, data: points.map((p) => p.winRate) }] : []),
+  ];
+  const yAxis = both
+    ? [{ type: "value" as const, name: "sharpe", ...qktChartAxis }, { ...percentAxis, splitLine: { show: false } }]
+    : shown.sharpe
+      ? [{ type: "value" as const, name: "sharpe", ...qktChartAxis }]
+      : [percentAxis];
   const option: QktChartOption = {
-    color: [chartColors.series[0], chartColors.series[1]],
-    // the top-right legend would sit on the left axis name once the plot is phone-wide
-    grid: narrow ? { ...qktChartGrid, left: 46, right: 44, top: 24, bottom: below.gridBottom } : { ...qktChartGrid, right: 58 },
+    color: shown.sharpe ? [chartColors.series[0], chartColors.series[1]] : [chartColors.series[1]],
+    // the top-right legend would sit on the left axis name once the plot is phone-wide; on wider
+    // screens the plot starts below the legend so neither axis's top label runs under it
+    grid: narrow ? { ...qktChartGrid, left: 46, right: both ? 44 : 12, top: 24, bottom: below.gridBottom } : { ...qktChartGrid, right: both ? 58 : 12, top: 34 },
     tooltip: { ...qktChartTooltip(), trigger: "axis" },
     legend: narrow ? below.legend : qktLegend(),
     xAxis: { type: "category", data: points.map((p) => p.day), ...qktXAxis },
-    yAxis: [
-      { type: "value", name: "sharpe", ...qktChartAxis },
-      {
-        type: "value",
-        min: 0,
-        max: 100,
-        ...qktChartAxis,
-        axisLabel: { ...qktChartAxis.axisLabel, formatter: "{value}%" },
-        splitLine: { show: false },
-      },
-    ],
-    series: [
-      { name: "rolling Sharpe", type: "line", showSymbol: false, connectNulls: false, data: points.map((p) => p.sharpe) },
-      { name: "rolling winning days", type: "line", yAxisIndex: 1, showSymbol: false, connectNulls: false, data: points.map((p) => p.winRate) },
-    ],
+    yAxis,
+    series,
   };
-  return <EChart option={option} height={height} />;
+  if (series.length === 0) return <p className="px-1 py-8 text-center text-sm text-muted">{shown.notes.join(" ")}</p>;
+  return (
+    <>
+      {shown.notes.length > 0 && <p className="px-1 pb-2 text-xs text-muted">{shown.notes.join(" ")}</p>}
+      <EChart option={option} height={height} />
+    </>
+  );
 }

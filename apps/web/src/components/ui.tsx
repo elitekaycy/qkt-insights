@@ -367,11 +367,14 @@ export function Segmented<T extends string>({
   options,
   onChange,
   label,
+  dense = false,
 }: {
   value: T;
   options: readonly { key: T; label: string }[];
   onChange: (v: T) => void;
   label: string;
+  /** Narrower buttons on phones, for a control that shares its row. */
+  dense?: boolean;
 }) {
   return (
     <div role="tablist" aria-label={label} className="inline-flex max-w-full gap-0.5 overflow-x-auto rounded-lg border border-line bg-raised p-0.5">
@@ -382,7 +385,7 @@ export function Segmented<T extends string>({
           role="tab"
           aria-selected={value === o.key}
           onClick={() => onChange(o.key)}
-          className={`h-7 shrink-0 whitespace-nowrap rounded-md px-3 text-sm font-medium transition ${
+          className={`h-7 shrink-0 whitespace-nowrap rounded-md font-medium transition ${dense ? "px-1.5 text-xs sm:px-3 sm:text-sm" : "px-3 text-sm"} ${
             value === o.key ? "bg-well text-bright" : "text-body hover:bg-hover hover:text-bright"
           }`}
         >
