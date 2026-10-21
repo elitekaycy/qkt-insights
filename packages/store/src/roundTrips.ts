@@ -19,7 +19,11 @@ interface Leg {
 export interface RoundTripRow {
   instanceId: string; positionTicket: string; broker: string | null; strategyId: string | null; instrument: string; symbol: string | null;
   side: "long" | "short"; entryTs: number | null; entryPrice: number | null; exitTs: number | null; exitPrice: number | null; qty: number | null;
-  realized: number; gross: number; commission: number; swap: number; fee: number; legs: number;
+  /** Net of the legs incl. costs at the account currency's minor unit: the money shown, filtered and classified. */
+  realized: number;
+  /** The same net unrounded, as the legs (or the engine) state it: what R divides by the risk. */
+  realizedExact: number;
+  gross: number; commission: number; swap: number; fee: number; legs: number;
   entryOrderId: string | null; entryOrderTicket: string | null; stopPrice: number | null; targetPrice: number | null;
   ended: Ended | null; holdMs: number | null; open: boolean;
   /** "deal": a venue position from its deals; "ledger": one engine close no venue deal stands for. */
@@ -91,7 +95,8 @@ export function recomputeRoundTrip(db: Db, instanceId: string, position: string)
   for (const l of legs) { gross += l.profit ?? 0; commission += l.commission ?? 0; swap += l.swap ?? 0; fee += l.fee ?? 0; }
   // at the account currency's minor unit: the sums of venue amounts carry float noise past it
   const digits = instanceMoneyDigits(db, instanceId);
-  const realized = roundMoney(gross + commission + swap + fee, digits);
+  const realizedExact = gross + commission + swap + fee;
+  const realized = roundMoney(realizedExact, digits);
   [gross, commission, swap, fee] = [gross, commission, swap, fee].map((v) => roundMoney(v, digits)) as [number, number, number, number];
   const inQty = ins.reduce((a, l) => a + (l.qty ?? 0), 0);
   const fullyClosed = statement(db,
@@ -123,6 +128,7 @@ export function recomputeRoundTrip(db: Db, instanceId: string, position: string)
     exitPrice: weighted(outs),
     qty: ins.length > 0 ? inQty : outs.reduce((a, l) => a + (l.qty ?? 0), 0),
     realized,
+    realizedExact,
     gross, commission, swap, fee,
     legs: legs.length,
     entryOrderId: entry.orderId,
@@ -141,10 +147,10 @@ export function recomputeRoundTrip(db: Db, instanceId: string, position: string)
   statement(db,
     `INSERT INTO round_trips (instance_id, position_ticket, broker, strategy_id, instrument, symbol, side, entry_ts, entry_price,
        exit_ts, exit_price, qty, realized, gross, commission, swap, fee, legs, entry_order_id, entry_order_ticket, stop_price,
-       target_price, ended, hold_ms, open, source, close_reason, risk_amount)
+       target_price, ended, hold_ms, open, source, close_reason, risk_amount, realized_exact)
      VALUES (@instanceId, @positionTicket, @broker, @strategyId, @instrument, @symbol, @side, @entryTs, @entryPrice,
        @exitTs, @exitPrice, @qty, @realized, @gross, @commission, @swap, @fee, @legs, @entryOrderId, @entryOrderTicket, @stopPrice,
-       @targetPrice, @ended, @holdMs, @open, @source, @closeReason, @riskAmount)`,
+       @targetPrice, @ended, @holdMs, @open, @source, @closeReason, @riskAmount, @realizedExact)`,
   ).run({ ...row, open: row.open ? 1 : 0 });
 }
 
@@ -197,10 +203,10 @@ export function recomputeLedgerTrip(db: Db, instanceId: string, closeId: string)
   statement(db,
     `INSERT INTO round_trips (instance_id, position_ticket, broker, strategy_id, instrument, symbol, side, entry_ts, entry_price,
        exit_ts, exit_price, qty, realized, gross, commission, swap, fee, legs, entry_order_id, entry_order_ticket, stop_price,
-       target_price, ended, hold_ms, open, source, close_reason)
-     VALUES (?, ?, NULL, ?, ?, ?, ?, ?, NULL, ?, ?, ?, ?, ?, 0, 0, 0, 1, NULL, NULL, NULL, NULL, ?, ?, 0, 'ledger', ?)`,
+       target_price, ended, hold_ms, open, source, close_reason, realized_exact)
+     VALUES (?, ?, NULL, ?, ?, ?, ?, ?, NULL, ?, ?, ?, ?, ?, 0, 0, 0, 1, NULL, NULL, NULL, NULL, ?, ?, 0, 'ledger', ?, ?)`,
   ).run(instanceId, closeId, c.strategyId, instrument(c.symbol), c.symbol, c.side === "BUY" ? "short" : "long", c.entryTs,
-    c.ts, c.price, c.qty, realized, realized, endedByReason(c.closeReason), c.entryTs != null ? c.ts - c.entryTs : null, c.closeReason);
+    c.ts, c.price, c.qty, realized, realized, endedByReason(c.closeReason), c.entryTs != null ? c.ts - c.entryTs : null, c.closeReason, c.realized);
 }
 
 /** A strategy's (or the instance's) round trips, newest exit first: the stored rows as they are. */
@@ -210,7 +216,8 @@ export function storedRoundTrips(db: Db, f: { instanceId: string; strategyId?: s
     `SELECT instance_id instanceId, position_ticket positionTicket, broker, strategy_id strategyId, instrument, symbol, side,
        entry_ts entryTs, entry_price entryPrice, exit_ts exitTs, exit_price exitPrice, qty, realized, gross, commission, swap, fee,
        legs, entry_order_id entryOrderId, entry_order_ticket entryOrderTicket, stop_price stopPrice, target_price targetPrice,
-       ended, hold_ms holdMs, open, source, close_reason closeReason, risk_amount riskAmount
+       ended, hold_ms holdMs, open, source, close_reason closeReason, risk_amount riskAmount,
+       coalesce(realized_exact, realized) realizedExact
      FROM round_trips WHERE instance_id=@instanceId ${f.strategyId != null ? "AND strategy_id=@strategyId" : ""}
      ORDER BY exit_ts DESC, position_ticket DESC`,
   ).all({ instanceId: f.instanceId, strategyId: f.strategyId }) as Array<Omit<RoundTripRow, "open"> & { open: number }>;
