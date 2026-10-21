@@ -65,11 +65,16 @@ export interface TripRow {
 const RISK = `(CASE WHEN t.open = 0 AND t.risk_amount > 0 THEN t.risk_amount
   WHEN t.open = 0 AND t.stop_price IS NOT NULL AND t.entry_price IS NOT NULL AND abs(t.entry_price - t.stop_price) > 0
   THEN ${INFERRED_POINT_VALUE} * abs(t.entry_price - t.stop_price) END)`;
+/**
+ * The unrounded net the legs state: R divides it, not the cent-rounded `realized`, so a trip whose
+ * money is a fraction of a cent of a small risk keeps its true R (-0.0056 over 0.005 is -1.12, not -2).
+ */
+const EXACT = "coalesce(t.realized_exact, t.realized)";
 /** P&L over that risk; without a stated risk or a venue price per point, the move over the points to the stop. */
-const R = `(CASE WHEN t.open = 0 AND t.risk_amount > 0 AND t.exit_price IS NOT NULL THEN t.realized / t.risk_amount
+const R = `(CASE WHEN t.open = 0 AND t.risk_amount > 0 AND t.exit_price IS NOT NULL THEN ${EXACT} / t.risk_amount
   WHEN t.open = 0 AND t.stop_price IS NOT NULL AND t.entry_price IS NOT NULL AND t.exit_price IS NOT NULL
     AND abs(t.entry_price - t.stop_price) > 0
-  THEN coalesce(t.realized / ${RISK},
+  THEN coalesce(${EXACT} / ${RISK},
     (CASE t.side WHEN 'long' THEN t.exit_price - t.entry_price ELSE t.entry_price - t.exit_price END) / abs(t.entry_price - t.stop_price)) END)`;
 const ENDED = "(CASE t.ended WHEN 'so' THEN 'venue' ELSE t.ended END)";
 /** The UTC entry weekday, 0 Monday .. 6 Sunday, and hour 0-23. */

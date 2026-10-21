@@ -116,7 +116,9 @@ it counts. `exit:` selects the round trips with a closing leg in its range: a po
 parts over two days is listed on both days, its row marked "part" with what it closed in the range,
 and the count line's net is what the legs inside the range realized, so a calendar day and its
 drill show the same money. R and `r:` cover only the trades whose initial stop is known (read from
-the entry's submit event); the Risk card says how many of the closed trades that is.
+the entry's submit event); the Risk card says how many of the closed trades that is. R is the exact
+net of the legs (unrounded, incl. costs) over the stated risk, so a trip worth a fraction of a cent
+keeps its true R (-0.0056 over a 0.005 risk is -1.12R) while its money prints and filters as -0.01.
 
 A row opens the trade drawer (`?trade=<ticket>`, so it can be linked): the timeline from the rule
 and signal through submit, venue accept, fills, stop/target changes and the close, with the time
