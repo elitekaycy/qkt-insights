@@ -1,8 +1,8 @@
-import { useMemo, useState } from "react";
+import { useState } from "react";
 import { usePublicPageView } from "../view";
-import { useQueries, useQuery } from "@tanstack/react-query";
-import { get, type PerformanceBundle, type PerformanceReport, type StrategyRow } from "../api";
-import { DowHourHeatmap, HonestBucketBars, MIN_N, RollingChart, StrategyRadar } from "../components/EdgeCharts";
+import { useQuery } from "@tanstack/react-query";
+import { get, type PerformanceBundle, type StrategyRow } from "../api";
+import { DowHourHeatmap, HonestBucketBars, MIN_N, RollingChart } from "../components/EdgeCharts";
 import {
   Empty, Loadable, PageHeader, Panel, RangeSelect, rangeStart, Select, useRangeParam,
 } from "../components/ui";
@@ -10,9 +10,9 @@ import { useSearchParam } from "../router";
 
 /*
  * The Edge page: WHEN is this account good — day-of-week × hour heatmap,
- * statistically honest weekday/hour bars, rolling edge stability, and a
- * strategy-comparison radar. All time bucketing is UTC and says so; buckets
- * under MIN_N trades render greyed because thin slices lie.
+ * statistically honest weekday/hour bars, and rolling edge stability. All time
+ * bucketing is UTC and says so; buckets under MIN_N trades render greyed because
+ * thin slices lie.
  */
 
 const WINDOWS = [30, 60, 90] as const;
@@ -43,25 +43,6 @@ export function Edge({ instanceId }: { instanceId: string | null }) {
     enabled: !!qs,
     refetchInterval: 30000,
   });
-
-  // Radar: reports for up to the four most active strategies on this instance.
-  const radarIds = useMemo(
-    () => [...list].sort((a, b) => b.dealCount - a.dealCount).slice(0, 4).map((s) => s.strategyId),
-    [list],
-  );
-  const radarReports = useQueries({
-    queries: radarIds.map((id) => ({
-      queryKey: ["edge-report", instanceId, id, range],
-      queryFn: () => get<{ report: PerformanceReport }>(
-        `/performance?instance=${encodeURIComponent(instanceId!)}&strategy=${encodeURIComponent(id)}&include=report${from > 0 ? `&from=${from}` : ""}`,
-      ),
-      enabled: !!instanceId,
-      refetchInterval: 60000,
-    })),
-  });
-  const radarEntries = radarIds
-    .map((id, i) => ({ strategyId: id, report: radarReports[i]?.data?.report }))
-    .filter((e): e is { strategyId: string; report: PerformanceReport } => e.report != null && e.report.wins + e.report.losses > 0);
 
   if (!instanceId) return <div className="p-6"><Empty>Pick an instance to analyze.</Empty></div>;
 
@@ -136,15 +117,6 @@ export function Edge({ instanceId }: { instanceId: string | null }) {
         </Loadable>
       </Panel>
 
-      <Panel
-        title="Strategy comparison"
-        hint="outline radar over the instance's most active strategies · axes min-max normalized across those shown"
-       
-      >
-        {radarEntries.length >= 2
-          ? <div className="p-3"><StrategyRadar entries={radarEntries} /></div>
-          : <Empty>Needs at least two strategies with closed trades to compare.</Empty>}
-      </Panel>
     </div>
   );
 }

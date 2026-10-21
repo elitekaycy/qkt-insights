@@ -1,8 +1,6 @@
-import { chartColors } from "../components/EChart";
 import { useQueries, useQuery } from "@tanstack/react-query";
-import { get, type AccountDrawdownRow, type AccountRiskRow, type AccountSummary as AccountSummaryData, type EquityPoint, type PerformanceBundle, type StrategyRow } from "../api";
+import { get, type AccountDrawdownRow, type AccountRiskRow, type AccountSummary as AccountSummaryData, type PerformanceBundle, type StrategyRow } from "../api";
 import { AccountSummary } from "../components/AccountSummary";
-import type { ComparisonSeries } from "../components/EquityChart";
 import { OverviewDashboard } from "../components/OverviewDashboard";
 import { Card, Cell, DataList, FlashValue, LiveDot, Loadable, PageHeader, Panel, Pill, Pnl, SideTag, Stat } from "../components/ui";
 import { DASH, duration, human, money, pctValue, pnl, polarity, price, quantity, signedMoney } from "../format";
@@ -11,8 +9,6 @@ import { useLiveState } from "../useLiveState";
 import { useLiveStream } from "../useLiveStream";
 import { ShareControl } from "../components/ShareControl";
 import { usePublicPageView, useView } from "../view";
-
-const PALETTE = chartColors.series;
 
 // Overview only needs broker state pushes for live account/position truth; raw
 // event inspection belongs on Logs/Search so payloads cannot stretch the layout.
@@ -33,14 +29,6 @@ export default function Overview({ instanceId }: { instanceId: string | null }) 
   const rows = (strategies.data ?? []).filter((s) => s.active);
   const ids = rows.map((s) => s.strategyId);
 
-  const curves = useQueries({
-    queries: ids.map((id) => ({
-      queryKey: ["equity", instanceId, id],
-      queryFn: () =>
-        get<EquityPoint[]>(`/equity?instance=${encodeURIComponent(instanceId!)}&strategy=${encodeURIComponent(id)}`),
-      refetchInterval: 30_000,
-    })),
-  });
   const live = useLiveStream(instanceId, 40, FEED_TYPES);
   const liveState = useLiveState(live);
   // Account totals come from every close on the account, not the sum of the active roster:
@@ -87,22 +75,10 @@ export default function Overview({ instanceId }: { instanceId: string | null }) 
   const brokerPositions = (liveState.data?.positions ?? []).filter((p) => p.instanceId === instanceId);
   const nameByStrategy = new Map((strategies.data ?? []).map((r) => [r.strategyId, strategyDisplayName(r)]));
 
-  // Live truth: account figures summed across brokers, open P&L attributed per strategy.
-  const accountEquity = accounts.length > 0 ? accounts.reduce((a, x) => a + x.equity, 0) : null;
+  // Live truth: open P&L summed across the instance's broker accounts.
   const accountOpenPnl = accounts.length > 0 ? accounts.reduce((a, x) => a + (x.openProfit ?? 0), 0) : null;
   const excursions = perf.flatMap((q) => q.data?.excursions ? [q.data.excursions] : []);
 
-  const series: ComparisonSeries[] = ids
-    .map((id, i) => {
-      const pts = curves[i]?.data ?? [];
-      const base = pts[0]?.equity;
-      return {
-        strategyId: id,
-        color: PALETTE[i % PALETTE.length]!,
-        points: base ? pts.map((p) => ({ ts: p.ts, pct: (p.equity / base - 1) * 100 })) : [],
-      };
-    })
-    .filter((s) => s.points.length > 0);
 
   return (
     <div>
@@ -261,9 +237,9 @@ export default function Overview({ instanceId }: { instanceId: string | null }) 
       </div>
 
       <Loadable
-        loading={summary.isPending || (rows.length > 0 && (perf.some((query) => query.isPending) || curves.some((query) => query.isPending)))}
-        error={summary.isError || perf.some((query) => query.isError) || curves.some((query) => query.isError)}
-        retry={() => { void Promise.all([summary, ...perf, ...curves].map((query) => query.refetch())); }}
+        loading={summary.isPending || (rows.length > 0 && perf.some((query) => query.isPending))}
+        error={summary.isError || perf.some((query) => query.isError)}
+        retry={() => { void Promise.all([summary, ...perf].map((query) => query.refetch())); }}
         what="overview analysis"
         lines={8}
       >
@@ -281,8 +257,6 @@ export default function Overview({ instanceId }: { instanceId: string | null }) 
             sumWins: summary.data.sumWins,
             sumLosses: summary.data.sumLosses,
             excursions,
-            series,
-            accountEquity,
             accountOpenPnl,
             risk: risk.data ?? [],
           }}

@@ -3,22 +3,19 @@ import type { AccountRiskRow, ClosedTradeRow, DayNet, ExcursionStats } from "../
 import { compact, count, DASH, duration, money, pct, pctValue, pnl, polarity, quantity, ratio, signedMoney } from "../format";
 import { ChartCard } from "./ChartCard";
 import { chartColors, EChart, qktChartAxis, qktChartGrid, qktChartTooltip, qktXAxis, tipHtml, tok, zeroLine, type QktChartOption } from "./EChart";
-import { ComparisonChart, type ComparisonSeries } from "./EquityChart";
 import { Card, Pnl } from "./ui";
 
-export type DashboardWidgetId = "pnl" | "outcomes" | "risk" | "behavior" | "direction" | "equity" | "excursions";
+export type DashboardWidgetId = "pnl" | "risk" | "behavior" | "direction" | "excursions";
 type WidgetSize = "medium" | "large";
 interface Placement { id: DashboardWidgetId; size: WidgetSize }
 
 // Full-width charts anchor the view; the metric tiles then run as one uniform
-// band so like sits next to like instead of a pie beside progress bars beside
-// number cells. Order: headline P&L and equity charts, the excursion scatter,
-// then every metric tile.
+// band so like sits next to like. Order: headline P&L chart, the excursion
+// scatter, then every metric tile. The win rate is a tile in Account
+// performance, and strategy equity lives on Equity & risk.
 const DEFAULT_LAYOUT: Placement[] = [
   { id: "pnl", size: "large" },
-  { id: "equity", size: "large" },
   { id: "excursions", size: "large" },
-  { id: "outcomes", size: "medium" },
   { id: "direction", size: "medium" },
   { id: "risk", size: "medium" },
   { id: "behavior", size: "medium" },
@@ -36,8 +33,6 @@ export interface OverviewDashboardData {
   sumWins: number;
   sumLosses: number;
   excursions: ExcursionStats[];
-  series: ComparisonSeries[];
-  accountEquity: number | null;
   accountOpenPnl: number | null;
   /** Each venue account's drawdown and daily loss against its own limits. */
   risk: AccountRiskRow[];
@@ -45,30 +40,21 @@ export interface OverviewDashboardData {
 
 export function OverviewDashboard({ data }: { data: OverviewDashboardData }) {
   return (
-    <section className="mt-7">
-      <div className="">
-        <h3 className="text-lg font-semibold text-bright">Dashboard</h3>
-        <p className="mt-0.5 text-xs text-muted">Performance, risk, behavior, and runtime truth in one complete view.</p>
-      </div>
-
-      <div className="mt-4 grid grid-cols-1 gap-4 md:grid-cols-12">
-        {DEFAULT_LAYOUT.map((item) => (
-          <div key={item.id} className={`${SIZE_CLASS[item.size]} min-w-0`}>
-            <Widget id={item.id} data={data} />
-          </div>
-        ))}
-      </div>
+    <section className="mt-4 grid grid-cols-1 gap-4 md:grid-cols-12">
+      {DEFAULT_LAYOUT.map((item) => (
+        <div key={item.id} className={`${SIZE_CLASS[item.size]} min-w-0`}>
+          <Widget id={item.id} data={data} />
+        </div>
+      ))}
     </section>
   );
 }
 
 function Widget({ id, data }: { id: DashboardWidgetId; data: OverviewDashboardData }) {
   if (id === "pnl") return <PnlWidget data={data} />;
-  if (id === "outcomes") return <OutcomeWidget closes={data.closes} />;
   if (id === "risk") return <RiskWidget data={data} />;
   if (id === "behavior") return <BehaviorWidget closes={data.closes} sumWins={data.sumWins} sumLosses={data.sumLosses} />;
   if (id === "direction") return <DirectionWidget closes={data.closes} />;
-  if (id === "equity") return <EquityWidget data={data} />;
   return <ExcursionWidget rows={data.excursions} />;
 }
 
@@ -120,27 +106,6 @@ function PnlWidget({ data }: { data: OverviewDashboardData }) {
       ) : (
         <WidgetEmpty>Closed trades will build the daily P&L history.</WidgetEmpty>
       )}
-    </ChartCard>
-  );
-}
-
-function OutcomeWidget({ closes }: { closes: ClosedTradeRow[] }) {
-  const wins = closes.filter((x) => x.realized > 0).length;
-  const losses = closes.filter((x) => x.realized < 0).length;
-  const flat = closes.length - wins - losses;
-  const option: QktChartOption = {
-    tooltip: { ...qktChartTooltip(), trigger: "item", formatter: "{b}<br/><b>{c}</b> trades · {d}%" },
-    legend: { bottom: 0, textStyle: { color: chartColors.muted } },
-    series: [{ type: "pie", radius: ["58%", "78%"], center: ["50%", "43%"], avoidLabelOverlap: true, label: { show: false }, itemStyle: { borderColor: tok("panel"), borderWidth: 2, borderRadius: 3 }, data: [
-      { name: "Wins", value: wins, itemStyle: { color: chartColors.gain } },
-      { name: "Breakeven", value: flat, itemStyle: { color: chartColors.muted } },
-      { name: "Losses", value: losses, itemStyle: { color: chartColors.loss } },
-    ] }],
-    graphic: wins + losses > 0 ? [{ type: "text", left: "center", top: "35%", style: { text: `${pct(wins / (wins + losses))}\nwin rate`, textAlign: "center", fill: tok("bright"), font: "600 16px Inter", lineHeight: 22 } }] : [],
-  };
-  return (
-    <ChartCard title="Trade outcomes" description="Wins, losses, and breakeven closes on the account; the win rate excludes breakeven." meta={`n=${closes.length}`}>
-      {closes.length > 0 ? <div className="p-3"><EChart option={option} height={250} /></div> : <WidgetEmpty>No closed trades yet.</WidgetEmpty>}
     </ChartCard>
   );
 }
@@ -248,14 +213,6 @@ function DirectionWidget({ closes }: { closes: ClosedTradeRow[] }) {
         })}
       </div>
     </Card>
-  );
-}
-
-function EquityWidget({ data }: { data: OverviewDashboardData }) {
-  return (
-    <ChartCard title="Strategy equity" description="Normalized percentage change keeps different capital allocations comparable." meta={`${data.series.length} active series`} value={money(data.accountEquity)}>
-      {data.series.length > 0 ? <div className="p-3 sm:p-4"><ComparisonChart series={data.series} height={300} /></div> : <WidgetEmpty>Strategy equity appears after the first stored close or snapshot.</WidgetEmpty>}
-    </ChartCard>
   );
 }
 

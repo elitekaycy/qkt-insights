@@ -1,4 +1,4 @@
-import type { BreakdownRow, ContributionRanking, CostDecomposition, DowHourCell, PerformanceReport, RollingPoint } from "../api";
+import type { BreakdownRow, ContributionRanking, CostDecomposition, DowHourCell, RollingPoint } from "../api";
 import { money, pct, signedMoney, winPct } from "../format";
 import { token } from "../theme";
 import { chartColors, EChart, qktBottomLegend, qktChartAxis, qktChartGrid, qktChartTooltip, qktLegend, qktXAxis, tok, useNarrowChart, type QktChartOption } from "./EChart";
@@ -262,66 +262,6 @@ export function ContributionBars({ ranking, height = 260 }: { ranking: Contribut
           value: r.net,
           itemStyle: { color: r.net >= 0 ? UP : DOWN, opacity: r.trades < MIN_N ? 0.35 : 0.95 },
           label: { show: true, position: r.net >= 0 ? "right" : "left", fontSize: 9, color: tok("bright"), formatter: () => `n${r.trades}` },
-        })),
-      },
-    ],
-  };
-  return <EChart option={option} height={height} />;
-}
-
-export interface RadarEntry { strategyId: string; report: PerformanceReport }
-
-const RADAR_COLORS = chartColors.series;
-
-/**
- * Strategy-comparison radar: outline-only (filled areas distort quadratically),
- * capped at 4 polygons, min-max normalized across the shown strategies — the
- * shape is only meaningful relative to the other polygons on screen.
- */
-export function StrategyRadar({ entries, height = 320 }: { entries: RadarEntry[]; height?: number }) {
-  const narrow = useNarrowChart();
-  const shown = entries.slice(0, 4);
-  const axes = [
-    { name: "win rate", get: (r: PerformanceReport) => r.winRate ?? 0 },
-    { name: "profit factor", get: (r: PerformanceReport) => (r.profitFactor === "inf" ? 10 : r.profitFactor ?? 0) },
-    { name: "sharpe", get: (r: PerformanceReport) => r.sharpe ?? 0 },
-    { name: "low drawdown", get: (r: PerformanceReport) => -(r.maxDrawdownPct ?? 100) },
-    { name: "expectancy", get: (r: PerformanceReport) => r.expectancy ?? 0 },
-  ];
-  const norm = axes.map((a) => {
-    const vs = shown.map((e) => a.get(e.report));
-    const lo = Math.min(...vs);
-    const hi = Math.max(...vs);
-    return (v: number) => (hi > lo ? (v - lo) / (hi - lo) : 0.5);
-  });
-  const option: QktChartOption = {
-    color: RADAR_COLORS,
-    tooltip: qktChartTooltip(),
-    legend: narrow
-      ? { ...qktBottomLegend().legend, type: "plain", itemGap: 8 }
-      : qktLegend(),
-    radar: {
-      // phone: at most four names wrap under the plot (no paging), and the
-      // polygon shrinks so the axis names ("profit factor", "expectancy") stay
-      // inside the card
-      center: ["50%", narrow ? "42%" : "58%"],
-      radius: narrow ? "46%" : "62%",
-      indicator: axes.map((a) => ({ name: a.name, max: 1 })),
-      axisName: { color: tok("bright"), fontSize: narrow ? 9 : 10 },
-      splitLine: { lineStyle: { color: tok("raised") } },
-      splitArea: { show: false },
-      axisLine: { lineStyle: { color: tok("line-strong") } },
-    },
-    series: [
-      {
-        type: "radar",
-        symbolSize: 3,
-        data: shown.map((e, i) => ({
-          name: e.strategyId,
-          value: axes.map((a, ai) => norm[ai]!(a.get(e.report))),
-          lineStyle: { width: 2, color: RADAR_COLORS[i % RADAR_COLORS.length] },
-          areaStyle: undefined,
-          itemStyle: { color: RADAR_COLORS[i % RADAR_COLORS.length] },
         })),
       },
     ],

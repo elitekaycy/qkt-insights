@@ -98,16 +98,6 @@ export default function Equity({ instanceId }: { instanceId: string | null }) {
       <PageHeader
         title="Equity & risk"
         sub={`Broker account equity for ${instanceId}; per-strategy equity below, normalized to % change so different capital sizes compare fairly.`}
-        right={
-          <div className="flex flex-wrap gap-2">
-            {series.map((s) => (
-              <Pill key={s.strategyId}>
-                <span className="inline-block h-2 w-2 rounded-full" style={{ background: s.color }} />
-                {s.strategyId}
-              </Pill>
-            ))}
-          </div>
-        }
       />
       <Panel className="mt-5" title="Account equity" hint="broker-reported, 1-minute rollup">
         <Loadable loading={account.isPending} error={account.isError} retry={() => account.refetch()} what="the account curve" lines={4}>
