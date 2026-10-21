@@ -1,6 +1,7 @@
+import { realAccounts } from "../accounts";
 import { useQuery } from "@tanstack/react-query";
 import { get, type AccountRiskRow, type AccountSummary, type StrategyRow } from "../api";
-import { StrategyTable, type StrategyLine } from "../components/HomeStrategies";
+import { StrategySearch, StrategyTable, type StrategyLine } from "../components/HomeStrategies";
 import { Card, Cell, Empty, Loadable, PageHeader, Panel, Pill, Pnl, Popover, ReturnPct, Row, Stat, Table } from "../components/ui";
 import { age, count, money, openPnl, pct } from "../format";
 import { floatingByStrategy, riskRowFor, strategyLines, strategyPeriods } from "../home";
@@ -55,7 +56,6 @@ export default function Strategies({ instanceId }: { instanceId: string | null }
   const { route, navigate } = useRoute();
   const selected = route.strategy ?? null;
   const selectedPortfolio = route.portfolio ?? null;
-  const toList = () => navigate(routePath({ page: "strategies" }));
   usePublicPageView(selected || selectedPortfolio ? null : "strategies");
   const enc = encodeURIComponent(instanceId ?? "");
   const strategies = useQuery({
@@ -81,7 +81,7 @@ export default function Strategies({ instanceId }: { instanceId: string | null }
   const liveState = useLiveState();
 
   if (!instanceId) return <Card className="p-8 text-center text-faint">No instance selected.</Card>;
-  if (selected) return <StrategyDetail instanceId={instanceId} strategyId={selected} onBack={toList} />;
+  if (selected) return <StrategyDetail instanceId={instanceId} strategyId={selected} />;
 
   const rows = strategies.data ?? [];
   if (selectedPortfolio) {
@@ -89,7 +89,7 @@ export default function Strategies({ instanceId }: { instanceId: string | null }
     return (
       <Loadable loading={strategies.isPending} error={strategies.isError} retry={() => strategies.refetch()} what="the portfolio">
         {children.length > 0 ? (
-          <PortfolioDetail instanceId={instanceId} portfolioId={selectedPortfolio} children={children} onBack={toList} onSelectChild={(id) => navigate(routePath({ page: "strategies", strategy: id }))} />
+          <PortfolioDetail instanceId={instanceId} portfolioId={selectedPortfolio} children={children} onSelectChild={(id) => navigate(routePath({ page: "strategies", strategy: id }), { from: selectedPortfolio })} />
         ) : (
           <Card className="p-8 text-center text-muted">No portfolio {selectedPortfolio} on this instance.</Card>
         )}
@@ -98,7 +98,7 @@ export default function Strategies({ instanceId }: { instanceId: string | null }
   }
 
   const now = view.public ? Date.now() - view.meta.delayMinutes * 60_000 : Date.now();
-  const accounts = (liveState.data?.accounts ?? []).filter((a) => a.instanceId === instanceId);
+  const accounts = realAccounts((liveState.data?.accounts ?? []).filter((a) => a.instanceId === instanceId));
   const positions = (liveState.data?.positions ?? []).filter((g) => g.instanceId === instanceId).flatMap((g) => g.list);
   const riskRows = risk.data ?? [];
   const primaryRisk = accounts[0] ? riskRowFor(accounts[0], riskRows) : riskRows[0] ?? null;
@@ -122,7 +122,7 @@ export default function Strategies({ instanceId }: { instanceId: string | null }
     <div className="grid gap-4">
       <PageHeader
         title="Strategies"
-        sub={`${live} deployed${halted ? ` · ${halted} halted` : ""}${groups.size ? ` · ${groups.size} portfolio${groups.size === 1 ? "" : "s"}` : ""} · realized P&L from every close on the account, Today on the account's trading day${view.public ? `, ${view.meta.delayMinutes} minutes behind` : ""}`}
+        sub={`${live} deployed${halted ? ` · ${halted} halted` : ""}${groups.size ? ` · ${groups.size} portfolio${groups.size === 1 ? "" : "s"}` : ""} · realized P&L from every close on the account, Today on the account's trading day${view.public ? `, ${view.meta.delayMinutes} minutes behind` : ""}`}        right={<StrategySearch />}
       />
       <Loadable
         loading={strategies.isPending || summary.isPending}
@@ -142,17 +142,17 @@ export default function Strategies({ instanceId }: { instanceId: string | null }
               return (
                 <StrategyTable
                   key={id}
+                  origin="Strategies"
                   lines={group}
                   now={now}
-                  isPublic={view.public}
                   title={id}
-                  hint="portfolio · click a row to open the sleeve"
+                  hint="portfolio"
                   footer="the portfolio's sleeves; realized from their closes, Today adds what they float"
                   right={
                     <>
                       <Pnl value={all} className="text-sm font-semibold" />
                       <ReturnPct net={all} base={capital} />
-                      <Link to={routePath({ page: "strategies", portfolio: id })} className="text-xs font-medium text-accent-ink hover:underline">Portfolio →</Link>
+                      <Link to={routePath({ page: "strategies", portfolio: id })} from="Strategies" className="text-xs font-medium text-accent-ink hover:underline">Portfolio →</Link>
                     </>
                   }
                 />
@@ -160,9 +160,9 @@ export default function Strategies({ instanceId }: { instanceId: string | null }
             })}
             {standalone.length > 0 && (
               <StrategyTable
+                origin="Strategies"
                 lines={standalone}
                 now={now}
-                isPublic={view.public}
                 title={groups.size ? "Standalone strategies" : "Strategies"}
               />
             )}
@@ -188,14 +188,11 @@ function PortfolioDetail({
   instanceId,
   portfolioId: id,
   children,
-  onBack,
   onSelectChild,
 }: {
   instanceId: string;
   portfolioId: string;
   children: StrategyRow[];
-  /** Absent on a shared portfolio link, which has nowhere to go back to. */
-  onBack?: () => void;
   onSelectChild: (strategyId: string) => void;
 }) {
   const view = useView();
@@ -203,20 +200,12 @@ function PortfolioDetail({
   const live = useOpenByStrategy(instanceId);
   const state = useLiveState();
   const summary = summarizePortfolio(id, children, live.open, live.hasState);
-  const accounts = (state.data?.accounts ?? []).filter(
+  const accounts = realAccounts((state.data?.accounts ?? [])).filter(
     (account) => account.instanceId === instanceId,
   );
   const account = accounts.length === 1 ? accounts[0] : null;
   return (
     <div>
-      {onBack && (
-        <button
-          onClick={onBack}
-          className="text-sm text-muted transition hover:text-body"
-        >
-          ← strategies
-        </button>
-      )}
       <PageHeader
         title={id}
         sub={`${summary.childCount} child strategies · ${summary.dealCount} attributed deals`}
@@ -265,7 +254,6 @@ function PortfolioDetail({
       <div className={`mt-6 grid gap-6 ${view.public ? "" : "xl:grid-cols-[2fr_1fr]"}`}>
         <Panel
           title="Child contribution"
-          hint="click a strategy for full analytics"
         >
           <div className="overflow-x-auto">
             <Table
@@ -314,7 +302,7 @@ function PortfolioDetail({
                       <Pnl value={open} glyphs={false} />
                     </Cell>
                     <Cell className="font-semibold">
-                      <Pnl value={net} dim={live.stale} />
+                      <Pnl value={net} />
                     </Cell>
                     <Cell>{count(child.dealCount)}</Cell>
                     <Cell className="whitespace-nowrap text-faint">
@@ -360,14 +348,14 @@ export function SharedPortfolio({ instanceId, portfolioId: id }: { instanceId: s
     queryFn: () => get<StrategyRow[]>(`/strategies?instance=${encodeURIComponent(instanceId)}`),
     refetchInterval: 30_000,
   });
-  if (selected) return <StrategyDetail instanceId={instanceId} strategyId={selected} onBack={() => navigate("/")} />;
+  if (selected) return <StrategyDetail instanceId={instanceId} strategyId={selected} />;
   return (
     <Loadable loading={strategies.isPending} error={strategies.isError} retry={() => strategies.refetch()} what="the portfolio">
       <PortfolioDetail
         instanceId={instanceId}
         portfolioId={id}
         children={strategies.data ?? []}
-        onSelectChild={(child) => navigate(routePath({ page: "strategies", strategy: child }))}
+        onSelectChild={(child) => navigate(routePath({ page: "strategies", strategy: child }), { from: id })}
       />
     </Loadable>
   );

@@ -61,6 +61,7 @@ export function QueryBar({
   presets = [],
   placeholder,
   errors: serverErrors = [],
+  trailing,
 }: {
   /** The applied query (canonical text, as in the URL). */
   value: string;
@@ -74,6 +75,8 @@ export function QueryBar({
   placeholder?: string;
   /** What the server could not read in the applied query. */
   errors?: string[];
+  /** Range chips and the count, on the bar's line; they wrap under it, the count first, when the line is full. */
+  trailing?: ReactNode;
 }) {
   const ctx: QueryContext = useMemo(() => ({ strategies: data.strategies, instruments: data.instruments }), [data.strategies, data.instruments]);
   const parsed = useMemo(() => parseQuery(value, ctx), [value, ctx]);
@@ -187,7 +190,7 @@ export function QueryBar({
     <div className="relative flex w-full min-w-0 flex-wrap items-center gap-2" role="search" aria-label={`Search and filter ${page.toLowerCase()}`}>
       <div
         ref={box}
-        className={`relative flex min-h-[34px] min-w-0 flex-1 basis-[22rem] flex-wrap items-center gap-1.5 rounded-lg border bg-panel py-1 pl-3 pr-2 transition ${
+        className={`relative flex min-h-[34px] min-w-0 flex-1 basis-[18rem] flex-wrap items-center gap-1.5 rounded-lg border bg-panel py-1 pl-3 pr-2 transition ${
           shownErrors.length ? "border-danger/70" : focus ? "border-accent-hi ring-3 ring-accent-soft" : "border-ctl hover:border-muted"
         }`}
         onMouseDown={(e) => {
@@ -244,7 +247,7 @@ export function QueryBar({
           aria-invalid={shownErrors.length > 0}
           // the box draws the focus ring; the page's :focus-visible outline would draw a second one inside it
           style={{ outline: "none" }}
-          className="h-6 min-w-[8rem] flex-1 bg-transparent text-sm text-bright placeholder:text-muted"
+          className="h-6 min-w-[6rem] flex-1 bg-transparent text-sm text-bright placeholder:text-muted"
         />
         {!focus && !text && !parsed.chips.length && (
           <span className="hidden sm:inline-flex" aria-hidden>
@@ -311,6 +314,7 @@ export function QueryBar({
           Clear all
         </button>
       )}
+      {trailing}
       {shownErrors.length > 0 && (
         <div role="alert" className="basis-full text-xs text-loss">
           {shownErrors[0]}

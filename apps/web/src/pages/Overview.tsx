@@ -1,5 +1,6 @@
 import { useQuery } from "@tanstack/react-query";
 import { get, type AccountRiskRow, type AccountSummary, type LivePositionRow, type StrategyRow } from "../api";
+import { groupAccounts } from "../accounts";
 import { AccountStrip } from "../components/HomeAccount";
 import { MonthCalendar, PnlChart } from "../components/HomeCharts";
 import { OpenPositions, PublicOpenPositions } from "../components/HomePositions";
@@ -61,7 +62,8 @@ export default function Home({ instanceId }: { instanceId: string | null }) {
 
   // a shared link is a still picture at its cutoff, never the live clock
   const now = view.public ? Date.now() - view.meta.delayMinutes * 60_000 : Date.now();
-  const accounts = (liveState.data?.accounts ?? []).filter((a) => a.instanceId === instanceId);
+  const accountGroups = groupAccounts((liveState.data?.accounts ?? []).filter((a) => a.instanceId === instanceId));
+  const accounts = accountGroups.map((g) => g.account);
   const groups = (liveState.data?.positions ?? []).filter((g) => g.instanceId === instanceId);
   const positions: LivePositionRow[] = groups.flatMap((g) => g.list);
   const rows = strategies.data ?? [];
@@ -96,19 +98,19 @@ export default function Home({ instanceId }: { instanceId: string | null }) {
               : "No account state yet: it arrives with the next state poll from qkt."}
           </Card>
         ) : (
-          accounts.map((a) => {
+          accountGroups.map(({ account: a, labels }) => {
             const row = riskRowFor(a, riskRows);
-            const own = groups.filter((g) => g.broker === a.broker).flatMap((g) => g.list);
+            const own = groups.filter((g) => labels.includes(g.broker)).flatMap((g) => g.list);
             return (
               <AccountStrip
                 key={`${a.broker}:${a.login ?? ""}`}
                 account={a}
+                labels={labels}
                 risk={row}
                 realizedToday={row?.dailyLoss.realizedToday ?? realizedFallback}
                 dayLabel={row ? dayBasisLabel(row) : dayLabel}
                 open={view.public ? null : openRisk(accounts.length === 1 ? positions : own)}
                 isPublic={view.public}
-                now={now}
               />
             );
           })
@@ -118,7 +120,7 @@ export default function Home({ instanceId }: { instanceId: string | null }) {
       {view.public ? (
         <PublicOpenPositions summary={liveState.data?.openPositions ?? null} />
       ) : (
-        liveState.data && <OpenPositions positions={positions} now={now} strategyName={(id) => (byId.get(id) ? strategyDisplayName(byId.get(id)!) : id)} />
+        liveState.data && <OpenPositions positions={positions} now={now} freshness={groups.length ? { at: Math.max(...groups.map((g) => g.at)), stale: groups.every((g) => g.stale) } : null} strategyName={(id) => (byId.get(id) ? strategyDisplayName(byId.get(id)!) : id)} />
       )}
 
       <Loadable
@@ -128,7 +130,7 @@ export default function Home({ instanceId }: { instanceId: string | null }) {
         what="the strategies"
         lines={5}
       >
-        <StrategyTable lines={lines} now={now} isPublic={view.public} />
+        <StrategyTable lines={lines} now={now} search origin="Home" />
       </Loadable>
 
       <Loadable loading={summary.isPending} error={summary.isError} retry={() => summary.refetch()} what="the P&L history" lines={6}>

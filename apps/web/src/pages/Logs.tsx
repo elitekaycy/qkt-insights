@@ -2,7 +2,7 @@ import { useEffect, useMemo, useRef } from "react";
 import { keepPreviousData, useInfiniteQuery, useQuery } from "@tanstack/react-query";
 import { LOG_KEYS, parseQuery } from "@qkt-insights/contract/query";
 import { get, type LogRow, type StrategyRow } from "../api";
-import { Card, Empty, Loadable, PageHeader, Panel, RangeSelect, rangeStart, useRangeParam } from "../components/ui";
+import { Card, Empty, Loadable, PageHeader, Panel, RangeChips, rangeStart, useRangeParam } from "../components/ui";
 import { useSearchParam } from "../router";
 import { LogLine } from "../components/LogLine";
 import { useLiveStream } from "../useLiveStream";
@@ -105,9 +105,9 @@ export default function Logs({ instanceId }: { instanceId: string | null }) {
               page="Logs"
               presets={LOG_PRESETS}
               placeholder="Search log text or filter: level:error, strategy:, logger:MT5Broker, time:1h…"
-            />
-            <div className="flex w-full flex-wrap items-center gap-x-3 gap-y-2">
-              <RangeSelect value={range} onChange={setRange} />
+              trailing={
+                <>
+              <RangeChips value={range} onChange={setRange} />
               <span className={`text-sm text-muted ${logs.isFetching ? "opacity-60" : ""}`} aria-live="polite">
                 {logs.data == null ? (
                   "Loading…"
@@ -117,7 +117,9 @@ export default function Logs({ instanceId }: { instanceId: string | null }) {
                   </>
                 )}
               </span>
-            </div>
+                </>
+              }
+            />
           </>
         }
       />

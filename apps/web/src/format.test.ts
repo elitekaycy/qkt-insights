@@ -117,3 +117,11 @@ describe("durations and times", () => {
     expect(human(ms)).toBe("Wed, 02 Sep 2026 \u00b7 13:26:33 UTC");
   });
 });
+
+describe("shortDay", () => {
+  it("names a day or a month briefly", async () => {
+    const { shortDay } = await import("./format");
+    expect(shortDay("2026-10-07")).toBe("Oct 7");
+    expect(shortDay("2026-10")).toBe("Oct 2026");
+  });
+});

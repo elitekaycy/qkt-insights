@@ -2,7 +2,8 @@ import type { ReactNode } from "react";
 import type { AccountRiskRow, LiveAccount } from "../api";
 import { clock, count, DASH, money, pctValue, signedMoney } from "../format";
 import { accountToday, dayBasisLabel, limitUse, type LimitUse, type OpenRisk } from "../home";
-import { Card, FlashValue, InfoIcon, LiveDot, Pill, Pnl, Popover } from "./ui";
+import { maskLogin } from "../accounts";
+import { Card, FlashValue, Freshness, InfoIcon, Pill, Pnl, Popover } from "./ui";
 
 /*
  * Home's account strip: what the account has, what today did, what the stops put at risk, and how
@@ -39,12 +40,12 @@ export function Kpi({ icon, label, children, sub, className = "" }: { icon: stri
   );
 }
 
-/** Semicircle gauge of a limit's use: blue under 55%, amber to 80%, red beyond; the percent is printed too. */
+/** Semicircle gauge of a limit's use: blue under 55% (a limit is not P&L), amber to 80%, red beyond; the percent is printed too. */
 function Arc({ pct }: { pct: number | null }) {
   const r = 34;
   const half = Math.PI * r;
   const k = pct == null ? 0 : Math.min(1, Math.max(0, pct / 100));
-  const tone = pct == null ? "var(--color-faint)" : pct >= 80 ? "var(--color-loss-fill)" : pct >= 55 ? "var(--color-warn)" : "var(--color-gain-fill)";
+  const tone = pct == null ? "var(--color-faint)" : pct >= 80 ? "var(--color-loss-fill)" : pct >= 55 ? "var(--color-warn)" : "var(--color-accent-hi)";
   return (
     <svg viewBox="0 0 84 48" className="h-7 w-12 shrink-0 sm:h-9 sm:w-16" aria-hidden>
       <path d="M8 44a34 34 0 0 1 68 0" fill="none" stroke="var(--color-raised)" strokeWidth="8" strokeLinecap="round" />
@@ -84,14 +85,16 @@ function LimitGauge({ label, use, basis, help }: { label: string; use: LimitUse;
 
 export function AccountStrip({
   account,
+  labels = [account.broker],
   risk,
   realizedToday,
   dayLabel,
   open,
   isPublic,
-  now,
 }: {
   account: LiveAccount;
+  /** Every broker label this account reported under, the shown one first. */
+  labels?: string[];
   /** The account's risk row (limits, day basis); null before its first rollup. */
   risk: AccountRiskRow | null;
   realizedToday: number;
@@ -100,28 +103,25 @@ export function AccountStrip({
   /** Open risk over this account's positions; null on shared links, which never show positions. */
   open: OpenRisk | null;
   isPublic: boolean;
-  now: number;
 }) {
   const today = accountToday(account, realizedToday);
   const use = risk ? limitUse(risk, account.equity) : null;
-  const staleFor = Math.max(0, Math.floor((now - account.lastSeen) / 1000));
   const openCount = open ? open.priced + open.noStop + open.unpriced : 0;
   return (
-    <section className={account.stale ? "opacity-60" : ""} aria-label={`Account ${account.broker}`}>
+    <section className={account.stale ? "opacity-90" : ""} aria-label={`Account ${account.broker}`}>
       <div className="flex flex-wrap items-center gap-x-2.5 gap-y-1 text-sm">
-        <LiveDot on={!account.stale} />
         <span className="font-semibold text-bright">{account.broker}</span>
         <Pill>{account.currency}</Pill>
-        {!isPublic && account.login && <span className="font-mono text-xs text-faint">#{account.login}</span>}
+        {!isPublic && account.login && <span className="font-mono text-xs text-faint" title="login, last four digits">#{maskLogin(account.login)}</span>}
         {!isPublic && account.server && <span className="text-xs text-faint">{account.server}</span>}
-        <span className="ml-auto text-xs text-muted">
-          as of {clock(account.lastSeen)} UTC
-          {account.stale && <span className="ml-2"><Pill tone="warn">stale {staleFor}s</Pill></span>}
+        {labels.length > 1 && <span className="text-xs text-faint" title="earlier broker labels of this account">also reported as {labels.slice(1).join(", ")}</span>}
+        <span className="ml-auto">
+          {isPublic ? <span className="text-xs text-muted">as of {clock(account.lastSeen)} UTC</span> : <Freshness at={account.lastSeen} stale={account.stale} />}
         </span>
       </div>
       <div className={`mt-3 grid grid-cols-2 gap-3 sm:grid-cols-3 ${open ? "xl:grid-cols-6" : "xl:grid-cols-5"}`}>
         <Kpi icon={ICON.wallet} label="Balance" sub={`${account.currency} · closed trades only`}>
-          <span className="text-bright">{money(account.balance)}</span>
+          <FlashValue value={account.balance}><span className="text-bright">{money(account.balance)}</span></FlashValue>
         </Kpi>
         <Kpi icon={ICON.pulse} label="Equity" sub={<>floating <Pnl value={account.equity - account.balance} glyphs={false} /></>}>
           <FlashValue value={account.equity}><span className="text-bright">{money(account.equity)}</span></FlashValue>
@@ -152,7 +152,7 @@ export function AccountStrip({
               )
             }
           >
-            {openCount === 0 ? <span className="text-faint">{money(0)}</span> : <Pnl value={open.toStops} />}
+            {openCount === 0 ? <span className="text-faint">{money(0)}</span> : <FlashValue value={open.toStops}><Pnl value={open.toStops} /></FlashValue>}
           </Kpi>
         )}
         {risk && use ? (

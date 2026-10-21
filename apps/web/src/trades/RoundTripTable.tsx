@@ -1,6 +1,6 @@
 import { useEffect, useMemo, useRef, useState, type ReactNode } from "react";
 import { DASH, duration, pnl, quantity, toneClass } from "../format";
-import { Pill } from "../components/ui";
+import { Pill, RowChevron } from "../components/ui";
 import { useView } from "../view";
 import { useRoundTrips, type RoundTrip, type RoundTripTotals, type SortKey, type TripScope } from "./data";
 import { minuteStamp, px, rMultiple } from "./format";
@@ -21,12 +21,12 @@ interface Column { key: string; label: string; w: string; sort?: SortKey; right?
 
 const COLUMNS: Column[] = [
   { key: "id", label: "#", w: "88px", sort: "ticket", title: "Venue position ticket" },
-  { key: "strategy", label: "Strategy", w: "minmax(100px,1fr)", sort: "strategy" },
+  { key: "strategy", label: "Strategy", w: "minmax(120px,1fr)", sort: "strategy" },
   { key: "instrument", label: "Symbol", w: "72px", sort: "symbol", title: "The instrument, whatever broker profile traded it" },
   { key: "side", label: "Side", w: "70px", sort: "side" },
-  { key: "entry", label: "Entry (UTC)", w: "136px", sort: "entry" },
+  { key: "entry", label: "Entry (UTC)", w: "124px", sort: "entry" },
   { key: "entryPrice", label: "Entry", w: "78px", sort: "entryPrice", right: true },
-  { key: "exit", label: "Exit (UTC)", w: "136px", sort: "exit" },
+  { key: "exit", label: "Exit (UTC)", w: "124px", sort: "exit" },
   { key: "exitPrice", label: "Exit", w: "78px", sort: "exitPrice", right: true },
   { key: "size", label: "Size", w: "50px", sort: "size", right: true },
   { key: "pnl", label: "P&L", w: "104px", sort: "pnl", right: true, title: "Realized, after commission, swap and fees" },
@@ -103,7 +103,8 @@ export function RoundTripTable({ scope, q, sort, dir, onSort, hide = [], height 
   // a shared link's tickets are opaque stand-ins: no use as a column
   const hidden = useMemo(() => new Set(view.public ? [...hide, "id"] : hide), [hide, view.public]);
   const cols = COLUMNS.filter((c) => !hidden.has(c.key));
-  const template = cols.map((c) => c.w).join(" ");
+  // the last track holds the row's "opens" chevron
+  const template = `${cols.map((c) => c.w).join(" ")} 1.75rem`;
   const minWidth = cols.reduce((a, c) => a + (parseInt(c.w.replace(/^minmax\((\d+)px.*$/, "$1"), 10) || 0), 0);
   const data = useRoundTrips(scope, q, sort, dir);
   const rows = useMemo(() => data.data?.pages.flatMap((p) => p.rows) ?? [], [data.data]);
@@ -211,6 +212,7 @@ export function RoundTripTable({ scope, q, sort, dir, onSort, hide = [], height 
           </div>
         );
       })}
+      <div role="columnheader" aria-label="Open" />
     </div>
   );
 
@@ -228,22 +230,24 @@ export function RoundTripTable({ scope, q, sort, dir, onSort, hide = [], height 
     } as const;
     if (wide) {
       return (
-        <div key={t.id} {...common} className={`absolute inset-x-0 grid items-center border-b border-line text-sm transition-colors ${clickable ? "cursor-pointer" : ""} ${selected ? "bg-accent-soft shadow-[inset_3px_0_0_var(--color-accent-hi)]" : "hover:bg-hover"}`}>
+        <div key={t.id} {...common} className={`group absolute inset-x-0 grid items-center border-b border-line text-sm transition-colors ${clickable ? "cursor-pointer" : ""} ${selected ? "bg-accent-soft shadow-[inset_3px_0_0_var(--color-accent-hi)]" : "hover:bg-hover"}`}>
           {cells(t, hidden)}
+          <div role="cell" className="flex justify-center">{clickable && <RowChevron className={selected ? "opacity-100" : ""} />}</div>
         </div>
       );
     }
     return (
-      <div key={t.id} {...common} className={`absolute inset-x-0 flex flex-col justify-center gap-1 border-b border-line px-3 text-sm ${clickable ? "cursor-pointer" : ""} ${selected ? "bg-accent-soft" : ""}`}>
-        <div className="flex items-baseline gap-2">
+      <div key={t.id} {...common} className={`group absolute inset-x-0 flex flex-col justify-center gap-1 border-b border-line pl-3 pr-1.5 text-sm ${clickable ? "cursor-pointer active:bg-press" : ""} ${selected ? "bg-accent-soft" : ""}`}>
+        <div className="flex items-center gap-2">
           <span className="font-semibold text-bright">{t.instrument}</span>
           <SideText side={t.side} />
           <span className={`ml-auto shrink-0 font-semibold ${toneClass(t.pnl)}`}>{t.status === "open" ? <Pill tone="info">open</Pill> : pnl(t.pnl)}</span>
+          {clickable && <RowChevron />}
         </div>
         <div className="flex items-center gap-2 text-xs text-muted">
           <span className="min-w-0 truncate">{t.strategyId ?? "unattributed"}</span>
           <span className="shrink-0">· {rMultiple(t.r)}</span>
-          <span className="ml-auto shrink-0 whitespace-nowrap font-mono">{minuteStamp(t.exitTs ?? t.entryTs)} UTC</span>
+          <span className={`ml-auto shrink-0 whitespace-nowrap font-mono ${clickable ? "pr-6" : ""}`}>{minuteStamp(t.exitTs ?? t.entryTs)} UTC</span>
         </div>
       </div>
     );

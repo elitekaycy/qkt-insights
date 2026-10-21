@@ -1,7 +1,8 @@
+import { maskLogin, realAccounts } from "../accounts";
 import { Fragment, useRef, useState, type KeyboardEvent, type PointerEvent, type ReactNode } from "react";
 import { useQuery } from "@tanstack/react-query";
 import { get, type HealthRow, type LiveAccount, type LiveStateSnapshot, type MonitorEventRow, type MonitorSummary, type MonitorsView, type StripBucket } from "../api";
-import { Cell, DataList, Empty, LiveDot, PageHeader, Panel, Pill, Row, Skeleton, Stat, Table, type Tone } from "../components/ui";
+import { Cell, DataList, Empty, Freshness, StatusWord, LiveDot, PageHeader, Panel, Pill, Row, Skeleton, Stat, Table, type Tone } from "../components/ui";
 import { age, clock, duration, money, pct, signedMoney, tsDay, tsShort } from "../format";
 
 /** Red only for a loss: failed POSTs are retried (from the journal when it is on), so they are not one. */
@@ -146,7 +147,7 @@ function MonitorRow({ m }: { m: MonitorSummary }) {
         <div className="min-w-0 flex-1">
           <div className="flex items-center gap-2">
             <span className="truncate font-semibold text-bright">{m.name}</span>
-            <Pill tone={STATUS_TONE[m.status]}>{m.status}</Pill>
+            <StatusWord tone={STATUS_TONE[m.status]}>{m.status}</StatusWord>
           </div>
           <div className="truncate font-mono text-[11px] text-faint" title={target}>
             {target}
@@ -234,9 +235,9 @@ function Monitors({ view, loading, failed }: { view: MonitorsView | undefined; l
           cells={(e) => (
             <>
               <Cell className="whitespace-nowrap text-muted">{tsDay(e.ts)}</Cell>
-              <Cell className="font-semibold text-bright">{e.monitor}</Cell>
+              <Cell className="whitespace-nowrap font-semibold text-bright">{e.monitor}</Cell>
               <Cell>
-                <Pill tone={STATUS_TONE[e.status]}>{e.status}</Pill>
+                <StatusWord tone={STATUS_TONE[e.status]}>{e.status}</StatusWord>
               </Cell>
               <Cell className="whitespace-nowrap text-muted">{lasted(e, events)}</Cell>
               <Cell className="text-muted">{e.detail ?? "—"}</Cell>
@@ -246,7 +247,7 @@ function Monitors({ view, loading, failed }: { view: MonitorsView | undefined; l
             <>
               <div className="flex items-center gap-2">
                 <span className="truncate font-semibold text-bright">{e.monitor}</span>
-                <Pill tone={STATUS_TONE[e.status]}>{e.status}</Pill>
+                <StatusWord tone={STATUS_TONE[e.status]}>{e.status}</StatusWord>
                 <span className="ml-auto whitespace-nowrap text-xs text-muted">{tsShort(e.ts)} UTC</span>
               </div>
               {e.status === "down" && <div className="mt-1 text-xs text-muted">lasted {lasted(e, events)}{e.detail ? ` · ${e.detail}` : ""}</div>}
@@ -324,7 +325,7 @@ function InstanceDetail({ row, accounts }: { row: HealthRow; accounts: LiveAccou
           empty="No broker account state yet — waiting for the state poller."
           cells={(a) => (
             <>
-              <Cell className="font-semibold text-bright">{a.login ? `${a.broker} · #${a.login}` : a.broker}</Cell>
+              <Cell className="font-semibold text-bright">{a.login ? `${a.broker} · #${maskLogin(a.login)}` : a.broker}</Cell>
               <Cell>
                 <Pill tone={a.stale ? "neutral" : "ok"}>{a.stale ? "stale" : "live"}</Pill>
               </Cell>
@@ -338,7 +339,7 @@ function InstanceDetail({ row, accounts }: { row: HealthRow; accounts: LiveAccou
           card={(a) => (
             <>
               <div className="flex items-center gap-2">
-                <span className="truncate font-semibold text-bright">{a.login ? `${a.broker} · #${a.login}` : a.broker}</span>
+                <span className="truncate font-semibold text-bright">{a.login ? `${a.broker} · #${maskLogin(a.login)}` : a.broker}</span>
                 <Pill tone={a.stale ? "neutral" : "ok"}>{a.stale ? "stale" : "live"}</Pill>
                 <span className="ml-auto whitespace-nowrap text-xs text-muted">{age(a.lastSeen)}</span>
               </div>
@@ -386,7 +387,7 @@ export default function Health() {
   });
 
   const rows = health.data ?? [];
-  const accounts = liveState.data?.accounts ?? [];
+  const accounts = realAccounts(liveState.data?.accounts ?? []);
 
   return (
     <div>
@@ -409,13 +410,11 @@ export default function Health() {
             return (
               <li key={r.instanceId} className="px-4 py-3.5">
                 <div className="flex items-center gap-2.5">
-                  <LiveDot on={fresh} />
                   <span className="truncate font-semibold text-bright">{r.instanceId}</span>
-                  <Pill tone={fresh ? "ok" : "neutral"}>{fresh ? "live" : "idle"}</Pill>
-                  <span className="ml-auto whitespace-nowrap text-xs text-muted">{age(r.lastSeen)}</span>
+                  <Freshness at={Math.max(r.lastSeen, acct?.lastSeen ?? 0)} stale={!fresh} className="ml-auto" />
                 </div>
                 <div className="mt-2 grid grid-cols-2 gap-x-4 gap-y-1.5 text-sm">
-                  <Fact label="broker">{acct ? (acct.login ? `${acct.broker} · #${acct.login}` : acct.broker) : "—"}</Fact>
+                  <Fact label="broker">{acct ? (acct.login ? `${acct.broker} · #${maskLogin(acct.login)}` : acct.broker) : "—"}</Fact>
                   <Fact label="equity" mono>
                     {acct ? money(acct.equity) : "—"}
                   </Fact>
@@ -465,15 +464,10 @@ export default function Health() {
             const expanded = openInstance === r.instanceId;
             return (
               <Fragment key={r.instanceId}>
-                <Row>
-                  <Cell className="font-semibold text-bright">
-                    <span className="flex items-center gap-2.5">
-                      <LiveDot on={fresh} />
-                      {r.instanceId}
-                    </span>
-                  </Cell>
+                <Row onClick={() => setOpenInstance(expanded ? null : r.instanceId)} label={`${expanded ? "Hide" : "Show"} ${r.instanceId} details`}>
+                  <Cell className="font-semibold text-bright">{r.instanceId}</Cell>
                   <Cell>
-                    <Pill tone={fresh ? "ok" : "neutral"}>{fresh ? "live" : "idle"}</Pill>
+                    <Freshness at={Math.max(r.lastSeen, acct?.lastSeen ?? 0)} stale={!fresh} />
                   </Cell>
                   <Cell className="whitespace-nowrap text-muted">{age(r.lastSeen)}</Cell>
                   <Cell className="whitespace-nowrap text-muted">
@@ -482,7 +476,7 @@ export default function Health() {
                   <Cell className="text-muted">
                     <span title={r.retiredStrategies > 0 ? "retired: rows a newer roster or 30 days of silence left behind, not counted as deployed" : undefined}>{strategiesLabel(r)}</span>
                   </Cell>
-                  <Cell className="text-muted">{acct ? (acct.login ? `${acct.broker} · #${acct.login}` : acct.broker) : "—"}</Cell>
+                  <Cell className="text-muted">{acct ? (acct.login ? `${acct.broker} · #${maskLogin(acct.login)}` : acct.broker) : "—"}</Cell>
                   <Cell className="text-bright">{acct ? money(acct.equity) : "—"}</Cell>
                   <Cell>
                     <span className="flex flex-wrap gap-1.5">
@@ -497,14 +491,10 @@ export default function Health() {
                       {journalLabel(r)}
                     </Pill>
                   </Cell>
-                  <Cell className="text-right">
-                    <button
-                      type="button"
-                      onClick={() => setOpenInstance(expanded ? null : r.instanceId)}
-                      className="rounded-lg border border-line bg-raised px-2.5 py-1 text-xs font-semibold text-muted transition hover:border-line-strong hover:text-body"
-                    >
-                      {expanded ? "hide" : "details"}
-                    </button>
+                  <Cell className="w-8 text-right">
+                    <svg viewBox="0 0 24 24" className={`ml-auto h-4 w-4 text-faint transition ${expanded ? "rotate-180 opacity-100" : "opacity-60 group-hover:opacity-100"}`} fill="none" stroke="currentColor" strokeWidth="1.75" strokeLinecap="round" strokeLinejoin="round" aria-hidden>
+                      <path d="M6 9l6 6 6-6" />
+                    </svg>
                   </Cell>
                 </Row>
                 {expanded && (

@@ -135,7 +135,7 @@ export function Ring({ wins, losses, size = 72, onWins, onLosses, picked }: {
   );
 }
 
-/** Profit factor as a half gauge from 0 to 3, a tick at the 1.0 break-even, blue at or above it and red below. */
+/** Profit factor as a half gauge from 0 to 3, a tick at the 1.0 break-even, green at or above it and red below. */
 export function Gauge({ value }: { value: number | "inf" | null }) {
   const w = 132, h = 76, r = 54, cx = w / 2, cy = 66;
   const max = 3;
@@ -194,7 +194,7 @@ export interface SignedRow {
   title?: string;
 }
 
-/** Horizontal bars centred on a zero rule: gains grow right in blue, losses left in red, with "n · value". */
+/** Horizontal bars centred on a zero rule: gains grow right in green, losses left in red, with "n · value". */
 export function SignedBars({ rows, labelWidth = "3.5rem" }: { rows: SignedRow[]; labelWidth?: string }) {
   const max = Math.max(1e-9, ...rows.map((r) => Math.abs(r.value)));
   const anyPressed = rows.some((r) => r.pressed);

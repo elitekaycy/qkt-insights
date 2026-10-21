@@ -1,6 +1,6 @@
 import { useCallback, useMemo, useState } from "react";
 import { TRADE_KEYS } from "@qkt-insights/contract/query";
-import { Card, PageHeader, RangeSelect, rangeStart, useRangeParam } from "../components/ui";
+import { Card, PageHeader, RangeChips, rangeStart, useRangeParam } from "../components/ui";
 import { useSearchParam } from "../router";
 import { QueryBar, TRADE_PRESETS } from "../query/QueryBar";
 import { tripParams, useTripFacets, type RoundTripTotals, type TripScope } from "../trades/data";
@@ -66,21 +66,23 @@ export default function Trades({ instanceId }: { instanceId: string | null }) {
               presets={TRADE_PRESETS}
               errors={totals.errors}
               placeholder="Search or filter: gold, win, side:short, pnl:<0, held:<1h, ended:stop, exit:2026-10, #ticket…"
+              trailing={
+                <>
+                  <RangeChips value={range} onChange={setRange} />
+                  <TripCount totals={totals.t} loading={totals.loading} />
+                </>
+              }
             />
-            <div className="flex w-full flex-wrap items-center gap-x-3 gap-y-2">
-              <RangeSelect value={range} onChange={setRange} />
-              <TripCount totals={totals.t} loading={totals.loading} />
-              <span className="ml-auto hidden text-xs text-faint lg:inline">
-                <kbd className="font-mono">/</kbd> search · <kbd className="font-mono">j</kbd>/<kbd className="font-mono">k</kbd> move · <kbd className="font-mono">Enter</kbd> open
-              </span>
-            </div>
           </>
         }
       />
       <Card className="mt-5 overflow-hidden">
         <div className="flex items-baseline gap-2 border-b border-line px-4 py-3">
           <h3 className="text-sm font-medium text-body">Round trips</h3>
-          <span className="hidden text-xs text-muted sm:inline">one row per entry-to-exit · {view.public ? "closed positions only" : "click a row for its timeline"}</span>
+          <span className="hidden text-xs text-muted sm:inline">one row per entry-to-exit · {view.public ? "closed positions only" : "P&L after costs"}</span>
+          <span className="ml-auto hidden text-xs text-faint lg:inline">
+            <kbd className="font-mono">/</kbd> search · <kbd className="font-mono">j</kbd>/<kbd className="font-mono">k</kbd> move · <kbd className="font-mono">Enter</kbd> open
+          </span>
         </div>
         <RoundTripTable scope={scope} q={q} sort={sort} dir={dir} onSort={setSort} onTotals={onTotals} height="calc(100dvh - 19rem)" />
       </Card>

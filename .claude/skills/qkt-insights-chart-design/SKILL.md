@@ -51,10 +51,13 @@ did: tokens in `apps/web/src/index.css`, chart base in `components/EChart.tsx`.
   `compact` to value axes without their own formatter. Put the exact figure in
   the tooltip via `tipHtml` (muted title with the time zone, one signed headline
   with its glyph, aligned rows, a hint when a click does something).
-- Use one stable primary-series color (`chartColors.primary`). Gains are blue,
-  losses red (`chartColors.gain`/`loss`), always paired with a sign or glyph;
-  never recolor a whole equity curve based on its last point. Comparison lines
-  and stacked parts use `chartColors.series`.
+- Use one stable primary-series color (`chartColors.primary`). Gains are green,
+  losses red (`chartColors.gain`/`loss`, tokens `--color-gain*`/`--color-loss*`),
+  always paired with a sign or glyph (owner preference, 2026-10-21: green reads
+  as profit; it replaced the journal's blue). Never write a gain colour outside
+  those tokens. Status (Health, live dots) uses `ok`/`danger` with a dot and a
+  word, so it never reads as P&L. Never recolor a whole equity curve based on
+  its last point. Comparison lines and stacked parts use `chartColors.series`.
 - Do not smooth equity, P&L, balance, exposure, drawdown, or step-like accounting
   series. Every visible point or segment must correspond to stored truth.
 - Use area fill only for a single primary series and keep it subtle

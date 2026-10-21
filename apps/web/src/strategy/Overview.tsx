@@ -96,7 +96,6 @@ export function OverviewSection({ instanceId, strategyId, q, toggle, a, busy, ca
         <Widget
           icon={ICON.pnl}
           title="Realised P&L"
-          hint="click to list the trades"
           className="relative overflow-hidden md:col-span-2"
           busy={busy}
           explain="Closed round trips in the range that match the search, after commission, swap and fees. A position still open counts what it has closed so far."
@@ -116,7 +115,6 @@ export function OverviewSection({ instanceId, strategyId, q, toggle, a, busy, ca
         <Widget
           icon={ICON.percent}
           title="Win rate"
-          hint="click a side"
           busy={busy}
           explain={`Winning closed round trips over winning plus losing ones; breakeven trades (${a.breakeven}) count for neither. A low win rate still pays when wins are much bigger than losses: read it with the payoff.`}
         >
@@ -152,7 +150,6 @@ export function OverviewSection({ instanceId, strategyId, q, toggle, a, busy, ca
         <Widget
           icon={ICON.scale}
           title="Avg win / loss"
-          hint="click a row"
           busy={busy}
           explain="The mean winning trade and the mean losing trade. Payoff is their ratio: above 1 winners are bigger than losers; below 1 the strategy needs a win rate over 50% to make money."
         >
@@ -188,7 +185,6 @@ export function OverviewSection({ instanceId, strategyId, q, toggle, a, busy, ca
         <Widget
           icon={ICON.drawdown}
           title="Max drawdown"
-          hint={a.maxDdWindow ? "click for its trades" : undefined}
           busy={busy}
           explain="The deepest fall of the running realized total from its high, over the trades on screen: the worst losing stretch you would have sat through. The equity-based figure, with open positions, is under Risk-adjusted."
         >
@@ -225,18 +221,18 @@ export function OverviewSection({ instanceId, strategyId, q, toggle, a, busy, ca
         </Widget>
       </div>
 
-      <Widget icon={ICON.line} title="Cumulative P&L" hint={openTrade ? "click a point for its trade · click the chart, then scroll to zoom" : "click the chart, then scroll to zoom"} busy={busy}>
+      <Widget icon={ICON.line} title="Cumulative P&L" busy={busy}>
         <EChart option={cumOption} height={260} label="Running total of realized P&L, trade by trade" onAxisClick={openTrade ? (x) => { const t = nearestByTime(trades, x); if (t) openTrade(t.id); } : undefined} />
         {a.tradesTruncated && <div className="mt-1 text-[11px] text-muted">The newest {count(trades.length)} trades are drawn.</div>}
       </Widget>
 
-      <Widget icon={ICON.bars} title="P&L per trade" hint={openTrade ? "click a bar for its trade" : "in exit order"} busy={busy}>
+      <Widget icon={ICON.bars} title="P&L per trade" hint="in exit order" busy={busy}>
         <EChart option={barOption} height={220} label="Each closed trade's P&L in exit order" onAxisClick={openTrade ? (x) => { const t = trades[Math.round(x)]; if (t) openTrade(t.id); } : undefined} />
       </Widget>
 
       <div className={`grid items-start gap-4 ${a.instrument.length > 1 ? "md:grid-cols-2" : ""}`}>
         {a.instrument.length > 1 && (
-          <Widget icon={ICON.coins} title="Where the money comes from" hint="click an instrument" busy={busy}>
+          <Widget icon={ICON.coins} title="Where the money comes from" busy={busy}>
             <SignedBars
               labelWidth="5.5rem"
               rows={a.instrument.map((b) => ({ key: b.key, label: b.label, value: b.pnl, n: b.n, pressed: chipOf(q, "symbol") === b.filter, onClick: () => toggle(b.filter), title: `${b.label}: ${b.wins} won, ${b.losses} lost` }))}

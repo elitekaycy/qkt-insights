@@ -2,8 +2,8 @@ import type { ReactNode } from "react";
 import type { LivePositionRow } from "../api";
 import { DASH, duration, human, instrumentOf, openPnl, price, quantity } from "../format";
 import { positionRisks } from "../home";
-import { Link } from "../router";
-import { Card, Cell, FlashValue, Pill, Pnl, SideTag } from "./ui";
+import { Link, useRoute } from "../router";
+import { Card, Cell, FlashValue, Freshness, Pill, Pnl, RowChevron, SideTag } from "./ui";
 
 /*
  * Open positions with what each one risks: the stop and take-profit levels, the money between the
@@ -13,8 +13,16 @@ import { Card, Cell, FlashValue, Pill, Pnl, SideTag } from "./ui";
 
 const HEAD = ["Instrument", "Side", "Size", "Entry", "Current", "SL", "TP", "To stop", "Floating", "Held", "Strategy"];
 
-export function OpenPositions({ positions, strategyName, now }: { positions: LivePositionRow[]; strategyName: (id: string) => string; now: number }) {
+export function OpenPositions({ positions, strategyName, now, freshness }: {
+  positions: LivePositionRow[];
+  strategyName: (id: string) => string;
+  now: number;
+  /** When the venue last reported the positions, and whether that is too long ago. */
+  freshness: { at: number; stale: boolean } | null;
+}) {
   const risks = positionRisks(positions);
+  const { navigate } = useRoute();
+  const openTicket = (p: LivePositionRow) => navigate(`/t?trade=${encodeURIComponent(p.ticket)}`, { from: "Home" });
   const level = (v: number | undefined) => (v != null && v > 0 ? price(v) : DASH);
   const toStop = (p: LivePositionRow) => {
     const r = risks.get(p.ticket)!;
@@ -23,16 +31,14 @@ export function OpenPositions({ positions, strategyName, now }: { positions: Liv
   };
   const strategy = (p: LivePositionRow) =>
     p.strategyId ? (
-      <Link to={`/s/${encodeURIComponent(p.strategyId)}`} className="text-bright underline-offset-2 hover:underline" title={p.strategyId}>
+      <Link to={`/s/${encodeURIComponent(p.strategyId)}`} from="Home" onClick={(e) => e.stopPropagation()} className="text-bright underline-offset-2 hover:underline" title={p.strategyId}>
         {strategyName(p.strategyId)}
       </Link>
     ) : (
       <Pill>unattributed</Pill>
     );
   const ticket = (p: LivePositionRow) => (
-    <Link to={`/t?trade=${encodeURIComponent(p.ticket)}`} className="font-mono text-[11px] text-faint hover:text-bright" title="open this position in Trades">
-      #{p.ticket}
-    </Link>
+    <span className="font-mono text-[11px] text-faint">#{p.ticket}</span>
   );
   const held = (p: LivePositionRow) => (p.openedAt ? <span title={`opened ${human(p.openedAt)}`}>{duration(now - p.openedAt)}</span> : DASH);
 
@@ -41,6 +47,7 @@ export function OpenPositions({ positions, strategyName, now }: { positions: Liv
       <div className="flex flex-wrap items-baseline gap-x-2.5 gap-y-0.5 border-b border-line px-4 py-3">
         <h2 className="text-sm font-medium text-body">Open positions</h2>
         <span className="text-xs text-muted">venue-marked · to stop = money from the price now to the stop · floating incl. swap</span>
+        {freshness && <Freshness at={freshness.at} stale={freshness.stale} className="ml-auto" />}
       </div>
       {positions.length === 0 ? (
         <div className="px-4 py-6 text-center text-sm text-muted">Flat: no open positions.</div>
@@ -53,11 +60,19 @@ export function OpenPositions({ positions, strategyName, now }: { positions: Liv
                   {HEAD.map((h) => (
                     <th key={h} className={`eyebrow whitespace-nowrap px-3 py-2 ${h === "Instrument" || h === "Side" || h === "Strategy" ? "" : "text-right"}`}>{h}</th>
                   ))}
+                  <th className="w-8" aria-label="Open" />
                 </tr>
               </thead>
               <tbody>
                 {positions.map((p) => (
-                  <tr key={p.ticket} className="border-b border-line text-bright last:border-b-0 hover:bg-hover">
+                  <tr
+                    key={p.ticket}
+                    tabIndex={0}
+                    aria-label={`Open position ${p.ticket} in Trades`}
+                    onClick={() => openTicket(p)}
+                    onKeyDown={(e) => { if (e.key === "Enter") openTicket(p); }}
+                    className="group cursor-pointer border-b border-line text-bright transition-colors last:border-b-0 hover:bg-hover focus-visible:bg-hover focus-visible:outline-2 focus-visible:-outline-offset-2 focus-visible:outline-accent-hi"
+                  >
                     <Cell>
                       <div className="font-semibold">{instrumentOf(p.symbol)}</div>
                       {ticket(p)}
@@ -74,6 +89,7 @@ export function OpenPositions({ positions, strategyName, now }: { positions: Liv
                     </Cell>
                     <Cell className="whitespace-nowrap text-right text-muted">{held(p)}</Cell>
                     <Cell>{strategy(p)}</Cell>
+                    <td className="pr-2"><RowChevron /></td>
                   </tr>
                 ))}
               </tbody>
@@ -81,12 +97,19 @@ export function OpenPositions({ positions, strategyName, now }: { positions: Liv
           </div>
           <ul className="divide-y divide-line @3xl:hidden">
             {positions.map((p) => (
-              <li key={p.ticket} className="px-4 py-3 text-sm tabular-nums">
+              <li
+                key={p.ticket}
+                tabIndex={0}
+                onClick={() => openTicket(p)}
+                onKeyDown={(e) => { if (e.key === "Enter") openTicket(p); }}
+                className="group cursor-pointer px-4 py-3 text-sm tabular-nums transition-colors hover:bg-hover active:bg-press"
+              >
                 <div className="flex items-baseline gap-2">
                   <span className="font-semibold text-bright">{instrumentOf(p.symbol)}</span>
                   <SideTag side={p.side} />
                   <span className="text-muted">{quantity(p.qty)}</span>
                   <span className="ml-auto font-semibold"><Pnl value={openPnl(p)} glyphs={false} /></span>
+                  <RowChevron className="self-center" />
                 </div>
                 <div className="mt-1.5 grid grid-cols-3 gap-x-3 gap-y-1 text-xs">
                   <Pair k="Entry" v={price(p.entryPrice)} />

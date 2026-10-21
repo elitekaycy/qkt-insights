@@ -1,3 +1,4 @@
+import { maskLogin } from "../accounts";
 import { chartColors } from "../components/EChart";
 import { useState } from "react";
 import { usePublicPageView } from "../view";
@@ -68,9 +69,12 @@ export default function Equity({ instanceId }: { instanceId: string | null }) {
   // (login@server, else labels that take turns). EquityChart wants EquityPoint; realized/unrealized
   // are unused by the chart.
   const accountByBrokerMinute = new Map<string, Map<number, EquityPoint>>();
+  // the label each account reported under last, for the heading when there are several
+  const accountLabel = new Map<string, string>();
   for (const p of account.data ?? []) {
     if (p.equity == null) continue;
     const broker = p.account;
+    accountLabel.set(broker, p.broker);
     const byMinute = accountByBrokerMinute.get(broker) ?? new Map<number, EquityPoint>();
     byMinute.set(p.minuteTs, { ts: p.minuteTs, equity: p.equity, realized: p.balance ?? 0, unrealized: p.openProfit ?? 0 });
     accountByBrokerMinute.set(broker, byMinute);
@@ -107,7 +111,7 @@ export default function Equity({ instanceId }: { instanceId: string | null }) {
             [...accountByBroker.entries()].map(([broker, pts]) => (
               <div key={broker} className="p-4">
                 {accountByBroker.size > 1 && (
-                  <div className="mb-2 text-[11px] font-semibold uppercase tracking-[0.06em] text-muted">{broker}</div>
+                  <div className="mb-2 text-[11px] font-semibold uppercase tracking-[0.06em] text-muted">{accountHeading(broker, accountLabel.get(broker) ?? broker)}</div>
                 )}
                 <EquityChart points={pts} height={320} />
               </div>
@@ -153,7 +157,7 @@ export default function Equity({ instanceId }: { instanceId: string | null }) {
           </Loadable>
         </Panel>
 
-        <Panel title="Drawdown periods" hint={`${focusId} · click a row to inspect`}>
+        <Panel title="Drawdown periods" hint={focusId}>
           <Loadable
             loading={!!focusId && performance.isPending}
             error={performance.isError}
@@ -233,4 +237,10 @@ export default function Equity({ instanceId }: { instanceId: string | null }) {
       )}
     </div>
   );
+}
+
+/** "ICMARKETS · #•••4821" for an identified account ("login@server"), else its label. */
+function accountHeading(key: string, label: string): string {
+  const at = key.lastIndexOf("@");
+  return at > 0 ? `${label} · #${maskLogin(key.slice(0, at))}` : label;
 }
