@@ -1,8 +1,8 @@
 import type { ReactNode } from "react";
 import type { AccountRiskRow, ClosedTradeRow, DayNet, ExcursionStats } from "../api";
-import { compact, count, DASH, duration, fixed, money, pctValue, quantity, ratio, signedMoney } from "../format";
+import { compact, count, DASH, duration, money, pct, pctValue, pnl, polarity, quantity, ratio, signedMoney } from "../format";
 import { ChartCard } from "./ChartCard";
-import { chartColors, EChart, qktChartAxis, qktChartGrid, qktChartTooltip, qktInsideZoom, type QktChartOption } from "./EChart";
+import { chartColors, EChart, qktChartAxis, qktChartGrid, qktChartTooltip, qktXAxis, tipHtml, tok, zeroLine, type QktChartOption } from "./EChart";
 import { ComparisonChart, type ComparisonSeries } from "./EquityChart";
 import { Card, Pnl } from "./ui";
 
@@ -75,30 +75,51 @@ function Widget({ id, data }: { id: DashboardWidgetId; data: OverviewDashboardDa
 function PnlWidget({ data }: { data: OverviewDashboardData }) {
   const rows = data.dailyNets;
   let cumulative = 0;
-  const cumulativeRows = rows.map((x) => [x.day, cumulative += x.net]);
+  const cum = rows.map((x) => (cumulative += x.net));
   const total = rows.reduce((a, x) => a + x.net, 0);
   const option: QktChartOption = {
-    backgroundColor: "transparent",
-    grid: { ...qktChartGrid, top: 24 },
+    grid: { ...qktChartGrid, top: 16 },
     tooltip: {
-      ...qktChartTooltip(), trigger: "axis",
+      ...qktChartTooltip(),
+      axisPointer: { type: "shadow", shadowStyle: { color: tok("hover") } },
       formatter: (params: unknown) => {
-        const list = params as Array<{ dataIndex: number }>;
-        const row = rows[list[0]?.dataIndex ?? 0];
-        return row ? `${row.day} UTC<br/>daily <b>${money(row.net)}</b> · ${row.trades} closes<br/>cumulative ${money(cumulativeRows[list[0]?.dataIndex ?? 0]?.[1] as number)}` : "";
+        const i = (params as Array<{ dataIndex: number }>)[0]?.dataIndex ?? 0;
+        const row = rows[i];
+        if (!row) return "";
+        return tipHtml(`${weekday(row.day)} ${row.day} · UTC day`, { text: pnl(row.net), tone: polarity(row.net) }, [
+          ["Closed trades", count(row.trades)],
+          ["Cumulative", signedMoney(cum[i])],
+        ]);
       },
     },
-    dataZoom: qktInsideZoom(),
-    xAxis: { type: "category", data: rows.map((x) => x.day), boundaryGap: true, ...qktChartAxis },
+    xAxis: { type: "category", data: rows.map((x) => x.day), boundaryGap: true, ...qktXAxis },
     yAxis: { type: "value", splitNumber: 4, ...qktChartAxis, axisLabel: { ...qktChartAxis.axisLabel, formatter: (v: number) => compact(v) } },
     series: [
-      { name: "daily", type: "bar", barMaxWidth: 18, data: rows.map((x) => ({ value: x.net, itemStyle: { color: x.net >= 0 ? chartColors.up : chartColors.down, borderRadius: x.net >= 0 ? [3, 3, 0, 0] : [0, 0, 3, 3] } })) },
-      { name: "cumulative", type: "line", showSymbol: false, smooth: false, data: cumulativeRows.map((x) => x[1]), lineStyle: { color: chartColors.primary, width: 2 } },
+      {
+        name: "daily",
+        type: "bar",
+        barMaxWidth: 18,
+        barCategoryGap: "25%",
+        data: rows.map((x) => ({ value: x.net, itemStyle: { color: x.net >= 0 ? chartColors.gain : chartColors.loss, borderRadius: x.net >= 0 ? [3, 3, 0, 0] : [0, 0, 3, 3] } })),
+        markLine: zeroLine(),
+      },
+      { name: "cumulative", type: "line", showSymbol: false, smooth: false, data: cum, lineStyle: { color: chartColors.primary, width: 2 }, itemStyle: { color: chartColors.primary } },
     ],
   };
   return (
-    <ChartCard title="Daily and cumulative P&L" description="Realized results by UTC close day; bars are daily, line is cumulative." meta={`${rows.reduce((a, x) => a + x.trades, 0)} closed trades`} value={<span className={total >= 0 ? "text-gain" : "text-loss"}>{money(total)}</span>}>
-      {rows.length > 0 ? <div className="p-3 sm:p-4"><EChart option={option} height={300} /></div> : <WidgetEmpty>Closed trades will build the daily P&L history.</WidgetEmpty>}
+    <ChartCard
+      title="Daily and cumulative P&L"
+      description="Realized results by UTC close day; bars are daily, line is cumulative."
+      meta={`${count(rows.reduce((a, x) => a + x.trades, 0))} closed trades`}
+      value={<Pnl value={total} />}
+    >
+      {rows.length > 0 ? (
+        <div className="p-3 sm:p-4">
+          <EChart option={option} height={300} label="Daily realized P&L bars with the cumulative line" />
+        </div>
+      ) : (
+        <WidgetEmpty>Closed trades will build the daily P&L history.</WidgetEmpty>
+      )}
     </ChartCard>
   );
 }
@@ -108,15 +129,14 @@ function OutcomeWidget({ closes }: { closes: ClosedTradeRow[] }) {
   const losses = closes.filter((x) => x.realized < 0).length;
   const flat = closes.length - wins - losses;
   const option: QktChartOption = {
-    backgroundColor: "transparent",
     tooltip: { ...qktChartTooltip(), trigger: "item", formatter: "{b}<br/><b>{c}</b> trades · {d}%" },
-    legend: { bottom: 0, textStyle: { color: chartColors.muted, fontFamily: "Archivo, system-ui, sans-serif" } },
-    series: [{ type: "pie", radius: ["58%", "78%"], center: ["50%", "43%"], avoidLabelOverlap: true, label: { show: false }, itemStyle: { borderColor: "#121518", borderWidth: 2, borderRadius: 3 }, data: [
-      { name: "Wins", value: wins, itemStyle: { color: chartColors.up } },
+    legend: { bottom: 0, textStyle: { color: chartColors.muted } },
+    series: [{ type: "pie", radius: ["58%", "78%"], center: ["50%", "43%"], avoidLabelOverlap: true, label: { show: false }, itemStyle: { borderColor: tok("panel"), borderWidth: 2, borderRadius: 3 }, data: [
+      { name: "Wins", value: wins, itemStyle: { color: chartColors.gain } },
       { name: "Breakeven", value: flat, itemStyle: { color: chartColors.muted } },
-      { name: "Losses", value: losses, itemStyle: { color: chartColors.down } },
+      { name: "Losses", value: losses, itemStyle: { color: chartColors.loss } },
     ] }],
-    graphic: wins + losses > 0 ? [{ type: "text", left: "center", top: "35%", style: { text: `${((wins / (wins + losses)) * 100).toFixed(1)}%\nwin rate`, textAlign: "center", fill: "#f2f4f6", font: "600 16px Archivo", lineHeight: 22 } }] : [],
+    graphic: wins + losses > 0 ? [{ type: "text", left: "center", top: "35%", style: { text: `${pct(wins / (wins + losses))}\nwin rate`, textAlign: "center", fill: tok("bright"), font: "600 16px Inter", lineHeight: 22 } }] : [],
   };
   return (
     <ChartCard title="Trade outcomes" description="Wins, losses, and breakeven closes on the account; the win rate excludes breakeven." meta={`n=${closes.length}`}>
@@ -247,24 +267,27 @@ function ExcursionWidget({ rows }: { rows: ExcursionStats[] }) {
   const mid = Math.floor(captures.length / 2);
   const medianCapture = captures.length === 0 ? null : captures.length % 2 ? captures[mid]! : (captures[mid - 1]! + captures[mid]!) / 2;
   const option: QktChartOption = {
-    backgroundColor: "transparent",
     grid: { ...qktChartGrid, top: 24, left: 56, right: 24, bottom: 48 },
     tooltip: {
       ...qktChartTooltip(), trigger: "item",
       formatter: (param: unknown) => {
         const p = param as { data: [number, number, number, string, number] };
-        return `${p.data[3]}<br/>MAE <b>${money(p.data[0])}</b> · MFE <b>${money(p.data[1])}</b><br/>exit ${money(p.data[2])} · ${p.data[4]} marks`;
+        return tipHtml(p.data[3], { text: pnl(p.data[2]), tone: polarity(p.data[2]) }, [
+          ["MAE", signedMoney(p.data[0])],
+          ["MFE", signedMoney(p.data[1])],
+          ["Marks sampled", count(p.data[4])],
+        ]);
       },
     },
     xAxis: { type: "value", name: "MAE", nameLocation: "middle", nameGap: 30, ...qktChartAxis, axisLabel: { ...qktChartAxis.axisLabel, formatter: (v: number) => compact(v) } },
     yAxis: { type: "value", name: "MFE", ...qktChartAxis, axisLabel: { ...qktChartAxis.axisLabel, formatter: (v: number) => compact(v) } },
     series: [{
       type: "scatter", symbolSize: 10,
-      data: samples.map((x) => ({ value: [x.mae, x.mfe, x.exitPnl, x.symbol, x.observations], itemStyle: { color: x.exitPnl >= 0 ? chartColors.up : chartColors.down, opacity: 0.82 } })),
+      data: samples.map((x) => ({ value: [x.mae, x.mfe, x.exitPnl, x.symbol, x.observations], itemStyle: { color: x.exitPnl >= 0 ? chartColors.gain : chartColors.loss, opacity: 0.82 } })),
     }],
   };
   return (
-    <ChartCard title="Trade excursion" description="Maximum adverse versus favorable movement before exit; sampled from stored position valuations." meta={`coverage ${closed > 0 ? ((samples.length / closed) * 100).toFixed(1) : "0.0"}% · n=${samples.length}/${closed}`} value={medianCapture == null ? "—" : <span title={`median over ${captures.length} winning trades`}>{`${fixed(medianCapture, 1)}% median capture of winners`}</span>}>
+    <ChartCard title="Trade excursion" description="Maximum adverse versus favorable movement before exit; sampled from stored position valuations." meta={`coverage ${pct(closed > 0 ? samples.length / closed : 0)} · n=${samples.length}/${closed}`} value={medianCapture == null ? DASH : `${pctValue(medianCapture, 1)} median capture of ${captures.length} winners`}>
       {samples.length > 0 ? <div className="p-3 sm:p-4"><EChart option={option} height={310} /></div> : <WidgetEmpty>Position valuation samples will reveal MAE, MFE, and exit capture.</WidgetEmpty>}
     </ChartCard>
   );
@@ -290,6 +313,10 @@ function Metric({ label, value, tone }: { label: string; value: ReactNode; tone?
 
 function WidgetEmpty({ children }: { children: ReactNode }) {
   return <div className="flex min-h-52 items-center justify-center px-5 text-center text-sm text-muted">{children}</div>;
+}
+
+function weekday(day: string): string {
+  return ["Sun", "Mon", "Tue", "Wed", "Thu", "Fri", "Sat"][new Date(`${day}T00:00:00Z`).getUTCDay()]!;
 }
 
 function normalizedSide(side: string): "LONG" | "SHORT" {

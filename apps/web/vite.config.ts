@@ -44,6 +44,8 @@ export default defineConfig({
       output: {
         manualChunks(id) {
           if (id.includes("node_modules/react") || id.includes("node_modules/@tanstack")) return "vendor";
+          // every chart page shares one charts chunk instead of each carrying a copy
+          if (id.includes("node_modules/echarts") || id.includes("node_modules/zrender")) return "charts";
         },
       },
     },

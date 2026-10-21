@@ -731,3 +731,18 @@ export function Loadable({
   if (loading) return <Skeleton lines={lines} />;
   return <>{children}</>;
 }
+
+/** Placeholder while a page's code chunk loads: sized like a page header and a card row. */
+export function PageFallback() {
+  return (
+    <div className="animate-pulse" role="status" aria-label="Loading">
+      <div className="h-6 w-40 rounded bg-raised" />
+      <div className="mt-2 h-4 w-72 max-w-full rounded bg-raised" />
+      <div className="mt-6 grid grid-cols-2 gap-3 lg:grid-cols-4">
+        {Array.from({ length: 4 }, (_, i) => (
+          <div key={i} className="h-24 rounded-card border border-line bg-panel" />
+        ))}
+      </div>
+    </div>
+  );
+}

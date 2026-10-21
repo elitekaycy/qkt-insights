@@ -1,3 +1,4 @@
+import { chartColors } from "../components/EChart";
 import { useQueries, useQuery } from "@tanstack/react-query";
 import { get, type AccountDrawdownRow, type AccountRiskRow, type AccountSummary as AccountSummaryData, type EquityPoint, type PerformanceBundle, type StrategyRow } from "../api";
 import { AccountSummary } from "../components/AccountSummary";
@@ -11,7 +12,7 @@ import { useLiveStream } from "../useLiveStream";
 import { ShareControl } from "../components/ShareControl";
 import { usePublicPageView, useView } from "../view";
 
-const PALETTE = ["#c8f74a", "#5cb8ff", "#a78bfa", "#3fe08c", "#fbbf24", "#ff6b6b", "#f472b6", "#22d3ee"];
+const PALETTE = chartColors.series;
 
 // Overview only needs broker state pushes for live account/position truth; raw
 // event inspection belongs on Logs/Search so payloads cannot stretch the layout.

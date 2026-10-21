@@ -5,8 +5,8 @@ export function Sparkline({ points, height = 44 }: { points: { ts: number; equit
   const gradientId = useId().replace(/:/g, "");
   if (points.length < 2) return <div style={{ height }} />;
 
-  const up = points[points.length - 1]!.equity >= points[0]!.equity;
-  const color = up ? "var(--color-up)" : "var(--color-down)";
+  // one stable series colour: recolouring the whole curve by its last point would restate the sign the headline already shows
+  const color = "var(--color-s1)";
   const width = 160;
   const svgHeight = 44;
   const equities = points.map((point) => point.equity);
@@ -35,7 +35,7 @@ export function Sparkline({ points, height = 44 }: { points: { ts: number; equit
     >
       <defs>
         <linearGradient id={gradientId} x1="0" y1="0" x2="0" y2="1">
-          <stop offset="0%" stopColor={color} stopOpacity={0.28} />
+          <stop offset="0%" stopColor={color} stopOpacity={0.18} />
           <stop offset="100%" stopColor={color} stopOpacity={0} />
         </linearGradient>
       </defs>

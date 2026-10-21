@@ -1,17 +1,20 @@
-import { useCallback, useState } from "react";
+import { lazy, Suspense, useCallback, useState } from "react";
 import { useIsFetching, useQuery, useQueryClient } from "@tanstack/react-query";
 import { get, logout, logoutEverywhere, Unauthorized, type InstanceRow } from "./api";
 import { LiveDot, Select } from "./components/ui";
 import Login from "./pages/Login";
-import Overview from "./pages/Overview";
-import Health from "./pages/Health";
-import Strategies from "./pages/Strategies";
-import Trades from "./pages/Trades";
-import Logs from "./pages/Logs";
-import Search from "./pages/Search";
-import Equity from "./pages/Equity";
-import { Edge } from "./pages/Edge";
-import Viewership from "./pages/Viewership";
+import { PageFallback } from "./components/ui";
+
+// one chunk per page: the shell paints first, and a page's charts load only when it opens
+const Overview = lazy(() => import("./pages/Overview"));
+const Health = lazy(() => import("./pages/Health"));
+const Strategies = lazy(() => import("./pages/Strategies"));
+const Trades = lazy(() => import("./pages/Trades"));
+const Logs = lazy(() => import("./pages/Logs"));
+const Search = lazy(() => import("./pages/Search"));
+const Equity = lazy(() => import("./pages/Equity"));
+const Edge = lazy(() => import("./pages/Edge").then((m) => ({ default: m.Edge })));
+const Viewership = lazy(() => import("./pages/Viewership"));
 import { InstallApp } from "./components/InstallApp";
 import { Drawer } from "./components/Drawer";
 import { useBrand } from "./useBrand";
@@ -269,6 +272,7 @@ export default function App() {
 
   const main = (
     <div className="mx-auto max-w-[1500px] px-4 py-5 sm:px-6 lg:px-8 lg:py-7">
+      <Suspense fallback={<PageFallback />}>
       {page === "overview" && (
         <Overview
           instanceId={selected}
@@ -288,6 +292,7 @@ export default function App() {
       {page === "logs" && <Logs instanceId={selected} />}
       {page === "search" && <Search instanceId={selected} />}
       {page === "viewership" && <Viewership instanceId={selected} />}
+      </Suspense>
     </div>
   );
 

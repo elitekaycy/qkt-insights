@@ -1,3 +1,4 @@
+import { chartColors } from "../components/EChart";
 import { useState } from "react";
 import { usePublicPageView } from "../view";
 import { useQueries, useQuery } from "@tanstack/react-query";
@@ -6,7 +7,7 @@ import { ComparisonChart, EquityChart, UnderwaterChart, type ComparisonSeries } 
 import { DataList, Card, Cell, Empty, Field, Loadable, Modal, PageHeader, Panel, Pill, Select } from "../components/ui";
 import { days, duration, fixed, human, pctValue, signedMoney, signedPct, tsDay } from "../format";
 
-const PALETTE = ["#c8f74a", "#5cb8ff", "#a78bfa", "#3fe08c", "#fbbf24", "#ff6b6b", "#f472b6", "#22d3ee"];
+const PALETTE = chartColors.series;
 
 export default function Equity({ instanceId }: { instanceId: string | null }) {
   usePublicPageView("equity");

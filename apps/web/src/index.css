@@ -5,10 +5,11 @@
  * Two hand-tuned themes (dark is the default), not an automatic inversion: the
  * values are the qkt-backtester journal's (packages/web/src/theme.css), copied
  * rather than shared so insights carries no release coupling to the studio.
- * Utilities read the `--color-*` variables at runtime, so swapping the values
+ * `static` emits every token, including ones only charts read from JS. Utilities
+ * read the `--color-*` variables at runtime, so swapping the values
  * under [data-theme="light"] restyles the whole UI without a rebuild.
  */
-@theme {
+@theme static {
   --font-sans: "Inter", system-ui, -apple-system, "Segoe UI", Roboto, sans-serif;
   --font-mono: "JetBrains Mono", ui-monospace, "SF Mono", Menlo, Consolas, monospace;
 

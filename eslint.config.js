@@ -4,8 +4,8 @@ import tsPlugin from "@typescript-eslint/eslint-plugin";
 const TS_FILES = ["**/*.ts", "**/*.tsx"];
 
 export default [
-  // build output and vendored third-party bundles are not ours to lint
-  { ignores: ["**/dist/**", "**/node_modules/**", "**/dev-dist/**", "apps/web/public/vendor/**"] },
+  // build output is not ours to lint
+  { ignores: ["**/dist/**", "**/node_modules/**", "**/dev-dist/**"] },
   ...tsPlugin.configs["flat/recommended"].map((config) => ({ ...config, files: TS_FILES })),
   {
     files: TS_FILES,

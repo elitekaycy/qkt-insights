@@ -1,7 +1,7 @@
 import { useState, type ReactNode } from "react";
 import { MIN_RATIO_DAYS, type ClosedTradeRow, type DayNet, type PerformanceBundle, type PerformanceReport } from "../api";
-import { DASH, days, duration, instrumentOf, MINUS, money, num, pctValue, price, quantity, ratio, signedMoney, tsShort, winPct } from "../format";
-import { EChart, qktChartAxis, qktChartGrid, qktChartTooltip, qktInsideZoom, type QktChartOption } from "./EChart";
+import { compact, count, DASH, days, duration, instrumentOf, MINUS, money, num, pctValue, pnl, polarity, price, quantity, ratio, signedMoney, tsShort, winPct } from "../format";
+import { chartColors, EChart, qktChartAxis, qktChartGrid, qktChartTooltip, qktLegend, qktXAxis, tipHtml, type QktChartOption } from "./EChart";
 import { BucketBoxplot, ContributionBars, CostStack } from "./EdgeCharts";
 import { Cell, DataList, Empty, Panel, Pill, Pnl, Popover, Row, Select, Stat, Table, TimeCell, type Tone } from "./ui";
 
@@ -621,13 +621,19 @@ function TradeAnalysis({ bundle }: { bundle: PerformanceBundle }) {
   const best = [...filtered].sort((a, b) => b.realized - a.realized).slice(0, 5);
   const worst = [...filtered].sort((a, b) => a.realized - b.realized).slice(0, 5);
   const curveOption: QktChartOption = {
-    backgroundColor: "transparent",
-    color: ["#f2f4f6", "#3fe08c", "#5cb8ff"],
-    grid: qktChartGrid,
-    tooltip: { ...qktChartTooltip(), trigger: "axis" },
-    dataZoom: qktInsideZoom(),
-    legend: { top: 0, right: 0, textStyle: { color: "#79828c", fontFamily: "Archivo, system-ui, sans-serif" } },
-    xAxis: { type: "time", ...qktChartAxis },
+    color: [chartColors.series[0], chartColors.series[1], chartColors.series[2]],
+    grid: { ...qktChartGrid, top: 30 },
+    tooltip: {
+      ...qktChartTooltip(),
+      formatter: (params: unknown) => {
+        const rows = params as { seriesName: string; value: [number, number] }[];
+        const first = rows[0];
+        if (!first) return "";
+        return tipHtml(`${tsShort(first.value[0])} UTC`, null, rows.map((r) => [r.seriesName, signedMoney(r.value[1])]));
+      },
+    },
+    legend: qktLegend(),
+    xAxis: { type: "time", ...qktXAxis },
     yAxis: { type: "value", splitNumber: 4, ...qktChartAxis },
     series: [
       { name: "total", type: "line", showSymbol: false, smooth: false, data: curve.map((r) => [r.ts, r.total]) },
@@ -636,11 +642,9 @@ function TradeAnalysis({ bundle }: { bundle: PerformanceBundle }) {
     ],
   };
   const groupedOption: QktChartOption = {
-    backgroundColor: "transparent",
     grid: qktChartGrid,
     tooltip: { ...qktChartTooltip(), trigger: "axis" },
-    dataZoom: groups.length > 12 ? qktInsideZoom() : undefined,
-    xAxis: { type: "category", data: groups.map((g) => g.key), ...qktChartAxis },
+    xAxis: { type: "category", data: groups.map((g) => g.key), ...qktXAxis },
     yAxis: { type: "value", splitNumber: 4, ...qktChartAxis },
     series: [
       {
@@ -650,23 +654,27 @@ function TradeAnalysis({ bundle }: { bundle: PerformanceBundle }) {
           const value = metricValue(g, metric);
           return {
             value,
-            itemStyle: { color: metric === "trades" ? "#5cb8ff" : (value ?? 0) >= 0 ? "#3fe08c" : "#ff6b6b" },
+            itemStyle: { color: metric === "trades" ? chartColors.primary : (value ?? 0) >= 0 ? chartColors.gain : chartColors.loss },
           };
         }),
       },
     ],
   };
   const distributionOption: QktChartOption = {
-    backgroundColor: "transparent",
     grid: qktChartGrid,
     tooltip: { ...qktChartTooltip(), trigger: "axis" },
-    xAxis: { type: "category", data: dist.map((d) => money(d.midpoint)), ...qktChartAxis },
-    yAxis: { type: "value", splitNumber: 4, ...qktChartAxis },
-    series: [{ name: "trades", type: "bar", data: dist.map((d) => d.count), itemStyle: { color: "#c8f74a", opacity: 0.8 } }],
+    xAxis: { type: "category", data: dist.map((d) => compact(d.midpoint)), ...qktXAxis },
+    yAxis: { type: "value", splitNumber: 4, minInterval: 1, ...qktChartAxis },
+    series: [
+      {
+        name: "trades",
+        type: "bar",
+        data: dist.map((d) => ({ value: d.count, itemStyle: { color: d.midpoint >= 0 ? chartColors.gain : chartColors.loss, borderRadius: [3, 3, 0, 0] } })),
+      },
+    ],
   };
   const scatterOption: QktChartOption = {
-    backgroundColor: "transparent",
-    grid: qktChartGrid,
+    grid: { ...qktChartGrid, bottom: 40 },
     tooltip: {
       ...qktChartTooltip(),
       trigger: "item",
@@ -674,10 +682,14 @@ function TradeAnalysis({ bundle }: { bundle: PerformanceBundle }) {
         const p = params as { data?: [number, number, string, string, number, number] };
         const d = p.data;
         if (!d) return "";
-        return `${d[2]}<br/>${d[3]} · ${d[4]} lots<br/>held ${duration(d[0] * 60_000)}<br/>P&L ${money(d[1])}`;
+        return tipHtml(`${d[2]} · ${d[3]}`, { text: pnl(d[1]), tone: polarity(d[1]) }, [
+          ["Size", quantity(d[4])],
+          ["Held", duration(d[0] * 60_000)],
+          ["Closed", `${tsShort(d[5])} UTC`],
+        ]);
       },
     },
-    xAxis: { type: "value", name: "hold min", splitNumber: 4, ...qktChartAxis },
+    xAxis: { type: "value", name: "held (minutes)", nameLocation: "middle", nameGap: 26, splitNumber: 4, ...qktChartAxis },
     yAxis: { type: "value", name: "P&L", splitNumber: 4, ...qktChartAxis },
     series: [
       {
@@ -689,7 +701,7 @@ function TradeAnalysis({ bundle }: { bundle: PerformanceBundle }) {
         },
         data: scatter.map((r) => ({
           value: [r.holdMin ?? 0, r.pnl, r.symbol, r.side, r.qty, r.ts],
-          itemStyle: { color: r.pnl >= 0 ? "#3fe08c" : "#ff6b6b" },
+          itemStyle: { color: r.pnl >= 0 ? chartColors.gain : chartColors.loss, opacity: 0.85 },
         })),
       },
     ],
@@ -740,14 +752,14 @@ function TradeAnalysis({ bundle }: { bundle: PerformanceBundle }) {
           <div className="grid grid-cols-2 gap-3 md:grid-cols-5">
             <Stat label="Net" signed={total} />
             <Stat label="Trades" value={String(filtered.length)} />
-            <Stat label="Wins" value={String(wins)} tone="up" />
-            <Stat label="Losses" value={String(losses)} tone={losses > 0 ? "down" : "neutral"} />
+            <Stat label="Wins" value={count(wins)} />
+            <Stat label="Losses" value={count(losses)} />
             <Stat label="Avg" signed={total / filtered.length} />
           </div>
 
-          <div className="rounded-lg border border-line bg-ink/35 px-4 py-3 text-sm text-muted">
+          <div className="rounded-lg border border-line bg-raised px-3 py-2 text-sm text-muted">
             Use the controls above to ask: which side, symbol, hour, lot, or holding-time bucket is actually carrying the edge?
-            Hold Shift and use the mouse wheel over a chart to zoom; drag to pan.
+            Click a chart (or hold Ctrl/⌘) to zoom with the wheel; drag to pan.
           </div>
 
           <div className="grid gap-5 xl:grid-cols-2">

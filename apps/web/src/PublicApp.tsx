@@ -1,14 +1,18 @@
-import { useState, type ReactNode } from "react";
+import { lazy, Suspense, useState, type ReactNode } from "react";
 import { useQuery } from "@tanstack/react-query";
 import { get, NotFound, type PublicMeta } from "./api";
 import { Drawer } from "./components/Drawer";
 import { ICONS, Mark, NavIcon, type Page } from "./components/chrome";
 import { tsShort } from "./format";
-import Overview from "./pages/Overview";
-import Strategies, { SharedPortfolio, StrategyDetail } from "./pages/Strategies";
-import Trades from "./pages/Trades";
-import Equity from "./pages/Equity";
-import { Edge } from "./pages/Edge";
+import { PageFallback } from "./components/ui";
+
+const Overview = lazy(() => import("./pages/Overview"));
+const Strategies = lazy(() => import("./pages/Strategies"));
+const SharedPortfolio = lazy(() => import("./pages/Strategies").then((m) => ({ default: m.SharedPortfolio })));
+const StrategyDetail = lazy(() => import("./pages/Strategies").then((m) => ({ default: m.StrategyDetail })));
+const Trades = lazy(() => import("./pages/Trades"));
+const Equity = lazy(() => import("./pages/Equity"));
+const Edge = lazy(() => import("./pages/Edge").then((m) => ({ default: m.Edge })));
 import { useBrand } from "./useBrand";
 import { ViewProvider } from "./view";
 
@@ -102,11 +106,13 @@ export default function PublicApp() {
             <DelayNote meta={m} />
           </header>
           <main className="pad-safe-bottom mx-auto max-w-[1500px] px-4 py-5 sm:px-6 lg:px-8 lg:py-7">
-            {m.kind === "portfolio" ? (
-              <SharedPortfolio instanceId={m.instanceId} portfolioId={m.subject} />
-            ) : (
-              <StrategyDetail instanceId={m.instanceId} strategyId={m.subject} />
-            )}
+            <Suspense fallback={<PageFallback />}>
+              {m.kind === "portfolio" ? (
+                <SharedPortfolio instanceId={m.instanceId} portfolioId={m.subject} />
+              ) : (
+                <StrategyDetail instanceId={m.instanceId} strategyId={m.subject} />
+              )}
+            </Suspense>
           </main>
         </div>
       )}
@@ -196,6 +202,7 @@ function SharedOverview({ meta, brand }: { meta: PublicMeta; brand: string | nul
       </aside>
       <main className="pad-safe-bottom min-h-0 flex-1 overflow-auto overscroll-contain">
         <div className="mx-auto max-w-[1500px] px-4 py-5 sm:px-6 lg:px-8 lg:py-7">
+          <Suspense fallback={<PageFallback />}>
           {page === "overview" && (
             <Overview
               instanceId={meta.instanceId}
@@ -209,6 +216,7 @@ function SharedOverview({ meta, brand }: { meta: PublicMeta; brand: string | nul
           {page === "strategies" && <Strategies key={focus ?? "all"} instanceId={meta.instanceId} focus={focus} onClearFocus={() => setFocus(null)} />}
           {page === "edge" && <Edge instanceId={meta.instanceId} />}
           {page === "trades" && <Trades instanceId={meta.instanceId} />}
+          </Suspense>
         </div>
       </main>
     </div>

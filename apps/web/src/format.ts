@@ -92,7 +92,9 @@ export function compact(v: number): string {
   // keep a decimal through the tens of thousands: an equity axis spanning 59–61k
   // would otherwise print the same rounded label on neighbouring ticks
   if (abs >= 1_000) return `${sign}${(abs / 1_000).toFixed(abs >= 100_000 ? 0 : 1)}k`;
-  return `${sign}${abs.toFixed(abs >= 100 ? 0 : abs >= 10 ? 1 : 2)}`;
+  // small ticks keep only the decimals they need: 0, 0.5, 1.25, 12.5
+  const small = abs.toFixed(abs >= 100 ? 0 : abs >= 10 ? 1 : 2).replace(/\.?0+$/, "") || "0";
+  return small === "0" ? "0" : `${sign}${small}`;
 }
 
 /** Compact signed money with its glyph for narrow cells: "▲ +1.2k", "▼ −640", "0". */

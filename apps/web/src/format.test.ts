@@ -83,7 +83,10 @@ describe("compact axis labels", () => {
     expect(compact(1234)).toBe("1.2k");
     expect(compact(-56000)).toBe("\u221256.0k");
     expect(compact(250000)).toBe("250k");
-    expect(compact(-0.001)).toBe("0.00");
+    expect(compact(-0.001)).toBe("0");
+    expect(compact(0)).toBe("0");
+    expect(compact(2)).toBe("2");
+    expect(compact(-1.25)).toBe("\u22121.25");
   });
 });
 
