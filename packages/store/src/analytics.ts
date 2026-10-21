@@ -140,7 +140,7 @@ export interface DealClosedTrade extends ClosedTradeRow {
   exitOrderId: string | null;
 }
 
-const OUT_LEGS = "('OUT','INOUT','OUT_BY')";
+export const OUT_LEGS = "('OUT','INOUT','OUT_BY')";
 
 /** True when broker deals closed positions for this strategy — the deals source is authoritative then. */
 
@@ -154,7 +154,7 @@ const OUT_LEGS = "('OUT','INOUT','OUT_BY')";
  * it, so summing anything over deals without this predicate multiplies P&L by
  * the number of profiles.
  */
-function canonicalDeal(alias: string): string {
+export function canonicalDeal(alias: string): string {
   return `${alias}.rowid = (SELECT MIN(dd.rowid) FROM deals dd
     WHERE dd.instance_id=${alias}.instance_id AND dd.deal_ticket=${alias}.deal_ticket)`;
 }
@@ -164,7 +164,7 @@ function canonicalDeal(alias: string): string {
  * or before @to. Reversal (INOUT) positions never qualify: their legs cannot be split into a
  * closed part and an open part.
  */
-function fullyClosedPosition(alias: string): string {
+export function fullyClosedPosition(alias: string): string {
   // Correlated on the position so it reads only that position's legs through
   // idx_deals_position_ts, instead of grouping every deal of the instance per query.
   return `(SELECT CASE WHEN SUM(CASE WHEN fc.entry='INOUT' THEN 1 ELSE 0 END) = 0
@@ -219,12 +219,21 @@ export function dealClosedTrades(db: Db, f: AnalyticsFilter): DealClosedTrade[] 
   if (f.from != null) cl.push("o.ts>=@from");
   if (f.to != null) cl.push("o.ts<=@to");
   if (f.closedPositionsOnly) cl.push(fullyClosedPosition("o"));
+  return dealCloseRows(db, cl, { instanceId: f.instanceId, strategyId: f.strategyId, from: f.from, to: f.to })
+    .map(({ strategyId: _owner, ...row }) => row);
+}
+
+/**
+ * The closing-deal query behind dealClosedTrades, over any filter on the closing leg `o`.
+ * Each row carries the canonical copy's owner (null when unattributed).
+ */
+export function dealCloseRows(db: Db, where: string[], params: Record<string, unknown>): Array<DealClosedTrade & { strategyId: string | null }> {
   // The order-id lookups are scalar subselects, NOT joins: several order rows can
   // share a broker_order_id (one per broker profile after a multi-profile deploy),
   // and a join would fan each closing deal out into one row per copy — every
   // extra row re-counting the close's realized P&L.
   const rows = db.prepare(
-    `SELECT o.position_ticket orderId, o.symbol, o.side outSide, i.side inSide, o.qty,
+    `SELECT o.position_ticket orderId, o.symbol, o.side outSide, i.side inSide, o.qty, o.strategy_id owner,
             i.price entryPrice, o.price exitPrice, i.ts entryTs, o.ts ts,
             o.profit + COALESCE(o.commission,0) + COALESCE(o.swap,0) + COALESCE(o.fee,0)
               + CASE WHEN o.rowid = (
@@ -245,9 +254,9 @@ export function dealClosedTrades(db: Db, f: AnalyticsFilter): DealClosedTrade[] 
        WHERE x.instance_id=o.instance_id AND x.position_ticket=o.position_ticket AND x.entry='IN'
        ORDER BY x.ts ASC LIMIT 1
      )
-     WHERE ${cl.join(" AND ")}
+     WHERE ${where.join(" AND ")}
      ORDER BY o.ts ASC`,
-  ).all({ instanceId: f.instanceId, strategyId: f.strategyId, from: f.from, to: f.to }) as any[];
+  ).all(params) as any[];
   return rows.map((r) => ({
     orderId: r.orderId,
     symbol: r.symbol,
@@ -262,6 +271,7 @@ export function dealClosedTrades(db: Db, f: AnalyticsFilter): DealClosedTrade[] 
     holdMs: r.entryTs != null ? r.ts - r.entryTs : null,
     entryOrderId: r.entryOrderId ?? null,
     exitOrderId: r.exitOrderId ?? null,
+    strategyId: r.owner ?? null,
   }));
 }
 

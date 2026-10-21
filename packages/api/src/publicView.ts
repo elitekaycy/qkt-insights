@@ -1,5 +1,5 @@
 import { createHmac, randomBytes } from "node:crypto";
-import type { ClosedTradeRow, DealRow, StrategyRow, TradeRow } from "@qkt-insights/store";
+import type { AccountSummary, ClosedTradeRow, DealRow, StrategyRow, TradeRow } from "@qkt-insights/store";
 import type { PerformanceBundle } from "./performance.js";
 
 /*
@@ -94,6 +94,15 @@ export function publicBundle(b: PerformanceBundle) {
         mae: r.mae, mfe: r.mfe, capturePct: r.capturePct, observations: r.observations,
       })),
     },
+  };
+}
+
+/** The account roll-up of a shared overview: built from its public strategies only, ids opaque. */
+export function publicAccountSummary(s: AccountSummary) {
+  return {
+    ...s,
+    closes: s.closes.map((c) => ({ ...publicClose(c), strategyId: c.strategyId, instrument: c.instrument })),
+    byInstrument: relabelKeys(s.byInstrument.map((b) => ({ ...b, key: b.key ?? "" }))),
   };
 }
 

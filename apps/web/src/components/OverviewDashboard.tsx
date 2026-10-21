@@ -1,5 +1,5 @@
 import type { ReactNode } from "react";
-import type { ClosedTradeRow, DayNet, ExcursionStats, PerformanceReport } from "../api";
+import type { ClosedTradeRow, DayNet, ExcursionStats } from "../api";
 import { compact, duration, money } from "../format";
 import { ChartCard } from "./ChartCard";
 import { chartColors, EChart, qktChartAxis, qktChartGrid, qktChartTooltip, qktInsideZoom, type QktChartOption } from "./EChart";
@@ -32,7 +32,9 @@ export interface OverviewDashboardData {
   instanceId: string;
   dailyNets: DayNet[];
   closes: ClosedTradeRow[];
-  reports: PerformanceReport[];
+  /** Sums of winning and (positive) losing closes' net, the profit-factor terms. */
+  sumWins: number;
+  sumLosses: number;
   excursions: ExcursionStats[];
   series: ComparisonSeries[];
   accountEquity: number | null;
@@ -66,7 +68,7 @@ function Widget({ id, data }: { id: DashboardWidgetId; data: OverviewDashboardDa
   if (id === "pnl") return <PnlWidget data={data} />;
   if (id === "outcomes") return <OutcomeWidget closes={data.closes} />;
   if (id === "risk") return <RiskWidget data={data} />;
-  if (id === "behavior") return <BehaviorWidget closes={data.closes} reports={data.reports} />;
+  if (id === "behavior") return <BehaviorWidget closes={data.closes} sumWins={data.sumWins} sumLosses={data.sumLosses} />;
   if (id === "direction") return <DirectionWidget closes={data.closes} />;
   if (id === "equity") return <EquityWidget data={data} />;
   return <ExcursionWidget rows={data.excursions} />;
@@ -153,7 +155,7 @@ function Budget({ label, used, cap, detail }: { label: string; used: number | nu
   );
 }
 
-function BehaviorWidget({ closes, reports }: { closes: ClosedTradeRow[]; reports: PerformanceReport[] }) {
+function BehaviorWidget({ closes, sumWins, sumLosses }: { closes: ClosedTradeRow[]; sumWins: number; sumLosses: number }) {
   const chronological = [...closes].sort((a, b) => a.ts - b.ts);
   let streak = 0;
   for (let i = chronological.length - 1; i >= 0; i--) {
@@ -163,9 +165,7 @@ function BehaviorWidget({ closes, reports }: { closes: ClosedTradeRow[]; reports
     else break;
   }
   const held = closes.filter((x) => x.entryTs != null).map((x) => x.ts - x.entryTs!);
-  const grossProfit = reports.reduce((a, x) => a + x.grossProfit, 0);
-  const grossLoss = reports.reduce((a, x) => a + x.grossLoss, 0);
-  const pf = grossLoss > 0 ? grossProfit / grossLoss : grossProfit > 0 ? Infinity : null;
+  const pf = sumLosses > 0 ? sumWins / sumLosses : sumWins > 0 ? Infinity : null;
   return (
     <Card className="h-full overflow-hidden">
       <WidgetHeader title="Trading behavior" description="Compact context for pace, streaks, and payoff." />

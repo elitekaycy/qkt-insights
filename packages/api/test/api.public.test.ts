@@ -248,8 +248,18 @@ describe("public links", () => {
     const dd = (await pub(token, "/account/drawdown?instance=i1")).json() as Array<{ currentEquity: number }>;
     expect(dd[0]!.currentEquity).toBe(10025);
 
+    // The account roll-up covers the link's public strategies, closed by the cutoff, symbols without profiles.
+    const summary = (await pub(token, "/account/summary")).json() as {
+      totalNet: number; closes: Array<{ strategyId: string; symbol: string; ts: number }>; byInstrument: Array<Record<string, unknown>>;
+      byStrategy: Array<{ key: string | null }>;
+    };
+    expect(summary.totalNet).toBe(25);
+    expect(summary.closes.map((c) => [c.strategyId, c.symbol, c.ts])).toEqual([["gold", "GBPUSD", BEFORE]]);
+    expect(summary.byInstrument.every((b) => !("venues" in b))).toBe(true);
+    expect(summary.byStrategy.map((b) => b.key)).toEqual(["gold"]);
+
     for (const res of [perf]) expectNoSecrets(res.body);
-    for (const path of [`/stats${q}`, "/trades?limit=100", "/deals?limit=100", `/equity${q}`, "/account/equity", "/account/drawdown", "/live/state", "/strategies", "/meta"]) {
+    for (const path of [`/stats${q}`, "/trades?limit=100", "/deals?limit=100", `/equity${q}`, "/account/equity", "/account/drawdown", "/account/summary", "/live/state", "/strategies", "/meta"]) {
       expectNoSecrets((await pub(token, path)).body);
     }
   });
@@ -285,6 +295,7 @@ describe("public links", () => {
     expect((await pub(token, "/stats?strategy=book:s0")).statusCode).toBe(404);
     expect((await pub(token, "/account/equity")).statusCode).toBe(404);
     expect((await pub(token, "/account/drawdown")).statusCode).toBe(404);
+    expect((await pub(token, "/account/summary")).statusCode).toBe(404);
     const state = (await pub(token, "/live/state")).json() as { accounts: unknown[] };
     expect(state.accounts).toEqual([]);
   });

@@ -10,3 +10,4 @@ export * from "./marketData.js";
 export * from "./sessions.js";
 export * from "./shares.js";
 export * from "./views.js";
+export * from "./account.js";

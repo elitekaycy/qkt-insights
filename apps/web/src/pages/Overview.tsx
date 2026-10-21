@@ -1,5 +1,5 @@
 import { useQueries, useQuery } from "@tanstack/react-query";
-import { get, type AccountDrawdownRow, type DayNet, type EquityPoint, type PerformanceBundle, type StrategyRow } from "../api";
+import { get, type AccountDrawdownRow, type AccountSummary as AccountSummaryData, type EquityPoint, type PerformanceBundle, type StrategyRow } from "../api";
 import { AccountSummary } from "../components/AccountSummary";
 import type { ComparisonSeries } from "../components/EquityChart";
 import { OverviewDashboard } from "../components/OverviewDashboard";
@@ -16,17 +16,6 @@ const PALETTE = ["#c8f74a", "#5cb8ff", "#a78bfa", "#3fe08c", "#fbbf24", "#ff6b6b
 // Overview only needs broker state pushes for live account/position truth; raw
 // event inspection belongs on Logs/Search so payloads cannot stretch the layout.
 const FEED_TYPES = ["state.account", "state.positions"];
-
-function aggregateDaily(rows: DayNet[]): DayNet[] {
-  const byDay = new Map<string, DayNet>();
-  for (const row of rows) {
-    const current = byDay.get(row.day) ?? { day: row.day, net: 0, trades: 0 };
-    current.net += row.net;
-    current.trades += row.trades;
-    byDay.set(row.day, current);
-  }
-  return [...byDay.values()].sort((a, b) => a.day.localeCompare(b.day));
-}
 
 function aggregateRiskCap(rows: StrategyRow[], keys: string[]): number | null {
   let cap = 0;
@@ -83,12 +72,20 @@ export default function Overview({
   });
   const live = useLiveStream(instanceId, 40, FEED_TYPES);
   const liveState = useLiveState(live);
-  // One bounded bundle per strategy feeds every account-level review widget.
+  // Account totals come from every close on the account, not the sum of the active roster:
+  // retired strategies and unattributed deals moved the balance too.
+  const summary = useQuery({
+    queryKey: ["accountSummary", instanceId],
+    queryFn: () => get<AccountSummaryData>(`/account/summary?instance=${encodeURIComponent(instanceId!)}`),
+    enabled: !!instanceId,
+    refetchInterval: 60_000,
+  });
+  // Excursions need per-position marks, which only the per-strategy bundle samples.
   const perf = useQueries({
     queries: ids.map((id) => ({
-      queryKey: ["perf-daily", instanceId, id],
+      queryKey: ["perf-excursions", instanceId, id],
       queryFn: () =>
-        get<Partial<PerformanceBundle>>(`/performance?instance=${encodeURIComponent(instanceId!)}&strategy=${encodeURIComponent(id)}&include=dailyNets,report,closes,excursions,costs,contribution`),
+        get<Partial<PerformanceBundle>>(`/performance?instance=${encodeURIComponent(instanceId!)}&strategy=${encodeURIComponent(id)}&include=excursions`),
       refetchInterval: 60000,
     })),
   });
@@ -110,18 +107,13 @@ export default function Overview({
 
   const accounts = (liveState.data?.accounts ?? []).filter((a) => a.instanceId === instanceId);
   const brokerPositions = (liveState.data?.positions ?? []).filter((p) => p.instanceId === instanceId);
-  const nameByStrategy = new Map(rows.map((r) => [r.strategyId, strategyDisplayName(r)]));
+  const nameByStrategy = new Map((strategies.data ?? []).map((r) => [r.strategyId, strategyDisplayName(r)]));
 
   // Live truth: account figures summed across brokers, open P&L attributed per strategy.
   const accountEquity = accounts.length > 0 ? accounts.reduce((a, x) => a + x.equity, 0) : null;
   const accountBalance = accounts.length > 0 ? accounts.reduce((a, x) => a + x.balance, 0) : null;
   const accountOpenPnl = accounts.length > 0 ? accounts.reduce((a, x) => a + (x.openProfit ?? 0), 0) : null;
   const totalAllocated = rows.reduce((a, s) => a + (strategyCapital(s).amount ?? 0), 0);
-  const combinedDaily = aggregateDaily(perf.flatMap((q) => q.data?.dailyNets ?? []));
-  const combinedCloses = perf.flatMap((q) => q.data?.closes ?? []);
-  const reports = perf.flatMap((q) => q.data?.report ? [q.data.report] : []);
-  const costs = perf.flatMap((q) => q.data?.costs ? [q.data.costs] : []);
-  const contribution = perf.flatMap((q) => q.data?.contribution ? [q.data.contribution] : []);
   const excursions = perf.flatMap((q) => q.data?.excursions ? [q.data.excursions] : []);
   const dailyLossCap = aggregateRiskCap(rows, ["maxDailyDrawdownPct", "maxDailyLossPct", "max_daily_drawdown_pct"]);
   const drawdownCap = aggregateRiskCap(rows, ["maxDrawdownPct", "max_drawdown_pct"]);
@@ -295,18 +287,16 @@ export default function Overview({
       </div>
 
       <Loadable
-        loading={rows.length > 0 && (perf.some((query) => query.isPending) || curves.some((query) => query.isPending))}
-        error={perf.some((query) => query.isError) || curves.some((query) => query.isError)}
-        retry={() => { void Promise.all([...perf, ...curves].map((query) => query.refetch())); }}
+        loading={summary.isPending || (rows.length > 0 && (perf.some((query) => query.isPending) || curves.some((query) => query.isPending)))}
+        error={summary.isError || perf.some((query) => query.isError) || curves.some((query) => query.isError)}
+        retry={() => { void Promise.all([summary, ...perf, ...curves].map((query) => query.refetch())); }}
         what="overview analysis"
         lines={8}
       >
+        {summary.data && <>
         <AccountSummary
-          daily={combinedDaily}
-          closes={combinedCloses}
-          reports={reports}
-          costs={costs}
-          contribution={contribution}
+          summary={summary.data}
+          strategyName={(id) => nameByStrategy.get(id) ?? id}
           accountEquity={accountEquity}
           accountBalance={accountBalance}
           totalAllocated={totalAllocated}
@@ -314,9 +304,10 @@ export default function Overview({
         <OverviewDashboard
           data={{
             instanceId,
-            dailyNets: combinedDaily,
-            closes: combinedCloses,
-            reports,
+            dailyNets: summary.data.dailyNets,
+            closes: summary.data.closes,
+            sumWins: summary.data.sumWins,
+            sumLosses: summary.data.sumLosses,
             excursions,
             series,
             accountEquity,
@@ -327,6 +318,7 @@ export default function Overview({
             drawdownCap,
           }}
         />
+        </>}
       </Loadable>
 
 

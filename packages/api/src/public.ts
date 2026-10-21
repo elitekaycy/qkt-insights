@@ -1,14 +1,14 @@
 import { createHash } from "node:crypto";
 import type { FastifyInstance, FastifyReply, FastifyRequest } from "fastify";
 import {
-  accountDrawdown, accountEquity, closedTrades, fullyClosedPositions, listDeals, listStrategyRoster, listTrades, openPositionsAt, portfolioGroupOf,
+  accountDrawdown, accountEquity, accountSummary, closedTrades, fullyClosedPositions, listDeals, listStrategyRoster, listTrades, openPositionsAt, portfolioGroupOf,
   resolveVisibility, strategyEquityCurve, strategyStats, type Db, type LiveStateStore, type ShareKind, type ShareRow, type Shares, type StrategyRow, type Views,
 } from "@qkt-insights/store";
 import { isSameOrigin, requireSession } from "./auth.js";
 import type { TtlCache } from "./cache.js";
 import { WindowCounter } from "./limits.js";
 import { performanceBundle } from "./performance.js";
-import { accountLabeller, publicBundle, publicDeal, publicStrategy, publicTrade } from "./publicView.js";
+import { accountLabeller, publicAccountSummary, publicBundle, publicDeal, publicStrategy, publicTrade } from "./publicView.js";
 
 export const PUBLIC_REQUESTS_PER_MINUTE = 240;
 /** Uncached public computations allowed per minute for one link, and for one client IP. */
@@ -497,6 +497,14 @@ export function registerPublic(app: FastifyInstance, deps: PublicDeps): void {
       const label = accountLabeller(liveAccountCount(scope.instanceId) <= 1);
       return accountEquity(deps.db, { instanceId: scope.instanceId, from: presetFrom(p.range, cutoff), to: cutoff }).map((row) => ({ ...row, broker: label(row.broker) }));
     },
+  });
+
+  // The shared overview's account roll-up covers its public strategies, closed by the cutoff.
+  route("/account/summary", {
+    params: (_q, scope) => (scope.accountLevel ? {} : NOT_FOUND),
+    compute: (scope, _p, cutoff) => publicAccountSummary(accountSummary(deps.db, {
+      instanceId: scope.instanceId, strategyIds: scope.allowed, to: cutoff, closedPositionsOnly: true,
+    })),
   });
 
   route("/account/drawdown", {

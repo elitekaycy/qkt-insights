@@ -307,6 +307,36 @@ export interface PerformanceBundle {
   contribution?: ContributionRanking | null;
   excursions?: ExcursionStats | null;
 }
+/** A close anywhere on the account; strategyId null is a deal no strategy claimed. */
+export interface AccountClose extends ClosedTradeRow {
+  strategyId: string | null;
+  /** The symbol without its broker-profile prefix. */
+  instrument: string;
+}
+export interface AccountBucket {
+  key: string | null;
+  net: number;
+  trades: number;
+  wins: number;
+  losses: number;
+  venues?: string[];
+}
+/** Every close on the account: retired strategies and unattributed deals included. */
+export interface AccountSummary {
+  closes: AccountClose[];
+  dailyNets: DayNet[];
+  totalNet: number;
+  trades: number;
+  wins: number;
+  losses: number;
+  breakeven: number;
+  sumWins: number;
+  sumLosses: number;
+  /** Gross = before commission, swap and fee. Null without broker deals. */
+  costs: { grossProfit: number; commission: number; swap: number; fee: number; net: number } | null;
+  byInstrument: AccountBucket[];
+  byStrategy: AccountBucket[];
+}
 export interface AccountDrawdownRow {
   broker: string; currentEquity: number | null; peakEquity: number | null;
   peakTs: number | null; currentDdPct: number | null; maxDdPct: number | null; points: number;

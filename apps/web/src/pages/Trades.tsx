@@ -13,6 +13,8 @@ import { usePublicPageView, useView } from "../view";
 
 // a pushed deal or fill means the history just grew — refetch instead of waiting out the poll
 const HISTORY_TYPES = ["broker.deal", "trade"];
+/** Strategy filter value for deals and fills no strategy claimed. */
+const UNATTRIBUTED = "(unattributed)";
 
 export default function Trades({ instanceId }: { instanceId: string | null }) {
   usePublicPageView("trades");
@@ -34,7 +36,7 @@ export default function Trades({ instanceId }: { instanceId: string | null }) {
     queryKey: ["trades-page", instanceId, strategy],
     queryFn: () => {
       const p = new URLSearchParams({ instance: instanceId!, limit: "1000" });
-      if (strategy) p.set("strategy", strategy);
+      if (strategy && strategy !== UNATTRIBUTED) p.set("strategy", strategy);
       return get<TradeRow[]>(`/trades?${p}`);
     },
     enabled: !!instanceId,
@@ -66,6 +68,7 @@ export default function Trades({ instanceId }: { instanceId: string | null }) {
   const filtered = (trades.data ?? []).filter(
     (t) =>
       t.ts >= start &&
+      (strategy !== UNATTRIBUTED || t.strategyId == null) &&
       (!needle ||
         t.payload.symbol.toUpperCase().includes(needle) ||
         t.payload.orderId.toUpperCase().includes(needle) ||
@@ -76,7 +79,7 @@ export default function Trades({ instanceId }: { instanceId: string | null }) {
   const filteredDeals = (deals.data ?? []).filter(
     (d) =>
       d.ts >= start &&
-      (!strategy || d.strategyId === strategy) &&
+      (!strategy || (strategy === UNATTRIBUTED ? d.strategyId == null : d.strategyId === strategy)) &&
       (!needle ||
         (d.symbol ?? "").toUpperCase().includes(needle) ||
         d.dealTicket.toUpperCase().includes(needle) ||
@@ -119,6 +122,7 @@ export default function Trades({ instanceId }: { instanceId: string | null }) {
               }}
             >
               <option value="">all strategies</option>
+              <option value={UNATTRIBUTED}>unattributed</option>
               {(strategies.data ?? []).map((s) => (
                 <option key={s.strategyId} value={s.strategyId}>
                   {s.strategyId}
