@@ -7,6 +7,7 @@ import {
 } from "./accountProjection.js";
 import { refreshProjections } from "./projections.js";
 import { statement } from "./statements.js";
+import { searchLogs } from "./logSearch.js";
 import { closedTrades, hasClosingDeals, MIN_RATIO_DAYS, SNAPSHOT_EQUITY, strategyBase, strategyEquityCurve, tradePnls, withAnalyticsScope, type StrategyEquityPoint } from "./analytics.js";
 
 // A strategy stays "active" while its roster bump is within this window of the
@@ -383,26 +384,7 @@ export function ingestAck(db: Db, instanceId: string): { instanceId: string; las
 export interface LogRow { id: string; strategyId: string | null; level: string; logger: string; message: string; ts: number }
 
 export function listLogs(db: Db, f: { instanceId: string; strategyId?: string; level?: string; q?: string; limit: number }): LogRow[] {
-  if (f.q) {
-    const rows = db.prepare(
-      `SELECT l.id, l.strategy_id strategyId, l.level, l.logger, l.message, l.ts
-       FROM logs_fts ft JOIN logs l ON l.rowid = ft.log_rowid
-       WHERE logs_fts MATCH @q AND l.instance_id=@instanceId
-         ${f.strategyId ? "AND l.strategy_id=@strategyId" : ""}
-         ${f.level ? "AND l.level=@level" : ""}
-       ORDER BY l.ts DESC LIMIT @limit`,
-    ).all(f) as LogRow[];
-    return rows;
-  }
-  const cl: string[] = ["instance_id=@instanceId"];
-  if (f.strategyId) cl.push("strategy_id=@strategyId");
-  if (f.level) cl.push("level=@level");
-  // The whole instance reads idx_logs_instance_ts; lines of one millisecond stay in write order.
-  const order = f.strategyId || f.level ? "ts DESC" : "ts DESC, rowid ASC";
-  return db.prepare(
-    `SELECT id, strategy_id strategyId, level, logger, message, ts FROM logs
-     WHERE ${cl.join(" AND ")} ORDER BY ${order} LIMIT @limit`,
-  ).all(f) as LogRow[];
+  return searchLogs(db, f);
 }
 
 export interface DealRow {

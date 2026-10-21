@@ -203,3 +203,62 @@ describe("GET /logs with the query bar's filters", () => {
     expect((res.json() as Array<{ message: string }>).map((l) => l.message)).toEqual(["order rejected: no money"]);
   });
 });
+
+describe("GET /logs/page", () => {
+  type Page = { rows: Array<{ message: string; ts: number }>; nextCursor: string | null; total: number | null };
+  const page = async (url: string) => (await get(url)).json() as Page;
+
+  function manyLines(n: number, at: number): Envelope[] {
+    // three lines share each millisecond, so the cursor must break ties by arrival
+    return Array.from({ length: n }, (_, k) => env("log", at + Math.floor(k / 3), { level: "INFO", logger: "com.qkt.app.Engine", message: `line ${k}` }, "gold", `line-${k}`));
+  }
+
+  it("reaches every line of a range page by page, newest first, with the query's real count", async () => {
+    ingestEvents(db, I, manyLines(1205, T0 + 5 * D));
+    const from = T0 + 4 * D;
+    const first = await page(`/logs/page?instance=${I}&from=${from}&limit=500`);
+    expect(first.total).toBe(1205);
+    expect(first.rows).toHaveLength(500);
+    expect(first.rows[0]!.message).toBe("line 1204");
+    const seen = [...first.rows];
+    let cursor = first.nextCursor;
+    while (cursor) {
+      const next = await page(`/logs/page?instance=${I}&from=${from}&limit=500&cursor=${cursor}`);
+      expect(next.total).toBeNull();
+      seen.push(...next.rows);
+      cursor = next.nextCursor;
+    }
+    expect(seen).toHaveLength(1205);
+    expect(new Set(seen.map((l) => l.message)).size).toBe(1205);
+    expect(seen.map((l) => l.message).slice(-3)).toEqual(["line 2", "line 1", "line 0"]);
+    // a window older than the newest 1000 lines of the instance is still reachable
+    const older = await page(`/logs/page?instance=${I}&to=${T0 + 3 * D}`);
+    expect(older).toMatchObject({ total: 3, nextCursor: null });
+    expect(older.rows.map((l) => l.message)).toEqual(["session lost", "retrying order", "order rejected: no money"]);
+  });
+
+  it("finds hostnames, symbols and decimals as words: never a 500", async () => {
+    ingestEvents(db, I, [
+      env("log", T0 + 3 * D, { level: "WARN", logger: "com.qkt.connector.mt5.MT5Client", message: "GET http://mt5-gateway:5001/account failed" }, undefined, "l-host"),
+      env("log", T0 + 3 * D + 1, { level: "WARN", logger: "com.qkt.feed.LiveTickFeed", message: "stale ICMARKETS:XAUUSD quote" }, undefined, "l-sym"),
+      env("log", T0 + 3 * D + 2, { level: "WARN", logger: "com.qkt.risk.Risk", message: "global drawdown 0.1004 exceeds max 0.1" }, undefined, "l-num"),
+    ]);
+    const hits = async (text: string) => {
+      const res = await get(`/logs/page?instance=${I}&q=${encodeURIComponent(text)}`);
+      expect(res.statusCode, text).toBe(200);
+      return (res.json() as Page).rows.map((l) => l.message);
+    };
+    expect(await hits("mt5-gateway")).toEqual(["GET http://mt5-gateway:5001/account failed"]);
+    expect(await hits("ICMARKETS:XAUUSD")).toEqual(["stale ICMARKETS:XAUUSD quote"]);
+    expect(await hits("drawdown 0.1004")).toEqual(["global drawdown 0.1004 exceeds max 0.1"]);
+    expect(await hits("XAU*")).toEqual(["stale ICMARKETS:XAUUSD quote"]);
+    for (const text of ['"', "NOT", "a OR", "(x", "NEAR(", "col:val", "*", "^start", "a AND -b", "'; DROP TABLE logs; --"]) await hits(text);
+    expect((await get(`/logs?instance=${I}&q=${encodeURIComponent("mt5-gateway")}`)).statusCode).toBe(200);
+  });
+
+  it("answers an unreadable cursor with the first page and requires an instance", async () => {
+    expect(await page(`/logs/page?instance=${I}&cursor=nonsense`)).toMatchObject({ total: 3, nextCursor: null });
+    expect((await get("/logs/page")).statusCode).toBe(400);
+  });
+});
+

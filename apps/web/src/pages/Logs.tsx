@@ -1,5 +1,5 @@
-import { useMemo, useState } from "react";
-import { keepPreviousData, useQuery } from "@tanstack/react-query";
+import { useEffect, useMemo, useRef } from "react";
+import { keepPreviousData, useInfiniteQuery, useQuery } from "@tanstack/react-query";
 import { LOG_KEYS, parseQuery } from "@qkt-insights/contract/query";
 import { get, type LogRow, type StrategyRow } from "../api";
 import { Card, Empty, Loadable, PageHeader, Panel, RangeSelect, rangeStart, useRangeParam } from "../components/ui";
@@ -11,7 +11,13 @@ import { LOG_PRESETS, QueryBar } from "../query/QueryBar";
 
 const LOG_TYPES = ["log"];
 const PAGE = 200;
-const MAX = 1000;
+
+/** One page of /logs/page: newest first; `total` (first page only) is how many lines the whole query matches. */
+interface LogPage {
+  rows: LogRow[];
+  nextCursor: string | null;
+  total: number | null;
+}
 
 /** Words as an FTS query that matches each literally: `rejected:` is a word, not syntax. */
 function ftsWords(words: string[]): string {
@@ -21,7 +27,6 @@ function ftsWords(words: string[]): string {
 export default function Logs({ instanceId }: { instanceId: string | null }) {
   const [q, setQ] = useSearchParam("q");
   const [range, setRange] = useRangeParam();
-  const [limit, setLimit] = useState(PAGE);
 
   const strategies = useQuery({
     queryKey: ["strategies", instanceId],
@@ -36,7 +41,7 @@ export default function Logs({ instanceId }: { instanceId: string | null }) {
   const to = f.time?.to;
 
   const params = useMemo(() => {
-    const p = new URLSearchParams({ instance: instanceId ?? "", limit: String(limit) });
+    const p = new URLSearchParams({ instance: instanceId ?? "", limit: String(PAGE) });
     if (f.level) p.set("level", f.level);
     if (f.strategy) p.set("strategy", f.strategy);
     if (f.logger) p.set("logger", f.logger);
@@ -44,15 +49,30 @@ export default function Logs({ instanceId }: { instanceId: string | null }) {
     if (from) p.set("from", String(from));
     if (to) p.set("to", String(to));
     return p.toString();
-  }, [instanceId, limit, f, from, to]);
+  }, [instanceId, f, from, to]);
 
-  const logs = useQuery({
+  // The range, the filters and the words all run on the server; pages follow by cursor, so every
+  // matching line in the range is reachable by scrolling, and the count is the query's own.
+  const logs = useInfiniteQuery({
     queryKey: ["logs-page", params],
-    queryFn: () => get<LogRow[]>(`/logs?${params}`),
+    initialPageParam: null as string | null,
+    queryFn: ({ pageParam }) => get<LogPage>(`/logs/page?${params}${pageParam ? `&cursor=${encodeURIComponent(pageParam)}` : ""}`),
+    getNextPageParam: (last) => last.nextCursor,
     enabled: !!instanceId,
     placeholderData: keepPreviousData,
     refetchInterval: 30_000,
   });
+  const sentinel = useRef<HTMLDivElement>(null);
+  const { hasNextPage, isFetchingNextPage, fetchNextPage } = logs;
+  useEffect(() => {
+    const el = sentinel.current;
+    if (!el || !hasNextPage) return;
+    const io = new IntersectionObserver((entries) => {
+      if (entries.some((e) => e.isIntersecting) && !isFetchingNextPage) void fetchNextPage();
+    }, { rootMargin: "400px 0px" });
+    io.observe(el);
+    return () => io.disconnect();
+  }, [hasNextPage, isFetchingNextPage, fetchNextPage]);
 
   const live = useLiveStream(instanceId, 100, LOG_TYPES);
   const liveLogs = live.filter((e) => {
@@ -67,8 +87,8 @@ export default function Logs({ instanceId }: { instanceId: string | null }) {
 
   if (!instanceId) return <Card className="p-8 text-center text-faint">No instance selected.</Card>;
 
-  const rows = logs.data ?? [];
-  const capped = rows.length >= limit;
+  const rows = logs.data?.pages.flatMap((p) => p.rows) ?? [];
+  const total = logs.data?.pages[0]?.total ?? null;
 
   return (
     <div>
@@ -79,10 +99,7 @@ export default function Logs({ instanceId }: { instanceId: string | null }) {
           <>
             <QueryBar
               value={q}
-              onChange={(v) => {
-                setQ(v);
-                setLimit(PAGE);
-              }}
+              onChange={setQ}
               keys={LOG_KEYS}
               data={{ strategies: names }}
               page="Logs"
@@ -90,23 +107,13 @@ export default function Logs({ instanceId }: { instanceId: string | null }) {
               placeholder="Search log text or filter: level:error, strategy:, logger:MT5Broker, time:1h…"
             />
             <div className="flex w-full flex-wrap items-center gap-x-3 gap-y-2">
-              <RangeSelect
-                value={range}
-                onChange={(v) => {
-                  setRange(v);
-                  setLimit(PAGE);
-                }}
-              />
+              <RangeSelect value={range} onChange={setRange} />
               <span className={`text-sm text-muted ${logs.isFetching ? "opacity-60" : ""}`} aria-live="polite">
                 {logs.data == null ? (
                   "Loading…"
-                ) : capped ? (
-                  <>
-                    Showing the newest <b className="font-semibold text-bright">{count(rows.length)}</b> matching lines
-                  </>
                 ) : (
                   <>
-                    Showing all <b className="font-semibold text-bright">{count(rows.length)}</b> matching lines
+                    Showing <b className="font-semibold text-bright">{count(rows.length)}</b> of {count(total ?? rows.length)} matching lines
                   </>
                 )}
               </span>
@@ -147,18 +154,18 @@ export default function Logs({ instanceId }: { instanceId: string | null }) {
               </Empty>
             )}
           </div>
-          {capped && (
-            <div className="flex items-center justify-center gap-3 border-t border-line p-3 text-xs text-muted">
-              {limit < MAX ? (
+          {hasNextPage && (
+            <div ref={sentinel} className="flex items-center justify-center gap-3 border-t border-line p-3 text-xs text-muted">
+              {isFetchingNextPage ? (
+                <span>Loading older lines…</span>
+              ) : (
                 <button
                   type="button"
-                  onClick={() => setLimit((n) => Math.min(MAX, n + PAGE))}
+                  onClick={() => void fetchNextPage()}
                   className="h-7 rounded-md border border-ctl bg-raised px-3 text-xs font-medium text-bright transition hover:bg-well"
                 >
-                  Load {PAGE} more
+                  Load {PAGE} older
                 </button>
-              ) : (
-                <span>The newest {count(MAX)} matches are shown: narrow the query (time:, level:, logger:) to reach older lines.</span>
               )}
             </div>
           )}

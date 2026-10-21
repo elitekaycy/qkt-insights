@@ -119,7 +119,10 @@ MAE/MFE from the position's marks; the venue's deals; and the raw events as copy
 ## Logs
 
 Engine logs shipped from the instance, searched with the same query bar: `level:error`,
-`strategy:`, `logger:MT5Broker`, `time:1h` or `time:2026-10-21`, and free text.
+`strategy:`, `logger:MT5Broker`, `time:1h` or `time:2026-10-21`, and free text (words match
+literally: a hostname, a symbol or a number is never query syntax). Everything runs on the
+server; history pages in as you scroll, so every line in the range is reachable, and "Showing k
+of n" counts the whole match.
 
 ![Logs](assets/screenshots/logs.png)
 

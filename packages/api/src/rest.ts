@@ -1,5 +1,5 @@
 import type { FastifyInstance } from "fastify";
-import { listInstances, listStrategies, listTrades, searchEvents, equityCurve, instanceHealth, searchLogs, strategyStats, listDeals, accountEquity, accountDrawdown, accountPerformance, accountRisk, monitorSummaries, listMonitorEvents, type AccountLimits, type Db, type LiveStateStore, type Monitors } from "@qkt-insights/store";
+import { listInstances, listStrategies, listTrades, searchEvents, equityCurve, instanceHealth, searchLogs, logPage, strategyStats, listDeals, accountEquity, accountDrawdown, accountPerformance, accountRisk, monitorSummaries, listMonitorEvents, type AccountLimits, type Db, type LiveStateStore, type Monitors } from "@qkt-insights/store";
 import { requireSession } from "./auth.js";
 import { TtlCache } from "./cache.js";
 import { performanceBundle } from "./performance.js";
@@ -65,6 +65,15 @@ export function registerRest(app: FastifyInstance, deps: RestDeps): void {
     const ms = (v: string | undefined) => (v != null && Number.isFinite(Number(v)) ? Number(v) : undefined);
     return cache.get(req.url, () => searchLogs(deps.db, { instanceId: i, strategyId: q.strategy, level: q.level, q: q.q, logger: q.logger,
       from: ms(q.from), to: ms(q.to), limit: LIMIT(q) }));
+  });
+
+  // The Logs page: the same filters, newest first, a page at a time by `cursor`; the first page
+  // also says how many lines the whole query matches (`total`).
+  app.get<{ Querystring: Record<string, string> }>("/logs/page", guard, async (req, reply) => {
+    const q = req.query; const i = q.instance; if (!need(reply, i, "instance")) return;
+    const ms = (v: string | undefined) => (v != null && Number.isFinite(Number(v)) ? Number(v) : undefined);
+    return cache.get(req.url, () => logPage(deps.db, { instanceId: i, strategyId: q.strategy, level: q.level, q: q.q, logger: q.logger,
+      from: ms(q.from), to: ms(q.to), limit: LIMIT(q), cursor: q.cursor }));
   });
 
   app.get<{ Querystring: Record<string, string> }>("/stats", guard, async (req, reply) => {
