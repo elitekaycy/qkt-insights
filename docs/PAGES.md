@@ -47,7 +47,10 @@ DSL version, source, hash, streams). When the engine has halted it (`risk.halted
 halt, `qkt resume <name>`. A session-level halt covers the strategies its session runs
 (`sessionStrategies`, qkt#1244); from older engines, which do not name them, it covers every
 strategy of the instance. A session start sends each strategy's own halt state (`risk.snapshot`,
-qkt v0.52.4); that replaces whatever the earlier halt events implied for the strategy.
+qkt v0.52.4); that replaces whatever the earlier halt events implied for the strategy. qkt sends
+that snapshot without the halt's time, so "since" is the earliest stored halt with the same
+reason; when none survives it reads "before <the first re-assertion>" (`haltedBefore`), never the
+restart.
 
 The sections are in the URL (`/s/<id>`, `/s/<id>/calendar`, `daily`, `monthly`, `trades`, `time`,
 `logs`) and all read one scope: the date range chips (Today, 7D, MTD, YTD, All, as `range`) and the

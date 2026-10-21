@@ -173,6 +173,8 @@ export interface StrategyRow {
   /** True when only `qkt resume <name>` clears the halt; null when unknown. */
   haltPersistent?: boolean | null;
   haltedAt?: number | null;
+  /** True when haltedAt is only a bound (the halt began at or before it): a restart re-asserted it and no earlier record is stored. */
+  haltedBefore?: boolean;
 }
 export interface OrderRow {
   orderId: string;

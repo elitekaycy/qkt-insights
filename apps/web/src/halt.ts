@@ -21,6 +21,16 @@ export function haltClearing(row: StrategyRow): string {
 }
 
 /**
+ * When the halt began, e.g. "since 2026-08-24 14:20:09 UTC", or "before 2026-10-21 10:44:01 UTC"
+ * when a restart re-asserted it and no earlier record survives (the halt is at least that old).
+ * Null without a time.
+ */
+export function haltSince(row: StrategyRow): string | null {
+  if (row.haltedAt == null) return null;
+  return `${row.haltedBefore ? "before" : "since"} ${ts(row.haltedAt)} UTC`;
+}
+
+/**
  * One line for a badge tooltip: reason, when (UTC), how it ends, and the resume command.
  * e.g. "Halted: loss streak 3 · since 2026-09-21 14:02:11 UTC · stays halted until an operator
  * resumes it · qkt resume gold_paper". Null when the strategy is not halted.
@@ -28,7 +38,8 @@ export function haltClearing(row: StrategyRow): string {
 export function haltSummary(row: StrategyRow): string | null {
   if (!row.halted) return null;
   const parts = [`Halted: ${row.haltReason ?? "no reason given"}`];
-  if (row.haltedAt != null) parts.push(`since ${ts(row.haltedAt)} UTC`);
+  const since = haltSince(row);
+  if (since) parts.push(row.haltedBefore ? `${since} (re-asserted at a restart; its start is not stored)` : since);
   parts.push(haltClearing(row));
   const command = resumeCommand(row);
   if (command) parts.push(command);

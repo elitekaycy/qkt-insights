@@ -222,9 +222,14 @@ export interface StrategyHalt {
   /** True only when `qkt resume <name>` is the one thing that clears the halt. */
   haltPersistent: boolean | null;
   haltedAt: number | null;
+  /**
+   * True when haltedAt is only a bound: the halt began at or before it. A restart re-asserted the
+   * halt without its time (qkt sends haltedAt null) and no earlier record of it is stored.
+   */
+  haltedBefore: boolean;
 }
 
-interface ActiveHalt { reason: string | null; scope: HaltScope | null; persistent: boolean | null; ts: number }
+interface ActiveHalt { reason: string | null; scope: HaltScope | null; persistent: boolean | null; ts: number; before: boolean }
 
 /**
  * The halts standing on one instance. A strategy's session-level halt (null strategyId) is
@@ -239,7 +244,7 @@ export interface InstanceHalts {
   byStrategy: Map<string, ActiveHalt>;
 }
 
-const NOT_HALTED: StrategyHalt = { halted: false, haltReason: null, haltScope: null, haltPersistent: null, haltedAt: null };
+const NOT_HALTED: StrategyHalt = { halted: false, haltReason: null, haltScope: null, haltPersistent: null, haltedAt: null, haltedBefore: false };
 
 const scopeOf = (v: unknown): HaltScope | null => typeof v === "string" && HALT_SCOPES.has(v) ? v as HaltScope : null;
 
@@ -262,7 +267,10 @@ const scopeOf = (v: unknown): HaltScope | null => typeof v === "string" && HALT_
  * by `haltedAt`, until a later resume covering the strategy (its own, its session's, or an
  * instance-wide one) clears it. This is how a halt the engine restored from disk without
  * re-announcing it becomes visible, and how an instance-wide halt from an older engine stops
- * covering strategies that were never halted.
+ * covering strategies that were never halted. A snapshot without `haltedAt` (a restart restores
+ * the halt but not its time) is timed by the earliest stored halt with the same reason still
+ * standing for the strategy when it arrived; with none, by the snapshot itself, marked `before`
+ * (the halt is at least that old), never as if it began at the restart.
  *
  * Halts that the engine never follows with a resume are dropped as it drops them:
  * - TRANSIENT: the drain step before a session is replaced (resync); the replacement starts
@@ -292,13 +300,18 @@ export function currentHalts(db: Db, instanceId: string, now = Date.now()): Inst
     if (r.kind === "risk.snapshot") {
       const id = r.strategyId!;
       const scope = scopeOf(p.haltScope);
+      const reason = typeof p.haltReason === "string" ? p.haltReason : null;
+      const day = Math.floor(r.ts / DAY_MS);
+      const earlier = [snapshot.get(id), own.get(id), session.has(id) ? session.get(id) : instance]
+        .filter((h): h is ActiveHalt => h != null && h.reason === reason && h.ts <= r.ts && (h.scope !== "DAILY" || Math.floor(h.ts / DAY_MS) === day))
+        .reduce<ActiveHalt | null>((a, h) => (a == null || h.ts < a.ts ? h : a), null);
       own.set(id, null);
       session.set(id, null);
       snapshot.delete(id);
       if (p.halted === true && scope !== "TRANSIENT") snapshot.set(id, {
-        reason: typeof p.haltReason === "string" ? p.haltReason : null, scope,
+        reason, scope,
         persistent: typeof p.haltPersistent === "boolean" ? p.haltPersistent : null,
-        ts: typeof p.haltedAt === "number" ? p.haltedAt : r.ts,
+        ...(typeof p.haltedAt === "number" ? { ts: p.haltedAt, before: false } : earlier ? { ts: earlier.ts, before: earlier.before } : { ts: r.ts, before: true }),
       });
       continue;
     }
@@ -306,7 +319,7 @@ export function currentHalts(db: Db, instanceId: string, now = Date.now()): Inst
     if (r.kind === "risk.halted") {
       const scope = scopeOf(p.scope);
       if (scope === "TRANSIENT" || (p.scope === undefined && r.reason === "operator resync")) continue;
-      halt = { reason: r.reason, scope, persistent: typeof p.persistent === "boolean" ? p.persistent : null, ts: r.ts };
+      halt = { reason: r.reason, scope, persistent: typeof p.persistent === "boolean" ? p.persistent : null, ts: r.ts, before: false };
     }
     const resumed = r.kind === "risk.resumed";
     if (r.strategyId != null) {
@@ -355,7 +368,7 @@ export function strategyHalt(halts: InstanceHalts, strategyId: string): Strategy
   if (candidates.length === 0) return NOT_HALTED;
   const h = candidates.reduce((a, b) =>
     (a.persistent === true) !== (b.persistent === true) ? (a.persistent === true ? a : b) : (b.ts > a.ts ? b : a));
-  return { halted: true, haltReason: h.reason, haltScope: h.scope, haltPersistent: h.persistent, haltedAt: h.ts };
+  return { halted: true, haltReason: h.reason, haltScope: h.scope, haltPersistent: h.persistent, haltedAt: h.ts, haltedBefore: h.before };
 }
 
 /**

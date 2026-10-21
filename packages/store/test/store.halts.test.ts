@@ -201,7 +201,7 @@ describe("current strategy halts", () => {
     const db = book(halted(null, "operator", T0 + 1000, 10, "PERSISTENT"));
     ingestEvents(db, "qkt-other", [{ ...started("gold"), instanceId: "qkt-other" }]);
     expect(listStrategies(db, "qkt-other", NOW).find((r) => r.strategyId === "gold")!.halted).toBe(false);
-    expect(strategyHalt(currentHalts(db, "qkt-other", NOW), "gold")).toEqual(CLEAR);
+    expect(strategyHalt(currentHalts(db, "qkt-other", NOW), "gold")).toEqual({ ...CLEAR, haltedBefore: false });
   });
 });
 
@@ -292,6 +292,34 @@ describe("halt state from risk snapshots", () => {
     expect(haltOf(tripped, "gold", nextDay + 2000)).toEqual(CLEAR);
     const untimed = book(snapshot("gold", nextDay + 1000, { reason: "daily loss", scope: "DAILY", haltedAt: null }));
     expect(haltOf(untimed, "gold", nextDay + 2000)).toMatchObject({ halted: true, haltedAt: nextDay + 1000 });
+  });
+
+  it("never dates a halt from the restart that re-asserted it: the earliest stored halt with its reason, else 'before'", () => {
+    const reason = "strategy drawdown 0.0896 exceeds max 0.05";
+    const halt = halted("gold", reason, T0, 10, "PERSISTENT");
+    const restarts = [T0 + 10 * DAY, T0 + 20 * DAY, T0 + 30 * DAY].map((t) => snapshot("gold", t, { reason, scope: "PERSISTENT", haltedAt: null }));
+    const at = (db: Db) => strategyHalt(currentHalts(db, "qkt-prod", T0 + 31 * DAY), "gold");
+    // The quant-live silver shape: one halt, then every restart re-asserts it with haltedAt null.
+    expect(at(book(halt, ...restarts))).toMatchObject({ halted: true, haltReason: reason, haltedAt: T0, haltedBefore: false });
+    // An instance-wide resume in between does not clear a strategy's own latch, so it still dates it.
+    expect(at(book(halt, resumed(null, T0 + DAY, 11), ...restarts))).toMatchObject({ haltedAt: T0, haltedBefore: false });
+    // The halt event aged out: only re-assertions are left, so the first of them is a bound.
+    expect(at(book(...restarts))).toMatchObject({ halted: true, haltedAt: T0 + 10 * DAY, haltedBefore: true });
+    // A halt for another reason is not this one.
+    expect(at(book(halted("gold", "loss streak 3", T0, 10, "PERSISTENT"), ...restarts))).toMatchObject({ haltedAt: T0 + 10 * DAY, haltedBefore: true });
+    // An engine that sends haltedAt is taken at its word.
+    expect(at(book(halt, snapshot("gold", T0 + 10 * DAY, { reason, scope: "PERSISTENT", haltedAt: T0 + 5 }))))
+      .toMatchObject({ haltedAt: T0 + 5, haltedBefore: false });
+  });
+
+  it("dates a re-asserted DAILY halt only by a halt of the same UTC day", () => {
+    const nextDay = (Math.floor(T0 / DAY) + 1) * DAY;
+    const db = book(
+      halted("gold", "daily loss", T0, 10, "DAILY"),
+      halted("gold", "daily loss", nextDay + 1000, 11, "DAILY"),
+      snapshot("gold", nextDay + 5000, { reason: "daily loss", scope: "DAILY", haltedAt: null }),
+    );
+    expect(strategyHalt(currentHalts(db, "qkt-prod", nextDay + 6000), "gold")).toMatchObject({ halted: true, haltedAt: nextDay + 1000, haltedBefore: false });
   });
 
   it("ignores a risk snapshot without a halted field (older engines' risk snapshots)", () => {
