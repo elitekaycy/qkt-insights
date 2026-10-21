@@ -1,5 +1,6 @@
 import type { Db } from "./db.js";
 import { statement } from "./statements.js";
+import { refreshProjections } from "./projections.js";
 import { bumpEpoch, bumpMarks, bumpStrategy } from "./versions.js";
 import { isLiveStateType, type Envelope, type QuarantinedEnvelope } from "@qkt-insights/contract";
 
@@ -364,6 +365,7 @@ export function ingestEnvelopes(db: Db, instanceId: string, events: Envelope[], 
       foldRisk(db, instanceId, e);
       foldPortfolio(db, instanceId, e);
     }
+    refreshProjections(db);
     return { accepted, statuses };
   });
   return tx(events);

@@ -373,9 +373,7 @@ export interface DealRow {
 
 export function listDeals(db: Db, f: { instanceId: string; strategyId?: string; limit: number; before?: number }): DealRow[] {
   // One row per venue deal: profiles sharing an account each store a copy (see canonicalDeal).
-  const cl: string[] = ["instance_id=@instanceId",
-    `rowid = (SELECT MIN(dd.rowid) FROM deals dd
-      WHERE dd.instance_id=deals.instance_id AND dd.deal_ticket=deals.deal_ticket)`];
+  const cl: string[] = ["instance_id=@instanceId", "canonical=1"];
   if (f.strategyId) cl.push("strategy_id=@strategyId");
   if (f.before != null) cl.push("ts<@before");
   return db.prepare(

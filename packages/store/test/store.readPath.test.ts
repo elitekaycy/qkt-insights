@@ -71,9 +71,14 @@ describe("analytics scope", () => {
     seedTrades(db);
     const prepare = db.prepare.bind(db);
     let closeQueries = 0;
+    // Statements are prepared once per database, so count executions of the closed-trade read.
     db.prepare = ((sql: string) => {
-      if (sql.includes("FROM deals o")) closeQueries++;
-      return prepare(sql);
+      const stmt = prepare(sql);
+      if (sql.includes("FROM closed_trades ct") && sql.includes("ORDER BY ct.ts")) {
+        const all = stmt.all.bind(stmt);
+        stmt.all = ((...args: unknown[]) => { closeQueries++; return all(...args); }) as typeof stmt.all;
+      }
+      return stmt;
     }) as Db["prepare"];
     withAnalyticsScope(db, () => {
       performanceReport(db, F);
