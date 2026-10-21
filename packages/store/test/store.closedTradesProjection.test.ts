@@ -42,7 +42,7 @@ function stored(db: Db): unknown[] {
 }
 
 describe("closed_trades projection", () => {
-  it("keeps one row per closing leg, charging the IN cost to the first close only", () => {
+  it("keeps one row per closing leg, charging each its share of the IN cost by closed volume", () => {
     const db = fresh();
     ingestEvents(db, I, [
       deal({ ticket: "1", entry: "IN", side: "BUY", ts: T0, qty: 2, commission: -1 }),
@@ -51,9 +51,39 @@ describe("closed_trades projection", () => {
     ]);
     const rows = dealClosedTrades(db, F);
     expect(rows.map((r) => [r.ts, r.realized, r.side, r.entryTs, r.entryPrice])).toEqual([
-      [T0 + H, 3.5, "BUY", T0, 4000],
-      [T0 + 2 * H, 3, "BUY", T0, 4000],
+      [T0 + H, 4, "BUY", T0, 4000],
+      [T0 + 2 * H, 2.5, "BUY", T0, 4000],
     ]);
+  });
+
+  it("charges a scaled-in position every entry's costs, so its closes add up to its round trip", () => {
+    const db = fresh();
+    ingestEvents(db, I, [
+      deal({ ticket: "1", entry: "IN", side: "BUY", ts: T0, qty: 1, commission: -0.7 }),
+      deal({ ticket: "2", entry: "IN", side: "BUY", ts: T0 + H, qty: 3, price: 4004, commission: -2.1 }),
+      deal({ ticket: "3", entry: "OUT", side: "SELL", ts: T0 + 2 * H, qty: 4, price: 4010, profit: 28, commission: -2.8 }),
+      // A copy from a second broker profile: counted once.
+      deal({ ticket: "2", id: "copy-2", broker: "C", entry: "IN", side: "BUY", ts: T0 + H, qty: 3, price: 4004, commission: -2.1 }),
+    ]);
+    const rows = dealClosedTrades(db, F);
+    expect(rows).toHaveLength(1);
+    expect(rows[0]!.realized).toBeCloseTo(28 - 2.8 - 0.7 - 2.1, 9);
+    const trip = db.prepare("SELECT realized FROM round_trips WHERE position_ticket='P1'").get() as { realized: number };
+    expect(rows[0]!.realized).toBeCloseTo(trip.realized, 9);
+
+    // Closed in parts: each close pays its volume's share, and the parts still add up.
+    const parts = fresh();
+    ingestEvents(parts, I, [
+      deal({ ticket: "1", entry: "IN", side: "BUY", ts: T0, qty: 1, commission: -0.7 }),
+      deal({ ticket: "2", entry: "IN", side: "BUY", ts: T0 + H, qty: 3, commission: -2.1 }),
+      deal({ ticket: "3", entry: "OUT", side: "SELL", ts: T0 + 2 * H, qty: 1, profit: 10 }),
+      deal({ ticket: "4", entry: "OUT", side: "SELL", ts: T0 + 3 * H, qty: 3, profit: 6 }),
+    ]);
+    const split = dealClosedTrades(parts, F).map((r) => r.realized);
+    expect(split[0]).toBeCloseTo(10 - 2.8 / 4, 9);
+    expect(split[1]).toBeCloseTo(6 - 2.8 * 3 / 4, 9);
+    const partsTrip = parts.prepare("SELECT realized FROM round_trips WHERE position_ticket='P1'").get() as { realized: number };
+    expect(split[0]! + split[1]!).toBeCloseTo(partsTrip.realized, 9);
   });
 
   it("fills in the entry once the IN leg arrives after its close", () => {

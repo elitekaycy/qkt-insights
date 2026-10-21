@@ -9,20 +9,23 @@ export interface ClosedTradeKey { dealRowid: number; strategyId: string | null; 
 
 /**
  * The closed-trade rows of one position, from its legs in `deals`. Each canonical closing leg is
- * paired with the position's first IN leg (any copy); realized is the closing leg's profit and
- * costs, plus the IN leg's costs on the position's first canonical close only. The arithmetic is
- * SQL so the stored figure is the one the reads always computed.
+ * paired with the position's first IN leg (any copy) for its entry; realized is the closing leg's
+ * profit and costs, plus its share of every canonical IN leg's costs: the costs of all the
+ * position's opening legs times the closed volume over the opened volume (capped at all of it). A
+ * scaled-in position so pays each entry's costs, a partial close pays only its part, and the closes
+ * of a fully closed position add up to the net of all its legs, as its round trip does. One entry
+ * closed at once pays exactly its entry's costs (the share is 1). The arithmetic is SQL so the
+ * stored figure is the one the reads always computed.
  */
 const POSITION_ROWS = (where: string) => `
   SELECT o.rowid deal_rowid, o.instance_id, o.strategy_id, o.position_ticket, o.ts, o.symbol, o.side out_side,
          i.side in_side, o.qty, i.price entry_price, o.price exit_price, i.ts entry_ts,
          o.profit + COALESCE(o.commission,0) + COALESCE(o.swap,0) + COALESCE(o.fee,0)
-           + CASE WHEN o.rowid = (
-               SELECT f.rowid FROM deals f
-               WHERE f.instance_id=o.instance_id AND f.position_ticket=o.position_ticket
-                 AND f.entry IN ${OUT_LEGS} AND f.canonical=1
-               ORDER BY f.ts ASC, f.rowid ASC LIMIT 1)
-             THEN COALESCE(i.commission,0) + COALESCE(i.swap,0) + COALESCE(i.fee,0) ELSE 0 END realized,
+           + COALESCE((
+               SELECT CASE WHEN SUM(e.qty) > 0
+                 THEN SUM(COALESCE(e.commission,0) + COALESCE(e.swap,0) + COALESCE(e.fee,0)) * (MIN(o.qty, SUM(e.qty)) / SUM(e.qty)) END
+               FROM deals e
+               WHERE e.instance_id=o.instance_id AND e.position_ticket=o.position_ticket AND e.entry='IN' AND e.canonical=1), 0) realized,
          i.order_ticket entry_order_ticket, o.order_ticket exit_order_ticket
   FROM deals o
   LEFT JOIN deals i ON i.rowid = (
