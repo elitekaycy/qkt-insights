@@ -6,6 +6,7 @@ import { OUTAGE_AFTER_MS } from "./monitors.js";
 import { setInstanceCurrency } from "./money.js";
 import { isLiveStateType, type Envelope, type QuarantinedEnvelope } from "@qkt-insights/contract";
 import { strategyFromDealComment, withoutAccountCredentials } from "./inferredVenueFacts.js";
+import { strategyFromOrderComment } from "./retiredStrategies.js";
 
 /** A flat position still records one valuation this often so its holding period is visible. */
 /** A flat position is still re-marked this often, so a stored mark proves it was held. */
@@ -306,8 +307,12 @@ export function ingestEnvelopes(db: Db, instanceId: string, events: Envelope[], 
         const p = e.payload;
         // qkt names the position and the leg (positionId, legEntry); older releases only MT5's ticket and entry.
         const position = p.positionId ?? p.positionTicket ?? null;
-        const strategyId = p.strategyId ?? resolveDealStrategy(db, instanceId, p.dealTicket, position, p.comment ?? null, p.attribution == null);
-        if (!isDealLocalToInstance(db, instanceId, strategyId)) continue;
+        const resolved = p.strategyId ?? resolveDealStrategy(db, instanceId, p.dealTicket, position, p.comment ?? null, p.attribution == null);
+        // A deal qkt could not attribute whose own order comment names a strategy: one retired since
+        // (retiredStrategies.ts). It is this instance's own order, so it needs no locality check.
+        const retired = resolved == null && p.attribution === "none" ? strategyFromOrderComment(p.comment ?? null) : null;
+        const strategyId = resolved ?? retired;
+        if (retired == null && !isDealLocalToInstance(db, instanceId, strategyId)) continue;
         const costs = dealCosts(p);
         const info = insDeal.run(e.id, instanceId, p.broker, p.dealTicket, position, p.orderTicket ?? null,
           p.symbol ?? null, p.side ?? null, p.legEntry ?? p.entry ?? null, p.qty, p.price, p.profit, costs.commission,

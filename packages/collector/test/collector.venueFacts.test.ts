@@ -218,11 +218,11 @@ describe("venue facts: one shape for every connector", () => {
     const before = inferenceCounts();
     await post("mt5", [...state(MT5, "alpha", true), ...explicit(MT5, "alpha")]);
     await post("vgp", [...state(VGP, "alpha", true), ...explicit(VGP, "alpha")]);
-    // another tool's trade on the account: qkt sends it unattributed, with its facts but no fill of this instance
+    // another tool's trade on the account (no qkt order comment): qkt sends it unattributed, with its facts but no fill of this instance
     const foreign = { broker: MT5.broker, positionTicket: "7001", positionId: "7001", orderTicket: "7001", symbol: MT5.symbol, qty: 0.01,
       commission: 0, swap: 0, attribution: "none", venue: MT5.venue, accountId: MT5.accountId, costs: [], realizedSource: "venue" };
     await post("mt5", [
-      ev("broker.deal", T0 + 40 * M, { ...foreign, dealTicket: "8001", side: "BUY", entry: "IN", legEntry: "IN", price: 1, profit: 0, comment: "dsl-other--0", ts: T0 + 40 * M }),
+      ev("broker.deal", T0 + 40 * M, { ...foreign, dealTicket: "8001", side: "BUY", entry: "IN", legEntry: "IN", price: 1, profit: 0, comment: "manual", ts: T0 + 40 * M }),
       ev("broker.deal", T0 + 41 * M, { ...foreign, dealTicket: "8002", side: "SELL", entry: "OUT", legEntry: "OUT", price: 2, profit: 0.01, comment: "[sl 2]",
         closeReason: "SIGNAL", ts: T0 + 41 * M }),
     ]);
