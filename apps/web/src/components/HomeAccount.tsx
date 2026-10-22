@@ -1,7 +1,7 @@
 import type { ReactNode } from "react";
 import type { AccountRiskRow, LiveAccount } from "../api";
-import { clock, count, DASH, money, pctValue, signedMoney } from "../format";
-import { accountToday, dailyMeasured, dailyReferenceLabel, dayBasisLabel, drawdownMeasured, limitUse, type LimitUse, type OpenRisk } from "../home";
+import { clock, count, money, pctValue, signedMoney, signedPct } from "../format";
+import { accountToday, dailyMeasured, dailyReferenceLabel, dayBasisLabel, limitLine, drawdownMeasured, limitUse, type LimitUse, type OpenRisk } from "../home";
 import { accountName, maskLogin } from "../accounts";
 import { Card, FlashValue, Freshness, InfoIcon, Pill, Pnl, Popover } from "./ui";
 
@@ -90,15 +90,17 @@ function LimitGauge({ label, use, value, measured, basis, help }: {
       </Kpi>
     );
   }
+  // The headline is the account's own figure, as it would be without any rules; the limit is a
+  // second reading (how much of it is used, what is left), so a 3.6% drawdown is never read as 36%.
+  const line = limitLine(use);
   return (
     <Kpi
       icon={ICON.gauge}
       label={label}
       sub={
         <>
-          <div className={use.pct != null && use.pct >= 100 ? "font-medium text-loss" : ""}>
-            {`${money(use.used)} of ${money(use.cap)}${use.pct != null && use.pct >= 100 ? " · over the limit" : ""}`}
-          </div>
+          <div>{measured}</div>
+          {line && <div className={line.over ? "font-medium text-loss" : ""}>{line.text}</div>}
           <div className="flex items-start gap-1 text-faint">
             <span>{basis}</span>
             {info}
@@ -108,8 +110,8 @@ function LimitGauge({ label, use, value, measured, basis, help }: {
     >
       <div className="flex items-end gap-2 sm:gap-2.5">
         <Arc pct={use.pct} />
-        <span className={`text-lg sm:text-xl ${use.pct == null ? "text-faint" : use.pct >= 80 ? "text-loss" : use.pct >= 55 ? "text-warn" : "text-bright"}`}>
-          {use.pct == null ? DASH : pctValue(use.pct, 1)}
+        <span className={`text-lg sm:text-xl ${use.pct != null && use.pct >= 80 ? "text-loss" : use.pct != null && use.pct >= 55 ? "text-warn" : ""}`}>
+          {value}
         </span>
       </div>
     </Kpi>
@@ -195,7 +197,12 @@ export function AccountStrip({
             <LimitGauge
               label="Daily loss"
               use={use.daily}
-              value={<span className={use.daily.used != null && use.daily.used > 0 ? "text-loss" : "text-bright"}>{signedMoney(use.daily.used == null ? null : -use.daily.used)}</span>}
+              value={
+                <span className={use.daily.used != null && use.daily.used > 0 ? "text-loss" : "text-bright"}>
+                  {signedMoney(use.daily.used == null ? null : -use.daily.used)}
+                  {use.daily.usedPct != null && <span className="ml-1.5 text-sm text-muted">{signedPct(-use.daily.usedPct, 2)}</span>}
+                </span>
+              }
               measured={dailyMeasured(risk, use.daily)}
               basis={`${risk.dailyLoss.includesFloating ? "incl. floating" : "realized only"} · ${dayBasisLabel(risk)}`}
               help={

@@ -1,5 +1,5 @@
 import type { AccountRiskRow, LiveAccount, LivePositionRow, StrategyRow } from "./api";
-import { age, instrumentOf, money, openPnl, signedMoney, ts } from "./format";
+import { age, DASH, instrumentOf, money, openPnl, pctValue, signedMoney, ts } from "./format";
 import { roundMoney } from "@qkt-insights/contract/money";
 
 /*
@@ -98,6 +98,19 @@ export function dailyMeasured(row: Pick<AccountRiskRow, "dailyLoss">, daily: Lim
   }
   if (daily.used != null && daily.used > 0) return "lost today on closed trades";
   return row.dailyLoss.realizedToday > 0 ? `no loss today: closed ${signedMoney(row.dailyLoss.realizedToday)}` : "no loss today";
+}
+
+/**
+ * A limit card's second reading, under the account's own figure: what is left of the limit and how
+ * much of it is used, e.g. "3,214.11 left · 35.7% of the 5,000.00 limit used", or "over the
+ * 5,000.00 limit". Null without a limit: the card then shows the account figure alone.
+ */
+export function limitLine(use: LimitUse): { text: string; over: boolean } | null {
+  if (use.cap == null) return null;
+  const over = use.pct != null && use.pct >= 100;
+  if (over) return { text: `over the ${money(use.cap)} limit`, over };
+  const left = use.used != null ? money(Math.max(0, use.cap - use.used)) : DASH;
+  return { text: `${left} left · ${use.pct == null ? DASH : pctValue(use.pct, 1)} of the ${money(use.cap)} limit used`, over };
 }
 
 /** The drawdown card's line under the figure: how far below which reference equity is. */
