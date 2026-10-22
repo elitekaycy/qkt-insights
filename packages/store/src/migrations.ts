@@ -3,6 +3,7 @@ import { readFileSync, readdirSync } from "node:fs";
 import { dirname, join } from "node:path";
 import { fileURLToPath } from "node:url";
 import { opaqueAccountIdentity } from "./accountIdentityMigration.js";
+import { attributeRetiredStrategies } from "./retiredStrategies.js";
 
 const dir = join(dirname(fileURLToPath(import.meta.url)), "migrations");
 
@@ -13,6 +14,8 @@ const dir = join(dirname(fileURLToPath(import.meta.url)), "migrations");
  */
 const CODE_MIGRATIONS: Record<string, (db: Database) => void> = {
   "039_opaque_account_identity": opaqueAccountIdentity,
+  // History stored before retired strategies were read from their order comments.
+  "041_retired_strategy_attribution": (db) => { attributeRetiredStrategies(db); },
 };
 
 export function runMigrations(db: Database): void {

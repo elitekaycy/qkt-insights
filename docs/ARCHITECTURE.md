@@ -152,6 +152,16 @@ counts each inference and logs its first use and every thousandth: `venue fact i
 | `initialStop`, `initialTarget`, `riskAmount` | entry fills, positions | a round trip's stop, target, risk and R | the entry order's submitted bracket; risk from the venue's gross over the move |
 | `instrument.tickSize`, `instrument.valuePerPoint` | deals, fills, positions | price precision; slippage in money | the decimals of observed prices and metal/FX names; the gross over the move |
 
+**Retired strategies.** qkt attributes a venue deal only to strategies it runs now, so a deal re-sent from
+history whose strategy was retired since arrives with `attribution: "none"`. When its opening deal carries a
+complete qkt order comment, `dsl-<strategy>--<sequence>` (the venue may cut the sequence; the `--` shows the name
+is whole), the collector files the position under that strategy and registers it, so it lists as a retired
+strategy instead of "Unattributed" (`packages/store/src/retiredStrategies.ts`; migration
+`041_retired_strategy_attribution` applies the same rule to stored history once). A comment cut inside the name
+names nothing and the deal stays unattributed. One account traded by two qkt instances would file the other
+instance's unattributable deals under that instance's strategy names here too, exactly where they are stored as
+unattributed today.
+
 An engine close (`trade.closed`) is a round trip of its own only while neither its strategy nor its broker (the
 symbol's `LABEL:` prefix) has stored a venue deal, so an instance that trades an MT5 account and a venue that sends
 no deals shows both.
