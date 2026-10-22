@@ -26,17 +26,30 @@ function Glyph({ d }: { d: string }) {
   );
 }
 
-/** A journal KPI card: icon and label, one headline figure, quiet lines under it. */
-export function Kpi({ icon, label, children, sub, className = "" }: { icon: string; label: string; children: ReactNode; sub?: ReactNode; className?: string }) {
+/**
+ * A journal KPI card: icon and label, one headline figure, one quiet line under it. What the figure
+ * means and how it is measured lives behind the info icon (hover, or tap on touch), so every card in
+ * the row keeps the same height.
+ */
+export function Kpi({ icon, label, children, sub, info, className = "" }: {
+  icon: string; label: string; children: ReactNode; sub?: ReactNode; info?: ReactNode; className?: string;
+}) {
   return (
     <Card className={`min-w-0 p-4 ${className}`}>
       <div className="flex items-center gap-2 text-sm font-medium text-muted">
         <Glyph d={icon} />
         <span className="truncate">{label}</span>
+        {info && (
+          <span className="ml-auto">
+            <Popover hover label={`About ${label.toLowerCase()}`} align="right" trigger={<InfoIcon className="h-3.5 w-3.5 text-faint hover:text-bright" />}>
+              <div className="space-y-1.5">{info}</div>
+            </Popover>
+          </span>
+        )}
       </div>
       {/* sized to the card (Card is a container) so a seven-figure balance never clips */}
       <div className="mt-2 truncate font-headline text-[clamp(1rem,12.5cqi,1.5rem)] tabular-nums">{children}</div>
-      {sub && <div className="mt-1.5 space-y-0.5 text-xs leading-relaxed text-muted">{sub}</div>}
+      {sub && <div className="mt-1.5 truncate text-xs text-muted">{sub}</div>}
     </Card>
   );
 }
@@ -48,7 +61,7 @@ function Arc({ pct }: { pct: number | null }) {
   const k = pct == null ? 0 : Math.min(1, Math.max(0, pct / 100));
   const tone = pct == null ? "var(--color-faint)" : pct >= 80 ? "var(--color-loss-fill)" : pct >= 55 ? "var(--color-warn)" : "var(--color-accent-hi)";
   return (
-    <svg viewBox="0 0 84 48" className="h-7 w-12 shrink-0 sm:h-9 sm:w-16" aria-hidden>
+    <svg viewBox="0 0 84 48" className="h-6 w-10 shrink-0 sm:h-9 sm:w-16" aria-hidden>
       <path d="M8 44a34 34 0 0 1 68 0" fill="none" stroke="var(--color-raised)" strokeWidth="8" strokeLinecap="round" />
       {k > 0 && <path d="M8 44a34 34 0 0 1 68 0" fill="none" stroke={tone} strokeWidth="8" strokeLinecap="round" strokeDasharray={`${k * half} ${half}`} />}
     </svg>
@@ -56,8 +69,9 @@ function Arc({ pct }: { pct: number | null }) {
 }
 
 /**
- * One loss limit. With a cap: a gauge of the cap's use. Without one: the measured figure itself
- * (`value`, `measured`) and a quiet note that no limit is set, never an empty gauge.
+ * One loss limit: the account's own figure as the headline and, with a cap, a gauge of its use and
+ * what is left. How it is measured, the share of the cap used and where the cap comes from are in the
+ * info panel. Without a cap the card shows the figure and "no limit set", never an empty gauge.
  */
 function LimitGauge({ label, use, value, measured, basis, help }: {
   label: string; use: LimitUse; value: ReactNode; measured: string;
@@ -65,54 +79,25 @@ function LimitGauge({ label, use, value, measured, basis, help }: {
   basis: string | null;
   help: string;
 }) {
-  const info = (
-    <Popover label={`How ${label.toLowerCase()} is measured`} align="right" trigger={<InfoIcon className="h-3.5 w-3.5 text-faint hover:text-bright" />}>
-      {help}
-    </Popover>
-  );
-  if (use.cap == null) {
-    return (
-      <Kpi
-        icon={ICON.gauge}
-        label={label}
-        sub={
-          <>
-            <div>{measured}</div>
-            {basis && <div className="text-faint">{basis}</div>}
-            <div className="flex items-start gap-1 text-faint">
-              <span title={NO_LIMIT_HINT}>no limit set</span>
-              {info}
-            </div>
-          </>
-        }
-      >
-        <span className="text-lg sm:text-xl">{value}</span>
-      </Kpi>
-    );
-  }
-  // The headline is the account's own figure, as it would be without any rules; the limit is a
-  // second reading (how much of it is used, what is left), so a 3.6% drawdown is never read as 36%.
   const line = limitLine(use);
+  const tone = use.pct != null && use.pct >= 80 ? "text-loss" : use.pct != null && use.pct >= 55 ? "text-warn" : "";
   return (
     <Kpi
       icon={ICON.gauge}
       label={label}
-      sub={
+      info={
         <>
-          <div>{measured}</div>
-          {line && <div className={line.over ? "font-medium text-loss" : ""}>{line.text}</div>}
-          <div className="flex items-start gap-1 text-faint">
-            <span>{basis}</span>
-            {info}
-          </div>
+          <p className="text-bright">{measured}</p>
+          {line && <p>{line.used}</p>}
+          {basis && <p className="text-muted">{basis}</p>}
+          <p className="text-muted">{help}</p>
         </>
       }
+      sub={line ? <span className={line.over ? "font-medium text-loss" : ""}>{line.left}</span> : <span className="text-faint">no limit set</span>}
     >
       <div className="flex items-end gap-2 sm:gap-2.5">
-        <Arc pct={use.pct} />
-        <span className={`text-lg sm:text-xl ${use.pct != null && use.pct >= 80 ? "text-loss" : use.pct != null && use.pct >= 55 ? "text-warn" : ""}`}>
-          {value}
-        </span>
+        {line && <Arc pct={use.pct} />}
+        <span className={tone}>{value}</span>
       </div>
     </Kpi>
   );
@@ -157,36 +142,34 @@ export function AccountStrip({
         </span>
       </div>
       <div className={`mt-3 grid grid-cols-2 gap-3 sm:grid-cols-3 ${open ? "xl:grid-cols-6" : "xl:grid-cols-5"}`}>
-        <Kpi icon={ICON.wallet} label="Balance" sub={`${account.currency} · closed trades only`}>
+        <Kpi icon={ICON.wallet} label="Balance" sub="closed trades only" info={<p>The venue's balance in {account.currency}: closed trades only. Open P&L is in Equity.</p>}>
           <FlashValue value={account.balance}><span className="text-bright">{money(account.balance)}</span></FlashValue>
         </Kpi>
-        <Kpi icon={ICON.pulse} label="Equity" sub={<>floating <Pnl value={account.equity - account.balance} glyphs={false} /></>}>
+        <Kpi icon={ICON.pulse} label="Equity" sub={<>floating <Pnl value={account.equity - account.balance} glyphs={false} /></>} info={<p>Balance plus the open positions' floating P&L, as the venue marks them.</p>}>
           <FlashValue value={account.equity}><span className="text-bright">{money(account.equity)}</span></FlashValue>
         </Kpi>
         <Kpi
           icon={ICON.sun}
           label="Today"
-          sub={
-            <>
-              <div>realized {signedMoney(today.realized)} · floating {signedMoney(today.floating)}</div>
-              <div className="text-faint">{dayLabel}</div>
-            </>
-          }
+          sub={`${signedMoney(today.realized)} closed`}
+          info={<p>{signedMoney(today.realized)} from trades closed since the day began, {signedMoney(today.floating)} open now. The day runs from {dayLabel.replace(/^day from /, "")}.</p>}
         >
           <FlashValue value={today.total}><Pnl value={today.total} /></FlashValue>
         </Kpi>
         {open && (
           <Kpi
             icon={ICON.shield}
-            label="Open risk to stops"
+            label="Open risk"
             sub={
-              openCount === 0 ? "flat: no open positions" : (
-                <>
-                  <div>if every stop fills now · {count(openCount)} {openCount === 1 ? "position" : "positions"}</div>
-                  {open.noStop > 0 && <div className="font-medium text-warn">{count(open.noStop)} without a stop: loss not bounded</div>}
-                  {open.unpriced > 0 && <div className="text-faint">{count(open.unpriced)} not priced yet</div>}
-                </>
-              )
+              open.noStop > 0 ? <span className="font-medium text-warn">{count(open.noStop)} without a stop</span>
+                : openCount === 0 ? "flat" : `${count(openCount)} ${openCount === 1 ? "position" : "positions"}`
+            }
+            info={
+              <>
+                <p>Open risk to stops: what the open positions would lose if every stop filled at its price now.</p>
+                {open.noStop > 0 && <p className="text-warn">{count(open.noStop)} without a stop: their loss is not bounded.</p>}
+                {open.unpriced > 0 && <p className="text-muted">{count(open.unpriced)} not priced yet.</p>}
+              </>
             }
           >
             {openCount === 0 ? <span className="text-faint">{money(0)}</span> : <FlashValue value={open.toStops}><Pnl value={open.toStops} /></FlashValue>}
@@ -197,13 +180,8 @@ export function AccountStrip({
             <LimitGauge
               label="Daily loss"
               use={use.daily}
-              value={
-                <span className={use.daily.used != null && use.daily.used > 0 ? "text-loss" : "text-bright"}>
-                  {signedMoney(use.daily.used == null ? null : -use.daily.used)}
-                  {use.daily.usedPct != null && <span className="ml-1.5 text-sm text-muted">{signedPct(-use.daily.usedPct, 2)}</span>}
-                </span>
-              }
-              measured={dailyMeasured(risk, use.daily)}
+              value={<span className={use.daily.used != null && use.daily.used > 0 ? "text-loss" : "text-bright"}>{signedMoney(use.daily.used == null ? null : -use.daily.used)}</span>}
+              measured={`${dailyMeasured(risk, use.daily)}${use.daily.usedPct != null ? ` (${signedPct(-use.daily.usedPct, 2)})` : ""}`}
               basis={`${risk.dailyLoss.includesFloating ? "incl. floating" : "realized only"} · ${dayBasisLabel(risk)}`}
               help={
                 risk.dailyLoss.includesFloating
@@ -212,11 +190,11 @@ export function AccountStrip({
               }
             />
             <LimitGauge
-              label="Max drawdown"
+              label="Drawdown"
               use={use.drawdown}
               value={<span className={use.drawdown.used != null && use.drawdown.used > 0 ? "text-loss" : "text-bright"}>{pctValue(use.drawdown.usedPct ?? (use.drawdown.used === 0 ? 0 : null), 2)}</span>}
               measured={drawdownMeasured(risk, use.drawdown)}
-              basis={use.drawdown.cap == null ? null : risk.basis === "static" ? `static below start ${money(risk.startBalance)}` : `from peak equity ${money(risk.peakEquity == null ? null : Math.max(risk.peakEquity, account.equity))}`}
+              basis={risk.basis === "static" ? null : `from peak equity ${money(risk.peakEquity == null ? null : Math.max(risk.peakEquity, account.equity))}`}
               help={
                 risk.basis === "static"
                   ? `How far equity is below the start balance (${risk.startBalanceSource ?? "unknown source"}). ${limitSource(risk)}`
