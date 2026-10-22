@@ -381,7 +381,7 @@ export interface LiveAccount {
   login?: string;
   server?: string;
   name?: string;
-  /** The venue account (`mt5:<login>@<server>`, `vgp:<adapter>:<login>`), as the collector resolved it. */
+  /** The opaque venue account id (`mt5:<16 hex>`, `vgp:<16 hex>`), as the collector resolved it. `login` is masked, `server` never sent. */
   accountId?: string;
   connector?: string;
   adapter?: string;

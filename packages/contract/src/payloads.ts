@@ -18,7 +18,11 @@ const instrument = object({
 });
 /** A typed venue cost; `amount` is positive when paid. */
 const cost = object({ kind: z.string(), amount: z.number(), currency: opt(z.string()) });
-/** `venue` and `accountId` on every venue envelope (`mt5:<login>@<server>`, `vgp:<adapter>:<login>`). */
+/**
+ * `venue` and `accountId` on every venue envelope. The id is opaque (`mt5:<16 hex>`, `vgp:<16 hex>`,
+ * accountIdentity.ts); an older qkt sent `mt5:<login>@<server>` / `vgp:<adapter>:<login>`, which the
+ * collector rewrites to the opaque form before anything is stored.
+ */
 const venueFacts = { venue: venue.optional(), accountId: opt(z.string()) };
 /**
  * What qkt resolved about a fill: the position it belongs to, the leg it made (IN, OUT, INOUT), why a

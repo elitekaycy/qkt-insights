@@ -9,7 +9,7 @@ const DAY = 86_400_000;
 /**
  * One venue account's equity history. qkt reports an account under a broker label, and one
  * account is often stored under several labels over time (a profile rename, per-profile copies
- * of one login). Labels are stitched by the venue account id ("mt5:login@server") when it was
+ * of one login). Labels are stitched by the opaque venue account id ("mt5:<16 hex>") when it was
  * reported, else by the rule accountDrawdown uses for its TOTAL: labels that never report in the
  * same minutes take turns for one account, labels that report together are separate accounts.
  */
@@ -123,7 +123,7 @@ export interface AccountLimitProfile {
   maxDrawdown?: number;
 }
 
-/** Profiles keyed by account id ("mt5:login@server", "vgp:adapter:login"), broker label, or "*" for every account. */
+/** Profiles keyed by opaque account id ("mt5:<16 hex>", "vgp:<16 hex>"), broker label, or "*" for every account. */
 export type AccountLimits = Record<string, AccountLimitProfile>;
 
 export interface AccountRiskRow {

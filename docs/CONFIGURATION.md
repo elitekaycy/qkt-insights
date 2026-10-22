@@ -28,8 +28,10 @@ covers the proxy, two-factor sign-in and sign-in alerts. The production image ex
 
 The Overview's risk budget and "Account DD" measure each venue account against limits that
 belong to the account. Set them with `INSIGHTS_ACCOUNT_LIMITS`, a JSON object keyed by the
-account id qkt reports (`mt5:login@server`, `vgp:adapter:login`; a bare MT5 `login@server` names
-the same account), the broker label, or `*` for every account:
+account (`login@server`, `mt5:login@server`, `vgp:adapter:login`, or the opaque `mt5:<16 hex>` /
+`vgp:<16 hex>` id qkt reports), the broker label, or `*` for every account. An account key is hashed
+to its opaque id when the configuration loads (docs/ARCHITECTURE.md, Account identity), so the
+collector keeps no login or server from it either:
 
 ```bash
 INSIGHTS_ACCOUNT_LIMITS='{"12345678@Broker-Server":{"basis":"static","startBalance":50000,"dailyLossPct":5,"maxDrawdownPct":10,"dailyResetHour":0,"timezone":"Europe/Athens","dailyLossIncludesFloating":true}}'

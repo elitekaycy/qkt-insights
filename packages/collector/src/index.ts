@@ -1,9 +1,9 @@
 import type { FastifyInstance } from "fastify";
 import { createHash, timingSafeEqual } from "node:crypto";
-import { BatchSchema, classifyEnvelope, isLiveStateType } from "@qkt-insights/contract";
+import { BatchSchema, classifyEnvelope, isLiveStateType, type EnvelopeClass } from "@qkt-insights/contract";
 import {
   ingestAck, ingestEnvelopes, persistStateEvent, quarantineEnvelopes, touchInstance, upsertRoster,
-  type Db, type IngestStatus, type LiveBus, type LiveStateStore,
+  withoutAccountCredentials, type Db, type IngestStatus, type LiveBus, type LiveStateStore,
 } from "@qkt-insights/store";
 
 export interface CollectorDeps { db: Db; bus: LiveBus; liveState: LiveStateStore; ingestToken: string }
@@ -21,6 +21,19 @@ function digest(value: string): Buffer {
 /** Key for an envelope that carries no id: its JSON, so a redelivery maps to the same row. */
 function contentId(raw: unknown): string {
   return `sha256:${createHash("sha256").update(JSON.stringify(raw) ?? "null").digest("hex")}`;
+}
+
+/**
+ * The envelope with its account credentials replaced before anything keeps or pushes it: account
+ * ids opaque, logins masked, servers dropped (contract accountIdentity.ts).
+ */
+function withoutCredentials(c: EnvelopeClass): EnvelopeClass {
+  if (c.ok) {
+    const payload = withoutAccountCredentials(c.value.payload);
+    return payload === c.value.payload ? c : { ok: true, value: { ...c.value, payload } as typeof c.value };
+  }
+  const raw = withoutAccountCredentials(c.quarantined.raw);
+  return raw === c.quarantined.raw ? c : { ok: false, quarantined: { ...c.quarantined, raw } };
 }
 
 export function registerCollector(app: FastifyInstance, deps: CollectorDeps): void {
@@ -50,7 +63,7 @@ export function registerCollector(app: FastifyInstance, deps: CollectorDeps): vo
     if (!parsed.success) return reply.code(400).send({ error: "invalid batch", detail: parsed.error.message });
 
     const { instanceId } = parsed.data;
-    const classes = parsed.data.events.map(classifyEnvelope);
+    const classes = parsed.data.events.map((raw) => withoutCredentials(classifyEnvelope(raw)));
     for (const c of classes) {
       const envelopeInstance = c.ok ? c.value.instanceId : c.quarantined.instanceId;
       if (envelopeInstance != null && envelopeInstance !== instanceId) {

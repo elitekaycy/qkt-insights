@@ -1,4 +1,5 @@
 import { describe, it, expect } from "vitest";
+import { mt5AccountId } from "@qkt-insights/contract";
 import { openDb } from "../src/db.js";
 import { LiveStateStore } from "../src/index.js";
 import type { Envelope } from "@qkt-insights/contract";
@@ -37,12 +38,13 @@ describe("LiveStateStore", () => {
     expect(stale.accounts[0]!.stale).toBe(true);
   });
 
-  it("carries account identity (login/server/name) into the snapshot", () => {
+  it("carries account identity into the snapshot as the opaque id and the masked login, never the server", () => {
     const store = new LiveStateStore();
     store.upsert("qkt-prod", accountEnv(T0, { login: "435898347", server: "Exness-MT5Trial9", name: "qkt-hedge-straddle" }));
-    expect(store.snapshot(T0 + 1000).accounts[0]).toMatchObject({
-      login: "435898347", server: "Exness-MT5Trial9", name: "qkt-hedge-straddle",
-    });
+    const account = store.snapshot(T0 + 1000).accounts[0]!;
+    expect(account).toMatchObject({ login: "•••8347", name: "qkt-hedge-straddle", accountId: mt5AccountId("435898347", "Exness-MT5Trial9") });
+    expect(account.server).toBeUndefined();
+    expect(JSON.stringify(account)).not.toMatch(/435898347|Exness-MT5Trial9/);
   });
 
   it("deduplicates account state from sibling broker profiles on the same venue account", () => {
@@ -65,8 +67,8 @@ describe("LiveStateStore", () => {
     expect(accounts[0]).toMatchObject({
       instanceId: "qkt-prod",
       broker: "EXNESS",
-      login: "476422618",
-      server: "Exness-MT5Trial9",
+      login: "•••2618",
+      accountId: mt5AccountId("476422618", "Exness-MT5Trial9"),
       equity: 4999990,
     });
   });

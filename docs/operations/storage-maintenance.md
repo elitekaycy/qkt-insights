@@ -32,6 +32,27 @@ docker exec qkt-insights node -e '
 
 `freeMiB` is what a conversion gives back at once; later prunes keep returning their pages.
 
+## Account identity left by an earlier release
+
+Migration `039_opaque_account_identity` runs once at the first start of a release that has it. It
+rewrites every stored account id (`account_equity.account`, `account_labels.identity`,
+`deals.account_id`) to the opaque id, and removes the raw `login` / `server` from stored payload JSON
+(`events`, `quarantined_events`, `instance_health`, `strategies.metadata`, risk and portfolio
+payloads) and from log text (`logs`, `logs_fts`). It reads in rowid batches of 5000 rows, each batch
+its own transaction, with `secure_delete` on so a rewritten row leaves no copy of its old bytes; an
+interrupted run starts over harmlessly at the next start. A 3 GB database takes about as long as one
+read of the payload tables.
+
+Bytes an earlier release freed before the migration (a page split's leftovers, pruned rows) can
+still sit in unused page space: no table returns them, but a byte scan of the file can. The
+conversion below rewrites the whole file and drops them; run it in a maintenance window when the
+file itself must hold no trace.
+
+Rolling back to a release without the migration is safe: it boots, ingests, and reads the opaque
+ids as account ids. An older qkt (one that sends `mt5:<login>@<server>`) talking to that rolled-back
+collector then stores new rows under the raw id, so one account shows as two (before and after the
+rollback) and an `INSIGHTS_ACCOUNT_LIMITS` key matches only one of them until this release is back.
+
 ## Converting an existing database (maintenance window)
 
 The conversion rewrites the whole file with `VACUUM INTO`. It is offline: the collector must be
