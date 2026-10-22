@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 import type { AccountRiskRow, LivePositionRow } from "./api";
-import { dailyMeasured, drawdownMeasured, emptyPeriods, limitUse, noAccountMessage, openRisk, positionRisks, rangeFirstDay, riskRowFor, strategyLines, strategyPeriods } from "./home";
+import { dailyMeasured, drawdownMeasured, emptyPeriods, limitLine, limitUse, noAccountMessage, openRisk, positionRisks, rangeFirstDay, riskRowFor, strategyLines, strategyPeriods } from "./home";
 
 function position(p: Partial<LivePositionRow> & Pick<LivePositionRow, "ticket">): LivePositionRow {
   return { symbol: "XAUUSD", side: "BUY", qty: 1, entryPrice: 100, ...p };
@@ -155,3 +155,20 @@ describe("noAccountMessage", () => {
     expect(quiet).toMatch(/^bench last reported 3d ago \(\d{4}-\d\d-\d\d \d\d:\d\d:\d\d UTC\), so there is no live account state\./);
   });
 });
+
+describe("limitLine", () => {
+  const use = (used: number | null, cap: number | null) => ({ used, cap, pct: used != null && cap ? (used / cap) * 100 : null, reference: 50_000, usedPct: used != null ? (used / 50_000) * 100 : null });
+
+  it("reads the limit beside the account figure: what is left and how much is used", () => {
+    expect(limitLine(use(1_785.89, 5_000))).toEqual({ text: "3,214.11 left · 35.7% of the 5,000.00 limit used", over: false });
+  });
+
+  it("says over the limit once it is reached", () => {
+    expect(limitLine(use(5_200, 5_000))).toEqual({ text: "over the 5,000.00 limit", over: true });
+  });
+
+  it("has nothing to say for an account without a limit", () => {
+    expect(limitLine(use(1_785.89, null))).toBeNull();
+  });
+});
+
