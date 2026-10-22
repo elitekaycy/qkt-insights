@@ -90,7 +90,8 @@ export function StrategyTable({
   const desc = !sortParam.startsWith("+");
   const key = (COLUMNS.find((c) => c.key === sortParam.replace(/^\+/, ""))?.key ?? "today") as SortKey;
 
-  const hidden = (l: StrategyLine) => l.row != null && (!l.row.active || (l.periods.trades === 0 && l.periods.floating === 0));
+  // Only retired strategies fold away; a deployed one shows before its first trade.
+  const hidden = (l: StrategyLine) => l.row != null && !l.row.active;
   const all = showAll || asksForRetired(find);
   const matched = lines.filter((l) => matchesStrategy(l.row, find));
   const shown = matched.filter((l) => all || !hidden(l)).sort((a, b) => {
@@ -128,7 +129,7 @@ export function StrategyTable({
         {search && <StrategySearch className={right ? "" : "ml-auto"} />}
         {hiddenCount > 0 && !asksForRetired(find) && (
           <button type="button" onClick={() => setShowAll((s) => !s)} className={`${right || search ? "" : "ml-auto"} text-xs font-medium text-accent-ink hover:underline`}>
-            {showAll ? "Hide retired and empty" : `Show ${hiddenCount} retired or empty`}
+            {showAll ? "Hide retired" : `Show ${hiddenCount} retired`}
           </button>
         )}
       </div>

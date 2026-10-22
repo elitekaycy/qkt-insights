@@ -195,7 +195,7 @@ function StrategyCardList({ lines, closes, now }: { lines: StrategyLine[]; close
         <span>as of {ts(now).slice(11, 16)} UTC · cards add up to the account; unattributed = deals no strategy claimed</span>
         {foldedCount > 0 && !asksForRetired(find) && (
           <button type="button" onClick={() => setShowAll((s) => !s)} className="text-xs font-medium text-accent-ink hover:underline">
-            {showAll ? "Hide retired and empty" : `Show ${foldedCount} retired or empty`}
+            {showAll ? "Hide retired" : `Show ${foldedCount} retired`}
           </button>
         )}
       </div>
