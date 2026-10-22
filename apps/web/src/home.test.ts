@@ -134,6 +134,16 @@ describe("loss limits without a cap", () => {
     const floating = riskRow({ dailyLoss: { ...noCaps.dailyLoss, includesFloating: true, dayStartBalance: 10_000 } });
     expect(dailyMeasured(floating, limitUse(floating, 9_900).daily)).toBe("from the day-start balance 10,000.00 to equity now");
   });
+
+  it("measures a higher-of day from the day-start equity when it was above the balance", () => {
+    const higher = riskRow({
+      dailyLoss: { ...noCaps.dailyLoss, includesFloating: true, base: "higher", dayStartBalance: 10_000, dayStartEquity: 10_400, reference: 10_400 },
+    });
+    const use = limitUse(higher, 10_100);
+    expect(use.daily.used).toBe(300);
+    expect(use.daily.reference).toBe(10_400);
+    expect(dailyMeasured(higher, use.daily)).toBe("from the day-start equity 10,400.00 (above the balance) to equity now");
+  });
 });
 
 describe("noAccountMessage", () => {

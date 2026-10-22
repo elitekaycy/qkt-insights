@@ -107,6 +107,31 @@ describe("accountRisk", () => {
   });
 });
 
+describe("dailyLossBase higher", () => {
+  it("measures the day from the day-start equity when floating profit put it above the balance", () => {
+    const db = openDb(":memory:");
+    // At the server-day start (21:00Z) the balance is 50,000 with 400 floating profit: the day is measured from 50,400.
+    equity(db, "PROP", Date.UTC(2026, 5, 30, 21), 50_000, 50_400, "777@Demo-Server");
+    equity(db, "PROP", T0 - M, 50_000, 49_900, "777@Demo-Server");
+    const base = { basis: "static" as const, startBalance: 50_000, dailyLossPct: 5, maxDrawdownPct: 10, timezone: "Europe/Athens", dailyLossIncludesFloating: true };
+    const [higher] = accountRisk(db, { instanceId: I, now: T0, limits: { "777@Demo-Server": { ...base, dailyLossBase: "higher" } } });
+    expect(higher!.dailyLoss).toMatchObject({ base: "higher", dayStartBalance: 50_000, dayStartEquity: 50_400, reference: 50_400, used: 500 });
+    expect(higher!.dailyLoss.cap).toBeCloseTo(2_520, 9);
+    const [plain] = accountRisk(db, { instanceId: I, now: T0, limits: { "777@Demo-Server": base } });
+    expect(plain!.dailyLoss).toMatchObject({ base: "balance", reference: 50_000, used: 100 });
+    expect(plain!.dailyLoss.cap).toBeCloseTo(2_500, 9);
+  });
+
+  it("keeps the balance when equity was below it at the day start", () => {
+    const db = openDb(":memory:");
+    equity(db, "PROP", Date.UTC(2026, 5, 30, 21), 50_000, 49_700, "777@Demo-Server");
+    equity(db, "PROP", T0 - M, 50_000, 49_600, "777@Demo-Server");
+    const limits = { "777@Demo-Server": { dailyLossPct: 5, timezone: "Europe/Athens", dailyLossIncludesFloating: true, dailyLossBase: "higher" as const } };
+    const [row] = accountRisk(db, { instanceId: I, now: T0, limits });
+    expect(row!.dailyLoss).toMatchObject({ reference: 50_000, used: 400 });
+  });
+});
+
 describe("tradingDayStart", () => {
   it("resets at the configured hour in the configured timezone", () => {
     const noon = Date.UTC(2026, 6, 1, 12);

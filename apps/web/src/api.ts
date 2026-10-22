@@ -364,6 +364,8 @@ export interface AccountRiskRow {
   dailyLoss: {
     used: number | null; cap: number | null; dayStart: number; resetHour: number; timezone: string;
     includesFloating: boolean; dayStartBalance: number | null; realizedToday: number;
+    /** Older collectors omit these three: the day-start balance is then the reference. */
+    base?: "balance" | "higher"; dayStartEquity?: number | null; reference?: number | null;
   };
 }
 export interface AccountDrawdownRow {
