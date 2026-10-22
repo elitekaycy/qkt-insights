@@ -1,0 +1,4427 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "urn:qkt-insights:contract:1.0.0",
+  "title": "qkt-insights envelope contract 1.0.0",
+  "x-contract-version": "1.0.0",
+  "x-envelope-majors": [
+    1
+  ],
+  "oneOf": [
+    {
+      "allOf": [
+        {
+          "$ref": "#/$defs/envelope"
+        }
+      ],
+      "properties": {
+        "type": {
+          "const": "balances.updated"
+        },
+        "payload": {
+          "$ref": "#/$defs/balances.updated"
+        }
+      },
+      "required": [
+        "payload"
+      ]
+    },
+    {
+      "allOf": [
+        {
+          "$ref": "#/$defs/envelope"
+        }
+      ],
+      "properties": {
+        "type": {
+          "const": "bot.cancel"
+        },
+        "payload": {
+          "$ref": "#/$defs/bot.cancel"
+        }
+      },
+      "required": [
+        "payload"
+      ]
+    },
+    {
+      "allOf": [
+        {
+          "$ref": "#/$defs/envelope"
+        }
+      ],
+      "properties": {
+        "type": {
+          "const": "bot.close"
+        },
+        "payload": {
+          "$ref": "#/$defs/bot.close"
+        }
+      },
+      "required": [
+        "payload"
+      ]
+    },
+    {
+      "allOf": [
+        {
+          "$ref": "#/$defs/envelope"
+        }
+      ],
+      "properties": {
+        "type": {
+          "const": "bot.command"
+        },
+        "payload": {
+          "$ref": "#/$defs/bot.command"
+        }
+      },
+      "required": [
+        "payload"
+      ]
+    },
+    {
+      "allOf": [
+        {
+          "$ref": "#/$defs/envelope"
+        }
+      ],
+      "properties": {
+        "type": {
+          "const": "bot.modify"
+        },
+        "payload": {
+          "$ref": "#/$defs/bot.modify"
+        }
+      },
+      "required": [
+        "payload"
+      ]
+    },
+    {
+      "allOf": [
+        {
+          "$ref": "#/$defs/envelope"
+        }
+      ],
+      "properties": {
+        "type": {
+          "const": "bot.session.intent"
+        },
+        "payload": {
+          "$ref": "#/$defs/bot.session.intent"
+        }
+      },
+      "required": [
+        "payload"
+      ]
+    },
+    {
+      "allOf": [
+        {
+          "$ref": "#/$defs/envelope"
+        }
+      ],
+      "properties": {
+        "type": {
+          "const": "broker.connected"
+        },
+        "payload": {
+          "$ref": "#/$defs/broker.connected"
+        }
+      },
+      "required": [
+        "payload"
+      ]
+    },
+    {
+      "allOf": [
+        {
+          "$ref": "#/$defs/envelope"
+        }
+      ],
+      "properties": {
+        "type": {
+          "const": "broker.deal"
+        },
+        "payload": {
+          "$ref": "#/$defs/broker.deal"
+        }
+      },
+      "required": [
+        "payload"
+      ]
+    },
+    {
+      "allOf": [
+        {
+          "$ref": "#/$defs/envelope"
+        }
+      ],
+      "properties": {
+        "type": {
+          "const": "broker.disconnected"
+        },
+        "payload": {
+          "$ref": "#/$defs/broker.disconnected"
+        }
+      },
+      "required": [
+        "payload"
+      ]
+    },
+    {
+      "allOf": [
+        {
+          "$ref": "#/$defs/envelope"
+        }
+      ],
+      "properties": {
+        "type": {
+          "const": "broker.reconnected"
+        },
+        "payload": {
+          "$ref": "#/$defs/broker.reconnected"
+        }
+      },
+      "required": [
+        "payload"
+      ]
+    },
+    {
+      "allOf": [
+        {
+          "$ref": "#/$defs/envelope"
+        }
+      ],
+      "properties": {
+        "type": {
+          "const": "decision.order_linked"
+        },
+        "payload": {
+          "$ref": "#/$defs/decision.order_linked"
+        }
+      },
+      "required": [
+        "payload"
+      ]
+    },
+    {
+      "allOf": [
+        {
+          "$ref": "#/$defs/envelope"
+        }
+      ],
+      "properties": {
+        "type": {
+          "const": "decision.rule_evaluated"
+        },
+        "payload": {
+          "$ref": "#/$defs/decision.rule_evaluated"
+        }
+      },
+      "required": [
+        "payload"
+      ]
+    },
+    {
+      "allOf": [
+        {
+          "$ref": "#/$defs/envelope"
+        }
+      ],
+      "properties": {
+        "type": {
+          "const": "fill.accounted"
+        },
+        "payload": {
+          "$ref": "#/$defs/fill.accounted"
+        }
+      },
+      "required": [
+        "payload"
+      ]
+    },
+    {
+      "allOf": [
+        {
+          "$ref": "#/$defs/envelope"
+        }
+      ],
+      "properties": {
+        "type": {
+          "const": "gateway.unreachable"
+        },
+        "payload": {
+          "$ref": "#/$defs/gateway.unreachable"
+        }
+      },
+      "required": [
+        "payload"
+      ]
+    },
+    {
+      "allOf": [
+        {
+          "$ref": "#/$defs/envelope"
+        }
+      ],
+      "properties": {
+        "type": {
+          "const": "insights.health"
+        },
+        "payload": {
+          "$ref": "#/$defs/insights.health"
+        }
+      },
+      "required": [
+        "payload"
+      ]
+    },
+    {
+      "allOf": [
+        {
+          "$ref": "#/$defs/envelope"
+        }
+      ],
+      "properties": {
+        "type": {
+          "const": "instance.roster"
+        },
+        "payload": {
+          "$ref": "#/$defs/instance.roster"
+        }
+      },
+      "required": [
+        "payload"
+      ]
+    },
+    {
+      "allOf": [
+        {
+          "$ref": "#/$defs/envelope"
+        }
+      ],
+      "properties": {
+        "type": {
+          "const": "log"
+        },
+        "payload": {
+          "$ref": "#/$defs/log"
+        }
+      },
+      "required": [
+        "payload"
+      ]
+    },
+    {
+      "allOf": [
+        {
+          "$ref": "#/$defs/envelope"
+        }
+      ],
+      "properties": {
+        "type": {
+          "const": "marketdata.connected"
+        },
+        "payload": {
+          "$ref": "#/$defs/marketdata.connected"
+        }
+      },
+      "required": [
+        "payload"
+      ]
+    },
+    {
+      "allOf": [
+        {
+          "$ref": "#/$defs/envelope"
+        }
+      ],
+      "properties": {
+        "type": {
+          "const": "marketdata.disconnected"
+        },
+        "payload": {
+          "$ref": "#/$defs/marketdata.disconnected"
+        }
+      },
+      "required": [
+        "payload"
+      ]
+    },
+    {
+      "allOf": [
+        {
+          "$ref": "#/$defs/envelope"
+        }
+      ],
+      "properties": {
+        "type": {
+          "const": "marketdata.reconnected"
+        },
+        "payload": {
+          "$ref": "#/$defs/marketdata.reconnected"
+        }
+      },
+      "required": [
+        "payload"
+      ]
+    },
+    {
+      "allOf": [
+        {
+          "$ref": "#/$defs/envelope"
+        }
+      ],
+      "properties": {
+        "type": {
+          "const": "marketdata.recovered"
+        },
+        "payload": {
+          "$ref": "#/$defs/marketdata.recovered"
+        }
+      },
+      "required": [
+        "payload"
+      ]
+    },
+    {
+      "allOf": [
+        {
+          "$ref": "#/$defs/envelope"
+        }
+      ],
+      "properties": {
+        "type": {
+          "const": "marketdata.stale"
+        },
+        "payload": {
+          "$ref": "#/$defs/marketdata.stale"
+        }
+      },
+      "required": [
+        "payload"
+      ]
+    },
+    {
+      "allOf": [
+        {
+          "$ref": "#/$defs/envelope"
+        }
+      ],
+      "properties": {
+        "type": {
+          "const": "order.accepted"
+        },
+        "payload": {
+          "$ref": "#/$defs/order.accepted"
+        }
+      },
+      "required": [
+        "payload"
+      ]
+    },
+    {
+      "allOf": [
+        {
+          "$ref": "#/$defs/envelope"
+        }
+      ],
+      "properties": {
+        "type": {
+          "const": "order.cancelled"
+        },
+        "payload": {
+          "$ref": "#/$defs/order.cancelled"
+        }
+      },
+      "required": [
+        "payload"
+      ]
+    },
+    {
+      "allOf": [
+        {
+          "$ref": "#/$defs/envelope"
+        }
+      ],
+      "properties": {
+        "type": {
+          "const": "order.filled"
+        },
+        "payload": {
+          "$ref": "#/$defs/order.filled"
+        }
+      },
+      "required": [
+        "payload"
+      ]
+    },
+    {
+      "allOf": [
+        {
+          "$ref": "#/$defs/envelope"
+        }
+      ],
+      "properties": {
+        "type": {
+          "const": "order.modified"
+        },
+        "payload": {
+          "$ref": "#/$defs/order.modified"
+        }
+      },
+      "required": [
+        "payload"
+      ]
+    },
+    {
+      "allOf": [
+        {
+          "$ref": "#/$defs/envelope"
+        }
+      ],
+      "properties": {
+        "type": {
+          "const": "order.partially_filled"
+        },
+        "payload": {
+          "$ref": "#/$defs/order.partially_filled"
+        }
+      },
+      "required": [
+        "payload"
+      ]
+    },
+    {
+      "allOf": [
+        {
+          "$ref": "#/$defs/envelope"
+        }
+      ],
+      "properties": {
+        "type": {
+          "const": "order.rejected"
+        },
+        "payload": {
+          "$ref": "#/$defs/order.rejected"
+        }
+      },
+      "required": [
+        "payload"
+      ]
+    },
+    {
+      "allOf": [
+        {
+          "$ref": "#/$defs/envelope"
+        }
+      ],
+      "properties": {
+        "type": {
+          "const": "order.submit"
+        },
+        "payload": {
+          "$ref": "#/$defs/order.submit"
+        }
+      },
+      "required": [
+        "payload"
+      ]
+    },
+    {
+      "allOf": [
+        {
+          "$ref": "#/$defs/envelope"
+        }
+      ],
+      "properties": {
+        "type": {
+          "const": "portfolio.allocation.updated"
+        },
+        "payload": {
+          "$ref": "#/$defs/portfolio.allocation.updated"
+        }
+      },
+      "required": [
+        "payload"
+      ]
+    },
+    {
+      "allOf": [
+        {
+          "$ref": "#/$defs/envelope"
+        }
+      ],
+      "properties": {
+        "type": {
+          "const": "portfolio.configured"
+        },
+        "payload": {
+          "$ref": "#/$defs/portfolio.configured"
+        }
+      },
+      "required": [
+        "payload"
+      ]
+    },
+    {
+      "allOf": [
+        {
+          "$ref": "#/$defs/envelope"
+        }
+      ],
+      "properties": {
+        "type": {
+          "const": "portfolio.equity.updated"
+        },
+        "payload": {
+          "$ref": "#/$defs/portfolio.equity.updated"
+        }
+      },
+      "required": [
+        "payload"
+      ]
+    },
+    {
+      "allOf": [
+        {
+          "$ref": "#/$defs/envelope"
+        }
+      ],
+      "properties": {
+        "type": {
+          "const": "portfolio.exposure.updated"
+        },
+        "payload": {
+          "$ref": "#/$defs/portfolio.exposure.updated"
+        }
+      },
+      "required": [
+        "payload"
+      ]
+    },
+    {
+      "allOf": [
+        {
+          "$ref": "#/$defs/envelope"
+        }
+      ],
+      "properties": {
+        "type": {
+          "const": "position.closed"
+        },
+        "payload": {
+          "$ref": "#/$defs/position.closed"
+        }
+      },
+      "required": [
+        "payload"
+      ]
+    },
+    {
+      "allOf": [
+        {
+          "$ref": "#/$defs/envelope"
+        }
+      ],
+      "properties": {
+        "type": {
+          "const": "position.opened"
+        },
+        "payload": {
+          "$ref": "#/$defs/position.opened"
+        }
+      },
+      "required": [
+        "payload"
+      ]
+    },
+    {
+      "allOf": [
+        {
+          "$ref": "#/$defs/envelope"
+        }
+      ],
+      "properties": {
+        "type": {
+          "const": "position.reconciled"
+        },
+        "payload": {
+          "$ref": "#/$defs/position.reconciled"
+        }
+      },
+      "required": [
+        "payload"
+      ]
+    },
+    {
+      "allOf": [
+        {
+          "$ref": "#/$defs/envelope"
+        }
+      ],
+      "properties": {
+        "type": {
+          "const": "position.updated"
+        },
+        "payload": {
+          "$ref": "#/$defs/position.updated"
+        }
+      },
+      "required": [
+        "payload"
+      ]
+    },
+    {
+      "allOf": [
+        {
+          "$ref": "#/$defs/envelope"
+        }
+      ],
+      "properties": {
+        "type": {
+          "const": "position.valued"
+        },
+        "payload": {
+          "$ref": "#/$defs/position.valued"
+        }
+      },
+      "required": [
+        "payload"
+      ]
+    },
+    {
+      "allOf": [
+        {
+          "$ref": "#/$defs/envelope"
+        }
+      ],
+      "properties": {
+        "type": {
+          "const": "risk.halted"
+        },
+        "payload": {
+          "$ref": "#/$defs/risk.halted"
+        }
+      },
+      "required": [
+        "payload"
+      ]
+    },
+    {
+      "allOf": [
+        {
+          "$ref": "#/$defs/envelope"
+        }
+      ],
+      "properties": {
+        "type": {
+          "const": "risk.rejected"
+        },
+        "payload": {
+          "$ref": "#/$defs/risk.rejected"
+        }
+      },
+      "required": [
+        "payload"
+      ]
+    },
+    {
+      "allOf": [
+        {
+          "$ref": "#/$defs/envelope"
+        }
+      ],
+      "properties": {
+        "type": {
+          "const": "risk.resumed"
+        },
+        "payload": {
+          "$ref": "#/$defs/risk.resumed"
+        }
+      },
+      "required": [
+        "payload"
+      ]
+    },
+    {
+      "allOf": [
+        {
+          "$ref": "#/$defs/envelope"
+        }
+      ],
+      "properties": {
+        "type": {
+          "const": "risk.snapshot"
+        },
+        "payload": {
+          "$ref": "#/$defs/risk.snapshot"
+        }
+      },
+      "required": [
+        "payload"
+      ]
+    },
+    {
+      "allOf": [
+        {
+          "$ref": "#/$defs/envelope"
+        }
+      ],
+      "properties": {
+        "type": {
+          "const": "signal"
+        },
+        "payload": {
+          "$ref": "#/$defs/signal"
+        }
+      },
+      "required": [
+        "payload"
+      ]
+    },
+    {
+      "allOf": [
+        {
+          "$ref": "#/$defs/envelope"
+        }
+      ],
+      "properties": {
+        "type": {
+          "const": "signal.cancel"
+        },
+        "payload": {
+          "$ref": "#/$defs/signal.cancel"
+        }
+      },
+      "required": [
+        "payload"
+      ]
+    },
+    {
+      "allOf": [
+        {
+          "$ref": "#/$defs/envelope"
+        }
+      ],
+      "properties": {
+        "type": {
+          "const": "signal.latch_armed"
+        },
+        "payload": {
+          "$ref": "#/$defs/signal.latch_armed"
+        }
+      },
+      "required": [
+        "payload"
+      ]
+    },
+    {
+      "allOf": [
+        {
+          "$ref": "#/$defs/envelope"
+        }
+      ],
+      "properties": {
+        "type": {
+          "const": "signal.structure"
+        },
+        "payload": {
+          "$ref": "#/$defs/signal.structure"
+        }
+      },
+      "required": [
+        "payload"
+      ]
+    },
+    {
+      "allOf": [
+        {
+          "$ref": "#/$defs/envelope"
+        }
+      ],
+      "properties": {
+        "type": {
+          "const": "signal.suppressed"
+        },
+        "payload": {
+          "$ref": "#/$defs/signal.suppressed"
+        }
+      },
+      "required": [
+        "payload"
+      ]
+    },
+    {
+      "allOf": [
+        {
+          "$ref": "#/$defs/envelope"
+        }
+      ],
+      "properties": {
+        "type": {
+          "const": "snapshot.equity"
+        },
+        "payload": {
+          "$ref": "#/$defs/snapshot.equity"
+        }
+      },
+      "required": [
+        "payload"
+      ]
+    },
+    {
+      "allOf": [
+        {
+          "$ref": "#/$defs/envelope"
+        }
+      ],
+      "properties": {
+        "type": {
+          "const": "snapshot.position"
+        },
+        "payload": {
+          "$ref": "#/$defs/snapshot.position"
+        }
+      },
+      "required": [
+        "payload"
+      ]
+    },
+    {
+      "allOf": [
+        {
+          "$ref": "#/$defs/envelope"
+        }
+      ],
+      "properties": {
+        "type": {
+          "const": "state.account"
+        },
+        "payload": {
+          "$ref": "#/$defs/state.account"
+        }
+      },
+      "required": [
+        "payload"
+      ]
+    },
+    {
+      "allOf": [
+        {
+          "$ref": "#/$defs/envelope"
+        }
+      ],
+      "properties": {
+        "type": {
+          "const": "state.orders"
+        },
+        "payload": {
+          "$ref": "#/$defs/state.orders"
+        }
+      },
+      "required": [
+        "payload"
+      ]
+    },
+    {
+      "allOf": [
+        {
+          "$ref": "#/$defs/envelope"
+        }
+      ],
+      "properties": {
+        "type": {
+          "const": "state.persistence"
+        },
+        "payload": {
+          "$ref": "#/$defs/state.persistence"
+        }
+      },
+      "required": [
+        "payload"
+      ]
+    },
+    {
+      "allOf": [
+        {
+          "$ref": "#/$defs/envelope"
+        }
+      ],
+      "properties": {
+        "type": {
+          "const": "state.positions"
+        },
+        "payload": {
+          "$ref": "#/$defs/state.positions"
+        }
+      },
+      "required": [
+        "payload"
+      ]
+    },
+    {
+      "allOf": [
+        {
+          "$ref": "#/$defs/envelope"
+        }
+      ],
+      "properties": {
+        "type": {
+          "const": "strategy.started"
+        },
+        "payload": {
+          "$ref": "#/$defs/strategy.started"
+        }
+      },
+      "required": [
+        "payload"
+      ]
+    },
+    {
+      "allOf": [
+        {
+          "$ref": "#/$defs/envelope"
+        }
+      ],
+      "properties": {
+        "type": {
+          "const": "strategy.stopped"
+        },
+        "payload": {
+          "$ref": "#/$defs/strategy.stopped"
+        }
+      },
+      "required": [
+        "payload"
+      ]
+    },
+    {
+      "allOf": [
+        {
+          "$ref": "#/$defs/envelope"
+        }
+      ],
+      "properties": {
+        "type": {
+          "const": "trade"
+        },
+        "payload": {
+          "$ref": "#/$defs/trade"
+        }
+      },
+      "required": [
+        "payload"
+      ]
+    },
+    {
+      "allOf": [
+        {
+          "$ref": "#/$defs/envelope"
+        }
+      ],
+      "properties": {
+        "type": {
+          "const": "trade.closed"
+        },
+        "payload": {
+          "$ref": "#/$defs/trade.closed"
+        }
+      },
+      "required": [
+        "payload"
+      ]
+    }
+  ],
+  "$defs": {
+    "envelope": {
+      "type": "object",
+      "properties": {
+        "v": {
+          "type": "integer",
+          "enum": [
+            1
+          ]
+        },
+        "instanceId": {
+          "type": "string",
+          "minLength": 1
+        },
+        "id": {
+          "type": "string",
+          "minLength": 1
+        },
+        "seq": {
+          "type": "integer",
+          "minimum": 0
+        },
+        "ts": {
+          "type": "integer"
+        },
+        "strategyId": {
+          "type": "string"
+        },
+        "type": {
+          "type": "string",
+          "minLength": 1
+        },
+        "payload": {}
+      },
+      "required": [
+        "v",
+        "instanceId",
+        "id",
+        "seq",
+        "ts",
+        "type"
+      ]
+    },
+    "balances.updated": {
+      "type": "object",
+      "properties": {
+        "balances": {
+          "type": "object",
+          "additionalProperties": {
+            "type": "number"
+          }
+        }
+      },
+      "required": [
+        "balances"
+      ],
+      "x-since": "1.0.0"
+    },
+    "bot.cancel": {
+      "type": "object",
+      "properties": {
+        "symbol": {
+          "type": "string"
+        },
+        "ticket": {
+          "type": "string"
+        },
+        "ok": {
+          "type": "string"
+        },
+        "run": {
+          "type": "string"
+        }
+      },
+      "required": [
+        "symbol",
+        "ticket"
+      ],
+      "x-since": "1.0.0"
+    },
+    "bot.close": {
+      "type": "object",
+      "properties": {
+        "symbol": {
+          "type": "string"
+        },
+        "ticket": {
+          "type": "string"
+        },
+        "ok": {
+          "type": "string"
+        },
+        "deal": {
+          "type": "string"
+        },
+        "price": {
+          "type": "string"
+        }
+      },
+      "required": [
+        "symbol",
+        "ticket"
+      ],
+      "x-since": "1.0.0"
+    },
+    "bot.command": {
+      "type": "object",
+      "properties": {
+        "source": {
+          "type": "string"
+        },
+        "sha256": {
+          "type": "string"
+        },
+        "qktVersion": {
+          "type": "string"
+        },
+        "argv": {
+          "type": "array",
+          "items": {
+            "type": "string"
+          }
+        },
+        "symbol": {
+          "type": "string"
+        },
+        "run": {
+          "type": "string"
+        }
+      },
+      "required": [
+        "source",
+        "sha256"
+      ],
+      "x-since": "1.0.0"
+    },
+    "bot.modify": {
+      "type": "object",
+      "properties": {
+        "symbol": {
+          "type": "string"
+        },
+        "ticket": {
+          "type": "string"
+        },
+        "sl": {
+          "type": "string"
+        },
+        "tp": {
+          "type": "string"
+        },
+        "ok": {
+          "type": "string"
+        },
+        "reason": {
+          "type": "string"
+        },
+        "run": {
+          "type": "string"
+        }
+      },
+      "required": [
+        "symbol",
+        "ticket"
+      ],
+      "x-since": "1.0.0"
+    },
+    "bot.session.intent": {
+      "type": "object",
+      "properties": {
+        "orderId": {
+          "type": "string"
+        },
+        "symbol": {
+          "type": "string"
+        },
+        "sha256": {
+          "type": "string"
+        },
+        "lots": {
+          "type": "string"
+        },
+        "simMs": {
+          "type": "string"
+        },
+        "run": {
+          "type": "string"
+        }
+      },
+      "required": [
+        "orderId",
+        "symbol"
+      ],
+      "x-since": "1.0.0"
+    },
+    "broker.connected": {
+      "type": "object",
+      "properties": {
+        "broker": {
+          "type": "string"
+        },
+        "state": {
+          "type": "string"
+        },
+        "reason": {
+          "type": "string"
+        },
+        "ts": {
+          "type": "number"
+        },
+        "venue": {
+          "type": "object",
+          "properties": {
+            "connector": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ]
+            },
+            "adapter": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ]
+            },
+            "label": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ]
+            }
+          }
+        },
+        "accountId": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ]
+        }
+      },
+      "required": [
+        "broker"
+      ],
+      "x-since": "1.0.0"
+    },
+    "broker.deal": {
+      "type": "object",
+      "properties": {
+        "broker": {
+          "type": "string"
+        },
+        "dealTicket": {
+          "type": "string"
+        },
+        "positionTicket": {
+          "type": "string"
+        },
+        "orderTicket": {
+          "type": "string"
+        },
+        "symbol": {
+          "type": "string"
+        },
+        "side": {
+          "type": "string",
+          "enum": [
+            "BUY",
+            "SELL"
+          ]
+        },
+        "entry": {
+          "type": "string"
+        },
+        "qty": {
+          "type": "number"
+        },
+        "price": {
+          "type": "number"
+        },
+        "profit": {
+          "type": "number"
+        },
+        "commission": {
+          "type": "number"
+        },
+        "swap": {
+          "type": "number"
+        },
+        "fee": {
+          "type": "number"
+        },
+        "magic": {
+          "type": "number"
+        },
+        "comment": {
+          "type": "string"
+        },
+        "clientOrderId": {
+          "type": "string"
+        },
+        "ts": {
+          "type": "number"
+        },
+        "strategyId": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ]
+        },
+        "costs": {
+          "type": "array",
+          "items": {
+            "type": "object",
+            "properties": {
+              "kind": {
+                "type": "string"
+              },
+              "amount": {
+                "type": "number"
+              },
+              "currency": {
+                "anyOf": [
+                  {
+                    "type": "string"
+                  },
+                  {
+                    "type": "null"
+                  }
+                ]
+              }
+            },
+            "required": [
+              "kind",
+              "amount"
+            ]
+          }
+        },
+        "realizedSource": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ]
+        },
+        "positionId": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ]
+        },
+        "nextPositionId": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ]
+        },
+        "legEntry": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ]
+        },
+        "closeReason": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ]
+        },
+        "attribution": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ]
+        },
+        "initialStop": {
+          "anyOf": [
+            {
+              "type": "number"
+            },
+            {
+              "type": "null"
+            }
+          ]
+        },
+        "initialTarget": {
+          "anyOf": [
+            {
+              "type": "number"
+            },
+            {
+              "type": "null"
+            }
+          ]
+        },
+        "riskAmount": {
+          "anyOf": [
+            {
+              "type": "number"
+            },
+            {
+              "type": "null"
+            }
+          ]
+        },
+        "instrument": {
+          "anyOf": [
+            {
+              "type": "object",
+              "properties": {
+                "symbol": {
+                  "anyOf": [
+                    {
+                      "type": "string"
+                    },
+                    {
+                      "type": "null"
+                    }
+                  ]
+                },
+                "venueCode": {
+                  "anyOf": [
+                    {
+                      "type": "string"
+                    },
+                    {
+                      "type": "null"
+                    }
+                  ]
+                },
+                "kind": {
+                  "anyOf": [
+                    {
+                      "type": "string"
+                    },
+                    {
+                      "type": "null"
+                    }
+                  ]
+                },
+                "contractSize": {
+                  "anyOf": [
+                    {
+                      "type": "number"
+                    },
+                    {
+                      "type": "null"
+                    }
+                  ]
+                },
+                "tickSize": {
+                  "anyOf": [
+                    {
+                      "type": "number"
+                    },
+                    {
+                      "type": "null"
+                    }
+                  ]
+                },
+                "quoteCurrency": {
+                  "anyOf": [
+                    {
+                      "type": "string"
+                    },
+                    {
+                      "type": "null"
+                    }
+                  ]
+                },
+                "valuePerPoint": {
+                  "anyOf": [
+                    {
+                      "type": "number"
+                    },
+                    {
+                      "type": "null"
+                    }
+                  ]
+                }
+              }
+            },
+            {
+              "type": "null"
+            }
+          ]
+        },
+        "venue": {
+          "type": "object",
+          "properties": {
+            "connector": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ]
+            },
+            "adapter": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ]
+            },
+            "label": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ]
+            }
+          }
+        },
+        "accountId": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ]
+        }
+      },
+      "required": [
+        "broker",
+        "dealTicket",
+        "qty",
+        "price",
+        "profit",
+        "ts"
+      ],
+      "x-since": "1.0.0"
+    },
+    "broker.disconnected": {
+      "type": "object",
+      "properties": {
+        "broker": {
+          "type": "string"
+        },
+        "state": {
+          "type": "string"
+        },
+        "reason": {
+          "type": "string"
+        },
+        "consecutiveFailures": {
+          "type": "number"
+        },
+        "ts": {
+          "type": "number"
+        },
+        "venue": {
+          "type": "object",
+          "properties": {
+            "connector": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ]
+            },
+            "adapter": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ]
+            },
+            "label": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ]
+            }
+          }
+        },
+        "accountId": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ]
+        }
+      },
+      "required": [
+        "broker"
+      ],
+      "x-since": "1.0.0"
+    },
+    "broker.reconnected": {
+      "type": "object",
+      "properties": {
+        "broker": {
+          "type": "string"
+        },
+        "state": {
+          "type": "string"
+        },
+        "reason": {
+          "type": "string"
+        },
+        "consecutiveFailures": {
+          "type": "number"
+        },
+        "ts": {
+          "type": "number"
+        },
+        "venue": {
+          "type": "object",
+          "properties": {
+            "connector": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ]
+            },
+            "adapter": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ]
+            },
+            "label": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ]
+            }
+          }
+        },
+        "accountId": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ]
+        }
+      },
+      "required": [
+        "broker"
+      ],
+      "x-since": "1.0.0"
+    },
+    "decision.order_linked": {
+      "type": "object",
+      "properties": {
+        "decisionId": {
+          "type": "string"
+        },
+        "ruleId": {
+          "type": "string"
+        },
+        "signalIndex": {
+          "type": "number"
+        },
+        "orderId": {
+          "type": "string"
+        }
+      },
+      "required": [
+        "decisionId",
+        "ruleId",
+        "signalIndex",
+        "orderId"
+      ],
+      "x-since": "1.0.0"
+    },
+    "decision.rule_evaluated": {
+      "type": "object",
+      "properties": {
+        "decisionId": {
+          "type": "string"
+        },
+        "ruleId": {
+          "type": "string"
+        },
+        "strategyFingerprint": {
+          "type": "string"
+        },
+        "ruleFingerprint": {
+          "type": "string"
+        },
+        "conditionFingerprint": {
+          "type": "string"
+        },
+        "conditionResult": {
+          "type": "boolean"
+        },
+        "alias": {
+          "type": "string"
+        },
+        "broker": {
+          "type": "string"
+        },
+        "timeframe": {
+          "type": "string"
+        },
+        "signalCount": {
+          "type": "number"
+        },
+        "candle": {
+          "type": "object",
+          "properties": {
+            "symbol": {
+              "type": "string"
+            },
+            "startTimeMs": {
+              "type": "number"
+            },
+            "endTimeMs": {
+              "type": "number"
+            },
+            "open": {
+              "type": "number"
+            },
+            "high": {
+              "type": "number"
+            },
+            "low": {
+              "type": "number"
+            },
+            "close": {
+              "type": "number"
+            },
+            "volume": {
+              "type": "number"
+            }
+          },
+          "required": [
+            "symbol",
+            "startTimeMs",
+            "endTimeMs",
+            "open",
+            "high",
+            "low",
+            "close",
+            "volume"
+          ]
+        }
+      },
+      "required": [
+        "decisionId",
+        "ruleId",
+        "conditionResult"
+      ],
+      "x-since": "1.0.0"
+    },
+    "fill.accounted": {
+      "type": "object",
+      "properties": {
+        "orderId": {
+          "type": "string"
+        },
+        "symbol": {
+          "type": "string"
+        },
+        "fillSliceId": {
+          "type": "string"
+        },
+        "sourceFillSequenceId": {
+          "type": "number"
+        },
+        "cumulativeFilled": {
+          "type": "number"
+        },
+        "modeledCommissionAccount": {
+          "type": "number"
+        },
+        "venueCostsAccount": {
+          "type": "number"
+        },
+        "totalCostsAccount": {
+          "type": "number"
+        },
+        "accountNativeRealized": {
+          "type": "number"
+        },
+        "strategyNativeRealized": {
+          "type": "number"
+        },
+        "nativeCurrency": {
+          "type": "string"
+        },
+        "grossAccountRealized": {
+          "type": "number"
+        },
+        "grossStrategyAccountRealized": {
+          "type": "number"
+        },
+        "accountCurrency": {
+          "type": "string"
+        },
+        "netAccountRealized": {
+          "type": "number"
+        },
+        "netStrategyAccountRealized": {
+          "type": "number"
+        }
+      },
+      "required": [
+        "orderId",
+        "symbol",
+        "fillSliceId",
+        "sourceFillSequenceId"
+      ],
+      "x-since": "1.0.0"
+    },
+    "gateway.unreachable": {
+      "type": "object",
+      "properties": {
+        "detail": {
+          "type": "string"
+        },
+        "venue": {
+          "type": "object",
+          "properties": {
+            "connector": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ]
+            },
+            "adapter": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ]
+            },
+            "label": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ]
+            }
+          }
+        },
+        "accountId": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ]
+        }
+      },
+      "required": [
+        "detail"
+      ],
+      "x-since": "1.0.0"
+    },
+    "insights.health": {
+      "type": "object",
+      "properties": {
+        "sent": {
+          "type": "number"
+        },
+        "failed": {
+          "type": "number"
+        },
+        "dropped": {
+          "type": "number"
+        },
+        "queued": {
+          "type": "number"
+        },
+        "queueCapacity": {
+          "type": "number"
+        },
+        "batchSize": {
+          "type": "number"
+        },
+        "flushIntervalMs": {
+          "type": "number"
+        },
+        "maxPostAttempts": {
+          "type": "number"
+        },
+        "journalEnabled": {
+          "type": "boolean"
+        },
+        "journalPending": {
+          "type": "number"
+        }
+      },
+      "required": [
+        "sent",
+        "failed",
+        "dropped",
+        "queued"
+      ],
+      "x-since": "1.0.0"
+    },
+    "instance.roster": {
+      "type": "object",
+      "properties": {
+        "strategies": {
+          "type": "array",
+          "items": {
+            "type": "string"
+          }
+        }
+      },
+      "required": [
+        "strategies"
+      ],
+      "x-since": "1.0.0"
+    },
+    "log": {
+      "type": "object",
+      "properties": {
+        "level": {
+          "type": "string",
+          "minLength": 1
+        },
+        "logger": {
+          "type": "string"
+        },
+        "message": {
+          "type": "string"
+        }
+      },
+      "required": [
+        "level",
+        "logger",
+        "message"
+      ],
+      "x-since": "1.0.0"
+    },
+    "marketdata.connected": {
+      "type": "object",
+      "properties": {
+        "source": {
+          "type": "string"
+        },
+        "symbols": {
+          "type": "array",
+          "items": {
+            "type": "string"
+          }
+        },
+        "state": {
+          "type": "string"
+        },
+        "reason": {
+          "type": "string"
+        },
+        "ts": {
+          "type": "number"
+        }
+      },
+      "required": [
+        "source"
+      ],
+      "x-since": "1.0.0"
+    },
+    "marketdata.disconnected": {
+      "type": "object",
+      "properties": {
+        "source": {
+          "type": "string"
+        },
+        "symbols": {
+          "type": "array",
+          "items": {
+            "type": "string"
+          }
+        },
+        "state": {
+          "type": "string"
+        },
+        "reason": {
+          "type": "string"
+        },
+        "ts": {
+          "type": "number"
+        }
+      },
+      "required": [
+        "source"
+      ],
+      "x-since": "1.0.0"
+    },
+    "marketdata.reconnected": {
+      "type": "object",
+      "properties": {
+        "source": {
+          "type": "string"
+        },
+        "symbols": {
+          "type": "array",
+          "items": {
+            "type": "string"
+          }
+        },
+        "state": {
+          "type": "string"
+        },
+        "reason": {
+          "type": "string"
+        },
+        "ts": {
+          "type": "number"
+        }
+      },
+      "required": [
+        "source"
+      ],
+      "x-since": "1.0.0"
+    },
+    "marketdata.recovered": {
+      "type": "object",
+      "properties": {
+        "source": {
+          "type": "string"
+        },
+        "symbols": {
+          "type": "array",
+          "items": {
+            "type": "string"
+          }
+        },
+        "state": {
+          "type": "string"
+        },
+        "reason": {
+          "type": "string"
+        },
+        "ts": {
+          "type": "number"
+        },
+        "unhealthyForMs": {
+          "type": "number"
+        }
+      },
+      "required": [
+        "source"
+      ],
+      "x-since": "1.0.0"
+    },
+    "marketdata.stale": {
+      "type": "object",
+      "properties": {
+        "source": {
+          "type": "string"
+        },
+        "symbols": {
+          "type": "array",
+          "items": {
+            "type": "string"
+          }
+        },
+        "state": {
+          "type": "string"
+        },
+        "reason": {
+          "type": "string"
+        },
+        "ts": {
+          "type": "number"
+        },
+        "kind": {
+          "type": "string"
+        }
+      },
+      "required": [
+        "source"
+      ],
+      "x-since": "1.0.0"
+    },
+    "order.accepted": {
+      "type": "object",
+      "properties": {
+        "orderId": {
+          "type": "string"
+        },
+        "brokerOrderId": {
+          "type": "string"
+        }
+      },
+      "required": [
+        "orderId"
+      ],
+      "x-since": "1.0.0"
+    },
+    "order.cancelled": {
+      "type": "object",
+      "properties": {
+        "orderId": {
+          "type": "string"
+        },
+        "brokerOrderId": {
+          "type": "string"
+        },
+        "reason": {
+          "type": "string"
+        }
+      },
+      "required": [
+        "orderId"
+      ],
+      "x-since": "1.0.0"
+    },
+    "order.filled": {
+      "type": "object",
+      "properties": {
+        "orderId": {
+          "type": "string"
+        },
+        "brokerOrderId": {
+          "type": "string"
+        },
+        "symbol": {
+          "type": "string"
+        },
+        "price": {
+          "type": "number"
+        },
+        "qty": {
+          "type": "number"
+        },
+        "venueCosts": {
+          "type": "number"
+        },
+        "strategyId": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ]
+        },
+        "positionId": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ]
+        },
+        "nextPositionId": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ]
+        },
+        "legEntry": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ]
+        },
+        "closeReason": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ]
+        },
+        "attribution": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ]
+        },
+        "initialStop": {
+          "anyOf": [
+            {
+              "type": "number"
+            },
+            {
+              "type": "null"
+            }
+          ]
+        },
+        "initialTarget": {
+          "anyOf": [
+            {
+              "type": "number"
+            },
+            {
+              "type": "null"
+            }
+          ]
+        },
+        "riskAmount": {
+          "anyOf": [
+            {
+              "type": "number"
+            },
+            {
+              "type": "null"
+            }
+          ]
+        },
+        "instrument": {
+          "anyOf": [
+            {
+              "type": "object",
+              "properties": {
+                "symbol": {
+                  "anyOf": [
+                    {
+                      "type": "string"
+                    },
+                    {
+                      "type": "null"
+                    }
+                  ]
+                },
+                "venueCode": {
+                  "anyOf": [
+                    {
+                      "type": "string"
+                    },
+                    {
+                      "type": "null"
+                    }
+                  ]
+                },
+                "kind": {
+                  "anyOf": [
+                    {
+                      "type": "string"
+                    },
+                    {
+                      "type": "null"
+                    }
+                  ]
+                },
+                "contractSize": {
+                  "anyOf": [
+                    {
+                      "type": "number"
+                    },
+                    {
+                      "type": "null"
+                    }
+                  ]
+                },
+                "tickSize": {
+                  "anyOf": [
+                    {
+                      "type": "number"
+                    },
+                    {
+                      "type": "null"
+                    }
+                  ]
+                },
+                "quoteCurrency": {
+                  "anyOf": [
+                    {
+                      "type": "string"
+                    },
+                    {
+                      "type": "null"
+                    }
+                  ]
+                },
+                "valuePerPoint": {
+                  "anyOf": [
+                    {
+                      "type": "number"
+                    },
+                    {
+                      "type": "null"
+                    }
+                  ]
+                }
+              }
+            },
+            {
+              "type": "null"
+            }
+          ]
+        }
+      },
+      "required": [
+        "orderId",
+        "symbol",
+        "price",
+        "qty"
+      ],
+      "x-since": "1.0.0"
+    },
+    "order.modified": {
+      "type": "object",
+      "properties": {
+        "orderId": {
+          "type": "string"
+        },
+        "brokerOrderId": {
+          "type": "string"
+        },
+        "changes": {
+          "type": "object",
+          "properties": {
+            "newQuantity": {
+              "anyOf": [
+                {
+                  "type": "number"
+                },
+                {
+                  "type": "null"
+                }
+              ]
+            },
+            "newLimitPrice": {
+              "anyOf": [
+                {
+                  "type": "number"
+                },
+                {
+                  "type": "null"
+                }
+              ]
+            },
+            "newStopPrice": {
+              "anyOf": [
+                {
+                  "type": "number"
+                },
+                {
+                  "type": "null"
+                }
+              ]
+            }
+          }
+        }
+      },
+      "required": [
+        "orderId",
+        "changes"
+      ],
+      "x-since": "1.0.0"
+    },
+    "order.partially_filled": {
+      "type": "object",
+      "properties": {
+        "orderId": {
+          "type": "string"
+        },
+        "brokerOrderId": {
+          "type": "string"
+        },
+        "symbol": {
+          "type": "string"
+        },
+        "side": {
+          "type": "string",
+          "enum": [
+            "BUY",
+            "SELL"
+          ]
+        },
+        "price": {
+          "type": "number"
+        },
+        "qty": {
+          "type": "number"
+        },
+        "cumulativeQty": {
+          "type": "number"
+        },
+        "venueCosts": {
+          "type": "number"
+        },
+        "typedVenueCosts": {
+          "type": "array",
+          "items": {}
+        },
+        "strategyId": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ]
+        },
+        "positionId": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ]
+        },
+        "nextPositionId": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ]
+        },
+        "legEntry": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ]
+        },
+        "closeReason": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ]
+        },
+        "attribution": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ]
+        },
+        "initialStop": {
+          "anyOf": [
+            {
+              "type": "number"
+            },
+            {
+              "type": "null"
+            }
+          ]
+        },
+        "initialTarget": {
+          "anyOf": [
+            {
+              "type": "number"
+            },
+            {
+              "type": "null"
+            }
+          ]
+        },
+        "riskAmount": {
+          "anyOf": [
+            {
+              "type": "number"
+            },
+            {
+              "type": "null"
+            }
+          ]
+        },
+        "instrument": {
+          "anyOf": [
+            {
+              "type": "object",
+              "properties": {
+                "symbol": {
+                  "anyOf": [
+                    {
+                      "type": "string"
+                    },
+                    {
+                      "type": "null"
+                    }
+                  ]
+                },
+                "venueCode": {
+                  "anyOf": [
+                    {
+                      "type": "string"
+                    },
+                    {
+                      "type": "null"
+                    }
+                  ]
+                },
+                "kind": {
+                  "anyOf": [
+                    {
+                      "type": "string"
+                    },
+                    {
+                      "type": "null"
+                    }
+                  ]
+                },
+                "contractSize": {
+                  "anyOf": [
+                    {
+                      "type": "number"
+                    },
+                    {
+                      "type": "null"
+                    }
+                  ]
+                },
+                "tickSize": {
+                  "anyOf": [
+                    {
+                      "type": "number"
+                    },
+                    {
+                      "type": "null"
+                    }
+                  ]
+                },
+                "quoteCurrency": {
+                  "anyOf": [
+                    {
+                      "type": "string"
+                    },
+                    {
+                      "type": "null"
+                    }
+                  ]
+                },
+                "valuePerPoint": {
+                  "anyOf": [
+                    {
+                      "type": "number"
+                    },
+                    {
+                      "type": "null"
+                    }
+                  ]
+                }
+              }
+            },
+            {
+              "type": "null"
+            }
+          ]
+        }
+      },
+      "required": [
+        "orderId",
+        "symbol",
+        "price",
+        "qty",
+        "cumulativeQty"
+      ],
+      "x-since": "1.0.0"
+    },
+    "order.rejected": {
+      "type": "object",
+      "properties": {
+        "orderId": {
+          "type": "string"
+        },
+        "brokerOrderId": {
+          "type": "string"
+        },
+        "reason": {
+          "type": "string"
+        }
+      },
+      "required": [
+        "orderId",
+        "reason"
+      ],
+      "x-since": "1.0.0"
+    },
+    "order.submit": {
+      "type": "object",
+      "properties": {
+        "orderId": {
+          "type": "string"
+        },
+        "orderType": {
+          "type": "string"
+        },
+        "symbol": {
+          "type": "string"
+        },
+        "side": {
+          "type": "string",
+          "enum": [
+            "BUY",
+            "SELL"
+          ]
+        },
+        "qty": {
+          "type": "number"
+        },
+        "strategyId": {
+          "type": "string"
+        },
+        "timeInForce": {
+          "type": "string"
+        },
+        "createdTs": {
+          "type": "number"
+        },
+        "expiresAt": {
+          "anyOf": [
+            {
+              "type": "number"
+            },
+            {
+              "type": "null"
+            }
+          ]
+        },
+        "limitPrice": {
+          "type": "number"
+        },
+        "stopPrice": {
+          "type": "number"
+        },
+        "triggerPrice": {
+          "type": "number"
+        },
+        "onTrigger": {
+          "type": "string"
+        },
+        "trailAmount": {
+          "type": "number"
+        },
+        "trailMode": {
+          "type": "string"
+        },
+        "trailDistance": {
+          "type": "number"
+        },
+        "mfeThreshold": {
+          "type": "number"
+        },
+        "limitOffset": {
+          "type": "number"
+        },
+        "entryPrice": {
+          "type": "number"
+        },
+        "closesTicket": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ]
+        },
+        "closesLegId": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ]
+        },
+        "entry": {},
+        "parent": {},
+        "children": {
+          "type": "array",
+          "items": {}
+        },
+        "leg1": {},
+        "leg2": {},
+        "takeProfit": {
+          "type": "number"
+        },
+        "stopLoss": {},
+        "takeProfitAst": {
+          "anyOf": [
+            {},
+            {
+              "type": "null"
+            }
+          ]
+        },
+        "stopLossAst": {
+          "anyOf": [
+            {},
+            {
+              "type": "null"
+            }
+          ]
+        },
+        "basis": {},
+        "legs": {
+          "type": "array",
+          "items": {}
+        },
+        "target": {},
+        "deadline": {
+          "type": "number"
+        },
+        "onExpiry": {
+          "type": "string"
+        },
+        "layers": {
+          "type": "number"
+        },
+        "stackLayers": {
+          "type": "array",
+          "items": {}
+        },
+        "withinMillis": {
+          "anyOf": [
+            {
+              "type": "number"
+            },
+            {
+              "type": "null"
+            }
+          ]
+        },
+        "hasOuterBracket": {
+          "type": "boolean"
+        },
+        "outerBracket": {
+          "anyOf": [
+            {},
+            {
+              "type": "null"
+            }
+          ]
+        }
+      },
+      "required": [
+        "orderId",
+        "orderType",
+        "symbol",
+        "side",
+        "qty"
+      ],
+      "x-since": "1.0.0"
+    },
+    "portfolio.allocation.updated": {
+      "type": "object",
+      "properties": {
+        "portfolioId": {
+          "type": "string"
+        },
+        "ts": {
+          "type": "number"
+        }
+      },
+      "required": [
+        "portfolioId"
+      ],
+      "x-since": "1.0.0"
+    },
+    "portfolio.configured": {
+      "type": "object",
+      "properties": {
+        "portfolioId": {
+          "type": "string"
+        },
+        "ts": {
+          "type": "number"
+        }
+      },
+      "required": [
+        "portfolioId"
+      ],
+      "x-since": "1.0.0"
+    },
+    "portfolio.equity.updated": {
+      "type": "object",
+      "properties": {
+        "portfolioId": {
+          "type": "string"
+        },
+        "equity": {
+          "type": "number"
+        },
+        "realized": {
+          "type": "number"
+        },
+        "unrealized": {
+          "type": "number"
+        },
+        "ts": {
+          "type": "number"
+        }
+      },
+      "required": [
+        "portfolioId"
+      ],
+      "x-since": "1.0.0"
+    },
+    "portfolio.exposure.updated": {
+      "type": "object",
+      "properties": {
+        "portfolioId": {
+          "type": "string"
+        },
+        "ts": {
+          "type": "number"
+        }
+      },
+      "required": [
+        "portfolioId"
+      ],
+      "x-since": "1.0.0"
+    },
+    "position.closed": {
+      "type": "object",
+      "properties": {
+        "symbol": {
+          "type": "string"
+        },
+        "side": {
+          "type": "string",
+          "enum": [
+            "BUY",
+            "SELL"
+          ]
+        },
+        "qty": {
+          "type": "number"
+        },
+        "exitPrice": {
+          "type": "number"
+        },
+        "ticket": {
+          "type": "string"
+        },
+        "broker": {
+          "type": "string"
+        },
+        "strategyId": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ]
+        }
+      },
+      "required": [
+        "symbol"
+      ],
+      "x-since": "1.0.0"
+    },
+    "position.opened": {
+      "type": "object",
+      "properties": {
+        "symbol": {
+          "type": "string"
+        },
+        "side": {
+          "type": "string",
+          "enum": [
+            "BUY",
+            "SELL"
+          ]
+        },
+        "qty": {
+          "type": "number"
+        },
+        "entryPrice": {
+          "type": "number"
+        },
+        "ticket": {
+          "type": "string"
+        },
+        "broker": {
+          "type": "string"
+        },
+        "strategyId": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ]
+        }
+      },
+      "required": [
+        "symbol",
+        "side",
+        "qty"
+      ],
+      "x-since": "1.0.0"
+    },
+    "position.reconciled": {
+      "type": "object",
+      "properties": {
+        "symbol": {
+          "type": "string"
+        },
+        "before": {
+          "type": "number"
+        },
+        "after": {
+          "type": "number"
+        }
+      },
+      "required": [
+        "symbol",
+        "before",
+        "after"
+      ],
+      "x-since": "1.0.0"
+    },
+    "position.updated": {
+      "type": "object",
+      "properties": {
+        "symbol": {
+          "type": "string"
+        },
+        "side": {
+          "type": "string",
+          "enum": [
+            "BUY",
+            "SELL"
+          ]
+        },
+        "qty": {
+          "type": "number"
+        },
+        "entryPrice": {
+          "type": "number"
+        },
+        "currentPrice": {
+          "type": "number"
+        },
+        "ticket": {
+          "type": "string"
+        },
+        "broker": {
+          "type": "string"
+        },
+        "strategyId": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ]
+        }
+      },
+      "required": [
+        "symbol",
+        "qty"
+      ],
+      "x-since": "1.0.0"
+    },
+    "position.valued": {
+      "type": "object",
+      "properties": {
+        "symbol": {
+          "type": "string"
+        },
+        "side": {
+          "type": "string",
+          "enum": [
+            "BUY",
+            "SELL"
+          ]
+        },
+        "qty": {
+          "type": "number"
+        },
+        "entryPrice": {
+          "type": "number"
+        },
+        "currentPrice": {
+          "type": "number"
+        },
+        "profit": {
+          "type": "number"
+        },
+        "ticket": {
+          "type": "string"
+        },
+        "broker": {
+          "type": "string"
+        },
+        "strategyId": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ]
+        }
+      },
+      "required": [
+        "symbol",
+        "qty"
+      ],
+      "x-since": "1.0.0"
+    },
+    "risk.halted": {
+      "type": "object",
+      "properties": {
+        "strategyId": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ]
+        },
+        "reason": {
+          "type": "string"
+        },
+        "scope": {
+          "type": "string"
+        },
+        "persistent": {
+          "type": "boolean"
+        },
+        "sessionStrategies": {
+          "type": "array",
+          "items": {
+            "type": "string"
+          }
+        }
+      },
+      "required": [
+        "reason"
+      ],
+      "x-since": "1.0.0"
+    },
+    "risk.rejected": {
+      "type": "object",
+      "properties": {
+        "reason": {
+          "type": "string"
+        },
+        "symbol": {
+          "type": "string"
+        },
+        "side": {
+          "type": "string",
+          "enum": [
+            "BUY",
+            "SELL"
+          ]
+        },
+        "qty": {
+          "type": "number"
+        }
+      },
+      "required": [
+        "reason"
+      ],
+      "x-since": "1.0.0"
+    },
+    "risk.resumed": {
+      "type": "object",
+      "properties": {
+        "strategyId": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ]
+        },
+        "sessionStrategies": {
+          "type": "array",
+          "items": {
+            "type": "string"
+          }
+        }
+      },
+      "x-since": "1.0.0"
+    },
+    "risk.snapshot": {
+      "type": "object",
+      "properties": {
+        "strategyId": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ]
+        },
+        "ts": {
+          "type": "number"
+        },
+        "halted": {
+          "type": "boolean"
+        },
+        "haltReason": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ]
+        },
+        "haltScope": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ]
+        },
+        "haltPersistent": {
+          "anyOf": [
+            {
+              "type": "boolean"
+            },
+            {
+              "type": "null"
+            }
+          ]
+        },
+        "haltedAt": {
+          "anyOf": [
+            {
+              "type": "number"
+            },
+            {
+              "type": "null"
+            }
+          ]
+        }
+      },
+      "x-since": "1.0.0"
+    },
+    "signal": {
+      "type": "object",
+      "properties": {
+        "symbol": {
+          "type": "string"
+        },
+        "side": {
+          "type": "string",
+          "enum": [
+            "BUY",
+            "SELL"
+          ]
+        },
+        "qty": {
+          "type": "number"
+        },
+        "intent": {
+          "type": "string"
+        },
+        "note": {
+          "type": "string"
+        },
+        "order": {}
+      },
+      "required": [
+        "symbol",
+        "side"
+      ],
+      "x-since": "1.0.0"
+    },
+    "signal.cancel": {
+      "type": "object",
+      "properties": {
+        "symbol": {
+          "type": "string"
+        },
+        "intent": {
+          "type": "string"
+        }
+      },
+      "required": [
+        "symbol"
+      ],
+      "x-since": "1.0.0"
+    },
+    "signal.latch_armed": {
+      "type": "object",
+      "properties": {
+        "intent": {
+          "type": "string"
+        },
+        "reference": {
+          "type": "string"
+        },
+        "offset": {
+          "type": "string"
+        },
+        "streamAlias": {
+          "type": "string"
+        },
+        "name": {
+          "type": "string"
+        },
+        "armWindowMs": {
+          "type": "number"
+        },
+        "expiresAt": {
+          "type": "number"
+        }
+      },
+      "required": [
+        "reference",
+        "offset"
+      ],
+      "x-since": "1.0.0"
+    },
+    "signal.structure": {
+      "type": "object",
+      "properties": {
+        "intent": {
+          "type": "string"
+        },
+        "structureId": {
+          "type": "string"
+        },
+        "alias": {
+          "type": "string"
+        },
+        "closes": {
+          "type": "string"
+        },
+        "legs": {
+          "type": "string"
+        }
+      },
+      "required": [
+        "intent",
+        "structureId",
+        "legs"
+      ],
+      "x-since": "1.0.0"
+    },
+    "signal.suppressed": {
+      "type": "object",
+      "properties": {
+        "reason": {
+          "type": "string"
+        },
+        "symbol": {
+          "type": "string"
+        },
+        "kind": {
+          "type": "string"
+        },
+        "intent": {
+          "type": "string"
+        }
+      },
+      "required": [
+        "reason"
+      ],
+      "x-since": "1.0.0"
+    },
+    "snapshot.equity": {
+      "type": "object",
+      "properties": {
+        "strategyId": {
+          "type": "string"
+        },
+        "realized": {
+          "type": "number"
+        },
+        "unrealized": {
+          "type": "number"
+        },
+        "equity": {
+          "type": "number"
+        },
+        "startingBalance": {
+          "type": "number"
+        }
+      },
+      "required": [
+        "strategyId",
+        "realized",
+        "unrealized",
+        "equity",
+        "startingBalance"
+      ],
+      "x-since": "1.0.0"
+    },
+    "snapshot.position": {
+      "type": "object",
+      "properties": {
+        "strategyId": {
+          "type": "string"
+        },
+        "symbol": {
+          "type": "string"
+        },
+        "legs": {
+          "type": "array",
+          "items": {
+            "type": "object",
+            "properties": {
+              "side": {
+                "type": "string",
+                "enum": [
+                  "BUY",
+                  "SELL"
+                ]
+              },
+              "qty": {
+                "type": "number"
+              },
+              "entryPrice": {
+                "type": "number"
+              },
+              "entryTs": {
+                "type": "number"
+              }
+            },
+            "required": [
+              "side",
+              "qty",
+              "entryPrice",
+              "entryTs"
+            ]
+          }
+        }
+      },
+      "required": [
+        "strategyId",
+        "symbol",
+        "legs"
+      ],
+      "x-since": "1.0.0"
+    },
+    "state.account": {
+      "type": "object",
+      "properties": {
+        "broker": {
+          "type": "string"
+        },
+        "currency": {
+          "type": "string"
+        },
+        "balance": {
+          "type": "number"
+        },
+        "equity": {
+          "type": "number"
+        },
+        "margin": {
+          "type": "number"
+        },
+        "marginFree": {
+          "type": "number"
+        },
+        "openProfit": {
+          "type": "number"
+        },
+        "marginLevel": {
+          "type": "number"
+        },
+        "login": {
+          "type": "string"
+        },
+        "server": {
+          "type": "string"
+        },
+        "name": {
+          "type": "string"
+        },
+        "venue": {
+          "type": "object",
+          "properties": {
+            "connector": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ]
+            },
+            "adapter": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ]
+            },
+            "label": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ]
+            }
+          }
+        },
+        "accountId": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ]
+        }
+      },
+      "required": [
+        "broker",
+        "currency",
+        "balance",
+        "equity"
+      ],
+      "x-since": "1.0.0"
+    },
+    "state.orders": {
+      "type": "object",
+      "properties": {
+        "broker": {
+          "type": "string"
+        },
+        "orders": {
+          "type": "array",
+          "items": {
+            "type": "object",
+            "properties": {
+              "ticket": {
+                "type": "string"
+              },
+              "symbol": {
+                "type": "string"
+              },
+              "side": {
+                "type": "string",
+                "enum": [
+                  "BUY",
+                  "SELL"
+                ]
+              },
+              "orderType": {
+                "type": "string"
+              },
+              "qty": {
+                "type": "number"
+              },
+              "price": {
+                "type": "number"
+              },
+              "stopLoss": {
+                "type": "number"
+              },
+              "takeProfit": {
+                "type": "number"
+              },
+              "expiresAt": {
+                "type": "number"
+              },
+              "createdAt": {
+                "type": "number"
+              },
+              "magic": {
+                "type": "number"
+              },
+              "clientOrderId": {
+                "type": "string"
+              },
+              "strategyId": {
+                "anyOf": [
+                  {
+                    "type": "string"
+                  },
+                  {
+                    "type": "null"
+                  }
+                ]
+              },
+              "attribution": {
+                "anyOf": [
+                  {
+                    "type": "string"
+                  },
+                  {
+                    "type": "null"
+                  }
+                ]
+              },
+              "instrument": {
+                "anyOf": [
+                  {
+                    "type": "object",
+                    "properties": {
+                      "symbol": {
+                        "anyOf": [
+                          {
+                            "type": "string"
+                          },
+                          {
+                            "type": "null"
+                          }
+                        ]
+                      },
+                      "venueCode": {
+                        "anyOf": [
+                          {
+                            "type": "string"
+                          },
+                          {
+                            "type": "null"
+                          }
+                        ]
+                      },
+                      "kind": {
+                        "anyOf": [
+                          {
+                            "type": "string"
+                          },
+                          {
+                            "type": "null"
+                          }
+                        ]
+                      },
+                      "contractSize": {
+                        "anyOf": [
+                          {
+                            "type": "number"
+                          },
+                          {
+                            "type": "null"
+                          }
+                        ]
+                      },
+                      "tickSize": {
+                        "anyOf": [
+                          {
+                            "type": "number"
+                          },
+                          {
+                            "type": "null"
+                          }
+                        ]
+                      },
+                      "quoteCurrency": {
+                        "anyOf": [
+                          {
+                            "type": "string"
+                          },
+                          {
+                            "type": "null"
+                          }
+                        ]
+                      },
+                      "valuePerPoint": {
+                        "anyOf": [
+                          {
+                            "type": "number"
+                          },
+                          {
+                            "type": "null"
+                          }
+                        ]
+                      }
+                    }
+                  },
+                  {
+                    "type": "null"
+                  }
+                ]
+              }
+            },
+            "required": [
+              "ticket",
+              "symbol",
+              "side",
+              "qty"
+            ]
+          }
+        },
+        "venue": {
+          "type": "object",
+          "properties": {
+            "connector": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ]
+            },
+            "adapter": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ]
+            },
+            "label": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ]
+            }
+          }
+        },
+        "accountId": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ]
+        }
+      },
+      "required": [
+        "broker",
+        "orders"
+      ],
+      "x-since": "1.0.0"
+    },
+    "state.persistence": {
+      "type": "object",
+      "properties": {
+        "enabled": {
+          "type": "boolean"
+        },
+        "totalWrites": {
+          "type": "number"
+        },
+        "slowWrites": {
+          "type": "number"
+        },
+        "failedWrites": {
+          "type": "number"
+        },
+        "consecutiveFailures": {
+          "type": "number"
+        },
+        "failureEpisodes": {
+          "type": "number"
+        },
+        "queueSize": {
+          "type": "number"
+        },
+        "callerRunsTotal": {
+          "type": "number"
+        }
+      },
+      "required": [
+        "enabled"
+      ],
+      "x-since": "1.0.0"
+    },
+    "state.positions": {
+      "type": "object",
+      "properties": {
+        "broker": {
+          "type": "string"
+        },
+        "positions": {
+          "type": "array",
+          "items": {
+            "type": "object",
+            "properties": {
+              "ticket": {
+                "type": "string"
+              },
+              "symbol": {
+                "type": "string"
+              },
+              "side": {
+                "type": "string",
+                "enum": [
+                  "BUY",
+                  "SELL"
+                ]
+              },
+              "qty": {
+                "type": "number"
+              },
+              "entryPrice": {
+                "type": "number"
+              },
+              "currentPrice": {
+                "type": "number"
+              },
+              "profit": {
+                "type": "number"
+              },
+              "swap": {
+                "type": "number"
+              },
+              "openedAt": {
+                "type": "number"
+              },
+              "strategyId": {
+                "anyOf": [
+                  {
+                    "type": "string"
+                  },
+                  {
+                    "type": "null"
+                  }
+                ]
+              },
+              "stopLoss": {
+                "type": "number"
+              },
+              "takeProfit": {
+                "type": "number"
+              },
+              "requestedStopLoss": {
+                "type": "number"
+              },
+              "requestedTakeProfit": {
+                "type": "number"
+              },
+              "magic": {
+                "type": "number"
+              },
+              "clientOrderId": {
+                "type": "string"
+              },
+              "positionId": {
+                "anyOf": [
+                  {
+                    "type": "string"
+                  },
+                  {
+                    "type": "null"
+                  }
+                ]
+              },
+              "attribution": {
+                "anyOf": [
+                  {
+                    "type": "string"
+                  },
+                  {
+                    "type": "null"
+                  }
+                ]
+              },
+              "instrument": {
+                "anyOf": [
+                  {
+                    "type": "object",
+                    "properties": {
+                      "symbol": {
+                        "anyOf": [
+                          {
+                            "type": "string"
+                          },
+                          {
+                            "type": "null"
+                          }
+                        ]
+                      },
+                      "venueCode": {
+                        "anyOf": [
+                          {
+                            "type": "string"
+                          },
+                          {
+                            "type": "null"
+                          }
+                        ]
+                      },
+                      "kind": {
+                        "anyOf": [
+                          {
+                            "type": "string"
+                          },
+                          {
+                            "type": "null"
+                          }
+                        ]
+                      },
+                      "contractSize": {
+                        "anyOf": [
+                          {
+                            "type": "number"
+                          },
+                          {
+                            "type": "null"
+                          }
+                        ]
+                      },
+                      "tickSize": {
+                        "anyOf": [
+                          {
+                            "type": "number"
+                          },
+                          {
+                            "type": "null"
+                          }
+                        ]
+                      },
+                      "quoteCurrency": {
+                        "anyOf": [
+                          {
+                            "type": "string"
+                          },
+                          {
+                            "type": "null"
+                          }
+                        ]
+                      },
+                      "valuePerPoint": {
+                        "anyOf": [
+                          {
+                            "type": "number"
+                          },
+                          {
+                            "type": "null"
+                          }
+                        ]
+                      }
+                    }
+                  },
+                  {
+                    "type": "null"
+                  }
+                ]
+              },
+              "initialStop": {
+                "anyOf": [
+                  {
+                    "type": "number"
+                  },
+                  {
+                    "type": "null"
+                  }
+                ]
+              },
+              "initialTarget": {
+                "anyOf": [
+                  {
+                    "type": "number"
+                  },
+                  {
+                    "type": "null"
+                  }
+                ]
+              },
+              "riskAmount": {
+                "anyOf": [
+                  {
+                    "type": "number"
+                  },
+                  {
+                    "type": "null"
+                  }
+                ]
+              }
+            },
+            "required": [
+              "ticket",
+              "symbol",
+              "side",
+              "qty",
+              "entryPrice"
+            ]
+          }
+        },
+        "venue": {
+          "type": "object",
+          "properties": {
+            "connector": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ]
+            },
+            "adapter": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ]
+            },
+            "label": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ]
+            }
+          }
+        },
+        "accountId": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ]
+        }
+      },
+      "required": [
+        "broker",
+        "positions"
+      ],
+      "x-since": "1.0.0"
+    },
+    "strategy.started": {
+      "type": "object",
+      "properties": {
+        "strategyId": {
+          "type": "string"
+        },
+        "ts": {
+          "type": "number"
+        },
+        "deployName": {
+          "type": "string"
+        },
+        "sourcePath": {
+          "type": "string"
+        },
+        "sourceSha256": {
+          "type": "string"
+        },
+        "dslVersion": {
+          "type": "number"
+        },
+        "runtimeMode": {
+          "type": "string"
+        },
+        "brokers": {
+          "type": "array",
+          "items": {
+            "type": "string"
+          }
+        },
+        "symbols": {
+          "type": "array",
+          "items": {
+            "type": "string"
+          }
+        },
+        "streams": {
+          "type": "array",
+          "items": {}
+        },
+        "params": {
+          "type": "object",
+          "additionalProperties": {}
+        },
+        "defaults": {
+          "type": "object",
+          "additionalProperties": {}
+        },
+        "risk": {
+          "type": "object",
+          "additionalProperties": {}
+        }
+      },
+      "required": [
+        "strategyId"
+      ],
+      "x-since": "1.0.0"
+    },
+    "strategy.stopped": {
+      "type": "object",
+      "properties": {
+        "strategyId": {
+          "type": "string"
+        },
+        "flatten": {
+          "type": "boolean"
+        },
+        "ts": {
+          "type": "number"
+        }
+      },
+      "required": [
+        "strategyId"
+      ],
+      "x-since": "1.0.0"
+    },
+    "trade": {
+      "type": "object",
+      "properties": {
+        "orderId": {
+          "type": "string"
+        },
+        "symbol": {
+          "type": "string"
+        },
+        "side": {
+          "type": "string",
+          "enum": [
+            "BUY",
+            "SELL"
+          ]
+        },
+        "price": {
+          "type": "number"
+        },
+        "qty": {
+          "type": "number"
+        },
+        "ts": {
+          "type": "number"
+        }
+      },
+      "required": [
+        "orderId",
+        "symbol",
+        "side",
+        "price",
+        "qty",
+        "ts"
+      ],
+      "x-since": "1.0.0"
+    },
+    "trade.closed": {
+      "type": "object",
+      "properties": {
+        "orderId": {
+          "type": "string"
+        },
+        "symbol": {
+          "type": "string"
+        },
+        "side": {
+          "type": "string",
+          "enum": [
+            "BUY",
+            "SELL"
+          ]
+        },
+        "qty": {
+          "type": "number"
+        },
+        "price": {
+          "type": "number"
+        },
+        "realized": {
+          "type": "number"
+        },
+        "entryTs": {
+          "type": "number"
+        },
+        "ts": {
+          "type": "number"
+        },
+        "strategyId": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ]
+        },
+        "positionId": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ]
+        },
+        "nextPositionId": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ]
+        },
+        "legEntry": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ]
+        },
+        "closeReason": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ]
+        },
+        "attribution": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ]
+        },
+        "initialStop": {
+          "anyOf": [
+            {
+              "type": "number"
+            },
+            {
+              "type": "null"
+            }
+          ]
+        },
+        "initialTarget": {
+          "anyOf": [
+            {
+              "type": "number"
+            },
+            {
+              "type": "null"
+            }
+          ]
+        },
+        "riskAmount": {
+          "anyOf": [
+            {
+              "type": "number"
+            },
+            {
+              "type": "null"
+            }
+          ]
+        },
+        "instrument": {
+          "anyOf": [
+            {
+              "type": "object",
+              "properties": {
+                "symbol": {
+                  "anyOf": [
+                    {
+                      "type": "string"
+                    },
+                    {
+                      "type": "null"
+                    }
+                  ]
+                },
+                "venueCode": {
+                  "anyOf": [
+                    {
+                      "type": "string"
+                    },
+                    {
+                      "type": "null"
+                    }
+                  ]
+                },
+                "kind": {
+                  "anyOf": [
+                    {
+                      "type": "string"
+                    },
+                    {
+                      "type": "null"
+                    }
+                  ]
+                },
+                "contractSize": {
+                  "anyOf": [
+                    {
+                      "type": "number"
+                    },
+                    {
+                      "type": "null"
+                    }
+                  ]
+                },
+                "tickSize": {
+                  "anyOf": [
+                    {
+                      "type": "number"
+                    },
+                    {
+                      "type": "null"
+                    }
+                  ]
+                },
+                "quoteCurrency": {
+                  "anyOf": [
+                    {
+                      "type": "string"
+                    },
+                    {
+                      "type": "null"
+                    }
+                  ]
+                },
+                "valuePerPoint": {
+                  "anyOf": [
+                    {
+                      "type": "number"
+                    },
+                    {
+                      "type": "null"
+                    }
+                  ]
+                }
+              }
+            },
+            {
+              "type": "null"
+            }
+          ]
+        }
+      },
+      "required": [
+        "orderId",
+        "symbol",
+        "side",
+        "qty",
+        "price",
+        "realized",
+        "ts"
+      ],
+      "x-since": "1.0.0"
+    }
+  }
+}

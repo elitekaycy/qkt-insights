@@ -274,7 +274,8 @@ export function recomputeAccountKeys(db: Db, rows: Array<{ instanceId: string; k
         syncMinute(db, instanceId, m);
         syncLabel(db, instanceId, broker, m);
       }
-      const from = Math.min(...minutes);
+      // a loop, not Math.min(...minutes): a few hundred thousand arguments overflow the stack
+      const from = minutes.reduce((a, m) => Math.min(a, m), Number.MAX_SAFE_INTEGER);
       earliest = Math.min(earliest, from);
       walkLabel(db, instanceId, broker, from);
     }

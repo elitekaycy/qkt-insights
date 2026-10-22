@@ -1,8 +1,10 @@
 import { accountName, maskLogin, realAccounts } from "../accounts";
 import { Fragment, useRef, useState, type KeyboardEvent, type PointerEvent, type ReactNode } from "react";
 import { useQuery } from "@tanstack/react-query";
-import { get, type HealthRow, type LiveAccount, type LiveStateSnapshot, type MonitorEventRow, type MonitorSummary, type MonitorsView, type StripBucket } from "../api";
+import { get, type ContractInfo, type HealthRow, type LiveAccount, type LiveStateSnapshot, type MonitorEventRow, type MonitorSummary, type MonitorsView, type StripBucket } from "../api";
+import { ReconciliationCard } from "../components/Reconciliation";
 import { Cell, DataList, Empty, Freshness, StatusWord, LiveDot, PageHeader, Panel, Pill, Row, Skeleton, Stat, Table, type Tone } from "../components/ui";
+import { contractLabel, contractTitle } from "../contract";
 import { age, clock, duration, money, pct, signedMoney, tsDay, tsShort } from "../format";
 
 /** Red only for a loss: failed POSTs are retried (from the journal when it is on), so they are not one. */
@@ -386,18 +388,39 @@ export default function Health() {
     refetchInterval: 5000,
   });
 
+  // Fixed for the collector's lifetime; refetched on focus so a redeployed collector shows its new version.
+  const contract = useQuery({
+    queryKey: ["health-contract"],
+    queryFn: () => get<ContractInfo>("/health/contract"),
+    staleTime: 5 * 60_000,
+  });
+
   const rows = health.data ?? [];
   const accounts = realAccounts(liveState.data?.accounts ?? []);
 
   return (
     <div>
-      <PageHeader title="Health" sub="Uptime, runtime status, collector delivery, and broker account truth in one place." />
+      <PageHeader title="Health" sub="Uptime, venue reconciliation, runtime status, collector delivery, and broker account truth in one place." />
 
       <FleetStats monitors={monitors.data?.monitors ?? []} rows={rows} accounts={accounts} />
 
       <Monitors view={monitors.data} loading={monitors.isLoading} failed={monitors.isError} />
 
-      <Panel className="mt-6" title="Runtime health" hint="live = recent qkt envelope or broker account poll within 30s" scroll="max-h-[72vh]">
+      <ReconciliationCard instances={rows.map((r) => r.instanceId)} />
+
+      <Panel
+        className="mt-6"
+        title="Runtime health"
+        hint="live = recent qkt envelope or broker account poll within 30s"
+        right={
+          contract.data && (
+            <span className="font-mono text-xs text-faint" title={contractTitle(contract.data)}>
+              {contractLabel(contract.data)}
+            </span>
+          )
+        }
+        scroll="max-h-[72vh]"
+      >
         <ul className="divide-y divide-line/60 sm:hidden">
           {rows.length === 0 && (
             <li className="px-4 py-10 text-center text-sm text-faint">No instances reporting yet — enable the insights block on a qkt instance.</li>

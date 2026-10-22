@@ -115,7 +115,12 @@ export interface AccountLimitProfile {
   timezone?: string;
   /** true: daily loss = day-start balance minus equity now (floating included). Default false: realized closes only. */
   dailyLossIncludesFloating?: boolean;
-  /** % of the day-start balance. */
+  /**
+   * What the day is measured from: "balance" (default) the day-start balance, "higher" the higher of
+   * the day-start balance and day-start equity (prop rules such as The5ers'). Base of dailyLossPct too.
+   */
+  dailyLossBase?: "balance" | "higher";
+  /** % of the day's reference (dailyLossBase). */
   dailyLossPct?: number;
   dailyLoss?: number;
   /** % of the start balance. */
@@ -153,7 +158,11 @@ export interface AccountRiskRow {
     resetHour: number;
     timezone: string;
     includesFloating: boolean;
+    base: "balance" | "higher";
     dayStartBalance: number | null;
+    dayStartEquity: number | null;
+    /** What the day is measured from: the day-start balance, or the higher of it and day-start equity. */
+    reference: number | null;
     /** Realized net of the current trading day (closes since dayStart). */
     realizedToday: number;
   };
@@ -246,6 +255,11 @@ export function accountRiskScan(db: Db, f: Parameters<typeof accountRisk>[1]): A
   return riskRows(db, f, seriesViews(accountSeries(db, { instanceId: f.instanceId, to: f.now })));
 }
 
+/** The instance's venue accounts as of `to`, grouped exactly as the risk and return readers group them. */
+export function accountGroups(db: Db, instanceId: string, to?: number): Array<Pick<AccountView, "key" | "label" | "identity" | "labels">> {
+  return withAccountViews(db, instanceId, to, (accounts) => accounts.map((a) => ({ key: a.key, label: a.label, identity: a.identity, labels: a.labels })));
+}
+
 /**
  * Runs `read` over the instance's accounts as of `to`, answered from the account projections; when
  * they cannot answer one of its questions exactly, over the full stitched series instead.
@@ -291,14 +305,19 @@ function riskRows(
     const timezone = profile.timezone ?? "UTC";
     const dayStart = tradingDayStart(f.now, resetHour, timezone);
     const dayStartBalance = s.balanceAround(dayStart);
+    const dailyBase = profile.dailyLossBase ?? "balance";
+    const dayStartEquity = s.equityAtStart(dayStart, f.now);
+    const dayReference = dailyBase === "higher" && dayStartEquity != null
+      ? Math.max(dayStartBalance ?? dayStartEquity, dayStartEquity)
+      : dayStartBalance;
     const realizedToday = accountCloses(db, {
       instanceId: f.instanceId, strategyIds: f.strategyIds, from: dayStart, to: f.now, closedPositionsOnly: f.closedPositionsOnly,
     }).reduce((a, c) => a + c.realized, 0);
     const includesFloating = profile.dailyLossIncludesFloating ?? false;
     const dailyUsed = includesFloating
-      ? (dayStartBalance != null ? Math.max(0, dayStartBalance - last.equity) : null)
+      ? (dayReference != null ? Math.max(0, dayReference - last.equity) : null)
       : Math.max(0, -realizedToday);
-    const dailyCap = profile.dailyLoss ?? (profile.dailyLossPct != null && dayStartBalance != null ? (dayStartBalance * profile.dailyLossPct) / 100 : null);
+    const dailyCap = profile.dailyLoss ?? (profile.dailyLossPct != null && dayReference != null ? (dayReference * profile.dailyLossPct) / 100 : null);
 
     return {
       account: s.key,
@@ -311,7 +330,7 @@ function riskRows(
       equity: last.equity,
       peakEquity: Number.isFinite(peak) ? peak : null,
       drawdown: { used, usedPct: used != null && reference ? (used / reference) * 100 : null, reference, cap: ddCap },
-      dailyLoss: { used: dailyUsed, cap: dailyCap, dayStart, resetHour, timezone, includesFloating, dayStartBalance, realizedToday },
+      dailyLoss: { used: dailyUsed, cap: dailyCap, dayStart, resetHour, timezone, includesFloating, base: dailyBase, dayStartBalance, dayStartEquity, reference: dayReference, realizedToday },
     };
   });
 }

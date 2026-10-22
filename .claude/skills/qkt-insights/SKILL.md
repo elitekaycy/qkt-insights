@@ -51,6 +51,9 @@ apps/web                 # React dashboard
 until collector, store, api, and web are updated in the same change — the
 compiler enforces types, but zod schemas and SQL columns drift silently.
 Grep all four consumers for the changed field before calling it done.
+A contract change also bumps `CONTRACT_VERSION`, gives a new type its `eventTypeMeta` entry, and
+reruns `pnpm contract:generate` (the generated schema and type list are committed; a test fails
+while they are stale). Rules: `docs/ARCHITECTURE.md` "Contract versions".
 
 ## 3. Testing
 

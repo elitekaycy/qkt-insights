@@ -48,8 +48,9 @@ export function limitUse(row: AccountRiskRow, liveEquity: number | null): { dail
   const equity = liveEquity ?? row.equity;
   const reference = row.basis === "static" ? row.startBalance : row.peakEquity == null || equity == null ? row.peakEquity : Math.max(row.peakEquity, equity);
   const ddUsed = reference != null && equity != null ? Math.max(0, reference - equity) : row.drawdown.used;
+  const dayReference = dailyReference(row);
   const dailyUsed = row.dailyLoss.includesFloating
-    ? (row.dailyLoss.dayStartBalance != null && equity != null ? Math.max(0, row.dailyLoss.dayStartBalance - equity) : row.dailyLoss.used)
+    ? (dayReference != null && equity != null ? Math.max(0, dayReference - equity) : row.dailyLoss.used)
     : Math.max(0, -row.dailyLoss.realizedToday);
   const use = (used: number | null, cap: number | null, base: number | null): LimitUse => ({
     used,
@@ -59,9 +60,22 @@ export function limitUse(row: AccountRiskRow, liveEquity: number | null): { dail
     usedPct: used != null && base != null && base > 0 ? (used / base) * 100 : null,
   });
   return {
-    daily: use(dailyUsed, row.dailyLoss.cap, row.dailyLoss.dayStartBalance),
+    daily: use(dailyUsed, row.dailyLoss.cap, dayReference),
     drawdown: use(ddUsed, row.drawdown.cap, reference ?? row.drawdown.reference),
   };
+}
+
+/** What the trading day is measured from: the day-start balance, or the higher of it and day-start equity. */
+export function dailyReference(row: Pick<AccountRiskRow, "dailyLoss">): number | null {
+  return row.dailyLoss.reference !== undefined ? row.dailyLoss.reference : row.dailyLoss.dayStartBalance;
+}
+
+/** Names the daily reference, e.g. "the day-start equity 50,120.00 (higher than the balance)". */
+export function dailyReferenceLabel(row: Pick<AccountRiskRow, "dailyLoss">): string {
+  const ref = dailyReference(row);
+  if (row.dailyLoss.base !== "higher") return `the day-start balance ${money(ref)}`;
+  const fromEquity = ref != null && row.dailyLoss.dayStartEquity === ref && row.dailyLoss.dayStartBalance !== ref;
+  return fromEquity ? `the day-start equity ${money(ref)} (above the balance)` : `the day-start balance ${money(ref)} (at or above equity)`;
 }
 
 /** Live account state is kept in memory; an instance silent this long has none to show until it reports. */
@@ -78,9 +92,9 @@ export function noAccountMessage(instanceId: string, lastSeen: number | null | u
 /** The daily-loss card's line under the figure: what the figure is, in words. */
 export function dailyMeasured(row: Pick<AccountRiskRow, "dailyLoss">, daily: LimitUse): string {
   if (row.dailyLoss.includesFloating) {
-    return row.dailyLoss.dayStartBalance == null
+    return dailyReference(row) == null
       ? "day-start balance not recorded yet"
-      : `from the day-start balance ${money(row.dailyLoss.dayStartBalance)} to equity now`;
+      : `from ${dailyReferenceLabel(row)} to equity now`;
   }
   if (daily.used != null && daily.used > 0) return "lost today on closed trades";
   return row.dailyLoss.realizedToday > 0 ? `no loss today: closed ${signedMoney(row.dailyLoss.realizedToday)}` : "no loss today";

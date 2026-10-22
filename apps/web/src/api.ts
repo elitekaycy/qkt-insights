@@ -112,6 +112,12 @@ export interface HealthRow {
   /** Envelopes /ingest acknowledged but kept raw (unknown type, bad payload, unsupported major), per type and major. */
   quarantined: QuarantineCount[];
 }
+/** The contract the collector's /ingest reads (`GET /health/contract`). */
+export interface ContractInfo {
+  contractVersion: string;
+  /** Envelope `v` values it accepts; any other is quarantined. */
+  majors: number[];
+}
 export interface QuarantineCount {
   type: string | null;
   v: number | null;
@@ -155,6 +161,71 @@ export interface MonitorEventRow {
 export interface MonitorsView {
   monitors: MonitorSummary[];
   events: MonitorEventRow[];
+}
+
+/** GET /health/reconciliation: the nightly venue reconciliation as its latest run stored it (store reconciliation.ts). */
+/** external: the balance moved with no deal in the window (a deposit, withdrawal or credit); not a failure. */
+export type ReconciledDayStatus = "ok" | "external" | "diff" | "incomplete";
+export type ReconciledDayReason = "no-deals" | "deals-differ" | "no-prior-balance" | "no-balance";
+export interface ReconciledDay {
+  /** "YYYY-MM-DD", UTC. */
+  day: string;
+  status: ReconciledDayStatus;
+  reason: ReconciledDayReason | null;
+  /** The minutes of the two balance snapshots compared; the deals counted are those in (startTs, endTs]. */
+  startTs: number | null;
+  endTs: number | null;
+  startBalance: number | null;
+  endBalance: number | null;
+  balanceChange: number | null;
+  dealNet: number | null;
+  /** balanceChange minus dealNet: what no stored deal explains. */
+  diff: number | null;
+  deals: number;
+  checkedAt: number;
+}
+export interface ReconciledPosition { ticket: string; symbol: string | null; side: string | null; qty: number | null }
+export interface ReconciledPositions {
+  status: "ok" | "diff" | "stale";
+  venueAt: number | null;
+  venueCount: number;
+  insightsCount: number;
+  missing: ReconciledPosition[];
+  gone: ReconciledPosition[];
+  mismatched: Array<{ ticket: string; symbol: string | null; field: "side" | "qty"; venue: string | number; insights: string | number }>;
+}
+export interface ReconciledLedger {
+  status: "ok" | "diff";
+  trips: number;
+  tripsNet: number;
+  dealsNet: number;
+  diff: number;
+  mismatched: Array<{ ticket: string; realized: number; dealsNet: number }>;
+}
+export interface AccountReconciliation {
+  account: string;
+  label: string;
+  firstDay: string | null;
+  lastDay: string | null;
+  throughDay: string | null;
+  daysOk: number;
+  daysDiff: number;
+  /** Days the balance moved without a deal (deposits, withdrawals, credits). */
+  daysExternal: number;
+  daysIncomplete: number;
+  /** Days not ok, newest first. */
+  days: ReconciledDay[];
+  positions: ReconciledPositions;
+  ledger: ReconciledLedger;
+  checkedAt: number;
+}
+export interface ReconciliationView {
+  instanceId: string;
+  digits: number;
+  checkedAt: number | null;
+  /** Canonical deals the latest run could give to no account, per label: never in an account's checks. */
+  unassigned: { deals: number; labels: Array<{ broker: string; deals: number }> };
+  accounts: AccountReconciliation[];
 }
 export interface StrategyRow {
   strategyId: string;
@@ -364,6 +435,8 @@ export interface AccountRiskRow {
   dailyLoss: {
     used: number | null; cap: number | null; dayStart: number; resetHour: number; timezone: string;
     includesFloating: boolean; dayStartBalance: number | null; realizedToday: number;
+    /** Older collectors omit these three: the day-start balance is then the reference. */
+    base?: "balance" | "higher"; dayStartEquity?: number | null; reference?: number | null;
   };
 }
 export interface AccountDrawdownRow {

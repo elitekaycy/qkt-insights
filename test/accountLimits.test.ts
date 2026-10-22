@@ -40,5 +40,7 @@ describe("parseAccountLimits", () => {
     expect(() => parseAccountLimits('{"a":{"timezone":"Mars/Base"}}')).toThrow(/IANA/);
     expect(() => parseAccountLimits('{"a":{"dailyResetHour":24}}')).toThrow(/0-23/);
     expect(() => parseAccountLimits('{"a":{"maxDailyLoss":5}}')).toThrow(/not a known limit/);
+    expect(() => parseAccountLimits('{"a":{"dailyLossBase":"equity"}}')).toThrow(/"balance" or "higher"/);
+    expect(parseAccountLimits('{"a":{"dailyLossBase":"higher"}}')).toEqual({ a: { dailyLossBase: "higher" } });
   });
 });

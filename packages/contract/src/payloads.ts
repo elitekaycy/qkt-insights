@@ -289,3 +289,78 @@ export const payloadByType = {
 } as const;
 
 export type EventType = keyof typeof payloadByType;
+
+/**
+ * The contract this collector speaks, as semver. Minor: a new type or a new optional field. Major: a rename, a
+ * removal or a change of meaning, which also takes a new envelope `v` (envelope.ts `SUPPORTED_MAJORS`).
+ */
+export const CONTRACT_VERSION = "1.0.0";
+
+/** When a type joined the contract and, once it is on its way out, what replaces it. */
+export interface EventTypeMeta {
+  /** The contract version that first accepted the type. */
+  since: string;
+  /** Why the type is deprecated and what to send instead; a deprecated type is still accepted until the next major. */
+  deprecated?: string;
+}
+
+/** One entry per key of `payloadByType`: a new type is incomplete without its `since`. */
+export const eventTypeMeta: Record<EventType, EventTypeMeta> = {
+  signal: { since: "1.0.0" },
+  "signal.cancel": { since: "1.0.0" },
+  "signal.suppressed": { since: "1.0.0" },
+  "signal.structure": { since: "1.0.0" },
+  "signal.latch_armed": { since: "1.0.0" },
+  "order.submit": { since: "1.0.0" },
+  "order.accepted": { since: "1.0.0" },
+  "order.filled": { since: "1.0.0" },
+  "order.partially_filled": { since: "1.0.0" },
+  "order.cancelled": { since: "1.0.0" },
+  "order.rejected": { since: "1.0.0" },
+  "order.modified": { since: "1.0.0" },
+  trade: { since: "1.0.0" },
+  "bot.close": { since: "1.0.0" },
+  "bot.command": { since: "1.0.0" },
+  "bot.modify": { since: "1.0.0" },
+  "bot.cancel": { since: "1.0.0" },
+  "bot.session.intent": { since: "1.0.0" },
+  "decision.rule_evaluated": { since: "1.0.0" },
+  "decision.order_linked": { since: "1.0.0" },
+  "fill.accounted": { since: "1.0.0" },
+  "risk.rejected": { since: "1.0.0" },
+  "risk.halted": { since: "1.0.0" },
+  "risk.resumed": { since: "1.0.0" },
+  "risk.snapshot": { since: "1.0.0" },
+  "strategy.started": { since: "1.0.0" },
+  "strategy.stopped": { since: "1.0.0" },
+  "insights.health": { since: "1.0.0" },
+  "position.reconciled": { since: "1.0.0" },
+  "position.opened": { since: "1.0.0" },
+  "position.updated": { since: "1.0.0" },
+  "position.closed": { since: "1.0.0" },
+  "position.valued": { since: "1.0.0" },
+  "balances.updated": { since: "1.0.0" },
+  "gateway.unreachable": { since: "1.0.0" },
+  "broker.connected": { since: "1.0.0" },
+  "broker.disconnected": { since: "1.0.0" },
+  "broker.reconnected": { since: "1.0.0" },
+  "marketdata.connected": { since: "1.0.0" },
+  "marketdata.disconnected": { since: "1.0.0" },
+  "marketdata.reconnected": { since: "1.0.0" },
+  "marketdata.stale": { since: "1.0.0" },
+  "marketdata.recovered": { since: "1.0.0" },
+  "snapshot.equity": { since: "1.0.0" },
+  "snapshot.position": { since: "1.0.0" },
+  log: { since: "1.0.0" },
+  "trade.closed": { since: "1.0.0" },
+  "state.account": { since: "1.0.0" },
+  "state.positions": { since: "1.0.0" },
+  "state.orders": { since: "1.0.0" },
+  "broker.deal": { since: "1.0.0" },
+  "portfolio.configured": { since: "1.0.0" },
+  "portfolio.allocation.updated": { since: "1.0.0" },
+  "portfolio.exposure.updated": { since: "1.0.0" },
+  "portfolio.equity.updated": { since: "1.0.0" },
+  "state.persistence": { since: "1.0.0" },
+  "instance.roster": { since: "1.0.0" },
+};

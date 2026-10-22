@@ -1,7 +1,7 @@
 import type { ReactNode } from "react";
 import type { AccountRiskRow, LiveAccount } from "../api";
 import { clock, count, DASH, money, pctValue, signedMoney } from "../format";
-import { accountToday, dailyMeasured, dayBasisLabel, drawdownMeasured, limitUse, type LimitUse, type OpenRisk } from "../home";
+import { accountToday, dailyMeasured, dailyReferenceLabel, dayBasisLabel, drawdownMeasured, limitUse, type LimitUse, type OpenRisk } from "../home";
 import { accountName, maskLogin } from "../accounts";
 import { Card, FlashValue, Freshness, InfoIcon, Pill, Pnl, Popover } from "./ui";
 
@@ -200,7 +200,7 @@ export function AccountStrip({
               basis={`${risk.dailyLoss.includesFloating ? "incl. floating" : "realized only"} · ${dayBasisLabel(risk)}`}
               help={
                 risk.dailyLoss.includesFloating
-                  ? `The day-start balance (${money(risk.dailyLoss.dayStartBalance)}) minus equity now, floating P&L included. The day begins at ${String(risk.dailyLoss.resetHour).padStart(2, "0")}:00 ${risk.dailyLoss.timezone}. ${limitSource(risk)}`
+                  ? `Measured from ${dailyReferenceLabel(risk)} to equity now, floating P&L included.${risk.dailyLoss.base === "higher" ? " The day is measured from the higher of the day-start balance and equity." : ""} The day begins at ${String(risk.dailyLoss.resetHour).padStart(2, "0")}:00 ${risk.dailyLoss.timezone}. ${limitSource(risk)}`
                   : `The day's realized loss: closes since ${String(risk.dailyLoss.resetHour).padStart(2, "0")}:00 ${risk.dailyLoss.timezone}; floating P&L is not counted. ${limitSource(risk)}`
               }
             />
