@@ -90,7 +90,7 @@ export default function Home({ instanceId }: { instanceId: string | null }) {
   const realizedFallback = periods ? [...periods.values()].reduce((a, p) => a + p.todayRealized, 0) : 0;
 
   return (
-    <div className="grid gap-4">
+    <div className="grid grid-cols-1 gap-4">
       <PageHeader
         title="Home"
         sub={view.public ? `${instanceId} · shared view, figures ${view.meta.delayMinutes} minutes behind · times UTC` : `${instanceId}: where the account stands right now · times UTC`}
@@ -110,7 +110,7 @@ export default function Home({ instanceId }: { instanceId: string | null }) {
             const own = groups.filter((g) => labels.includes(g.broker)).flatMap((g) => g.list);
             return (
               <AccountStrip
-                key={`${a.broker}:${a.login ?? ""}`}
+                key={a.accountId ?? `${a.broker}:${a.login ?? ""}`}
                 account={a}
                 labels={labels}
                 risk={row}

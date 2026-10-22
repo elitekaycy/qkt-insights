@@ -59,3 +59,14 @@ export function realAccounts(accounts: readonly LiveAccount[]): LiveAccount[] {
   for (const a of accounts) byInstance.set(a.instanceId, [...(byInstance.get(a.instanceId) ?? []), a]);
   return [...byInstance.values()].flatMap((list) => groupAccounts(list).map((g) => g.account));
 }
+
+/**
+ * The name an account strip shows. Several qkt broker profiles can share one venue account (forward
+ * runs 15 Exness profiles on one login), and the live row carries whichever profile reported last,
+ * so a label of the venue's own profiles (`EXNESS_P174` on adapter `exness`) reads as the venue,
+ * steady across polls. Any other label (ICMARKETS, PROP_S01) is shown as it is.
+ */
+export function accountName(a: Pick<LiveAccount, "broker" | "adapter">): string {
+  const venue = a.adapter?.toUpperCase();
+  return venue && a.broker.toUpperCase().startsWith(`${venue}_`) ? venue : a.broker;
+}
