@@ -45,7 +45,13 @@ const DAYS_PER_STEP = 31;
 /** Non-ok days a read returns per account, newest first. */
 const LISTED_DAYS = 100;
 
-export type DayStatus = "ok" | "diff" | "incomplete";
+/**
+ * ok: the balance change equals the deals. external: the balance moved and no deal was made in the
+ * window, which is a deposit, withdrawal or credit (qkt does not send the venue's balance
+ * operations) or a deal insights does not have; it does not count as a failure. diff: deals were
+ * stored and do not add up to the change. incomplete: the day has no starting point or no balance.
+ */
+export type DayStatus = "ok" | "external" | "diff" | "incomplete";
 /**
  * Why a day is not ok. no-deals: the balance moved and no deal explains it. deals-differ: deals were
  * stored, but they do not add up to the change. no-prior-balance: no balance snapshot before the day
@@ -113,10 +119,12 @@ export interface AccountReconciliation {
   label: string;
   firstDay: string | null;
   lastDay: string | null;
-  /** Every checked day up to this one is ok (or incomplete); null while none is. */
+  /** No checked day up to this one differs (external and incomplete days do not); null while none is ok or external. */
   throughDay: string | null;
   daysOk: number;
   daysDiff: number;
+  /** Days the balance moved without a deal: deposits, withdrawals, credits. */
+  daysExternal: number;
   daysIncomplete: number;
   /** Days not ok, newest first (at most LISTED_DAYS). */
   days: ReconciledDay[];
@@ -138,6 +146,8 @@ export interface ReconcileResult {
   accounts: number;
   daysChecked: number;
   diffs: number;
+  /** Days checked in this run whose balance moved without a deal. */
+  external: number;
 }
 
 interface Account { key: string; label: string; identity: string | null; labels: string[] }
@@ -213,13 +223,13 @@ function dealsBetween(db: Db, instanceId: string, after: number, upTo: number): 
  * Checks the days of one account that need it and stores them; yields every DAYS_PER_STEP days.
  * Returns the days checked and how many differ.
  */
-function* reconcileDays(db: Db, instanceId: string, account: Account, accountOf: ReturnType<typeof dealAccounts>, digits: number, now: number): Generator<void, { checked: number; diffs: number }, void> {
+function* reconcileDays(db: Db, instanceId: string, account: Account, accountOf: ReturnType<typeof dealAccounts>, digits: number, now: number): Generator<void, { checked: number; diffs: number; external: number }, void> {
   const first = firstBalanceTs(db, instanceId, account);
-  if (first == null) return { checked: 0, diffs: 0 };
+  if (first == null) return { checked: 0, diffs: 0, external: 0 };
   // a day is complete once its end, and the minute a snapshot at its end can still take, are past
   const lastDay = Math.floor((now - AMBIGUOUS_AFTER_MS) / DAY) * DAY - DAY;
   const firstDay = Math.floor(first / DAY) * DAY;
-  if (lastDay < firstDay) return { checked: 0, diffs: 0 };
+  if (lastDay < firstDay) return { checked: 0, diffs: 0, external: 0 };
 
   const stored = statement(db, "SELECT MAX(day) d FROM reconciliations WHERE instance_id=? AND account=?").get(instanceId, account.key) as { d: string | null };
   const recheckFrom = Math.floor(now / DAY) * DAY - RECHECK_DAYS * DAY;
@@ -267,7 +277,7 @@ function* reconcileDays(db: Db, instanceId: string, account: Account, accountOf:
     const ok = Math.abs(diff) <= tolerance(deals.length, digits);
     return {
       day,
-      status: ok ? "ok" : "diff",
+      status: ok ? "ok" : deals.length === 0 ? "external" : "diff",
       reason: ok ? null : deals.length === 0 ? "no-deals" : "deals-differ",
       startTs: start.ts, endTs: upTo, startBalance: start.balance, endBalance,
       dealNet: roundMoney(net, digits), diff: ok ? 0 : roundMoney(diff, digits), deals: deals.length,
@@ -280,7 +290,7 @@ function* reconcileDays(db: Db, instanceId: string, account: Account, accountOf:
      ON CONFLICT(instance_id, account, day) DO UPDATE SET status=excluded.status, reason=excluded.reason, start_ts=excluded.start_ts,
        end_ts=excluded.end_ts, start_balance=excluded.start_balance, end_balance=excluded.end_balance, deal_net=excluded.deal_net,
        diff=excluded.diff, deals=excluded.deals, checked_at=excluded.checked_at`);
-  let checked = 0, diffs = 0;
+  let checked = 0, diffs = 0, external = 0;
   for (let i = 0; i < days.length; i += DAYS_PER_STEP) {
     db.transaction(() => {
       for (const d of days.slice(i, i + DAYS_PER_STEP)) {
@@ -289,11 +299,12 @@ function* reconcileDays(db: Db, instanceId: string, account: Account, accountOf:
         write.run({ instanceId, account: account.key, ...row, checkedAt: now });
         checked++;
         if (row.status === "diff") diffs++;
+        if (row.status === "external") external++;
       }
     })();
     yield;
   }
-  return { checked, diffs };
+  return { checked, diffs, external };
 }
 
 interface OpenTrip { ticket: string; broker: string | null; symbol: string | null; side: string; entryTs: number | null; accountId: string | null; openQty: number | null; reversals: number }
@@ -381,29 +392,31 @@ export function* reconcileSteps(db: Db, instanceId: string, opts: { now: number;
   const closed = closedTrips(db, instanceId);
   yield;
 
-  let daysChecked = 0, diffs = 0;
+  let daysChecked = 0, diffs = 0, external = 0;
   const upSummary = statement(db,
-    `INSERT INTO reconciliation_accounts (instance_id, account, label, first_day, last_day, through_day, days_ok, days_diff, days_incomplete, positions, ledger, checked_at)
-     VALUES (@instanceId, @account, @label, @firstDay, @lastDay, @throughDay, @ok, @diff, @incomplete, @positions, @ledger, @checkedAt)
+    `INSERT INTO reconciliation_accounts (instance_id, account, label, first_day, last_day, through_day, days_ok, days_diff, days_external, days_incomplete, positions, ledger, checked_at)
+     VALUES (@instanceId, @account, @label, @firstDay, @lastDay, @throughDay, @ok, @diff, @external, @incomplete, @positions, @ledger, @checkedAt)
      ON CONFLICT(instance_id, account) DO UPDATE SET label=excluded.label, first_day=excluded.first_day, last_day=excluded.last_day,
-       through_day=excluded.through_day, days_ok=excluded.days_ok, days_diff=excluded.days_diff, days_incomplete=excluded.days_incomplete,
+       through_day=excluded.through_day, days_ok=excluded.days_ok, days_diff=excluded.days_diff, days_external=excluded.days_external, days_incomplete=excluded.days_incomplete,
        positions=excluded.positions, ledger=excluded.ledger, checked_at=excluded.checked_at`);
   for (const account of accounts) {
     const r = yield* reconcileDays(db, instanceId, account, accountOf, digits, now);
     daysChecked += r.checked;
     diffs += r.diffs;
+    external += r.external;
     const counts = new Map((statement(db,
       "SELECT status, COUNT(*) n, MIN(day) first, MAX(day) last FROM reconciliations WHERE instance_id=? AND account=? GROUP BY status",
     ).all(instanceId, account.key) as Array<{ status: DayStatus; n: number; first: string; last: string }>).map((c) => [c.status, c]));
     const range = statement(db, "SELECT MIN(day) first, MAX(day) last FROM reconciliations WHERE instance_id=? AND account=?")
       .get(instanceId, account.key) as { first: string | null; last: string | null };
     const firstDiff = counts.get("diff")?.first ?? null;
-    const throughDay = firstDiff != null ? previousDay(firstDiff, range.first) : (counts.get("ok") ? range.last : null);
+    // a deposit or withdrawal (external) never stops it: only deals that do not add up do
+    const throughDay = firstDiff != null ? previousDay(firstDiff, range.first) : (counts.get("ok") || counts.get("external") ? range.last : null);
     const positions = checkPositions(account, open.filter((t) => tripAccount(t) === account), opts.positions ?? [], now);
     const ledger = checkLedger(closed.filter((t) => tripAccount(t) === account), digits);
     upSummary.run({
       instanceId, account: account.key, label: account.label, firstDay: range.first, lastDay: range.last, throughDay,
-      ok: counts.get("ok")?.n ?? 0, diff: counts.get("diff")?.n ?? 0, incomplete: counts.get("incomplete")?.n ?? 0,
+      ok: counts.get("ok")?.n ?? 0, diff: counts.get("diff")?.n ?? 0, external: counts.get("external")?.n ?? 0, incomplete: counts.get("incomplete")?.n ?? 0,
       positions: JSON.stringify(positions), ledger: JSON.stringify(ledger), checkedAt: now,
     });
     yield;
@@ -415,7 +428,7 @@ export function* reconcileSteps(db: Db, instanceId: string, opts: { now: number;
     statement(db, "DELETE FROM reconciliations WHERE instance_id=? AND account NOT IN (SELECT value FROM json_each(?))").run(instanceId, keys);
   })();
   bumpReconciliation(db, instanceId);
-  return { accounts: accounts.length, daysChecked, diffs };
+  return { accounts: accounts.length, daysChecked, diffs, external };
 }
 
 /** The day before `day`, or null when `day` is the first stored one. */
@@ -435,7 +448,7 @@ export function reconcile(db: Db, instanceId: string, opts: { now: number; posit
 /** The stored results of the instance's latest run: one summary row per account and its days that are not ok. */
 export function reconciliation(db: Db, instanceId: string): Reconciliation {
   const rows = statement(db,
-    `SELECT account, label, first_day firstDay, last_day lastDay, through_day throughDay, days_ok daysOk, days_diff daysDiff,
+    `SELECT account, label, first_day firstDay, last_day lastDay, through_day throughDay, days_ok daysOk, days_diff daysDiff, days_external daysExternal,
        days_incomplete daysIncomplete, positions, ledger, checked_at checkedAt
      FROM reconciliation_accounts WHERE instance_id=? ORDER BY label, account`,
   ).all(instanceId) as Array<Omit<AccountReconciliation, "days" | "positions" | "ledger"> & { positions: string; ledger: string }>;

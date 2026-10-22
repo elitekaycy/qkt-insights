@@ -8,7 +8,7 @@ const positions = (over: Partial<ReconciledPositions> = {}): ReconciledPositions
 const ledger = (over: Partial<ReconciledLedger> = {}): ReconciledLedger => ({ status: "ok", trips: 412, tripsNet: 1234.5, dealsNet: 1234.5, diff: 0, mismatched: [], ...over });
 const account = (over: Partial<AccountReconciliation> = {}): AccountReconciliation => ({
   account: "mt5:0123456789abcdef", label: "ICM", firstDay: "2026-09-01", lastDay: "2026-10-21", throughDay: "2026-10-21",
-  daysOk: 50, daysDiff: 0, daysIncomplete: 1, days: [], positions: positions(), ledger: ledger(), checkedAt: Date.UTC(2026, 9, 22, 2), ...over,
+  daysOk: 50, daysDiff: 0, daysExternal: 0, daysIncomplete: 1, days: [], positions: positions(), ledger: ledger(), checkedAt: Date.UTC(2026, 9, 22, 2), ...over,
 });
 
 describe("reconciliation wording", () => {
@@ -17,6 +17,12 @@ describe("reconciliation wording", () => {
     expect(checkedLabel(Date.UTC(2026, 9, 22, 2), Date.UTC(2026, 9, 22, 9))).toBe("checked 02:00 UTC");
     expect(checkedLabel(Date.UTC(2026, 9, 21, 2), Date.UTC(2026, 9, 22, 9))).toBe("checked 21 Oct 02:00 UTC");
     expect(dayCounts(account())).toBe("50 days ok · 1 incomplete");
+  });
+
+  it("keeps an account reconciled through balance moves without a deal, and says how many", () => {
+    expect(verdict(account({ daysExternal: 2 }))).toEqual({ tone: "ok", text: "Reconciled ✓ through 21 Oct · 2 balance moves without a deal" });
+    expect(verdict(account({ daysExternal: 1 })).text).toBe("Reconciled ✓ through 21 Oct · 1 balance move without a deal");
+    expect(dayCounts(account({ daysExternal: 2 }))).toBe("50 days ok · 2 without a deal · 1 incomplete");
   });
 
   it("counts the days that differ and says how far the books are clean", () => {

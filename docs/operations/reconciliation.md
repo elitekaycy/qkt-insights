@@ -2,8 +2,8 @@
 
 Every night insights checks that what it stores matches the venue, using only what qkt already
 sends (`state.account`, `state.positions`, `broker.deal`); it never calls a gateway. Health shows
-the result per venue account: "Reconciled ✓ through 21 Oct · checked 02:00 UTC", or the days and
-positions that differ. Accounts are grouped exactly as the account views group them (by the
+the result per venue account: "Reconciled ✓ through 21 Oct · 2 balance moves without a deal ·
+checked 02:00 UTC", or "N days differ" with the days and positions that differ. Accounts are grouped exactly as the account views group them (by the
 opaque account id, else by labels that take turns).
 
 ## The three checks
@@ -15,9 +15,12 @@ opaque account id, else by labels that take turns).
   midnight count on the day the next snapshot lands in. A midnight is never cut at a snapshot a
   deal sits within a minute or two of (whether its balance holds that deal is unknown); the
   check steps back to an earlier one.
-  - `diff`, no deal that day: the balance moved without a deal, which is a deposit, withdrawal
-    or credit (qkt does not send the venue's balance operations), or a deal insights does not have.
-  - `diff` with deals: they do not add up, which means a missing deal or money in or out the same day.
+  - `external`: the balance moved and no deal was made in the window. qkt never sends the venue's
+    balance operations (MT5 deal types 2 and up: deposits, withdrawals, credits), so this is one
+    of those, or a deal insights does not have. It is not a failure: it does not stop "ok through",
+    and Health lists these days apart, in amber, with the amount.
+  - `diff`: deals were stored and do not add up to the change, which means a missing deal, or money
+    in or out on a day that also traded. It stops "ok through" at the day before the earliest one.
   - `incomplete`: no snapshot before the day began (the account's first day), or no balance that day.
 - **Open positions now.** The venue's latest positions report (when under 5 minutes old, else
   `stale`) against insights' open round trips: positions at the venue with no open round trip,
@@ -32,7 +35,8 @@ Two minutes after the server starts listening (the live state has heard the venu
 then), then every night at 02:00 UTC, in `collect` and `run` modes: the process that takes ingest
 holds the venue's live positions. A run is short steps with requests and ingest served in between,
 and is incremental: it checks the days after the last one stored, the last 7 days again (a deal
-replayed from qkt's journal arrives late), and every day that was not ok. A year of minute
+replayed from qkt's journal arrives late), and every day that was not ok (an `external` day turns
+into `diff` or `ok` if a deal for it arrives later). A year of minute
 rollups with 10,000 deals takes about 50 ms on a laptop; a nightly run a few tens of ms.
 
 Results are stored in `reconciliations` (one row per account and day) and

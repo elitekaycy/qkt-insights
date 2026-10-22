@@ -9,7 +9,7 @@ import { Cell, DataList, InfoIcon, Panel, Pnl, Popover, Skeleton, StatusWord, ty
 
 const TONE: Record<ReconciliationTone, Tone> = { ok: "ok", bad: "bad", neutral: "neutral" };
 
-const HINT = "every night at 02:00 UTC, from what qkt sends · each UTC day's balance change against the account's deals, open positions against the venue, round trips against their deals · tap a differing day for its trades";
+const HINT = "every night at 02:00 UTC, from what qkt sends · each UTC day's balance change against the account's deals (a move with no deal is a deposit, withdrawal or credit, not a failure), open positions against the venue, round trips against their deals · tap a day for its trades";
 
 /** What no stored deal explains: a signed amount with its glyph, never coloured as P&L. */
 function Unexplained({ value, digits }: { value: number | null; digits: number }) {
@@ -38,11 +38,21 @@ function Details({ label, lines }: { label: string; lines: string[] }) {
   );
 }
 
-function DiffDays({ days, digits, onDay }: { days: ReconciledDay[]; digits: number; onDay: (d: ReconciledDay) => void }) {
+/**
+ * Days listed under an account: the ones whose deals do not add up (`diff`), or the balance moves
+ * without a deal (`external`: deposits, withdrawals, credits), which are not failures and read amber.
+ */
+function DayList({ kind, days, digits, onDay }: { kind: "diff" | "external"; days: ReconciledDay[]; digits: number; onDay: (d: ReconciledDay) => void }) {
+  const external = kind === "external";
   return (
-    <div className="mt-2.5 overflow-hidden rounded-lg border border-line">
+    <div className="mt-2.5 min-w-0">
+      <div className={`mb-1 flex items-center gap-1.5 text-[11px] font-medium uppercase tracking-[0.06em] ${external ? "text-warn" : "text-loss"}`}>
+        <span className={`inline-block h-1.5 w-1.5 rounded-full ${external ? "bg-warn" : "bg-danger"}`} aria-hidden />
+        {external ? "Balance moves without a deal" : "Days that differ"}
+      </div>
+      <div className={`overflow-hidden rounded-lg border ${external ? "border-warn/40" : "border-line"}`}>
       <DataList
-        head={["Day (UTC)", "Balance change", "Deals sum", "Unexplained", "Deals", "Why", ""]}
+        head={external ? ["Day (UTC)", "Balance change", "Why", ""] : ["Day (UTC)", "Balance change", "Deals sum", "Unexplained", "Deals", "Why", ""]}
         rows={days}
         keyOf={(d) => d.day}
         onRow={onDay}
@@ -51,9 +61,13 @@ function DiffDays({ days, digits, onDay }: { days: ReconciledDay[]; digits: numb
           <>
             <Cell className="whitespace-nowrap text-bright">{dayLabel(d.day)}</Cell>
             <Cell><Pnl value={d.balanceChange} /></Cell>
-            <Cell><Pnl value={d.dealNet} /></Cell>
-            <Cell><Unexplained value={d.diff} digits={digits} /></Cell>
-            <Cell className="text-muted">{count(d.deals)}</Cell>
+            {!external && (
+              <>
+                <Cell><Pnl value={d.dealNet} /></Cell>
+                <Cell><Unexplained value={d.diff} digits={digits} /></Cell>
+                <Cell className="text-muted">{count(d.deals)}</Cell>
+              </>
+            )}
             <Cell className="min-w-[16rem] text-xs text-muted">{d.reason ? DAY_REASON[d.reason] : "—"}</Cell>
             <Cell className="whitespace-nowrap text-right text-xs font-medium text-accent-ink">trades →</Cell>
           </>
@@ -64,7 +78,7 @@ function DiffDays({ days, digits, onDay }: { days: ReconciledDay[]; digits: numb
               <span className="font-semibold text-bright">{dayLabel(d.day)}</span>
               <span className="ml-auto text-right text-sm"><Unexplained value={d.diff} digits={digits} /></span>
             </div>
-            <div className="mt-1.5 grid grid-cols-3 gap-2 text-xs">
+            {!external && <div className="mt-1.5 grid grid-cols-3 gap-2 text-xs">
               <div className="min-w-0">
                 <div className="text-[11px] uppercase tracking-[0.06em] text-faint">balance</div>
                 <Pnl value={d.balanceChange} />
@@ -77,12 +91,13 @@ function DiffDays({ days, digits, onDay }: { days: ReconciledDay[]; digits: numb
                 <div className="text-[11px] uppercase tracking-[0.06em] text-faint">deals</div>
                 <span className="text-bright">{count(d.deals)}</span>
               </div>
-            </div>
+            </div>}
             <div className="mt-1.5 text-xs text-muted">{d.reason ? DAY_REASON[d.reason] : ""}</div>
             <div className="mt-1 text-xs font-medium text-accent-ink">Open the day's trades →</div>
           </>
         )}
       />
+      </div>
     </div>
   );
 }
@@ -93,6 +108,8 @@ function AccountBlock({ a, view, showInstance }: { a: AccountReconciliation; vie
   const positions = positionsLine(a.positions);
   const ledger = ledgerLine(a.ledger, view.digits);
   const diffs = a.days.filter((d) => d.status === "diff");
+  const external = a.days.filter((d) => d.status === "external");
+  const onDay = (d: ReconciledDay) => navigate(dayTradesPath(view.instanceId, d.day), { from: "Health · Reconciliation" });
   const incomplete = a.days.filter((d) => d.status === "incomplete");
   return (
     <li className="min-w-0 px-4 py-3.5">
@@ -107,9 +124,8 @@ function AccountBlock({ a, view, showInstance }: { a: AccountReconciliation; vie
         {a.firstDay && <span className="text-faint">since {dayMonth(a.firstDay)} {a.firstDay.slice(0, 4)}</span>}
         <Details label="Incomplete days" lines={incomplete.map((d) => `${d.day}: ${d.reason ? DAY_REASON[d.reason] : "incomplete"}`)} />
       </div>
-      {diffs.length > 0 && (
-        <DiffDays days={diffs} digits={view.digits} onDay={(d) => navigate(dayTradesPath(view.instanceId, d.day), { from: "Health · Reconciliation" })} />
-      )}
+      {diffs.length > 0 && <DayList kind="diff" days={diffs} digits={view.digits} onDay={onDay} />}
+      {external.length > 0 && <DayList kind="external" days={external} digits={view.digits} onDay={onDay} />}
       <ul className="mt-2.5 space-y-1.5">
         <li className="flex min-w-0 flex-wrap items-center gap-x-2 gap-y-1">
           <StatusWord tone={TONE[positions.tone]} wrap>

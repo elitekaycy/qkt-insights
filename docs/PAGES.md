@@ -161,9 +161,10 @@ long it has held its current status. Incidents lists every up/down transition wi
 long each outage lasted, including the ones written after the fact for the time the
 collector itself was down (`insights collector`).
 Reconciliation says, per venue account, how far its balance history matches its deals
-("Reconciled ✓ through 21 Oct · checked 02:00 UTC") or lists each day that differs with the
-balance change, the deals' sum, the unexplained amount and why; a day opens Trades filtered to
-it. The open-positions and ledger results follow on one line each
+("Reconciled ✓ through 21 Oct · checked 02:00 UTC") or lists each day whose deals do not add up
+with the balance change, the deals' sum, the unexplained amount and why. Balance moves without a
+deal (deposits, withdrawals, credits, which qkt does not send) are listed apart in amber and do
+not count as failures; a day opens Trades filtered to it. The open-positions and ledger results follow on one line each
 ([operations/reconciliation.md](operations/reconciliation.md)).
 Below that, runtime status for every reporting instance: last event age, the newest
 envelope's sequence number and when it was stamped, deployed strategies (retired roster

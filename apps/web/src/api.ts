@@ -158,7 +158,8 @@ export interface MonitorsView {
 }
 
 /** GET /health/reconciliation: the nightly venue reconciliation as its latest run stored it (store reconciliation.ts). */
-export type ReconciledDayStatus = "ok" | "diff" | "incomplete";
+/** external: the balance moved with no deal in the window (a deposit, withdrawal or credit); not a failure. */
+export type ReconciledDayStatus = "ok" | "external" | "diff" | "incomplete";
 export type ReconciledDayReason = "no-deals" | "deals-differ" | "no-prior-balance" | "no-balance";
 export interface ReconciledDay {
   /** "YYYY-MM-DD", UTC. */
@@ -203,6 +204,8 @@ export interface AccountReconciliation {
   throughDay: string | null;
   daysOk: number;
   daysDiff: number;
+  /** Days the balance moved without a deal (deposits, withdrawals, credits). */
+  daysExternal: number;
   daysIncomplete: number;
   /** Days not ok, newest first. */
   days: ReconciledDay[];

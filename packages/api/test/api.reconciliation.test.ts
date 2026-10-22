@@ -54,10 +54,10 @@ describe("GET /health/reconciliation", () => {
     expect(body.checkedAt).toBe(OCT(4, 2));
     expect(body.accounts).toHaveLength(1);
     expect(body.accounts[0]).toMatchObject({
-      account: "mt5:00000000000000aa", label: "ICM", daysOk: 1, daysDiff: 1, daysIncomplete: 1, throughDay: "2026-10-02",
+      account: "mt5:00000000000000aa", label: "ICM", daysOk: 1, daysDiff: 0, daysExternal: 1, daysIncomplete: 1, throughDay: "2026-10-03",
       positions: { status: "stale" }, ledger: { status: "ok", trips: 1, tripsNet: 98, dealsNet: 98 },
     });
-    expect(body.accounts[0].days[0]).toMatchObject({ day: "2026-10-03", status: "diff", reason: "no-deals", balanceChange: 500, dealNet: 0, diff: 500, deals: 0 });
+    expect(body.accounts[0].days[0]).toMatchObject({ day: "2026-10-03", status: "external", reason: "no-deals", balanceChange: 500, dealNet: 0, diff: 500, deals: 0 });
 
     const tag = String(first.headers.etag);
     expect((await get(`/health/reconciliation?instance=${I}`, { "if-none-match": tag })).statusCode).toBe(304);

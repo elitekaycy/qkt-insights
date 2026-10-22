@@ -29,14 +29,20 @@ export function verdict(a: AccountReconciliation): { tone: ReconciliationTone; t
     const n = `${count(a.daysDiff)} ${a.daysDiff === 1 ? "day differs" : "days differ"}`;
     return { tone: "bad", text: a.throughDay ? `${n} · ok through ${dayMonth(a.throughDay)}` : n };
   }
-  if (a.throughDay) return { tone: "ok", text: `Reconciled ✓ through ${dayMonth(a.throughDay)}` };
+  if (a.throughDay) return { tone: "ok", text: `Reconciled ✓ through ${dayMonth(a.throughDay)}${a.daysExternal > 0 ? ` · ${externalCount(a.daysExternal)}` : ""}` };
   return { tone: "neutral", text: "No complete day to check yet" };
 }
 
-/** "19 days ok · 1 differs · 1 incomplete". */
+/** "2 balance moves without a deal": deposits, withdrawals or credits, which are not failures. */
+export function externalCount(n: number): string {
+  return `${count(n)} balance ${n === 1 ? "move" : "moves"} without a deal`;
+}
+
+/** "19 days ok · 1 differs · 2 without a deal · 1 incomplete". */
 export function dayCounts(a: AccountReconciliation): string {
   const parts = [`${count(a.daysOk)} ${a.daysOk === 1 ? "day" : "days"} ok`];
   if (a.daysDiff > 0) parts.push(`${count(a.daysDiff)} ${a.daysDiff === 1 ? "differs" : "differ"}`);
+  if (a.daysExternal > 0) parts.push(`${count(a.daysExternal)} without a deal`);
   if (a.daysIncomplete > 0) parts.push(`${count(a.daysIncomplete)} incomplete`);
   return parts.join(" · ");
 }

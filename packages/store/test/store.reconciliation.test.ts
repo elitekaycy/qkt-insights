@@ -70,6 +70,7 @@ describe("reconciliation: balance continuity per UTC day", () => {
     expect(acct.label).toBe("ICM");
     expect(acct.daysOk).toBe(1);
     expect(acct.daysDiff).toBe(0);
+    expect(acct.daysExternal).toBe(0);
     expect(acct.daysIncomplete).toBe(1);
     expect(acct.firstDay).toBe("2026-10-01");
     expect(acct.lastDay).toBe("2026-10-02");
@@ -79,15 +80,29 @@ describe("reconciliation: balance continuity per UTC day", () => {
     expect(r.checkedAt).toBe(OCT(3, 2));
   });
 
-  it("names a balance move with no deal: a deposit, withdrawal or credit", () => {
+  it("calls a balance move with no deal external (a deposit, withdrawal or credit), which does not stop ok-through", () => {
     const db = openDb(":memory:");
     const a = trip(db, "p1", OCT(2, 9, 0, 30), 80);
-    minutes(db, { from: OCT(1, 6), to: OCT(4, 12), start: 10_000, booked: [{ ts: OCT(2, 9, 0, 30), amount: a }, { ts: OCT(3, 12, 0, 5), amount: 1_000 }] });
-    reconcile(db, I, { now: OCT(4, 2) });
+    const b = trip(db, "p2", OCT(4, 9, 0, 30), -12.5);
+    minutes(db, { from: OCT(1, 6), to: OCT(5, 12), start: 10_000,
+      booked: [{ ts: OCT(2, 9, 0, 30), amount: a }, { ts: OCT(3, 12, 0, 5), amount: 1_000 }, { ts: OCT(4, 9, 0, 30), amount: b }] });
+    const r = reconcile(db, I, { now: OCT(5, 2) });
+    expect(r).toMatchObject({ diffs: 0, external: 1 });
     const acct = reconciliation(db, I).accounts[0]!;
-    expect(acct.daysDiff).toBe(1);
-    expect(acct.throughDay).toBe("2026-10-02");
-    expect(dayOf(db, "2026-10-03")).toMatchObject({ status: "diff", reason: "no-deals", deals: 0, dealNet: 0, diff: 1_000, balanceChange: 1_000, startBalance: 10_080, endBalance: 11_080 });
+    expect(acct).toMatchObject({ daysOk: 2, daysDiff: 0, daysExternal: 1, daysIncomplete: 1, throughDay: "2026-10-04" });
+    expect(dayOf(db, "2026-10-03")).toMatchObject({ status: "external", reason: "no-deals", deals: 0, dealNet: 0, diff: 1_000, balanceChange: 1_000, startBalance: 10_080, endBalance: 11_080 });
+  });
+
+  it("keeps a day with deals that do not add up as a diff, which stops ok-through even after an external day", () => {
+    const db = openDb(":memory:");
+    const a = trip(db, "p1", OCT(3, 9, 0, 30), 40);
+    const b = trip(db, "p2", OCT(4, 9, 0, 30), 25);
+    minutes(db, { from: OCT(1, 6), to: OCT(5, 12), start: 10_000,
+      booked: [{ ts: OCT(2, 12), amount: -500 }, { ts: OCT(3, 9, 0, 30), amount: a }, { ts: OCT(3, 15, 0, 30), amount: -3 }, { ts: OCT(4, 9, 0, 30), amount: b }] });
+    reconcile(db, I, { now: OCT(5, 2) });
+    expect(reconciliation(db, I).accounts[0]).toMatchObject({ daysOk: 1, daysDiff: 1, daysExternal: 1, throughDay: "2026-10-02" });
+    expect(dayOf(db, "2026-10-02")).toMatchObject({ status: "external", diff: -500 });
+    expect(dayOf(db, "2026-10-03")).toMatchObject({ status: "diff", reason: "deals-differ", deals: 2, diff: -3 });
   });
 
   it("finds a deal the venue booked that insights does not have", () => {
@@ -257,7 +272,7 @@ describe("reconciliation: empty", () => {
   it("has no accounts before the first account state and no run before the first reconcile", () => {
     const db = openDb(":memory:");
     expect(reconciliation(db, I)).toEqual({ instanceId: I, digits: 2, checkedAt: null, accounts: [] });
-    expect(reconcile(db, I, { now: OCT(3, 2) })).toEqual({ accounts: 0, daysChecked: 0, diffs: 0 });
+    expect(reconcile(db, I, { now: OCT(3, 2) })).toEqual({ accounts: 0, daysChecked: 0, diffs: 0, external: 0 });
   });
 });
 
