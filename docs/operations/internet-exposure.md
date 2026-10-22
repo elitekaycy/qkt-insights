@@ -16,9 +16,10 @@ The deployment has to supply the rest.
    ```
 
 2. **Terminate TLS at a reverse proxy** and give the dashboard a hostname.
-3. **Refuse `POST /ingest` on the public hostname.** qkt posts to
-   `http://qkt-insights:8420/ingest` over the Docker network; nothing on the internet
-   needs that path. Block only the exact path `/ingest`.
+3. **Refuse `/ingest` and everything under it on the public hostname.** qkt posts to
+   `http://qkt-insights:8420/ingest` and reads `/ingest/capabilities` over the Docker
+   network; nothing on the internet needs either. Block the exact path `/ingest` and the
+   `/ingest/` prefix, nothing else.
 4. **Turn on two-factor sign-in** (below).
 5. **Set `TELEGRAM_BOT_TOKEN` and `TELEGRAM_CHAT_ID`** so every new sign-in and every
    lockout reaches your phone. An unexpected sign-in alert means rotate the password,
@@ -39,7 +40,7 @@ Caddy on the host:
 
 ```caddyfile
 insights.example.com {
-	@ingest path /ingest
+	@ingest path /ingest /ingest/*
 	respond @ingest 404
 	reverse_proxy 127.0.0.1:8420
 }
@@ -51,7 +52,7 @@ Traefik file provider, proxy container on the collector's Docker network:
 http:
   routers:
     insights:
-      rule: Host(`insights.example.com`) && !Path(`/ingest`)
+      rule: Host(`insights.example.com`) && !Path(`/ingest`) && !PathPrefix(`/ingest/`)
       entryPoints: [websecure]
       tls: { certResolver: letsencrypt }
       service: insights

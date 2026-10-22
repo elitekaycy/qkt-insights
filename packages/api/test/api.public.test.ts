@@ -349,9 +349,9 @@ describe("public links", () => {
     expect((await pub(token, "/account/equity")).statusCode).toBe(404);
   });
 
-  it("offers no logs, health, search, orders or instance list", async () => {
+  it("offers no logs, health, contract, search, orders or instance list", async () => {
     const token = (await share("overview", "", "public")).overview.token!;
-    for (const path of ["/logs?instance=i1", "/health/instances", "/search?q=gold", "/orders?instance=i1", "/instances", "/health/monitors", "/ingest/observations?instance=i1"]) {
+    for (const path of ["/logs?instance=i1", "/health/instances", "/search?q=gold", "/orders?instance=i1", "/instances", "/health/monitors", "/health/contract", "/ingest/capabilities", "/ingest/observations?instance=i1"]) {
       expect((await pub(token, path)).statusCode, path).toBe(404);
     }
   });

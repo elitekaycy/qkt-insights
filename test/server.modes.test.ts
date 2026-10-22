@@ -33,6 +33,27 @@ describe("healthz", () => {
   });
 });
 
+describe("ingest capabilities", () => {
+  it("answers the ingest token only, never a dashboard session", async () => {
+    process.env.INSIGHTS_DB = ":memory:";
+    process.env.INGEST_TOKEN = "test-ingest-token-at-least-24-chars";
+    process.env.ADMIN_USERNAME = "admin";
+    process.env.ADMIN_PASSWORD = "admin-pass-long-enough";
+    delete process.env.ADMIN_TOTP_SECRET;
+    const app = await buildServer("run");
+    try {
+      const login = await app.inject({ method: "POST", url: "/auth/login", payload: { username: "admin", password: "admin-pass-long-enough" } });
+      const cookie = String(login.headers["set-cookie"]).split(";")[0]!;
+      expect((await app.inject({ method: "GET", url: "/ingest/capabilities", headers: { cookie } })).statusCode).toBe(401);
+      const res = await app.inject({ method: "GET", url: "/ingest/capabilities", headers: { authorization: "Bearer test-ingest-token-at-least-24-chars" } });
+      expect(res.statusCode).toBe(200);
+      expect(res.json()).toMatchObject({ contractVersion: expect.any(String), maxBodyBytes: app.initialConfig.bodyLimit });
+    } finally {
+      await app.close();
+    }
+  });
+});
+
 describe("STRATEGY_CAPITAL", () => {
   it("refuses to start on a malformed capital map", async () => {
     process.env.INSIGHTS_DB = ":memory:";
