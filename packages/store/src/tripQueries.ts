@@ -59,12 +59,18 @@ export interface TripRow {
 }
 
 /**
+ * The initial stop as the venue holds it: qkt states the engine's level unrounded (0.582774), the
+ * venue keeps it at the instrument's tick (0.58277), and money at risk and R are measured to that,
+ * so the stop the drawer shows reproduces the risk beside it. See venueStops.
+ */
+const STOP = "qkt_venue_stop(t.instance_id, upper(t.instrument), t.stop_price)";
+/**
  * Money at risk to the initial stop of a closed round trip: what qkt stated for its entry, else the
  * venue's money per point (inferred from its gross over the move) times the points to the stop.
  */
 const RISK = `(CASE WHEN t.open = 0 AND t.risk_amount > 0 THEN t.risk_amount
-  WHEN t.open = 0 AND t.stop_price IS NOT NULL AND t.entry_price IS NOT NULL AND abs(t.entry_price - t.stop_price) > 0
-  THEN ${INFERRED_POINT_VALUE} * abs(t.entry_price - t.stop_price) END)`;
+  WHEN t.open = 0 AND ${STOP} IS NOT NULL AND t.entry_price IS NOT NULL AND abs(t.entry_price - ${STOP}) > 0
+  THEN ${INFERRED_POINT_VALUE} * abs(t.entry_price - ${STOP}) END)`;
 /**
  * The unrounded net the legs state: R divides it, not the cent-rounded `realized`, so a trip whose
  * money is a fraction of a cent of a small risk keeps its true R (-0.0056 over 0.005 is -1.12, not -2).
@@ -72,10 +78,10 @@ const RISK = `(CASE WHEN t.open = 0 AND t.risk_amount > 0 THEN t.risk_amount
 const EXACT = "coalesce(t.realized_exact, t.realized)";
 /** P&L over that risk; without a stated risk or a venue price per point, the move over the points to the stop. */
 const R = `(CASE WHEN t.open = 0 AND t.risk_amount > 0 AND t.exit_price IS NOT NULL THEN ${EXACT} / t.risk_amount
-  WHEN t.open = 0 AND t.stop_price IS NOT NULL AND t.entry_price IS NOT NULL AND t.exit_price IS NOT NULL
-    AND abs(t.entry_price - t.stop_price) > 0
+  WHEN t.open = 0 AND ${STOP} IS NOT NULL AND t.entry_price IS NOT NULL AND t.exit_price IS NOT NULL
+    AND abs(t.entry_price - ${STOP}) > 0
   THEN coalesce(${EXACT} / ${RISK},
-    (CASE t.side WHEN 'long' THEN t.exit_price - t.entry_price ELSE t.entry_price - t.exit_price END) / abs(t.entry_price - t.stop_price)) END)`;
+    (CASE t.side WHEN 'long' THEN t.exit_price - t.entry_price ELSE t.entry_price - t.exit_price END) / abs(t.entry_price - ${STOP})) END)`;
 const ENDED = "(CASE t.ended WHEN 'so' THEN 'venue' ELSE t.ended END)";
 /** The UTC entry weekday, 0 Monday .. 6 Sunday, and hour 0-23. */
 const ENTRY_WEEKDAY = "((CAST(strftime('%w', t.entry_ts / 1000, 'unixepoch') AS INTEGER) + 6) % 7)";
@@ -138,6 +144,25 @@ function readDigits(db: Db, instanceId: string): Map<string, number> {
 /** The decimals a price of an instrument shows: its stated tick's, else what its prices and name say. */
 function digitsOf(tick: number | null | undefined, prices: readonly number[], instrument: string): number {
   return tick != null && tick > 0 ? Math.min(MAX_PRICE_DIGITS, decimalsOf(tick)) : digitsFromPrices(prices, instrument);
+}
+
+const venueStopReady = new WeakSet<Db>();
+
+/**
+ * Readies STOP for one instance's queries: registers qkt_venue_stop on the connection once and loads
+ * the instance's instrument digits, so the SQL rounds each row's stop with an O(1) map lookup (a
+ * function cannot query the connection it runs on). Without known digits the stop stays as stated.
+ */
+function venueStops(db: Db, instanceId: string): void {
+  if (!venueStopReady.has(db)) {
+    db.function("qkt_venue_stop", (instance: unknown, instrument: unknown, stop: unknown) => {
+      if (typeof stop !== "number") return null;
+      const d = digitsCache.get(db)?.get(String(instance))?.digits.get(String(instrument));
+      return d == null ? stop : Number(stop.toFixed(d));
+    });
+    venueStopReady.add(db);
+  }
+  instrumentDigits(db, instanceId);
 }
 
 const instrumentKey = (symbol: string | null): string => {
@@ -339,6 +364,7 @@ export function decodeCursor(cursor: string): CursorKey | null {
  */
 export function listRoundTrips(db: Db, q: RoundTripQuery): RoundTripPage {
   refreshProjections(db);
+  venueStops(db, q.instanceId);
   const sql = new Sql();
   scopeSql(q, sql);
   filterSql(q.filter, sql, q.allowed != null);
@@ -376,6 +402,7 @@ export function listRoundTrips(db: Db, q: RoundTripQuery): RoundTripPage {
 /** Counts and money of the matched round trips, and how many the scope holds before the query. */
 export function roundTripTotals(db: Db, q: RoundTripQuery): RoundTripTotals {
   refreshProjections(db);
+  venueStops(db, q.instanceId);
   const scope = new Sql();
   scopeSql(q, scope);
   const total = (db.prepare(`SELECT COUNT(*) n FROM round_trips t WHERE ${scope.where.join(" AND ")}`).get(scope.params) as { n: number }).n;
@@ -407,6 +434,7 @@ export interface RoundTripFacets {
 /** What the scope holds, for completions: strategies, instruments, exit days and common sizes. */
 export function roundTripFacets(db: Db, s: RoundTripScope): RoundTripFacets {
   refreshProjections(db);
+  venueStops(db, s.instanceId);
   const sql = new Sql();
   scopeSql(s, sql);
   const where = sql.where.join(" AND ");
@@ -487,6 +515,7 @@ const BETWEEN_TYPES = ["order.modified", "bot.modify", "bot.cancel"];
 /** The round trip with its legs, the engine's story of it and its execution quality; null when there is none. */
 export function roundTripDetail(db: Db, instanceId: string, id: string): RoundTripDetail | null {
   refreshProjections(db);
+  venueStops(db, instanceId);
   const stored = statement(db, `SELECT ${COLUMNS}, NULL pnlInExit FROM round_trips t WHERE t.instance_id=? AND t.position_ticket=?`).get(instanceId, id) as StoredTrip | undefined;
   if (!stored) return null;
   const legs = venueLegs(db, instanceId, stored.id);

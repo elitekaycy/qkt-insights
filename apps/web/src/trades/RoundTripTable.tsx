@@ -3,7 +3,7 @@ import { DASH, duration, pnl, quantity, toneClass } from "../format";
 import { Pill, RowChevron } from "../components/ui";
 import { useView } from "../view";
 import { useRoundTrips, type RoundTrip, type RoundTripTotals, type SortKey, type TripScope } from "./data";
-import { minuteStamp, px, rMultiple } from "./format";
+import { minuteStamp, px, rMultiple, tableStamp } from "./format";
 import { EndedBadge, SideText } from "./bits";
 import { TradeDrawer, useOpenTrade } from "./TradeDrawer";
 
@@ -24,10 +24,10 @@ const COLUMNS: Column[] = [
   { key: "strategy", label: "Strategy", w: "minmax(120px,1fr)", sort: "strategy" },
   { key: "instrument", label: "Symbol", w: "72px", sort: "symbol", title: "The instrument, whatever broker profile traded it" },
   { key: "side", label: "Side", w: "70px", sort: "side" },
-  { key: "entry", label: "Entry (UTC)", w: "124px", sort: "entry" },
-  { key: "entryPrice", label: "Entry", w: "78px", sort: "entryPrice", right: true },
-  { key: "exit", label: "Exit (UTC)", w: "124px", sort: "exit" },
-  { key: "exitPrice", label: "Exit", w: "78px", sort: "exitPrice", right: true },
+  { key: "entry", label: "Entry (UTC)", w: "112px", sort: "entry" },
+  { key: "entryPrice", label: "Entry", w: "92px", sort: "entryPrice", right: true },
+  { key: "exit", label: "Exit (UTC)", w: "112px", sort: "exit" },
+  { key: "exitPrice", label: "Exit", w: "92px", sort: "exitPrice", right: true },
   { key: "size", label: "Size", w: "50px", sort: "size", right: true },
   { key: "pnl", label: "P&L", w: "104px", sort: "pnl", right: true, title: "Realized, after commission, swap and fees" },
   { key: "r", label: "R", w: "66px", sort: "r", right: true, title: "P&L over the money at risk to the initial stop" },
@@ -67,9 +67,9 @@ function cells(t: RoundTrip, hide: ReadonlySet<string>): ReactNode[] {
     strategy: <Cell><StrategyName id={t.strategyId} /></Cell>,
     instrument: <Cell className="font-semibold text-bright">{t.instrument}</Cell>,
     side: <Cell><SideText side={t.side} /></Cell>,
-    entry: <Cell className="font-mono text-xs text-body">{minuteStamp(t.entryTs)}</Cell>,
+    entry: <Cell className="font-mono text-xs text-body"><span title={`${minuteStamp(t.entryTs)} UTC`}>{tableStamp(t.entryTs)}</span></Cell>,
     entryPrice: <Cell right className="text-body">{px(t.entryPrice, t.priceDigits)}</Cell>,
-    exit: <Cell className="font-mono text-xs text-body">{t.status === "open" ? <Pill tone="info">open</Pill> : minuteStamp(t.exitTs)}</Cell>,
+    exit: <Cell className="font-mono text-xs text-body">{t.status === "open" ? <Pill tone="info">open</Pill> : <span title={`${minuteStamp(t.exitTs)} UTC`}>{tableStamp(t.exitTs)}</span>}</Cell>,
     exitPrice: <Cell right className="text-body">{t.status === "open" ? DASH : px(t.exitPrice, t.priceDigits)}</Cell>,
     size: <Cell right className="text-body">{quantity(t.qty)}</Cell>,
     pnl: <Cell right className={`font-semibold ${toneClass(t.pnlInExit ?? t.pnl)}`}>{t.pnl == null ? DASH : <TripPnl t={t} />}</Cell>,

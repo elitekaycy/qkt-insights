@@ -16,12 +16,16 @@ export function decimalsOf(v: number): number {
   return i < 0 || i === s.length - 1 ? 0 : s.length - i - 1;
 }
 
+/** Fiat currency codes an FX pair is made of. BTCUSD and ETHUSD are six letters too, but not FX. */
+const FIAT = new Set(["USD", "EUR", "GBP", "JPY", "CHF", "AUD", "NZD", "CAD", "SEK", "NOK", "DKK", "SGD", "HKD", "ZAR", "MXN",
+  "TRY", "PLN", "HUF", "CZK", "CNH", "ILS", "THB"]);
+
 /** The conventional quote precision of metals, JPY crosses and FX pairs; null for anything else. */
 export function knownDigits(instrument: string): number | null {
   const s = instrument.toUpperCase();
   if (s.startsWith("XAU")) return 2;
   if (s.startsWith("XAG")) return 3;
-  if (/^[A-Z]{6}$/.test(s)) return s.endsWith("JPY") ? 3 : 5;
+  if (/^[A-Z]{6}$/.test(s) && FIAT.has(s.slice(0, 3)) && FIAT.has(s.slice(3))) return s.endsWith("JPY") ? 3 : 5;
   return null;
 }
 

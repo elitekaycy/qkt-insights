@@ -1,4 +1,4 @@
-import { DASH, fixed, MINUS, ts } from "../format";
+import { DASH, fixed, MINUS, ts, tsShort } from "../format";
 
 /** A price at its instrument's precision ("4122.72"); a dash when missing. */
 export function px(v: number | null | undefined, digits: number): string {
@@ -16,6 +16,15 @@ export function rMultiple(r: number | null | undefined): string {
 /** "2026-10-21 14:30" (UTC), the table's stamp. */
 export function minuteStamp(ms: number | null | undefined): string {
   return ms == null ? DASH : ts(ms).slice(0, 16);
+}
+
+/**
+ * A table cell's stamp, narrow enough never to clip: "19 Oct 20:00" (UTC) in the current year, the
+ * day with its year ("2025-10-19") before it. The full minute stamp goes in the cell's tooltip.
+ */
+export function tableStamp(ms: number | null | undefined, now: number = Date.now()): string {
+  if (ms == null) return DASH;
+  return new Date(ms).getUTCFullYear() === new Date(now).getUTCFullYear() ? tsShort(ms) : ts(ms).slice(0, 10);
 }
 
 /** "14:30:01.282" (UTC), the timeline's stamp: latencies are milliseconds apart. */

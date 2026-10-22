@@ -137,7 +137,7 @@ export default function Home({ instanceId }: { instanceId: string | null }) {
         what="the strategies"
         lines={5}
       >
-        <StrategyTable lines={lines} now={now} search origin="Home" />
+        <StrategyTable lines={lines} now={now} search origin="Home" hint="Today includes open P&L · other columns are closed trades" />
       </Loadable>
 
       <Loadable loading={summary.isPending} error={summary.isError} retry={() => summary.refetch()} what="the P&L history" lines={6}>
