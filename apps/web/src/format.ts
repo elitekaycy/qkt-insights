@@ -98,6 +98,22 @@ export function compact(v: number): string {
   return small === "0" ? "0" : `${sign}${small}`;
 }
 
+/**
+ * A value axis tick: compact, keeping the digits the tick carries. Ticks are multiples of their
+ * interval, so an equity axis 10k apart around 5m reads 4.98m, 4.99m, 5m rather than 5.0m on
+ * every line; tables and tooltips keep full precision.
+ */
+export function axisTick(v: number): string {
+  const abs = Math.abs(v);
+  const sign = v < 0 && abs >= 0.005 ? MINUS : "";
+  const trim = (n: number, digits: number) => n.toFixed(digits).replace(/\.?0+$/, "");
+  if (abs >= 1_000_000_000) return `${sign}${trim(abs / 1_000_000_000, 3)}b`;
+  if (abs >= 1_000_000) return `${sign}${trim(abs / 1_000_000, 3)}m`;
+  if (abs >= 1_000) return `${sign}${trim(abs / 1_000, 2)}k`;
+  const small = trim(abs, abs >= 100 ? 0 : abs >= 10 ? 1 : 2) || "0";
+  return small === "0" ? "0" : `${sign}${small}`;
+}
+
 /** Compact signed money with its glyph for narrow cells: "▲ +1.2k", "▼ −640", "0". */
 export function compactPnl(v: number): string {
   const abs = Math.abs(v);

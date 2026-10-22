@@ -1,5 +1,5 @@
 import type { DrawdownPeriod, EquityPoint } from "../api";
-import { compact, money, pctValue, signedPct, tsShort } from "../format";
+import { axisTick, money, pctValue, signedPct, tsShort } from "../format";
 import {
   areaFade,
   chartColors,
@@ -42,7 +42,7 @@ export function EquityChart({ points, shade, height = 260 }: { points: EquityPoi
       },
     },
     xAxis: { type: "time", ...qktXAxis },
-    yAxis: { type: "value", scale: true, splitNumber: 4, ...qktChartAxis, axisLabel: { ...qktChartAxis.axisLabel, formatter: (v: number) => compact(v) } },
+    yAxis: { type: "value", scale: true, splitNumber: 4, ...qktChartAxis, axisLabel: { ...qktChartAxis.axisLabel, formatter: (v: number) => axisTick(v) } },
     series: [
       {
         name: "equity",
@@ -90,7 +90,7 @@ export function ComparisonChart({ series, height = 320 }: { series: ComparisonSe
       },
     },
     xAxis: { type: "time", ...qktXAxis },
-    yAxis: { type: "value", scale: true, splitNumber: 4, ...qktChartAxis, axisLabel: { ...qktChartAxis.axisLabel, formatter: (v: number) => `${compact(v)}%` } },
+    yAxis: { type: "value", scale: true, splitNumber: 4, ...qktChartAxis, axisLabel: { ...qktChartAxis.axisLabel, formatter: (v: number) => `${axisTick(v)}%` } },
     series: active.map((s) => ({
       name: s.strategyId,
       type: "line",
@@ -123,7 +123,7 @@ export function UnderwaterChart({ points, height = 180 }: { points: EquityPoint[
       },
     },
     xAxis: { type: "time", ...qktXAxis },
-    yAxis: { type: "value", max: 0, ...qktChartAxis, axisLabel: { ...qktChartAxis.axisLabel, formatter: (v: number) => `${compact(v)}%` } },
+    yAxis: { type: "value", max: 0, ...qktChartAxis, axisLabel: { ...qktChartAxis.axisLabel, formatter: (v: number) => `${axisTick(v)}%` } },
     series: [
       {
         name: "drawdown",

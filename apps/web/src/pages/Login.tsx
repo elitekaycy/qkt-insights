@@ -90,6 +90,7 @@ export default function Login({ onLoggedIn }: { onLoggedIn: () => void }) {
         )}
         {error === "denied" && <p className="mt-2.5 text-sm text-loss">{needsCode ? "Wrong username, password or code" : "Wrong username or password"}</p>}
         {error === "locked" && <p className="mt-2.5 text-sm text-warn">Too many failed attempts. Sign-in is paused for a few minutes.</p>}
+        {error === "refused" && <p className="mt-2.5 text-sm text-warn">The collector refused this sign-in as cross-site. Open the dashboard at its own address, or have the proxy pass the Host header through.</p>}
         {error === "unreachable" && <p className="mt-2.5 text-sm text-warn">Can't reach the collector — check the connection and try again.</p>}
         <Button type="submit" variant="primary" disabled={busy || username.length === 0 || password.length === 0 || (needsCode && code.length !== 6)} className="mt-5 w-full py-2">
           {busy ? "Signing in…" : "Sign in"}

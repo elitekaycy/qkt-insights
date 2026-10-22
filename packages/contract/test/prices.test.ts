@@ -30,6 +30,14 @@ describe("instrument price precision", () => {
     expect(digitsFrom([], "USDJPY")).toBe(3);
   });
 
+  it("reads a crypto pair from its prices, not the FX convention its six letters look like", () => {
+    // forward's BTCUSD deals: two decimals, one carrying float noise
+    expect(digitsFrom([83123.05, 83449.43000000001, 76808.36], "BTCUSD")).toBe(2);
+    expect(digitsFrom([2500.5], "ETHUSD")).toBe(1);
+    expect(defaultDigits("BTCUSD")).toBe(2);
+    expect(digitsFrom([1.0845], "EURGBP")).toBe(5);
+  });
+
   it("rounds to the precision, never printing -0", () => {
     expect(roundPrice(4122.72447856, 2)).toBe("4122.72");
     expect(roundPrice(0.069218324998, 2)).toBe("0.07");
