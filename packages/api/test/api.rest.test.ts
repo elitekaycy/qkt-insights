@@ -5,7 +5,7 @@ import argon2 from "argon2";
 import { openDb, ingestEvents, LiveStateStore, Sessions, type Db } from "@qkt-insights/store";
 import { registerAuth } from "../src/auth.js";
 import { registerRest } from "../src/rest.js";
-import type { Envelope } from "@qkt-insights/contract";
+import { CONTRACT_VERSION, SUPPORTED_MAJORS, type Envelope } from "@qkt-insights/contract";
 
 function env(p: any): Envelope {
   return { v: 1, instanceId: "qkt-prod", id: Math.random().toString(36).slice(2), seq: 1, ts: 1718000000000, ...p } as Envelope;
@@ -65,6 +65,10 @@ describe("REST", () => {
   });
   it("returns 400 when instance is missing on a scoped route", async () => {
     expect((await get("/trades")).statusCode).toBe(400);
+  });
+  it("tells Health the contract /ingest reads, behind the session", async () => {
+    expect((await app.inject({ method: "GET", url: "/health/contract" })).statusCode).toBe(401);
+    expect((await get("/health/contract")).json()).toEqual({ contractVersion: CONTRACT_VERSION, majors: [...SUPPORTED_MAJORS] });
   });
 });
 

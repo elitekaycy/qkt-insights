@@ -19,6 +19,7 @@
     "build:all": "pnpm build && pnpm build:web",
     "test": "vitest run",
     "lint": "eslint .",
+    "contract:generate": "tsc -b packages/contract && node scripts/generate-contract.mjs",
     "start": "node --env-file-if-exists=.env dist/src/server.js"
   },
   "devDependencies": {

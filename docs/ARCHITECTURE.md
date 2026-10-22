@@ -39,7 +39,7 @@ Each envelope goes through, in order:
 
 1. **Envelope base** — `v` (integer), `instanceId`, `id`, `seq` (integer ≥ 0), `ts` (integer ms), `type` (string),
    optional `strategyId`, and a `payload`.
-2. **Major version** — `v` must be a supported major (`1`).
+2. **Major version** — `v` must be a supported major (`SUPPORTED_MAJORS`, today `1`; see Contract versions).
 3. **Type and payload** — `type` must be in `packages/contract/src/payloads.ts` and the payload must match its schema.
    Payload objects are passthrough: a field the contract does not know is kept in the stored JSON.
 
@@ -77,6 +77,44 @@ is reported `quarantined` again. `accepted`, `ack` and `acknowledgedIds` keep th
 in a 200 batch is acknowledged. `ack.observations` is always empty: duplicates are reported per envelope instead.
 A `snapshot.equity` already stored for its strategy at the same `ts` is a `duplicate`; one that repeats the
 strategy's previous snapshot is acknowledged but stored only once per 5-minute heartbeat.
+
+### Contract versions
+
+`packages/contract` states the contract it implements as `CONTRACT_VERSION` (semver, `payloads.ts`), the envelope
+majors it reads as `SUPPORTED_MAJORS` (`envelope.ts`, the set `classifyEnvelope` checks `v` against), and for every
+type in `payloadByType` an entry in `eventTypeMeta`: the version that first accepted it (`since`) and, for a type on
+its way out, what to send instead (`deprecated`). A type without an entry fails the build and the contract tests.
+
+- **Minor** (`1.0.0` to `1.1.0`): a new type or a new optional field. Older producers keep working; the new type gets
+  `since` set to the new version.
+- **Major** (`1.x` to `2.0.0`): a rename, a removal, a new required field or a change of meaning. It also takes a new
+  envelope `v`, so a producer opts in by sending it; until a collector lists that `v` in `SUPPORTED_MAJORS` it
+  quarantines those envelopes (counted on Health) rather than misreading them.
+- **Patch**: a correction that accepts nothing new, such as a fixed schema comment.
+
+`pnpm contract:generate` writes two artifacts from the contract, and a test fails while they are stale:
+
+- `packages/contract/generated/insights-contract.schema.json`: JSON Schema (draft 2020-12) of the envelope and
+  every type's payload, with `x-contract-version`, `x-envelope-majors`, per type `x-since` and `deprecated`.
+- `packages/contract/generated/insights-contract-types.txt`: the sorted type list in the format qkt pins as
+  `src/test/resources/insights-contract-types.txt`, which its build checks every emitted type against.
+
+`GET /ingest/capabilities` answers the same facts to a producer at run time, with the same bearer token as
+`/ingest` (and the same bad-token budget):
+
+```json
+{
+  "contractVersion": "1.0.0",
+  "majors": [1],
+  "types": [{ "type": "balances.updated", "since": "1.0.0" }, "..."],
+  "maxBatch": null,
+  "maxBodyBytes": 1048576
+}
+```
+
+`maxBodyBytes` is the body limit `/ingest` enforces (larger bodies get 413); `maxBatch` is null because no envelope
+count is enforced beyond it. The body is fixed for the process and carries an `ETag`, so a producer can revalidate
+with `If-None-Match` and get 304. Health shows the version beside Runtime health (`GET /health/contract`).
 
 ### Account identity
 

@@ -29,7 +29,7 @@ export function parseAccountLimits(json: string | undefined): AccountLimits {
     const v = raw as Record<string, unknown>;
     const p: AccountLimitProfile = {};
     for (const k of Object.keys(v)) {
-      if (![...NUMBERS, "basis", "dailyResetHour", "timezone", "dailyLossIncludesFloating"].includes(k)) throw new Error(`${at}.${k} is not a known limit`);
+      if (![...NUMBERS, "basis", "dailyResetHour", "timezone", "dailyLossIncludesFloating", "dailyLossBase"].includes(k)) throw new Error(`${at}.${k} is not a known limit`);
     }
     for (const k of NUMBERS) {
       if (v[k] === undefined) continue;
@@ -55,6 +55,10 @@ export function parseAccountLimits(json: string | undefined): AccountLimits {
     if (v.dailyLossIncludesFloating !== undefined) {
       if (typeof v.dailyLossIncludesFloating !== "boolean") throw new Error(`${at}.dailyLossIncludesFloating must be true or false`);
       p.dailyLossIncludesFloating = v.dailyLossIncludesFloating;
+    }
+    if (v.dailyLossBase !== undefined) {
+      if (v.dailyLossBase !== "balance" && v.dailyLossBase !== "higher") throw new Error(`${at}.dailyLossBase must be "balance" or "higher"`);
+      p.dailyLossBase = v.dailyLossBase;
     }
     if (p.basis === "static" && p.startBalance == null) throw new Error(`${at}: a static basis needs startBalance`);
     out[opaqueAccountId(account)] = p;

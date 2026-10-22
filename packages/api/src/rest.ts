@@ -1,5 +1,6 @@
 import type { FastifyInstance } from "fastify";
 import { listInstances, listStrategies, listTrades, searchEvents, equityCurve, instanceHealth, searchLogs, logPage, strategyStats, listDeals, accountEquity, accountDrawdown, accountPerformance, accountRisk, monitorSummaries, withJournalStrategies, listMonitorEvents, reconciliation, type AccountLimits, type Db, type LiveStateStore, type Monitors } from "@qkt-insights/store";
+import { CONTRACT_VERSION, SUPPORTED_MAJORS } from "@qkt-insights/contract";
 import { UNATTRIBUTED_STRATEGY } from "@qkt-insights/contract/query";
 import { requireSession } from "./auth.js";
 import { TtlCache } from "./cache.js";
@@ -37,6 +38,8 @@ export function registerRest(app: FastifyInstance, deps: RestDeps): void {
 
   app.get("/instances", guard, async (req) => cache.get(req.url, () => listInstances(deps.db)));
   app.get("/health/instances", guard, async (req) => cache.get(req.url, () => instanceHealth(deps.db)));
+  // The contract /ingest reads, for Health; qkt asks the same of GET /ingest/capabilities with its token.
+  app.get("/health/contract", guard, async () => ({ contractVersion: CONTRACT_VERSION, majors: [...SUPPORTED_MAJORS] }));
   app.get("/health/monitors", guard, async () => ({
     monitors: monitorSummaries(deps.db, deps.monitors, Date.now()),
     events: listMonitorEvents(deps.db, 50),

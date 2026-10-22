@@ -43,7 +43,8 @@ INSIGHTS_ACCOUNT_LIMITS='{"12345678@Broker-Server":{"basis":"static","startBalan
 | `startBalance` | first recorded balance | the account's starting balance, base of the % limits and of the static floor |
 | `dailyResetHour`, `timezone` | `0`, `UTC` | when the trading day starts, as an hour in an IANA timezone (a broker's server day, e.g. `Europe/Athens`) |
 | `dailyLossIncludesFloating` | `false` | `false`: daily loss = realized closes since the day start. `true`: day-start balance minus equity now |
-| `dailyLossPct` / `dailyLoss` | none | daily limit as % of the day-start balance, or money (money wins) |
+| `dailyLossBase` | `balance` | what the day is measured from: `balance` the day-start balance, `higher` the higher of the day-start balance and day-start equity (The5ers-style rules). Also the base of `dailyLossPct` |
+| `dailyLossPct` / `dailyLoss` | none | daily limit as % of the day's base (`dailyLossBase`), or money (money wins) |
 | `maxDrawdownPct` / `maxDrawdown` | none | drawdown limit as % of `startBalance`, or money (money wins) |
 
 Percentages are whole percent (`5` = 5%). Without the variable, the limits come from the

@@ -1,6 +1,10 @@
 import type { FastifyInstance } from "fastify";
+import type { FastifyReply, FastifyRequest } from "fastify";
 import { createHash, timingSafeEqual } from "node:crypto";
-import { BatchSchema, classifyEnvelope, isLiveStateType, type EnvelopeClass } from "@qkt-insights/contract";
+import {
+  BatchSchema, CONTRACT_VERSION, SUPPORTED_MAJORS, classifyEnvelope, eventTypeMeta, isLiveStateType,
+  type EnvelopeClass, type EventType, type EventTypeMeta,
+} from "@qkt-insights/contract";
 import {
   ingestAck, ingestEnvelopes, persistStateEvent, quarantineEnvelopes, touchInstance, upsertRoster,
   withoutAccountCredentials, type Db, type IngestStatus, type LiveBus, type LiveStateStore,
@@ -10,6 +14,28 @@ export interface CollectorDeps { db: Db; bus: LiveBus; liveState: LiveStateStore
 
 /** Bad-token attempts allowed per IP per minute before ingest refuses that IP outright. */
 export const INGEST_AUTH_FAILURES_PER_MINUTE = 20;
+
+/** What `GET /ingest/capabilities` answers: the contract this collector speaks and the limits `/ingest` enforces. */
+export interface IngestCapabilities {
+  contractVersion: string;
+  /** Envelope `v` values accepted; any other is quarantined. */
+  majors: number[];
+  types: Array<{ type: EventType } & EventTypeMeta>;
+  /** Envelopes per batch; null when only the body size bounds a batch. */
+  maxBatch: number | null;
+  /** Largest request body `/ingest` reads; a larger one is refused with 413. */
+  maxBodyBytes: number;
+}
+
+export function ingestCapabilities(maxBodyBytes: number): IngestCapabilities {
+  return {
+    contractVersion: CONTRACT_VERSION,
+    majors: [...SUPPORTED_MAJORS],
+    types: (Object.keys(eventTypeMeta) as EventType[]).sort().map((type) => ({ type, ...eventTypeMeta[type] })),
+    maxBatch: null,
+    maxBodyBytes,
+  };
+}
 
 /** Per-envelope outcome in the ingest response. */
 export interface EnvelopeStatus { id: string; status: IngestStatus | "quarantined"; reason?: string }
@@ -47,17 +73,36 @@ export function registerCollector(app: FastifyInstance, deps: CollectorDeps): vo
   sweep.unref();
   app.addHook("onClose", async () => clearInterval(sweep));
 
-  app.post("/ingest", async (req, reply) => {
+  /** The ingest token check, with its per-IP failure budget; false once it has sent the refusal. */
+  const authorized = (req: FastifyRequest, reply: FastifyReply): boolean => {
     const now = Date.now();
     const window = failures.get(req.ip);
     if (window && now - window.start < 60_000 && window.count >= INGEST_AUTH_FAILURES_PER_MINUTE) {
-      return reply.code(429).header("retry-after", 60).send({ error: "too many failed attempts" });
+      reply.code(429).header("retry-after", 60).send({ error: "too many failed attempts" });
+      return false;
     }
     if (!timingSafeEqual(digest(req.headers.authorization ?? ""), expected)) {
       if (!window || now - window.start >= 60_000) failures.set(req.ip, { start: now, count: 1 });
       else window.count++;
-      return reply.code(401).send({ error: "unauthorized" });
+      reply.code(401).send({ error: "unauthorized" });
+      return false;
     }
+    return true;
+  };
+
+  // Fixed for the process. /ingest declares no bodyLimit of its own, so the server's applies to it; Fastify
+  // fills in its default when the server sets none.
+  const capabilities = JSON.stringify(ingestCapabilities(app.initialConfig.bodyLimit!));
+  const capabilitiesTag = `"${createHash("sha256").update(capabilities).digest("base64url").slice(0, 22)}"`;
+  app.get("/ingest/capabilities", async (req, reply) => {
+    if (!authorized(req, reply)) return reply;
+    reply.header("etag", capabilitiesTag).header("cache-control", "private, no-cache");
+    if (req.headers["if-none-match"] === capabilitiesTag) return reply.code(304).send();
+    return reply.type("application/json; charset=utf-8").send(capabilities);
+  });
+
+  app.post("/ingest", async (req, reply) => {
+    if (!authorized(req, reply)) return reply;
 
     const parsed = BatchSchema.safeParse(req.body);
     if (!parsed.success) return reply.code(400).send({ error: "invalid batch", detail: parsed.error.message });

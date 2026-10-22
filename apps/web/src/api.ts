@@ -112,6 +112,12 @@ export interface HealthRow {
   /** Envelopes /ingest acknowledged but kept raw (unknown type, bad payload, unsupported major), per type and major. */
   quarantined: QuarantineCount[];
 }
+/** The contract the collector's /ingest reads (`GET /health/contract`). */
+export interface ContractInfo {
+  contractVersion: string;
+  /** Envelope `v` values it accepts; any other is quarantined. */
+  majors: number[];
+}
 export interface QuarantineCount {
   type: string | null;
   v: number | null;
@@ -429,6 +435,8 @@ export interface AccountRiskRow {
   dailyLoss: {
     used: number | null; cap: number | null; dayStart: number; resetHour: number; timezone: string;
     includesFloating: boolean; dayStartBalance: number | null; realizedToday: number;
+    /** Older collectors omit these three: the day-start balance is then the reference. */
+    base?: "balance" | "higher"; dayStartEquity?: number | null; reference?: number | null;
   };
 }
 export interface AccountDrawdownRow {

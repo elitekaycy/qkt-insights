@@ -1,8 +1,11 @@
 import { z } from "zod";
 import { payloadByType, type EventType } from "./payloads.js";
 
+/** The envelope major the schemas below describe. */
+const ENVELOPE_MAJOR = 1;
+
 /** Envelope majors this collector reads. Any other `v` is quarantined, never rejected. */
-export const SUPPORTED_MAJORS: readonly number[] = [1];
+export const SUPPORTED_MAJORS: readonly number[] = [ENVELOPE_MAJOR];
 
 /** Last-value broker state: held in memory and `positions_current`, never written as an event row. */
 export const LIVE_STATE_TYPES = ["state.account", "state.positions", "state.orders"] as const;
@@ -18,7 +21,7 @@ const envelopeFields = { instanceId: z.string().min(1), id: z.string().min(1),
 export const EnvelopeBaseSchema = z.object({ v: z.number().int(), ...envelopeFields, type: z.string().min(1), payload: z.unknown() });
 
 const variants = (Object.entries(payloadByType) as [EventType, z.ZodTypeAny][]).map(([type, payload]) =>
-  z.object({ v: z.literal(1), ...envelopeFields, type: z.literal(type), payload }),
+  z.object({ v: z.literal(ENVELOPE_MAJOR), ...envelopeFields, type: z.literal(type), payload }),
 );
 
 export const EnvelopeSchema = z.discriminatedUnion("type", variants as [typeof variants[number], ...typeof variants]);
