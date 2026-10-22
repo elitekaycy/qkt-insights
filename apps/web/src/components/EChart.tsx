@@ -11,7 +11,7 @@ import {
   VisualMapComponent,
 } from "echarts/components";
 import { CanvasRenderer } from "echarts/renderers";
-import { compact } from "../format";
+import { axisTick } from "../format";
 import { useTheme } from "../theme";
 
 // Only what the dashboard draws: a third of the full ECharts build.
@@ -269,7 +269,7 @@ function withAxisDefaults(option: QktChartOption): QktChartOption {
     if (Array.isArray(axis)) return axis.map(fix);
     const a = axis as { type?: string; axisLabel?: { formatter?: unknown } } | undefined;
     if (!a || a.type !== "value" || a.axisLabel?.formatter !== undefined) return axis;
-    return { ...a, axisLabel: { ...AXIS_LABEL, ...a.axisLabel, formatter: (v: number) => compact(v) } };
+    return { ...a, axisLabel: { ...AXIS_LABEL, ...a.axisLabel, formatter: (v: number) => axisTick(v) } };
   };
   return { ...option, xAxis: fix(option.xAxis), yAxis: fix(option.yAxis) };
 }

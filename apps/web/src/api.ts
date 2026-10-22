@@ -28,7 +28,7 @@ export async function get<T>(url: string): Promise<T> {
   return (await res.json()) as T;
 }
 
-export type LoginResult = "ok" | "denied" | "locked" | "unreachable";
+export type LoginResult = "ok" | "denied" | "locked" | "refused" | "unreachable";
 
 export async function login(username: string, password: string, code?: string): Promise<LoginResult> {
   let res: Response;
@@ -43,7 +43,10 @@ export async function login(username: string, password: string, code?: string): 
     return "unreachable";
   }
   if (res.ok) return "ok";
-  return res.status === 429 ? "locked" : "denied";
+  if (res.status === 429) return "locked";
+  // 403 is the cross-origin guard (a proxy rewriting Host), never a wrong password: retrying would only lock the account
+  if (res.status === 403) return "refused";
+  return res.status === 401 || res.status === 400 ? "denied" : "unreachable";
 }
 
 /** Whether sign-in also needs an authenticator code. Assumes none when the collector cannot say. */

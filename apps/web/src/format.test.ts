@@ -1,5 +1,6 @@
 import { describe, expect, it } from "vitest";
-import { compact, compactPnl, dealNet, duration, fixed, glyph, human, instrumentOf, money, num, openPnl, pct, pnl, price, signedMoney, signedPct, toneClass, ts, tsShort } from "./format";
+import { axisTick, compact, compactPnl, dealNet, duration, fixed, glyph, human, instrumentOf, money, num, openPnl, pct, pnl, price, signedMoney, signedPct, toneClass, ts, tsShort } from "./format";
+import { tableStamp } from "./trades/format";
 
 describe("price", () => {
   it("drops float representation noise from venue prices", () => {
@@ -123,5 +124,32 @@ describe("shortDay", () => {
     const { shortDay } = await import("./format");
     expect(shortDay("2026-10-07")).toBe("Oct 7");
     expect(shortDay("2026-10")).toBe("Oct 2026");
+  });
+});
+
+describe("tableStamp", () => {
+  const now = Date.UTC(2026, 9, 22, 3, 0);
+  it("drops the year inside the current year so the cell never clips", () => {
+    expect(tableStamp(Date.UTC(2026, 9, 19, 20, 0), now)).toBe("19 Oct 20:00");
+  });
+  it("keeps the year, as the day, for an older trade", () => {
+    expect(tableStamp(Date.UTC(2025, 11, 31, 23, 59), now)).toBe("2025-12-31");
+  });
+  it("is a dash when there is no time", () => {
+    expect(tableStamp(null, now)).toBe("—");
+  });
+});
+
+describe("axisTick", () => {
+  it("keeps the digits that tell neighbouring ticks apart", () => {
+    expect([4_980_000, 4_990_000, 5_000_000, 5_010_000].map(axisTick)).toEqual(["4.98m", "4.99m", "5m", "5.01m"]);
+    expect([59_500, 60_000, 60_500].map(axisTick)).toEqual(["59.5k", "60k", "60.5k"]);
+    expect(axisTick(4_985_000)).toBe("4.985m");
+  });
+  it("matches compact for small values and signs", () => {
+    expect(axisTick(-0.25)).toBe("\u22120.25");
+    expect(axisTick(-1500)).toBe("\u22121.5k");
+    expect(axisTick(0)).toBe("0");
+    expect(axisTick(-0.001)).toBe("0");
   });
 });

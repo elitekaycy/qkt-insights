@@ -34,7 +34,8 @@ export function Kpi({ icon, label, children, sub, className = "" }: { icon: stri
         <Glyph d={icon} />
         <span className="truncate">{label}</span>
       </div>
-      <div className="mt-2 truncate text-xl font-headline tabular-nums sm:text-2xl">{children}</div>
+      {/* sized to the card (Card is a container) so a seven-figure balance never clips */}
+      <div className="mt-2 truncate font-headline text-[clamp(1rem,12.5cqi,1.5rem)] tabular-nums">{children}</div>
       {sub && <div className="mt-1.5 space-y-0.5 text-xs leading-relaxed text-muted">{sub}</div>}
     </Card>
   );

@@ -55,15 +55,16 @@ export default defineConfig({
   },
   server: {
     proxy: {
-      "/auth": api,
-      "/instances": api,
-      "/strategies": api,
-      "/orders": api,
-      "/trades": api,
-      "/search": api,
-      "/equity": api,
-      "/health": api,
-      "/live": { target: api, ws: true },
+      // Every API path goes to the collector, so a new endpoint never needs a line here. Vite's own
+      // modules and the public files stay local, and a page load (an HTML request) gets the app.
+      // Host passes through unchanged so the collector's same-origin check sees what production sees.
+      "^/(?!@|src/|node_modules/|apple-touch-icon|favicon|manifest\\.webmanifest|pwa-|theme-boot\\.js).*": {
+        target: api,
+        changeOrigin: false,
+        bypass: (req) => (req.headers.accept?.includes("text/html") ? "/index.html" : undefined),
+      },
+      // the live stream's websocket; Vite's own hot-reload socket on "/" must stay local
+      "/live": { target: api, changeOrigin: false, ws: true },
     },
   },
 });
