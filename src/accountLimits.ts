@@ -1,11 +1,13 @@
+import { opaqueAccountId } from "@qkt-insights/contract/accountIdentity";
 import type { AccountLimitProfile, AccountLimits } from "@qkt-insights/store";
 
 const NUMBERS = ["startBalance", "dailyLossPct", "dailyLoss", "maxDrawdownPct", "maxDrawdown"] as const;
 
 /**
- * INSIGHTS_ACCOUNT_LIMITS: risk limits per venue account, keyed by its account id
- * ("mt5:login@server", "vgp:adapter:login"; a bare MT5 "login@server" still names its account),
- * broker label, or "*" for every account, e.g.
+ * INSIGHTS_ACCOUNT_LIMITS: risk limits per venue account, keyed by its account id in any form
+ * ("login@server", "mt5:login@server", "vgp:adapter:login" or the opaque "mt5:<16 hex>" the
+ * dashboard shows; each is hashed to the opaque id here, so only that is kept), broker label, or
+ * "*" for every account, e.g.
  * {"12345678@Broker-Server":{"basis":"static","startBalance":50000,"dailyLossPct":5,"maxDrawdownPct":10,
  *   "dailyResetHour":0,"timezone":"Europe/Athens","dailyLossIncludesFloating":true}}.
  * Unset, the limits come from the strategies' qkt risk config (one account only).
@@ -55,7 +57,7 @@ export function parseAccountLimits(json: string | undefined): AccountLimits {
       p.dailyLossIncludesFloating = v.dailyLossIncludesFloating;
     }
     if (p.basis === "static" && p.startBalance == null) throw new Error(`${at}: a static basis needs startBalance`);
-    out[/^[^:]+@.+$/u.test(account) ? `mt5:${account}` : account] = p;
+    out[opaqueAccountId(account)] = p;
   }
   return out;
 }

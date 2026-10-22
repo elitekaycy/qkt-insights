@@ -1,15 +1,19 @@
 import type { Db } from "./db.js";
 import type { Envelope } from "@qkt-insights/contract";
+import { opaqueAccountId } from "@qkt-insights/contract/accountIdentity";
 import { statement } from "./statements.js";
 import { bumpAccount } from "./versions.js";
-import { accountIdFromLogin, profileLabel } from "./inferredVenueFacts.js";
+import { profileLabel, withoutAccountCredentials } from "./inferredVenueFacts.js";
 
 export interface AccountState {
   broker: string; currency: string; balance: number; equity: number;
   margin?: number; marginFree?: number; openProfit?: number; marginLevel?: number;
-  /** Broker account identity, so the dashboard can say whose equity it shows on a shared account. */
+  /**
+   * Broker account identity, so the dashboard can say whose equity it shows on a shared account: the
+   * login masked ("•••9381"); the server is never kept (withoutAccountCredentials).
+   */
   login?: string; server?: string; name?: string;
-  /** The venue account (`mt5:<login>@<server>`, `vgp:<adapter>:<login>`): one account however many labels report it. */
+  /** The opaque venue account id (`mt5:<16 hex>`, `vgp:<16 hex>`): one account however many labels report it. */
   accountId?: string;
   /** The connector and venue behind the label, as qkt stated them. */
   connector?: string; adapter?: string;
@@ -85,8 +89,8 @@ export class LiveStateStore {
   /** Returns true when the visible state changed (drives WS broadcasts). */
   upsert(instanceId: string, e: Envelope): boolean {
     if (e.type === "state.account") {
-      const p = e.payload;
-      const accountId = p.accountId ?? accountIdFromLogin(p.login, p.server) ?? undefined;
+      const p = withoutAccountCredentials(e.payload);
+      const accountId = p.accountId ?? undefined;
       const key = accountKey(instanceId, p.broker, accountId);
       const prev = this.accounts.get(key);
       const next: StoredAccountState = { instanceId, broker: prev?.broker ?? labelOf(p), currency: p.currency, balance: p.balance, equity: p.equity,
@@ -111,7 +115,7 @@ export class LiveStateStore {
         requestedStopLoss: x.requestedStopLoss, requestedTakeProfit: x.requestedTakeProfit,
         magic: x.magic, clientOrderId: x.clientOrderId,
         ...stated({ positionId: x.positionId, attribution: x.attribution, initialStop: x.initialStop, initialTarget: x.initialTarget, riskAmount: x.riskAmount }) }));
-      this.positions.set(key, { at: e.ts, list, accountId: p.accountId ?? undefined });
+      this.positions.set(key, { at: e.ts, list, accountId: p.accountId != null ? opaqueAccountId(p.accountId) : undefined });
       return !prev || JSON.stringify(prev.list) !== JSON.stringify(list);
     }
     if (e.type === "state.orders") {
@@ -124,7 +128,7 @@ export class LiveStateStore {
         stopLoss: x.stopLoss, takeProfit: x.takeProfit, expiresAt: x.expiresAt, createdAt: x.createdAt,
         magic: x.magic, clientOrderId: x.clientOrderId,
         strategyId: x.strategyId ?? previousStrategies.get(x.ticket) ?? null }));
-      this.orders.set(key, { at: e.ts, list, accountId: p.accountId ?? undefined });
+      this.orders.set(key, { at: e.ts, list, accountId: p.accountId != null ? opaqueAccountId(p.accountId) : undefined });
       return !prev || JSON.stringify(prev.list) !== JSON.stringify(list);
     }
     return false;

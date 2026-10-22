@@ -1,4 +1,5 @@
 import { digitsFrom } from "@qkt-insights/contract/prices";
+import { mt5AccountId, redactAccountIdentity } from "@qkt-insights/contract/accountIdentity";
 import type { Db } from "./db.js";
 import { statement } from "./statements.js";
 
@@ -112,12 +113,22 @@ export function entryOrderByTicket(db: Db, instanceId: string, ticket: string | 
 
 /**
  * The account id of an account state that states no `accountId`. Only MT5 reported account state
- * before qkt stated the id, so its login and server are an MT5 account, named the way qkt names it.
+ * before qkt stated the id, so its login and server are an MT5 account, named the way qkt names it
+ * (the opaque `mt5:` id, contract accountIdentity.ts).
  */
 export function accountIdFromLogin(login: string | undefined, server: string | undefined): string | null {
   if (!login || !server) return null;
   used("login-server-account");
-  return `mt5:${login}@${server}`;
+  return mt5AccountId(login, server);
+}
+
+/**
+ * `payload` with its account credentials replaced (contract redactAccountIdentity): what the
+ * collector keeps, stores and pushes. An id derived from an older qkt's login and server counts
+ * as the login-server inference.
+ */
+export function withoutAccountCredentials<T>(payload: T): T {
+  return redactAccountIdentity(payload, () => used("login-server-account"));
 }
 
 /** The broker label of a per-profile copy without its profile suffix: "ICM_S05" -> "ICM". */

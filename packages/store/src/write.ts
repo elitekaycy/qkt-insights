@@ -5,7 +5,7 @@ import { bumpEpoch, bumpMarks, bumpStrategy } from "./versions.js";
 import { OUTAGE_AFTER_MS } from "./monitors.js";
 import { setInstanceCurrency } from "./money.js";
 import { isLiveStateType, type Envelope, type QuarantinedEnvelope } from "@qkt-insights/contract";
-import { strategyFromDealComment } from "./inferredVenueFacts.js";
+import { strategyFromDealComment, withoutAccountCredentials } from "./inferredVenueFacts.js";
 
 /** A flat position still records one valuation this often so its holding period is visible. */
 /** A flat position is still re-marked this often, so a stored mark proves it was held. */
@@ -100,6 +100,11 @@ export function replaceStrategyCapital(db: Db, capitals: Record<string, number>)
     for (const [strategyId, capital] of Object.entries(capitals)) ins.run(strategyId, capital);
   })();
   bumpEpoch(db);
+}
+
+function withCredentialsRemoved(e: Envelope): Envelope {
+  const payload = withoutAccountCredentials(e.payload);
+  return payload === e.payload ? e : ({ ...e, payload } as Envelope);
 }
 
 export function persistStateEvent(db: Db, instanceId: string, e: Envelope): void {
@@ -269,7 +274,9 @@ export function ingestEnvelopes(db: Db, instanceId: string, events: Envelope[], 
   const tx = db.transaction((evs: Envelope[]): IngestOutcome => {
     let accepted = 0;
     const statuses: IngestStatus[] = evs.map(() => "accepted");
-    for (const [i, e] of evs.entries()) {
+    for (const [i, sent] of evs.entries()) {
+      // Account credentials never reach a row: ids opaque, logins masked, servers dropped.
+      const e = withCredentialsRemoved(sent);
       const duplicate = () => {
         statuses[i] = "duplicate";
       };
@@ -411,7 +418,7 @@ export function quarantineEnvelopes(db: Db, instanceId: string, envelopes: Array
   return db.transaction(() => {
     let stored = 0;
     for (const q of envelopes) {
-      stored += ins.run(instanceId, q.id, q.type, q.v, q.ts, receivedAt, q.reason, JSON.stringify(q.raw)).changes;
+      stored += ins.run(instanceId, q.id, q.type, q.v, q.ts, receivedAt, q.reason, JSON.stringify(withoutAccountCredentials(q.raw))).changes;
     }
     return stored;
   })();

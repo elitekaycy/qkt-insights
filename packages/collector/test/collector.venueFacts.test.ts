@@ -4,6 +4,7 @@ import {
   openDb, LiveBus, LiveStateStore, storedRoundTrips, listRoundTrips, rebuildProjection, inferenceCounts, type Db, type RoundTripRow,
 } from "@qkt-insights/store";
 import { registerCollector } from "../src/index.js";
+import { opaqueAccountId } from "@qkt-insights/contract";
 
 /*
  * Golden envelopes of one strategy's two round trips, as three producers send them: qkt stating its
@@ -197,9 +198,9 @@ describe("venue facts: one shape for every connector", () => {
     await post("vgp", state(VGP, "alpha", true));
     const snap = liveState.snapshot(T0 + 31 * S);
     const account = (i: string) => snap.accounts.filter((a) => a.instanceId === i).map((a) => ({ broker: a.broker, accountId: a.accountId }));
-    expect(account("mt5")).toEqual([{ broker: "EXNESS", accountId: MT5.accountId }]);
-    expect(account("legacy")).toEqual([{ broker: "EXNESS", accountId: MT5.accountId }]);
-    expect(account("vgp")).toEqual([{ broker: "PAPER_DERIBIT", accountId: VGP.accountId }]);
+    expect(account("mt5")).toEqual([{ broker: "EXNESS", accountId: opaqueAccountId(MT5.accountId) }]);
+    expect(account("legacy")).toEqual([{ broker: "EXNESS", accountId: opaqueAccountId(MT5.accountId) }]);
+    expect(account("vgp")).toEqual([{ broker: "PAPER_DERIBIT", accountId: opaqueAccountId(VGP.accountId) }]);
     const position = (i: string) => snap.positions.filter((g) => g.instanceId === i).flatMap((g) => g.list.map((p) => ({
       broker: g.broker, strategyId: p.strategyId, positionId: p.positionId, initialStop: p.initialStop, riskAmount: p.riskAmount,
     })));
@@ -208,8 +209,8 @@ describe("venue facts: one shape for every connector", () => {
     expect(position("legacy")).toEqual([{ broker: "EXNESS", strategyId: "alpha", positionId: undefined, initialStop: undefined, riskAmount: undefined }]);
     liveState.flushRollup(db, T0 + 31 * S);
     expect(db.prepare("SELECT instance_id i, broker, account FROM account_equity ORDER BY i").all()).toEqual([
-      { i: "legacy", broker: "EXNESS", account: MT5.accountId }, { i: "mt5", broker: "EXNESS", account: MT5.accountId },
-      { i: "vgp", broker: "PAPER_DERIBIT", account: VGP.accountId },
+      { i: "legacy", broker: "EXNESS", account: opaqueAccountId(MT5.accountId) }, { i: "mt5", broker: "EXNESS", account: opaqueAccountId(MT5.accountId) },
+      { i: "vgp", broker: "PAPER_DERIBIT", account: opaqueAccountId(VGP.accountId) },
     ]);
   });
 
@@ -240,10 +241,10 @@ describe("venue facts: one shape for every connector", () => {
     await post("vgp", explicit(VGP, "alpha"));
     const deals = db.prepare("SELECT entry, commission, swap, fee, close_reason r, realized_source s, account_id a FROM deals ORDER BY ts").all();
     expect(deals).toEqual([
-      { entry: "IN", commission: -0.05, swap: 0, fee: 0, r: null, s: "engine", a: VGP.accountId },
-      { entry: "OUT", commission: -0.05, swap: 0, fee: 0, r: "TAKE_PROFIT", s: "engine", a: VGP.accountId },
-      { entry: "IN", commission: -0.05, swap: 0, fee: 0, r: null, s: "engine", a: VGP.accountId },
-      { entry: "OUT", commission: -0.05, swap: 0, fee: 0, r: "TIMED", s: "engine", a: VGP.accountId },
+      { entry: "IN", commission: -0.05, swap: 0, fee: 0, r: null, s: "engine", a: opaqueAccountId(VGP.accountId) },
+      { entry: "OUT", commission: -0.05, swap: 0, fee: 0, r: "TAKE_PROFIT", s: "engine", a: opaqueAccountId(VGP.accountId) },
+      { entry: "IN", commission: -0.05, swap: 0, fee: 0, r: null, s: "engine", a: opaqueAccountId(VGP.accountId) },
+      { entry: "OUT", commission: -0.05, swap: 0, fee: 0, r: "TIMED", s: "engine", a: opaqueAccountId(VGP.accountId) },
     ]);
     // funding and exchange fees land in swap and fee
     await post("vgp", [ev("broker.deal", T0 + 30 * M, { broker: VGP.broker, dealTicket: "paper-9", positionTicket: "P9", positionId: "P9", symbol: VGP.symbol,

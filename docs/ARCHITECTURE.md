@@ -77,6 +77,25 @@ in a 200 batch is acknowledged. `ack.observations` is always empty: duplicates a
 A `snapshot.equity` already stored for its strategy at the same `ts` is a `duplicate`; one that repeats the
 strategy's previous snapshot is acknowledged but stored only once per 5-minute heartbeat.
 
+### Account identity
+
+An account is named by an opaque id, never by its credentials. qkt (`com.qkt.broker.VenueAccountId`) and the
+collector (`packages/contract/src/accountIdentity.ts`) compute it the same way:
+
+| connector | `accountId` |
+|---|---|
+| MT5 | `mt5:` + the first 16 hex characters of `sha256("<login>@<server>")` |
+| gateway (VGP) | `vgp:` + the first 16 hex characters of `sha256("<adapter>:<account login>")` |
+| paper | `paper:local` |
+
+The collector rewrites every envelope before anything keeps, stores or pushes it: an `accountId` in an older
+form (`mt5:<login>@<server>`, `vgp:<adapter>:<login>`) becomes the opaque id, an envelope that states none but
+carries `login` and `server` gets the id they hash to, `login` is masked to its last four characters
+(`•••9381`), `server` is dropped, and `login=` / `server=` values in log text are redacted. This holds at any
+depth of a payload and for quarantined envelopes too, so the database (tables, stored payload JSON, logs and
+their search index) never holds a raw login or server. Migration `039_opaque_account_identity` rewrites what
+an earlier release stored; see docs/operations/storage-maintenance.md for the bytes it cannot reach.
+
 ### Venue facts
 
 qkt states what the collector would otherwise infer from MT5 conventions; every field is optional, and an
@@ -85,7 +104,7 @@ counts each inference and logs its first use and every thousandth: `venue fact i
 
 | stated fact | where | used for | inferred when absent from |
 |---|---|---|---|
-| `venue{connector,adapter,label}`, `accountId` | every venue envelope | one account per `accountId`, shown under `venue.label` | `login@server` (as `mt5:login@server`), the label without its `_S<n>` profile suffix |
+| `venue{connector,adapter,label}`, `accountId` | every venue envelope | one account per `accountId`, shown under `venue.label` | `login` + `server` (hashed to the opaque `mt5:` id), the label without its `_S<n>` profile suffix |
 | `strategyId` + `attribution` | deals, positions, orders, fills | the strategy of a deal | a `dsl-<strategy>` deal comment |
 | `positionId`, `legEntry`, `nextPositionId` | deals, fills, `trade.closed` | round-trip identity and leg | `positionTicket`, `entry`; the entry order by its broker ticket |
 | `closeReason` | closing deals, fills, `trade.closed` | `ended`: STOP stop, TAKE_PROFIT tp, STOP_OUT/LIQUIDATION/EXPIRY venue, MANUAL manual, SIGNAL/TIMED signal | `[sl` / `[tp` / `[so` deal comments, then `qkt bot close` and close orders near the exit |
