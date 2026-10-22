@@ -160,11 +160,11 @@ describe("limitLine", () => {
   const use = (used: number | null, cap: number | null) => ({ used, cap, pct: used != null && cap ? (used / cap) * 100 : null, reference: 50_000, usedPct: used != null ? (used / 50_000) * 100 : null });
 
   it("reads the limit beside the account figure: what is left and how much is used", () => {
-    expect(limitLine(use(1_785.89, 5_000))).toEqual({ text: "3,214.11 left · 35.7% of the 5,000.00 limit used", over: false });
+    expect(limitLine(use(1_785.89, 5_000))).toEqual({ left: "3,214.11 left", used: "35.7% of the 5,000.00 limit used", over: false });
   });
 
   it("says over the limit once it is reached", () => {
-    expect(limitLine(use(5_200, 5_000))).toEqual({ text: "over the 5,000.00 limit", over: true });
+    expect(limitLine(use(5_200, 5_000))).toEqual({ left: "over the 5,000.00 limit", used: "104.0% of the 5,000.00 limit used", over: true });
   });
 
   it("has nothing to say for an account without a limit", () => {

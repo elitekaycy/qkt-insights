@@ -101,16 +101,17 @@ export function dailyMeasured(row: Pick<AccountRiskRow, "dailyLoss">, daily: Lim
 }
 
 /**
- * A limit card's second reading, under the account's own figure: what is left of the limit and how
- * much of it is used, e.g. "3,214.11 left · 35.7% of the 5,000.00 limit used", or "over the
- * 5,000.00 limit". Null without a limit: the card then shows the account figure alone.
+ * A limit card's reading beside the account's own figure: what is left of the limit for the card,
+ * how much of it is used for its info panel, e.g. { left: "3,214.11 left", used: "35.7% of the
+ * 5,000.00 limit used" }, or "over the 5,000.00 limit". Null without a limit: the card then shows
+ * the account figure alone.
  */
-export function limitLine(use: LimitUse): { text: string; over: boolean } | null {
+export function limitLine(use: LimitUse): { left: string; used: string; over: boolean } | null {
   if (use.cap == null) return null;
   const over = use.pct != null && use.pct >= 100;
-  if (over) return { text: `over the ${money(use.cap)} limit`, over };
-  const left = use.used != null ? money(Math.max(0, use.cap - use.used)) : DASH;
-  return { text: `${left} left · ${use.pct == null ? DASH : pctValue(use.pct, 1)} of the ${money(use.cap)} limit used`, over };
+  const used = `${use.pct == null ? DASH : pctValue(use.pct, 1)} of the ${money(use.cap)} limit used`;
+  if (over) return { left: `over the ${money(use.cap)} limit`, used, over };
+  return { left: `${use.used != null ? money(Math.max(0, use.cap - use.used)) : DASH} left`, used, over };
 }
 
 /** The drawdown card's line under the figure: how far below which reference equity is. */
