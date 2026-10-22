@@ -48,7 +48,7 @@ export function CalendarSection({ scope, q, toggle, base, capital }: SectionProp
   if (!base) return null;
   if (base.daily.length === 0) return <Empty q={q} from={scope.from} />;
   return (
-    <div className="grid gap-4">
+    <div className="grid grid-cols-1 gap-4">
       <CalendarView
         days={base.daily.map((d) => ({ day: d.day, net: d.pnl, trades: d.n }))}
         returnBase={() => capital.amount}
@@ -96,7 +96,7 @@ export function DailySection({ scope, q, toggle, base, busy }: SectionProps) {
   const shown = windowTotals(days, zoom);
   const rows = [...days].reverse();
   return (
-    <div className="grid gap-4">
+    <div className="grid grid-cols-1 gap-4">
       <Widget icon={ICON.bars} title="Daily P&L" hint={`${count(days.length)} trading days`} busy={busy}>
         <EChart option={option} height={260} label="Realized P&L per UTC exit day" onAxisClick={(x) => { const d = days[Math.round(x)]; if (d) toggle(`exit:${d.day}`); }} onZoom={setZoom} />
         {shown && (
@@ -172,7 +172,7 @@ export function MonthlySection({ scope, q, toggle, base, busy, capital, goTab }:
   if (!base) return null;
   if (months.length === 0) return <Empty q={q} from={scope.from} />;
   return (
-    <div className="grid gap-4">
+    <div className="grid grid-cols-1 gap-4">
       <Widget icon={ICON.bars} title="Monthly P&L" busy={busy}>
         <EChart option={option} height={240} label="Realized P&L per UTC exit month" zoom={months.length > 24} onAxisClick={(x) => { const m = months[Math.round(x)]; if (m) toggle(`exit:${m.day}`); }} />
       </Widget>

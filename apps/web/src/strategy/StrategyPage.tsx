@@ -168,7 +168,7 @@ export function StrategyDetail({ instanceId, strategyId }: { instanceId: string;
   const loading = analytics.isPending;
 
   return (
-    <div className="grid gap-4">
+    <div className="grid grid-cols-1 gap-4">
       <div>
         <div className="flex min-w-0 items-center gap-1.5 sm:hidden">
           <OriginBack iconOnly />
@@ -252,8 +252,9 @@ export function StrategyDetail({ instanceId, strategyId }: { instanceId: string;
 
       {tab !== "logs" && (
         <div className="grid gap-2 border-b border-line pb-3">
-          {/* phones: a search button with the active filter count, the range chips and the count on one row */}
-          <div className="flex items-center gap-1.5 sm:hidden">
+          {/* phones: a search button with the active filter count, the range chips and the count on one row;
+              a count too wide for what is left (a long net) wraps under the chips rather than leaving the screen */}
+          <div className="flex flex-wrap items-center gap-1.5 sm:hidden">
             <button
               type="button"
               aria-label={filterCount ? `Search and filter, ${filterCount} active` : "Search and filter"}
@@ -364,7 +365,7 @@ function Runtime({ meta }: { meta: Record<string, unknown> }) {
       }
     >
       <div className="eyebrow pb-2">From the latest strategy.started</div>
-      <dl className="grid gap-2">
+      <dl className="grid grid-cols-1 gap-2">
         {fields.map(([k, v, mono]) => (
           <div key={k}>
             <dt className="text-[11px] text-muted">{k}</dt>

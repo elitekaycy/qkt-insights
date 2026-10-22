@@ -62,7 +62,7 @@ export function Edge({ instanceId }: { instanceId: string | null }) {
   );
 
   return (
-    <div className="grid gap-5">
+    <div className="grid grid-cols-1 gap-5">
       <PageHeader
         title="Edge"
         sub="when this strategy makes money — all buckets UTC, grey means not enough data"

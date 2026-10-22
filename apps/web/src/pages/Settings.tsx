@@ -64,7 +64,7 @@ function Sharing({ instanceId }: { instanceId: string | null }) {
   const rows = (strategies.data ?? []).filter((s) => s.active);
   const portfolios = [...new Set(rows.map(portfolioGroupId).filter((p): p is string => p != null))];
   return (
-    <div className="grid gap-4">
+    <div className="grid grid-cols-1 gap-4">
       <p className="max-w-2xl text-sm text-muted">
         A public link shows the page read-only, 15 minutes behind, without tickets, logs or account logins. Strategies and portfolios follow the
         overview unless set here.

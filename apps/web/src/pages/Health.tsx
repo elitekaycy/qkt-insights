@@ -1,4 +1,4 @@
-import { maskLogin, realAccounts } from "../accounts";
+import { accountName, maskLogin, realAccounts } from "../accounts";
 import { Fragment, useRef, useState, type KeyboardEvent, type PointerEvent, type ReactNode } from "react";
 import { useQuery } from "@tanstack/react-query";
 import { get, type HealthRow, type LiveAccount, type LiveStateSnapshot, type MonitorEventRow, type MonitorSummary, type MonitorsView, type StripBucket } from "../api";
@@ -325,7 +325,7 @@ function InstanceDetail({ row, accounts }: { row: HealthRow; accounts: LiveAccou
           empty="No broker account state yet — waiting for the state poller."
           cells={(a) => (
             <>
-              <Cell className="font-semibold text-bright">{a.login ? `${a.broker} · #${maskLogin(a.login)}` : a.broker}</Cell>
+              <Cell className="font-semibold text-bright">{a.login ? `${accountName(a)} · #${maskLogin(a.login)}` : accountName(a)}</Cell>
               <Cell>
                 <Pill tone={a.stale ? "neutral" : "ok"}>{a.stale ? "stale" : "live"}</Pill>
               </Cell>
@@ -339,7 +339,7 @@ function InstanceDetail({ row, accounts }: { row: HealthRow; accounts: LiveAccou
           card={(a) => (
             <>
               <div className="flex items-center gap-2">
-                <span className="truncate font-semibold text-bright">{a.login ? `${a.broker} · #${maskLogin(a.login)}` : a.broker}</span>
+                <span className="truncate font-semibold text-bright">{a.login ? `${accountName(a)} · #${maskLogin(a.login)}` : accountName(a)}</span>
                 <Pill tone={a.stale ? "neutral" : "ok"}>{a.stale ? "stale" : "live"}</Pill>
                 <span className="ml-auto whitespace-nowrap text-xs text-muted">{age(a.lastSeen)}</span>
               </div>
@@ -414,7 +414,7 @@ export default function Health() {
                   <Freshness at={Math.max(r.lastSeen, acct?.lastSeen ?? 0)} stale={!fresh} className="ml-auto" />
                 </div>
                 <div className="mt-2 grid grid-cols-2 gap-x-4 gap-y-1.5 text-sm">
-                  <Fact label="broker">{acct ? (acct.login ? `${acct.broker} · #${maskLogin(acct.login)}` : acct.broker) : "—"}</Fact>
+                  <Fact label="broker">{acct ? (acct.login ? `${accountName(acct)} · #${maskLogin(acct.login)}` : accountName(acct)) : "—"}</Fact>
                   <Fact label="equity" mono>
                     {acct ? money(acct.equity) : "—"}
                   </Fact>
@@ -476,7 +476,7 @@ export default function Health() {
                   <Cell className="text-muted">
                     <span title={r.retiredStrategies > 0 ? "retired: rows a newer roster or 30 days of silence left behind, not counted as deployed" : undefined}>{strategiesLabel(r)}</span>
                   </Cell>
-                  <Cell className="text-muted">{acct ? (acct.login ? `${acct.broker} · #${maskLogin(acct.login)}` : acct.broker) : "—"}</Cell>
+                  <Cell className="text-muted">{acct ? (acct.login ? `${accountName(acct)} · #${maskLogin(acct.login)}` : accountName(acct)) : "—"}</Cell>
                   <Cell className="text-bright">{acct ? money(acct.equity) : "—"}</Cell>
                   <Cell>
                     <span className="flex flex-wrap gap-1.5">

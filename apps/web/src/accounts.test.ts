@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 import type { LiveAccount } from "./api";
-import { groupAccounts, maskLogin } from "./accounts";
+import { accountName, groupAccounts, maskLogin } from "./accounts";
 
 const acct = (broker: string, lastSeen: number, extra: Partial<LiveAccount> = {}): LiveAccount => ({
   instanceId: "i", broker, currency: "USD", balance: 100, equity: 100, lastSeen, stale: false, ...extra,
@@ -44,5 +44,18 @@ describe("maskLogin", () => {
   it("keeps the last four characters", () => {
     expect(maskLogin("52144821")).toBe("•••4821");
     expect(maskLogin("123")).toBe("123");
+  });
+});
+
+describe("accountName", () => {
+  it("names a shared account by its venue, whichever of its profiles reported last", () => {
+    expect(accountName({ broker: "EXNESS_P174", adapter: "exness" })).toBe("EXNESS");
+    expect(accountName({ broker: "EXNESS_P511", adapter: "exness" })).toBe("EXNESS");
+  });
+  it("keeps a label that is not one of the venue's profiles", () => {
+    expect(accountName({ broker: "ICMARKETS", adapter: "icmarketssc" })).toBe("ICMARKETS");
+    expect(accountName({ broker: "PROP_S01", adapter: "fivepercentonline" })).toBe("PROP_S01");
+    expect(accountName({ broker: "EXNESS", adapter: "exness" })).toBe("EXNESS");
+    expect(accountName({ broker: "PAPER_DERIBIT" })).toBe("PAPER_DERIBIT");
   });
 });
