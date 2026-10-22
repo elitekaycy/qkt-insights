@@ -33,9 +33,9 @@ describe("sortCards", () => {
 });
 
 describe("isFolded", () => {
-  it("folds retired strategies and ones that never traded nor hold a position", () => {
+  it("folds retired strategies only: a deployed one shows before its first trade", () => {
     expect(isFolded(line("a", { trades: 1 }, row("a", { active: false })))).toBe(true);
-    expect(isFolded(line("a"))).toBe(true);
+    expect(isFolded(line("a"))).toBe(false);
     expect(isFolded(line("a", { floating: 3 }))).toBe(false);
     expect(isFolded(line(null))).toBe(false);
   });
