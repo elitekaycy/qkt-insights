@@ -1,4 +1,4 @@
-import { realAccounts } from "../accounts";
+import { accountName, realAccounts } from "../accounts";
 import { useQuery } from "@tanstack/react-query";
 import { get, type AccountRiskRow, type AccountSummary, type StrategyRow } from "../api";
 import { useMemo, useState } from "react";
@@ -168,7 +168,7 @@ function StrategyCardList({ lines, closes, now }: { lines: StrategyLine[]; close
   );
 
   return (
-    <div className="grid gap-5">
+    <div className="grid grid-cols-1 gap-5">
       {shown.length === 0 && (
         <Card className="p-8 text-center text-sm text-muted">
           {find ? `No strategy matches “${find}”.` : "No strategy has traded yet. Cards appear with the first close or open position."}
@@ -186,7 +186,7 @@ function StrategyCardList({ lines, closes, now }: { lines: StrategyLine[]; close
         </PortfolioGroup>
       ))}
       {standalone.length > 0 && (
-        <section className="grid gap-2.5">
+        <section className="grid grid-cols-1 gap-2.5">
           {orderedPortfolios.length > 0 && <h2 className="eyebrow">Standalone strategies</h2>}
           <CardGrid>{sortCards(standalone, sort).map((l) => card(l))}</CardGrid>
         </section>
@@ -280,7 +280,7 @@ function PortfolioDetail({
           value={money(account?.equity)}
           sub={
             account
-              ? `${account.broker} · shared account`
+              ? `${accountName(account)} · shared account`
               : accounts.length > 1
                 ? "multiple broker accounts"
                 : "account state unavailable"

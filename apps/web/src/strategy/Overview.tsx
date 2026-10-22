@@ -91,7 +91,7 @@ export function OverviewSection({ instanceId, strategyId, scope, q, toggle, a, b
   const scopeHint = "range · ignores the search";
 
   return (
-    <div className="grid gap-4">
+    <div className="grid grid-cols-1 gap-4">
       <div className="grid gap-4 @container md:grid-cols-3">
         <Widget
           icon={ICON.pnl}

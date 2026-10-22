@@ -175,7 +175,7 @@ export function PayoffBars({ avgWin, avgLoss, onWin, onLoss }: { avgWin: number 
     </button>
   );
   return (
-    <div className="grid gap-0.5">
+    <div className="grid grid-cols-1 gap-0.5">
       {row("Win", avgWin, "var(--color-gain-fill)", onWin)}
       {row("Loss", avgLoss, "var(--color-loss-fill)", onLoss)}
     </div>
@@ -199,7 +199,7 @@ export function SignedBars({ rows, labelWidth = "3.5rem" }: { rows: SignedRow[];
   const max = Math.max(1e-9, ...rows.map((r) => Math.abs(r.value)));
   const anyPressed = rows.some((r) => r.pressed);
   return (
-    <div className="grid gap-0.5">
+    <div className="grid grid-cols-1 gap-0.5">
       {rows.map((r) => {
         const w = (Math.abs(r.value) / max) * 50;
         const dim = anyPressed ? !r.pressed : r.faded;

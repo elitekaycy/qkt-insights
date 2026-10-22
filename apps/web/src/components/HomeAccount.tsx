@@ -2,7 +2,7 @@ import type { ReactNode } from "react";
 import type { AccountRiskRow, LiveAccount } from "../api";
 import { clock, count, DASH, money, pctValue, signedMoney } from "../format";
 import { accountToday, dailyMeasured, dayBasisLabel, drawdownMeasured, limitUse, type LimitUse, type OpenRisk } from "../home";
-import { maskLogin } from "../accounts";
+import { accountName, maskLogin } from "../accounts";
 import { Card, FlashValue, Freshness, InfoIcon, Pill, Pnl, Popover } from "./ui";
 
 /*
@@ -143,9 +143,9 @@ export function AccountStrip({
   const use = risk ? limitUse(risk, account.equity) : null;
   const openCount = open ? open.priced + open.noStop + open.unpriced : 0;
   return (
-    <section className={account.stale ? "opacity-90" : ""} aria-label={`Account ${account.broker}`}>
+    <section className={account.stale ? "opacity-90" : ""} aria-label={`Account ${accountName(account)}`}>
       <div className="flex flex-wrap items-center gap-x-2.5 gap-y-1 text-sm">
-        <span className="font-semibold text-bright">{account.broker}</span>
+        <span className="font-semibold text-bright" title={accountName(account) === account.broker ? undefined : `last reported by profile ${account.broker}`}>{accountName(account)}</span>
         <Pill>{account.currency}</Pill>
         {!isPublic && account.login && <span className="font-mono text-xs text-faint" title="login, last four digits">#{maskLogin(account.login)}</span>}
         {!isPublic && account.server && <span className="text-xs text-faint">{account.server}</span>}
