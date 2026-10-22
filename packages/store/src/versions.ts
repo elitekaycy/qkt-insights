@@ -9,6 +9,7 @@ import type { Db } from "./db.js";
  * - `unscoped:<instance>`: a trade or order event that names no strategy; it may belong to any.
  * - `marks:<instance>`: position valuations (excursions, delayed open P&L).
  * - `account:<instance>`: the account equity minute rollup.
+ * - `reconciliation:<instance>`: a venue reconciliation run's results.
  * - `epoch`: anything broad (retention prune, declared capital), which every version includes.
  *
  * Counters live in memory and start at zero each boot; versions are only compared within one
@@ -45,6 +46,10 @@ export function bumpAccount(db: Db, instanceId: string): void {
   bump(db, `account:${instanceId}`);
 }
 
+export function bumpReconciliation(db: Db, instanceId: string): void {
+  bump(db, `reconciliation:${instanceId}`);
+}
+
 export function bumpEpoch(db: Db): void {
   bump(db, "epoch");
 }
@@ -54,12 +59,14 @@ export type VersionScope =
   | { strategy: { instanceId: string; strategyId: string } }
   | { instance: string }
   | { marks: string }
-  | { account: string };
+  | { account: string }
+  | { reconciliation: string };
 
 function keysOf(scope: VersionScope): string[] {
   if ("strategy" in scope) return [`strategy:${scope.strategy.instanceId}|${scope.strategy.strategyId}`, `unscoped:${scope.strategy.instanceId}`];
   if ("instance" in scope) return [`instance:${scope.instance}`];
   if ("marks" in scope) return [`marks:${scope.marks}`];
+  if ("reconciliation" in scope) return [`reconciliation:${scope.reconciliation}`];
   return [`account:${scope.account}`];
 }
 

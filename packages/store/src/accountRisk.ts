@@ -255,6 +255,11 @@ export function accountRiskScan(db: Db, f: Parameters<typeof accountRisk>[1]): A
   return riskRows(db, f, seriesViews(accountSeries(db, { instanceId: f.instanceId, to: f.now })));
 }
 
+/** The instance's venue accounts as of `to`, grouped exactly as the risk and return readers group them. */
+export function accountGroups(db: Db, instanceId: string, to?: number): Array<Pick<AccountView, "key" | "label" | "identity" | "labels">> {
+  return withAccountViews(db, instanceId, to, (accounts) => accounts.map((a) => ({ key: a.key, label: a.label, identity: a.identity, labels: a.labels })));
+}
+
 /**
  * Runs `read` over the instance's accounts as of `to`, answered from the account projections; when
  * they cannot answer one of its questions exactly, over the full stitched series instead.

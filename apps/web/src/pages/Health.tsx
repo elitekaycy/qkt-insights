@@ -2,6 +2,7 @@ import { accountName, maskLogin, realAccounts } from "../accounts";
 import { Fragment, useRef, useState, type KeyboardEvent, type PointerEvent, type ReactNode } from "react";
 import { useQuery } from "@tanstack/react-query";
 import { get, type ContractInfo, type HealthRow, type LiveAccount, type LiveStateSnapshot, type MonitorEventRow, type MonitorSummary, type MonitorsView, type StripBucket } from "../api";
+import { ReconciliationCard } from "../components/Reconciliation";
 import { Cell, DataList, Empty, Freshness, StatusWord, LiveDot, PageHeader, Panel, Pill, Row, Skeleton, Stat, Table, type Tone } from "../components/ui";
 import { contractLabel, contractTitle } from "../contract";
 import { age, clock, duration, money, pct, signedMoney, tsDay, tsShort } from "../format";
@@ -399,11 +400,13 @@ export default function Health() {
 
   return (
     <div>
-      <PageHeader title="Health" sub="Uptime, runtime status, collector delivery, and broker account truth in one place." />
+      <PageHeader title="Health" sub="Uptime, venue reconciliation, runtime status, collector delivery, and broker account truth in one place." />
 
       <FleetStats monitors={monitors.data?.monitors ?? []} rows={rows} accounts={accounts} />
 
       <Monitors view={monitors.data} loading={monitors.isLoading} failed={monitors.isError} />
+
+      <ReconciliationCard instances={rows.map((r) => r.instanceId)} />
 
       <Panel
         className="mt-6"

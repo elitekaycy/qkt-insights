@@ -1,5 +1,5 @@
 import type { FastifyInstance } from "fastify";
-import { listInstances, listStrategies, listTrades, searchEvents, equityCurve, instanceHealth, searchLogs, logPage, strategyStats, listDeals, accountEquity, accountDrawdown, accountPerformance, accountRisk, monitorSummaries, withJournalStrategies, listMonitorEvents, type AccountLimits, type Db, type LiveStateStore, type Monitors } from "@qkt-insights/store";
+import { listInstances, listStrategies, listTrades, searchEvents, equityCurve, instanceHealth, searchLogs, logPage, strategyStats, listDeals, accountEquity, accountDrawdown, accountPerformance, accountRisk, monitorSummaries, withJournalStrategies, listMonitorEvents, reconciliation, type AccountLimits, type Db, type LiveStateStore, type Monitors } from "@qkt-insights/store";
 import { CONTRACT_VERSION, SUPPORTED_MAJORS } from "@qkt-insights/contract";
 import { UNATTRIBUTED_STRATEGY } from "@qkt-insights/contract/query";
 import { requireSession } from "./auth.js";
@@ -44,6 +44,11 @@ export function registerRest(app: FastifyInstance, deps: RestDeps): void {
     monitors: monitorSummaries(deps.db, deps.monitors, Date.now()),
     events: listMonitorEvents(deps.db, 50),
   }));
+  // The venue reconciliation as its latest run stored it (store reconciliation.ts); 304 until a run writes.
+  app.get<{ Querystring: Record<string, string> }>("/health/reconciliation", guard, async (req, reply) => {
+    const i = req.query.instance; if (!need(reply, i, "instance")) return;
+    return versioned.send(req, reply, [{ reconciliation: i }], () => reconciliation(deps.db, i));
+  });
 
   app.get<{ Querystring: Record<string, string> }>("/strategies", guard, async (req, reply) => {
     const i = req.query.instance; if (!need(reply, i, "instance")) return;
