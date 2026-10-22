@@ -48,9 +48,12 @@ export function cardFigures(line: CardLine, digits = 2): CardFigures {
   };
 }
 
-/** A line the page folds away until asked: retired, or on the roster but never traded nor open. */
+/**
+ * A line the page folds away until asked: a retired strategy. A strategy on the live roster always
+ * shows, traded or not, so a book deployed today lists every member before its first trade.
+ */
 export function isFolded(line: CardLine): boolean {
-  return line.row != null && (!line.row.active || (line.periods.trades === 0 && line.periods.floating === 0));
+  return line.row != null && !line.row.active;
 }
 
 export type CardSort = "net" | "today" | "name" | "last";
