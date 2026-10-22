@@ -340,9 +340,28 @@ export function InfoIcon({ className = "h-4 w-4" }: { className?: string }) {
  * Click- or tap-to-open popover anchored under its trigger, for short explanations that would
  * otherwise hide in a hover-only title. Closes on Escape, an outside press, or a second click.
  */
-export function Popover({ trigger, label, children, align = "left" }: { trigger: ReactNode; label: string; children: ReactNode; align?: "left" | "right" }) {
+export function Popover({ trigger, label, children, align = "left", hover = false }: {
+  trigger: ReactNode; label: string; children: ReactNode; align?: "left" | "right";
+  /** Also open while a mouse rests on the trigger or the panel; a tap still toggles it on touch. */
+  hover?: boolean;
+}) {
   const [open, setOpen] = useState(false);
   const box = useRef<HTMLSpanElement>(null);
+  const closeTimer = useRef<number | null>(null);
+  const hoverProps = hover
+    ? {
+        onPointerEnter: (e: { pointerType: string }) => {
+          if (e.pointerType !== "mouse") return;
+          if (closeTimer.current != null) window.clearTimeout(closeTimer.current);
+          setOpen(true);
+        },
+        onPointerLeave: (e: { pointerType: string }) => {
+          if (e.pointerType !== "mouse") return;
+          // a short grace so the pointer can travel from the icon onto the panel
+          closeTimer.current = window.setTimeout(() => setOpen(false), 150);
+        },
+      }
+    : {};
   useEffect(() => {
     if (!open) return;
     const onDown = (e: Event) => {
@@ -359,7 +378,7 @@ export function Popover({ trigger, label, children, align = "left" }: { trigger:
     };
   }, [open]);
   return (
-    <span ref={box} className="relative inline-flex">
+    <span ref={box} className="relative inline-flex" {...hoverProps}>
       <button
         type="button"
         aria-label={label}
