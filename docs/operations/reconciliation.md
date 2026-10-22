@@ -6,6 +6,15 @@ the result per venue account: "Reconciled ✓ through 21 Oct · 2 balance moves 
 checked 02:00 UTC", or "N days differ" with the days and positions that differ. Accounts are grouped exactly as the account views group them (by the
 opaque account id, else by labels that take turns).
 
+A deal belongs to an account by, in order: the account id it states; the account reporting
+under its exact label; the one account whose labels share its label family (the label without its
+profile suffix, as `profileLabel` strips it); the instance's only account. MT5 deals state no
+account id, and most per-profile labels that copy them never report account state, so on a
+single-login instance every profile label's deals land on that one account. A deal none of the
+rules places (an instance with several accounts and a label matching none, or two) is
+unassigned: Health shows "N deals not assigned to an account" with the labels, and no check
+counts it. The open-positions and ledger checks place positions and round trips by the same rules.
+
 ## The three checks
 
 - **Balance continuity per UTC day.** For each complete UTC day, the balance change between the

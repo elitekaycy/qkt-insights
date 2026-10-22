@@ -168,6 +168,43 @@ describe("reconciliation: balance continuity per UTC day", () => {
     expect(r.accounts.map((x) => [x.label, x.daysOk, x.daysDiff])).toEqual([["EXN", 1, 0], ["ICM", 1, 0]]);
   });
 
+  it("gives an account the deals of profile labels that never report account state and state no account (one MT5 login)", () => {
+    const db = openDb(":memory:");
+    // the venue booked 3 deals on Oct 2; insights stored them under three profile labels, no account id
+    const a = trip(db, "p1", OCT(2, 9, 0, 30), 41.2, -0.8, { broker: "EXNESS_P2403", accountId: null });
+    const b = trip(db, "p2", OCT(2, 11, 0, 30), -17.4, -0.8, { broker: "EXNESS_P511", accountId: null });
+    const c = trip(db, "p3", OCT(2, 14, 0, 30), 9.9, 0, { broker: "EXNESS_PAPER1", accountId: null });
+    minutes(db, { from: OCT(1, 6), to: OCT(3, 12), start: 3_000, label: "EXNESS", account: null,
+      booked: [{ ts: OCT(2, 9, 0, 30), amount: a }, { ts: OCT(2, 11, 0, 30), amount: b }, { ts: OCT(2, 14, 0, 30), amount: c }] });
+    const r = reconcile(db, I, { now: OCT(3, 2) });
+    expect(r).toMatchObject({ accounts: 1, diffs: 0, external: 0, unassigned: 0 });
+    const acct = reconciliation(db, I).accounts[0]!;
+    expect(acct).toMatchObject({ label: "EXNESS", daysOk: 1, daysDiff: 0, daysExternal: 0, throughDay: "2026-10-02" });
+    expect(acct.ledger).toMatchObject({ status: "ok", trips: 3 });
+    expect(db.prepare("SELECT deals, status FROM reconciliations WHERE instance_id=? AND day='2026-10-02'").get(I)).toEqual({ deals: 6, status: "ok" });
+
+    // a position open under a profile label is the account's too
+    deal(db, { ticket: "q-in", position: "Q", entry: "IN", side: "BUY", qty: 0.3, ts: OCT(3, 1), broker: "EXNESS_P2403", accountId: null });
+    reconcile(db, I, { now: OCT(3, 2), positions: [{ broker: "EXNESS_P2403", at: OCT(3, 2) - 5_000, list: [{ ticket: "Q", symbol: "XAUUSD", side: "BUY", qty: 0.3 }] }] });
+    expect(reconciliation(db, I).accounts[0]!.positions).toMatchObject({ status: "ok", venueCount: 1, insightsCount: 1 });
+  });
+
+  it("gives a profile label to the one account of its label family, and counts deals no account can take", () => {
+    const db = openDb(":memory:");
+    const other = "mt5:fedcba9876543210";
+    const a = trip(db, "p1", OCT(2, 9, 0, 30), 30, 0, { broker: "ICM_S07", accountId: null });
+    const b = trip(db, "p2", OCT(2, 10, 0, 30), -8, 0, { broker: "EXN", accountId: null });
+    // two accounts, and a label matching neither: whose it is cannot be known
+    trip(db, "p3", OCT(2, 11, 0, 30), 55, 0, { broker: "MYSTERY_P1", accountId: null });
+    minutes(db, { from: OCT(1, 6), to: OCT(3, 12), start: 10_000, booked: [{ ts: OCT(2, 9, 0, 30), amount: a }] });
+    minutes(db, { from: OCT(1, 6), to: OCT(3, 12), start: 2_000, booked: [{ ts: OCT(2, 10, 0, 30), amount: b }], label: "EXN", account: other });
+    const r = reconcile(db, I, { now: OCT(3, 2) });
+    expect(r).toMatchObject({ accounts: 2, diffs: 0, unassigned: 2 });
+    const view = reconciliation(db, I);
+    expect(view.accounts.map((x) => [x.label, x.daysOk, x.daysDiff, x.daysExternal])).toEqual([["EXN", 1, 0, 0], ["ICM", 1, 0, 0]]);
+    expect(view.unassigned).toEqual({ deals: 2, labels: [{ broker: "MYSTERY_P1", deals: 2 }] });
+  });
+
   it("re-checks only recent and not-ok days, and clears a diff once the late deal arrives", () => {
     const db = openDb(":memory:");
     const booked: Array<{ ts: number; amount: number }> = [];
@@ -271,8 +308,9 @@ describe("reconciliation: ledger", () => {
 describe("reconciliation: empty", () => {
   it("has no accounts before the first account state and no run before the first reconcile", () => {
     const db = openDb(":memory:");
-    expect(reconciliation(db, I)).toEqual({ instanceId: I, digits: 2, checkedAt: null, accounts: [] });
-    expect(reconcile(db, I, { now: OCT(3, 2) })).toEqual({ accounts: 0, daysChecked: 0, diffs: 0, external: 0 });
+    expect(reconciliation(db, I)).toEqual({ instanceId: I, digits: 2, checkedAt: null, unassigned: { deals: 0, labels: [] }, accounts: [] });
+    expect(reconcile(db, I, { now: OCT(3, 2) })).toEqual({ accounts: 0, daysChecked: 0, diffs: 0, external: 0, unassigned: 0 });
+    expect(reconciliation(db, I).checkedAt).toBe(OCT(3, 2));
   });
 });
 

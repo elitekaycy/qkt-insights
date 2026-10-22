@@ -47,5 +47,14 @@ CREATE TABLE IF NOT EXISTS reconciliation_accounts (
   PRIMARY KEY (instance_id, account)
 ) WITHOUT ROWID;
 
+-- One row per instance: its latest run, and the canonical deals that run could give to no account
+-- (unassigned_labels: JSON [{broker, deals}]), so they are reported rather than dropped.
+CREATE TABLE IF NOT EXISTS reconciliation_runs (
+  instance_id TEXT PRIMARY KEY,
+  checked_at INTEGER NOT NULL,
+  unassigned_deals INTEGER NOT NULL,
+  unassigned_labels TEXT NOT NULL
+) WITHOUT ROWID;
+
 -- The positions check reads an instance's open round trips.
 CREATE INDEX IF NOT EXISTS idx_round_trips_open ON round_trips (instance_id) WHERE open = 1;

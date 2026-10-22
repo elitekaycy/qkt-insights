@@ -85,6 +85,16 @@ export function ledgerLine(l: ReconciledLedger, digits = 2): { tone: Reconciliat
   return { tone: "bad", text: `Ledger: ${trips} ${l.trips === 1 ? "sums" : "sum"} to ${signedMoney(l.tripsNet, digits)}, ${l.trips === 1 ? "its" : "their"} deals to ${signedMoney(l.dealsNet, digits)}` };
 }
 
+/** "3 deals not assigned to an account": deals whose label and account id match no account (or more than one). */
+export function unassignedLine(deals: number): string {
+  return `${count(deals)} ${deals === 1 ? "deal" : "deals"} not assigned to an account`;
+}
+
+/** Each label behind the unassigned deals, for the expanded detail: "MYSTERY_P1: 2 deals". */
+export function unassignedLabels(labels: ReadonlyArray<{ broker: string; deals: number }>): string[] {
+  return labels.map((l) => `${l.broker}: ${count(l.deals)} ${l.deals === 1 ? "deal" : "deals"}`);
+}
+
 /** What an empty card says, and why: no run stores an account before qkt has sent its balance. */
 export const EMPTY_TEXT = "No venue account reconciled yet. The check runs a couple of minutes after the collector starts and every night at 02:00 UTC, for each account qkt has sent a balance for.";
 

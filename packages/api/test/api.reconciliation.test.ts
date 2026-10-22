@@ -42,7 +42,7 @@ describe("GET /health/reconciliation", () => {
   });
 
   it("says why it is empty before the first run", async () => {
-    expect((await get(`/health/reconciliation?instance=${I}`)).json()).toEqual({ instanceId: I, digits: 2, checkedAt: null, accounts: [] });
+    expect((await get(`/health/reconciliation?instance=${I}`)).json()).toEqual({ instanceId: I, digits: 2, checkedAt: null, unassigned: { deals: 0, labels: [] }, accounts: [] });
   });
 
   it("serves the stored run, and answers 304 until the next run writes", async () => {
@@ -52,6 +52,7 @@ describe("GET /health/reconciliation", () => {
     expect(first.headers["cache-control"]).toBe("private, no-cache");
     const body = first.json();
     expect(body.checkedAt).toBe(OCT(4, 2));
+    expect(body.unassigned).toEqual({ deals: 0, labels: [] });
     expect(body.accounts).toHaveLength(1);
     expect(body.accounts[0]).toMatchObject({
       account: "mt5:00000000000000aa", label: "ICM", daysOk: 1, daysDiff: 0, daysExternal: 1, daysIncomplete: 1, throughDay: "2026-10-03",

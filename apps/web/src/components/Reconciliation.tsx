@@ -3,7 +3,7 @@ import { get, type AccountReconciliation, type ReconciledDay, type Reconciliatio
 import { useRoute } from "../router";
 import { count, glyph, signedMoney } from "../format";
 import {
-  DAY_REASON, EMPTY_TEXT, checkedLabel, dayCounts, dayMonth, dayTradesPath, ledgerLine, positionIssues, positionsLine, verdict, type ReconciliationTone,
+  DAY_REASON, EMPTY_TEXT, unassignedLabels, unassignedLine, checkedLabel, dayCounts, dayMonth, dayTradesPath, ledgerLine, positionIssues, positionsLine, verdict, type ReconciliationTone,
 } from "../reconciliation";
 import { Cell, DataList, InfoIcon, Panel, Pnl, Popover, Skeleton, StatusWord, type Tone } from "./ui";
 
@@ -157,10 +157,20 @@ export function ReconciliationCard({ instances }: { instances: string[] }) {
   const loading = results.some((r) => r.isLoading);
   const failed = results.some((r) => r.isError && !r.data);
   const accounts = views.flatMap((view) => view.accounts.map((a) => ({ view, a })));
+  const unassigned = views.filter((v) => v.unassigned.deals > 0);
   return (
     <Panel className="mt-6" title="Reconciliation" hint={HINT}>
       {loading && accounts.length === 0 && <Skeleton lines={3} className="p-4" />}
       {failed && <div className="px-4 py-3 text-sm text-loss">Could not load a reconciliation from the collector. Retrying.</div>}
+      {unassigned.map((v) => (
+        <div key={v.instanceId} className="flex min-w-0 flex-wrap items-center gap-x-2 gap-y-1 border-b border-line/60 px-4 py-2.5">
+          <StatusWord tone="warn" wrap>
+            {unassignedLine(v.unassigned.deals)}
+            {instances.length > 1 ? ` on ${v.instanceId}` : ""}: their label and account match no venue account (or more than one), so no check counts them
+          </StatusWord>
+          <Details label="Labels of deals not assigned to an account" lines={unassignedLabels(v.unassigned.labels)} />
+        </div>
+      ))}
       {!loading && !failed && accounts.length === 0 && <div className="px-4 py-10 text-center text-sm text-faint">{EMPTY_TEXT}</div>}
       {accounts.length > 0 && (
         <ul className="divide-y divide-line/60">

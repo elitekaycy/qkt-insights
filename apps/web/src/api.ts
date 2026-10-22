@@ -217,6 +217,8 @@ export interface ReconciliationView {
   instanceId: string;
   digits: number;
   checkedAt: number | null;
+  /** Canonical deals the latest run could give to no account, per label: never in an account's checks. */
+  unassigned: { deals: number; labels: Array<{ broker: string; deals: number }> };
   accounts: AccountReconciliation[];
 }
 export interface StrategyRow {

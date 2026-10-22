@@ -1,6 +1,6 @@
 import { describe, it, expect } from "vitest";
 import type { AccountReconciliation, ReconciledLedger, ReconciledPositions } from "./api";
-import { DAY_REASON, EMPTY_TEXT, checkedLabel, dayCounts, dayMonth, dayTradesPath, ledgerLine, positionIssues, positionsLine, verdict } from "./reconciliation";
+import { DAY_REASON, EMPTY_TEXT, unassignedLabels, unassignedLine, checkedLabel, dayCounts, dayMonth, dayTradesPath, ledgerLine, positionIssues, positionsLine, verdict } from "./reconciliation";
 
 const positions = (over: Partial<ReconciledPositions> = {}): ReconciledPositions => ({
   status: "ok", venueAt: Date.UTC(2026, 9, 22, 1, 59), venueCount: 2, insightsCount: 2, missing: [], gone: [], mismatched: [], ...over,
@@ -61,6 +61,12 @@ describe("reconciliation wording", () => {
   it("drills a differing day to all-time Trades on its instance, filtered to that UTC day", () => {
     expect(dayTradesPath("qkt-live", "2026-10-03")).toBe("/t?i=qkt-live&range=all&q=exit%3A2026-10-03");
     expect(dayMonth("2026-01-09")).toBe("9 Jan");
+  });
+
+  it("counts deals no account takes instead of dropping them", () => {
+    expect(unassignedLine(1)).toBe("1 deal not assigned to an account");
+    expect(unassignedLine(1204)).toBe("1,204 deals not assigned to an account");
+    expect(unassignedLabels([{ broker: "MYSTERY_P1", deals: 2 }, { broker: "OTHER", deals: 1 }])).toEqual(["MYSTERY_P1: 2 deals", "OTHER: 1 deal"]);
   });
 
   it("says why the card is empty", () => {

@@ -139,6 +139,8 @@ export interface Reconciliation {
   digits: number;
   /** The latest run's time; null before the first run. */
   checkedAt: number | null;
+  /** Deals the latest run could not give to any account (counted, never in an account's checks). */
+  unassigned: UnassignedDeals;
   accounts: AccountReconciliation[];
 }
 
@@ -148,6 +150,8 @@ export interface ReconcileResult {
   diffs: number;
   /** Days checked in this run whose balance moved without a deal. */
   external: number;
+  /** Canonical deals of the instance no account takes. */
+  unassigned: number;
 }
 
 interface Account { key: string; label: string; identity: string | null; labels: string[] }
@@ -161,23 +165,51 @@ const dealNet = (d: DealRow) => (d.profit ?? 0) + (d.commission ?? 0) + (d.swap 
 const tolerance = (n: number, digits: number) => 0.5 * 10 ** -digits * Math.max(1, n) + 1e-9;
 
 /**
- * Which account a deal belongs to: the account it states (accountId) when that is one of the
- * instance's accounts, else the account its label (without a profile suffix) reports under.
+ * Which account a deal belongs to, in order: the account it states (accountId); the account
+ * reporting under its label; the one account whose labels share its label family (the label
+ * without its profile suffix, profileLabel); the instance's only account. Else none: an unassigned
+ * deal is counted (UnassignedDeals), never dropped silently. A deal that states an account is never
+ * given to an account of another identity. MT5 deals state no account, and most profile labels
+ * that copy them never report account state, which is why the label rules are needed.
  */
 function dealAccounts(accounts: Account[]): (broker: string, accountId: string | null) => Account | null {
   const byIdentity = new Map(accounts.flatMap((a) => (a.identity != null ? [[a.identity, a] as const] : [])));
   const byLabel = new Map(accounts.flatMap((a) => a.labels.map((l) => [l, a] as const)));
+  const families = new Map<string, Set<Account>>();
+  for (const a of accounts) {
+    for (const l of a.labels) {
+      const f = profileLabel(l);
+      families.set(f, (families.get(f) ?? new Set()).add(a));
+    }
+  }
   const memo = new Map<string, Account | null>();
   return (broker, accountId) => {
     const k = `${broker}\u0000${accountId ?? ""}`;
     if (memo.has(k)) return memo.get(k)!;
+    const fits = (a: Account | undefined): a is Account => a != null && (accountId == null || a.identity == null || a.identity === accountId);
     const stated = accountId != null ? byIdentity.get(accountId) : undefined;
-    let a = stated ?? byLabel.get(broker) ?? (accountId == null ? byLabel.get(profileLabel(broker)) : undefined) ?? null;
-    // a deal that names another venue account never joins one with a different identity
-    if (!stated && a != null && accountId != null && a.identity != null && a.identity !== accountId) a = null;
+    const family = [...(families.get(profileLabel(broker)) ?? [])];
+    const candidates = [stated, byLabel.get(broker), family.length === 1 ? family[0] : undefined, accounts.length === 1 ? accounts[0] : undefined];
+    const a = candidates.find(fits) ?? null;
     memo.set(k, a);
     return a;
   };
+}
+
+/** Canonical deals of the instance no account takes, per label: the run reports them. */
+export interface UnassignedDeals {
+  deals: number;
+  labels: Array<{ broker: string; deals: number }>;
+}
+
+function unassignedDeals(db: Db, instanceId: string, accountOf: ReturnType<typeof dealAccounts>): UnassignedDeals {
+  const groups = statement(db,
+    "SELECT broker, account_id accountId, COUNT(*) n FROM deals WHERE instance_id=? AND canonical=1 GROUP BY broker, account_id",
+  ).all(instanceId) as Array<{ broker: string; accountId: string | null; n: number }>;
+  const byLabel = new Map<string, number>();
+  for (const g of groups) if (accountOf(g.broker, g.accountId) == null) byLabel.set(g.broker, (byLabel.get(g.broker) ?? 0) + g.n);
+  const labels = [...byLabel].map(([broker, deals]) => ({ broker, deals })).sort((a, b) => b.deals - a.deals || (a.broker < b.broker ? -1 : 1));
+  return { deals: labels.reduce((n, l) => n + l.deals, 0), labels };
 }
 
 function lastBalance(db: Db, instanceId: string, account: Account, at: number): Point | null {
@@ -322,8 +354,9 @@ function openTrips(db: Db, instanceId: string): OpenTrip[] {
 
 const sameQty = (a: number, b: number) => Math.abs(a - b) <= 1e-9 * Math.max(1, Math.abs(a), Math.abs(b));
 
-function checkPositions(account: Account, trips: OpenTrip[], reports: readonly VenuePositionsReport[], now: number): PositionsCheck {
-  const fresh = reports.filter((r) => account.labels.includes(r.broker) && now - r.at < POSITIONS_FRESH_MS);
+/** `reports` are the venue reports of this account (given to it by the same rules as its deals). */
+function checkPositions(trips: OpenTrip[], reports: readonly VenuePositionsReport[], now: number): PositionsCheck {
+  const fresh = reports.filter((r) => now - r.at < POSITIONS_FRESH_MS);
   const insights = new Map(trips.map((t) => [t.ticket, t]));
   if (fresh.length === 0) return { status: "stale", venueAt: null, venueCount: 0, insightsCount: insights.size, missing: [], gone: [], mismatched: [] };
   const venueAt = Math.min(...fresh.map((r) => r.at));
@@ -412,7 +445,8 @@ export function* reconcileSteps(db: Db, instanceId: string, opts: { now: number;
     const firstDiff = counts.get("diff")?.first ?? null;
     // a deposit or withdrawal (external) never stops it: only deals that do not add up do
     const throughDay = firstDiff != null ? previousDay(firstDiff, range.first) : (counts.get("ok") || counts.get("external") ? range.last : null);
-    const positions = checkPositions(account, open.filter((t) => tripAccount(t) === account), opts.positions ?? [], now);
+    const reports = (opts.positions ?? []).filter((p) => accountOf(p.broker, null) === account);
+    const positions = checkPositions(open.filter((t) => tripAccount(t) === account), reports, now);
     const ledger = checkLedger(closed.filter((t) => tripAccount(t) === account), digits);
     upSummary.run({
       instanceId, account: account.key, label: account.label, firstDay: range.first, lastDay: range.last, throughDay,
@@ -427,8 +461,14 @@ export function* reconcileSteps(db: Db, instanceId: string, opts: { now: number;
     statement(db, "DELETE FROM reconciliation_accounts WHERE instance_id=? AND account NOT IN (SELECT value FROM json_each(?))").run(instanceId, keys);
     statement(db, "DELETE FROM reconciliations WHERE instance_id=? AND account NOT IN (SELECT value FROM json_each(?))").run(instanceId, keys);
   })();
+  const unassigned = unassignedDeals(db, instanceId, accountOf);
+  statement(db,
+    `INSERT INTO reconciliation_runs (instance_id, checked_at, unassigned_deals, unassigned_labels) VALUES (?,?,?,?)
+     ON CONFLICT(instance_id) DO UPDATE SET checked_at=excluded.checked_at, unassigned_deals=excluded.unassigned_deals,
+       unassigned_labels=excluded.unassigned_labels`,
+  ).run(instanceId, now, unassigned.deals, JSON.stringify(unassigned.labels));
   bumpReconciliation(db, instanceId);
-  return { accounts: accounts.length, daysChecked, diffs, external };
+  return { accounts: accounts.length, daysChecked, diffs, external, unassigned: unassigned.deals };
 }
 
 /** The day before `day`, or null when `day` is the first stored one. */
@@ -467,5 +507,11 @@ export function reconciliation(db: Db, instanceId: string): Reconciliation {
       balanceChange: d.startBalance != null && d.endBalance != null ? roundMoney(d.endBalance - d.startBalance, digits) : null,
     })),
   }));
-  return { instanceId, digits, checkedAt: accounts.reduce<number | null>((m, a) => (m == null || a.checkedAt > m ? a.checkedAt : m), null), accounts };
+  const run = statement(db, "SELECT checked_at checkedAt, unassigned_deals deals, unassigned_labels labels FROM reconciliation_runs WHERE instance_id=?")
+    .get(instanceId) as { checkedAt: number; deals: number; labels: string } | undefined;
+  return {
+    instanceId, digits, checkedAt: run?.checkedAt ?? null,
+    unassigned: { deals: run?.deals ?? 0, labels: run ? (JSON.parse(run.labels) as UnassignedDeals["labels"]) : [] },
+    accounts,
+  };
 }
