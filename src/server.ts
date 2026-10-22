@@ -14,6 +14,7 @@ import {
 import { authAlertText, channelsFromEnv, parseHttpMonitors, parseMarketDataMonitor, sendAlert, startMonitors } from "./monitors.js";
 import { parseStrategyCapital } from "./capital.js";
 import { parseAccountLimits } from "./accountLimits.js";
+import { startReconciliation } from "./reconciliation.js";
 import { existsSync, readFileSync } from "node:fs";
 import { join, dirname } from "node:path";
 import { fileURLToPath } from "node:url";
@@ -186,6 +187,16 @@ export async function buildServer(mode: Mode) {
     clearTimeout(firstPrune);
     clearInterval(retention);
   });
+
+  // Venue reconciliation: shortly after the server listens, then nightly (src/reconciliation.ts).
+  // The process that takes ingest runs it: it holds the venue's live positions.
+  let stopReconciliation: (() => void) | undefined;
+  if (mode !== "serve") {
+    app.addHook("onListen", async () => {
+      stopReconciliation ??= startReconciliation({ db, liveState, log: app.log });
+    });
+    app.addHook("onClose", async () => stopReconciliation?.());
+  }
 
   if (mode === "serve" || mode === "run") {
     await app.register(cookie);

@@ -905,12 +905,15 @@ function ageSince(at: number, now: number): string {
   return `${Math.floor(s / 86400)}d ago`;
 }
 
-/** A status as a coloured dot and a plain word ("● up"): never a coloured figure that reads as P&L. */
-export function StatusWord({ tone, children }: { tone: Tone; children: ReactNode }) {
+/**
+ * A status as a coloured dot and a plain word ("● up"): never a coloured figure that reads as P&L.
+ * `wrap` lets a sentence-long status wrap under its dot instead of running past a narrow screen.
+ */
+export function StatusWord({ tone, children, wrap = false }: { tone: Tone; children: ReactNode; wrap?: boolean }) {
   return (
-    <span className="inline-flex items-center gap-1.5 whitespace-nowrap text-xs font-medium text-body">
-      <span className={`inline-block h-1.5 w-1.5 shrink-0 rounded-full ${STATUS_DOT[tone] ?? "bg-faint"}`} aria-hidden />
-      {children}
+    <span className={`${wrap ? "flex min-w-0 items-start" : "inline-flex items-center whitespace-nowrap"} gap-1.5 text-xs font-medium text-body`}>
+      <span className={`inline-block h-1.5 w-1.5 shrink-0 rounded-full ${wrap ? "mt-[0.4em]" : ""} ${STATUS_DOT[tone] ?? "bg-faint"}`} aria-hidden />
+      {wrap ? <span className="min-w-0">{children}</span> : children}
     </span>
   );
 }

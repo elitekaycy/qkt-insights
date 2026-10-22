@@ -3,6 +3,7 @@
 ## Features
 
 - **Health** — every reporting instance, last-event age, sequence position, sink counters, journal backlog, quarantined envelopes by type, live/idle status.
+- **Reconciliation** — every night, per venue account: each UTC day's balance change against the account's deals, the venue's open positions against the open round trips, and the round trips against their deals; Health says how far the books are reconciled or lists what differs ([operations/reconciliation.md](operations/reconciliation.md)).
 - **Uptime** — a heartbeat monitor per daemon and HTTP probes for anything else on the box (the MT5 gateway, with `mt5_status: connected` asserted); 24h strip, uptime %, incident timeline, and a Telegram/webhook alert on every down and recovery. A dead-man ping tells an outside service the collector itself is alive.
 - **Strategies** — every strategy in one sortable table, and per strategy the journal's sections (Overview, Calendar, Daily, Monthly, Trades, Time & risk, Logs) over its round trips, with net and return on the strategy's own capital, its halt, and the deploy's runtime details.
 - **Trades** — every round trip (one row per position, entry to exit, P&L after costs), searchable with the query bar,

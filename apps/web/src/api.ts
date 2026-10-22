@@ -156,6 +156,66 @@ export interface MonitorsView {
   monitors: MonitorSummary[];
   events: MonitorEventRow[];
 }
+
+/** GET /health/reconciliation: the nightly venue reconciliation as its latest run stored it (store reconciliation.ts). */
+export type ReconciledDayStatus = "ok" | "diff" | "incomplete";
+export type ReconciledDayReason = "no-deals" | "deals-differ" | "no-prior-balance" | "no-balance";
+export interface ReconciledDay {
+  /** "YYYY-MM-DD", UTC. */
+  day: string;
+  status: ReconciledDayStatus;
+  reason: ReconciledDayReason | null;
+  /** The minutes of the two balance snapshots compared; the deals counted are those in (startTs, endTs]. */
+  startTs: number | null;
+  endTs: number | null;
+  startBalance: number | null;
+  endBalance: number | null;
+  balanceChange: number | null;
+  dealNet: number | null;
+  /** balanceChange minus dealNet: what no stored deal explains. */
+  diff: number | null;
+  deals: number;
+  checkedAt: number;
+}
+export interface ReconciledPosition { ticket: string; symbol: string | null; side: string | null; qty: number | null }
+export interface ReconciledPositions {
+  status: "ok" | "diff" | "stale";
+  venueAt: number | null;
+  venueCount: number;
+  insightsCount: number;
+  missing: ReconciledPosition[];
+  gone: ReconciledPosition[];
+  mismatched: Array<{ ticket: string; symbol: string | null; field: "side" | "qty"; venue: string | number; insights: string | number }>;
+}
+export interface ReconciledLedger {
+  status: "ok" | "diff";
+  trips: number;
+  tripsNet: number;
+  dealsNet: number;
+  diff: number;
+  mismatched: Array<{ ticket: string; realized: number; dealsNet: number }>;
+}
+export interface AccountReconciliation {
+  account: string;
+  label: string;
+  firstDay: string | null;
+  lastDay: string | null;
+  throughDay: string | null;
+  daysOk: number;
+  daysDiff: number;
+  daysIncomplete: number;
+  /** Days not ok, newest first. */
+  days: ReconciledDay[];
+  positions: ReconciledPositions;
+  ledger: ReconciledLedger;
+  checkedAt: number;
+}
+export interface ReconciliationView {
+  instanceId: string;
+  digits: number;
+  checkedAt: number | null;
+  accounts: AccountReconciliation[];
+}
 export interface StrategyRow {
   strategyId: string;
   firstSeen: number;
