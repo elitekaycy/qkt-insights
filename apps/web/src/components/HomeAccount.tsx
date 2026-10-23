@@ -48,7 +48,8 @@ export function Kpi({ icon, label, children, sub, info, className = "" }: {
         )}
       </div>
       {/* sized to the card (Card is a container) so a seven-figure balance never clips */}
-      <div className="mt-2 truncate font-headline text-[clamp(1rem,12.5cqi,1.5rem)] tabular-nums">{children}</div>
+      {/* a fixed-height figure row, so a card with a gauge is exactly as tall as one with plain text */}
+      <div className="mt-2 flex h-7 items-end truncate font-headline text-[clamp(1rem,12.5cqi,1.5rem)] tabular-nums sm:h-9">{children}</div>
       {sub && <div className="mt-1.5 truncate text-xs text-muted">{sub}</div>}
     </Card>
   );
