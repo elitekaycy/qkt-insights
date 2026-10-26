@@ -1,6 +1,6 @@
 import { useEffect, useRef, useState } from "react";
 import * as echarts from "echarts/core";
-import { BarChart, CustomChart, HeatmapChart, LineChart } from "echarts/charts";
+import { BarChart, CandlestickChart, CustomChart, EffectScatterChart, HeatmapChart, LineChart, ScatterChart } from "echarts/charts";
 import {
   DataZoomComponent,
   GridComponent,
@@ -18,6 +18,9 @@ import { useTheme } from "../theme";
 echarts.use([
   LineChart,
   BarChart,
+  CandlestickChart,
+  ScatterChart,
+  EffectScatterChart,
   HeatmapChart,
   CustomChart,
   GridComponent,
@@ -216,14 +219,18 @@ export const SLIDER_MIN_POINTS = 40;
 const INSIDE_ID = "qkt-inside-zoom";
 
 type AxisLike = { type?: string } | undefined;
+const ORDERED = new Set(["line", "bar", "candlestick"]);
+const MARKERS = new Set(["scatter", "effectScatter"]);
 
 function zoomablePoints(option: QktChartOption): number {
   const x = (Array.isArray(option.xAxis) ? option.xAxis[0] : option.xAxis) as AxisLike;
   if (!x || (x.type !== "time" && x.type !== "category" && x.type !== "value")) return 0;
   const series = (Array.isArray(option.series) ? option.series : [option.series]) as Array<{ type?: string; data?: unknown[] } | undefined>;
-  // ordered line/bar series only: scatter, heatmap and boxplot axes are not a timeline
-  if (series.some((s) => s?.type !== "line" && s?.type !== "bar")) return 0;
-  return Math.max(0, ...series.map((s) => s?.data?.length ?? 0));
+  // a timeline is ordered line/bar/candlestick series, with point markers over it at most;
+  // scatter alone, heatmap and boxplot axes are not one
+  const ordered = series.filter((s) => s?.type === "line" || s?.type === "bar" || s?.type === "candlestick");
+  if (ordered.length === 0 || series.some((s) => !ORDERED.has(s?.type ?? "") && !MARKERS.has(s?.type ?? ""))) return 0;
+  return Math.max(0, ...ordered.map((s) => s?.data?.length ?? 0));
 }
 
 /**
@@ -288,6 +295,8 @@ export function EChart({
   zoom = true,
   onAxisClick,
   onZoom,
+  onItemClick,
+  focus,
 }: {
   option: QktChartOption;
   height?: number | `${number}%`;
@@ -302,6 +311,10 @@ export function EChart({
   onAxisClick?: (x: number) => void;
   /** The visible share of the x axis after a zoom or pan, in percent; null when reset. */
   onZoom?: (window: { start: number; end: number } | null) => void;
+  /** A click on one data item (a marker), by series and index. */
+  onItemClick?: (item: { seriesIndex: number; dataIndex: number }) => void;
+  /** Emphasises one data item and opens the tooltip at it, e.g. while its legend row is hovered. */
+  focus?: { seriesIndex: number; dataIndex: number } | null;
 }) {
   const host = useRef<HTMLDivElement>(null);
   const el = useRef<HTMLDivElement>(null);
@@ -311,8 +324,8 @@ export function EChart({
   const [zoomed, setZoomed] = useState(false);
   const focusedRef = useRef(false);
   focusedRef.current = focused;
-  const handlers = useRef({ onAxisClick, onZoom });
-  handlers.current = { onAxisClick, onZoom };
+  const handlers = useRef({ onAxisClick, onZoom, onItemClick });
+  handlers.current = { onAxisClick, onZoom, onItemClick };
 
   // charts that bring their own dataZoom keep it; the host only adds the default contract
   const points = zoom && option.dataZoom === undefined ? zoomablePoints(option) : 0;
@@ -328,6 +341,9 @@ export function EChart({
       const on = z != null && ((z.start ?? 0) > 0.5 || (z.end ?? 100) < 99.5);
       setZoomed(on);
       handlers.current.onZoom?.(on ? { start: z!.start ?? 0, end: z!.end ?? 100 } : null);
+    });
+    c.on("click", (e: { seriesIndex?: number; dataIndex?: number }) => {
+      if (e.seriesIndex != null && e.dataIndex != null) handlers.current.onItemClick?.({ seriesIndex: e.seriesIndex, dataIndex: e.dataIndex });
     });
     c.getZr().on("click", (e: { offsetX: number; offsetY: number }) => {
       const click = handlers.current.onAxisClick;
@@ -375,6 +391,22 @@ export function EChart({
     setZoomed(false);
     handlers.current.onZoom?.(null);
   }, [option, theme, zoomable, points]);
+
+  useEffect(() => {
+    const c = chart.current;
+    // only charts that take a focus manage it; others keep ECharts' own hover state
+    if (!c || c.isDisposed() || focus === undefined) return;
+    if (!focus) {
+      c.dispatchAction({ type: "downplay" });
+      c.dispatchAction({ type: "hideTip" });
+      return;
+    }
+    c.dispatchAction({ type: "highlight", seriesIndex: focus.seriesIndex, dataIndex: focus.dataIndex });
+    c.dispatchAction({ type: "showTip", seriesIndex: focus.seriesIndex, dataIndex: focus.dataIndex });
+    return () => {
+      if (!c.isDisposed()) c.dispatchAction({ type: "downplay", seriesIndex: focus.seriesIndex, dataIndex: focus.dataIndex });
+    };
+  }, [focus === undefined, focus?.seriesIndex, focus?.dataIndex, option, theme]);
 
   // touch screens: the chart pans only after a tap, so a swipe over it still scrolls the page
   useEffect(() => {
