@@ -2,7 +2,7 @@ import { describe, it, expect, beforeEach, afterEach } from "vitest";
 import Fastify, { type FastifyInstance } from "fastify";
 import cookie from "@fastify/cookie";
 import argon2 from "argon2";
-import { openDb, ingestEvents, LiveStateStore, Sessions, type Db } from "@qkt-insights/store";
+import { openDb, ingestEvents, persistStateEvent, LiveStateStore, Sessions, type Db } from "@qkt-insights/store";
 import type { Envelope } from "@qkt-insights/contract";
 import { registerAuth } from "../src/auth.js";
 import { registerRest } from "../src/rest.js";
@@ -165,6 +165,26 @@ describe("GET /round-trips/facets, /round-trips/:id, /round-trips/export", () =>
     expect(d.legs).toHaveLength(2);
     expect(d.timeline.map((s) => s.kind)).toEqual(["deal", "deal"]);
     expect((await get(`/round-trips/nope?instance=${I}`)).statusCode).toBe(404);
+  });
+
+  it("serves a position's path from its marks, revalidates, refuses an unknown size, 404 for none", async () => {
+    // trip 1000: long from T0 to T0 + 10 min; three polls inside it, one after the close
+    for (const [ts, price, profit] of [[T0 + MIN, 4001, 50], [T0 + 4 * MIN, 3997, -150], [T0 + 7 * MIN, 4008, 400], [T0 + 20 * MIN, 4100, 5000]] as const) {
+      persistStateEvent(db, I, env("state.positions", ts, {
+        broker: "ICMARKETS", positions: [{ ticket: "1000", symbol: "ICMARKETS:XAUUSD", side: "BUY", qty: 0.5, entryPrice: 4000, currentPrice: price, profit, strategyId: "gold" }],
+      }));
+    }
+    const res = await get(`/round-trips/1000/path?instance=${I}&bucket=${MIN}`);
+    expect(res.statusCode).toBe(200);
+    const p = res.json() as { status: string; bucketMs: number; candles: unknown[]; best: { pnl: number }; worst: { pnl: number }; exit: { ts: number }; marks: number };
+    expect(p).toMatchObject({ status: "closed", bucketMs: MIN, marks: 3, best: { ts: T0 + 7 * MIN, price: 4008, pnl: 400 }, worst: { ts: T0 + 4 * MIN, price: 3997, pnl: -150 }, exit: { ts: T0 + 10 * MIN, price: 4010 } });
+    expect(p.candles).toHaveLength(3);
+    const again = await get(`/round-trips/1000/path?instance=${I}&bucket=${MIN}`, { "if-none-match": String(res.headers.etag) });
+    expect(again.statusCode).toBe(304);
+    expect((await get(`/round-trips/1000/path?instance=${I}&bucket=7`)).statusCode).toBe(400);
+    expect((await get(`/round-trips/1000/path`)).statusCode).toBe(400);
+    expect((await get(`/round-trips/nope/path?instance=${I}`)).statusCode).toBe(404);
+    expect((await app.inject({ method: "GET", url: `/round-trips/1000/path?instance=${I}` })).statusCode).toBe(401);
   });
 
   it("streams the whole match as CSV", async () => {

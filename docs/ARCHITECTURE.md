@@ -191,6 +191,7 @@ web bar (`@qkt-insights/contract/query`) and compiled to bound SQL; tokens it ca
 | `GET /round-trips/facets?instance&strategy` | strategies, instruments, exit days and common sizes, for completions |
 | `GET /round-trips/export?…` | the whole match as CSV, streamed page by page |
 | `GET /round-trips/:ticket?instance` | the trade drawer: legs, timeline with latencies, slippage, MAE/MFE, raw events |
+| `GET /round-trips/:ticket/path?instance&bucket` | the drawer's position map: the position's venue marks between entry and exit as UTC candles (`bucket` ms, one of 1m 5m 15m 30m 1h 4h 1d; automatic when absent), the P&L line keeping each bucket's first, lowest, highest and last mark, the best, worst and latest marks, and the stretches without marks or without a price change |
 | `GET /public/:token/round-trips`, `…/analytics`, `…/facets` | a shared link's closed round trips and their aggregates, without tickets, profiles or stops |
 
 `/logs` also takes `logger` (part of the name), `from` and `to` (ms); `q` is words, each matched literally through the FTS

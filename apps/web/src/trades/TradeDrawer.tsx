@@ -2,9 +2,10 @@ import { useEffect, useRef, useState, type ReactNode } from "react";
 import { createPortal } from "react-dom";
 import { DASH, duration, money, pnl, quantity, signedMoney, toneClass, ts } from "../format";
 import { PAGE_PATHS, useSearchParam } from "../router";
-import { useTripDetail, type RoundTripDetail, type Slippage, type TimelineStep } from "./data";
+import { usePositionPath, useTripDetail, type RoundTripDetail, type Slippage, type TimelineStep } from "./data";
 import { latency, preciseClock, px, rMultiple } from "./format";
 import { EndedBadge, SideText } from "./bits";
+import { PositionMap } from "./PositionMap";
 
 /*
  * One round trip in full, opened from any list of trades (Trades, a strategy's trades, a
@@ -172,11 +173,12 @@ function RawEvents({ events }: { events: RoundTripDetail["events"] }) {
   );
 }
 
-function Body({ d }: { d: RoundTripDetail }) {
+function Body({ d, instanceId }: { d: RoundTripDetail; instanceId: string | null }) {
   const t = d.trip;
   return (
     <>
-      <div className="grid grid-cols-2 gap-x-4 gap-y-3 px-5 pb-4 sm:grid-cols-3">
+      <PositionMap key={t.id} instanceId={instanceId} ticket={t.id} open={t.status === "open"} digits={t.priceDigits} realized={t.status === "closed" ? t.pnl : null} />
+      <div className="grid grid-cols-2 gap-x-4 gap-y-3 border-t border-line px-5 py-4 sm:grid-cols-3">
         <Stat label="Entry (UTC)">{t.entryTs != null ? ts(t.entryTs) : DASH}</Stat>
         <Stat label="Entry price">{px(t.entryPrice, t.priceDigits)}</Stat>
         <Stat label="Size">{quantity(t.qty)} lots</Stat>
@@ -248,13 +250,18 @@ export function TradeDrawer({ instanceId, order = [] }: { instanceId: string | n
     return () => window.removeEventListener("keydown", onKey, true);
   }, [open, setId]);
 
+  const t = detail.data?.trip;
+  // an open position has nothing realized yet: the header shows its floating P&L at the latest mark
+  const live = usePositionPath(instanceId, t?.status === "open" && t.pnl == null ? id : null, null, true);
+  const lastMark = live.data?.ticket === id ? live.data.last : null;
+  const floating = lastMark ? lastMark.pnl + (lastMark.swap ?? 0) : null;
+
   if (!open) return null;
   const at = order.indexOf(id);
   const step = (n: number) => {
     const next = order[at + n];
     if (next) setId(next, { push: false });
   };
-  const t = detail.data?.trip;
 
   return createPortal(
     <div className="fixed inset-0 z-[60] flex justify-end">
@@ -305,13 +312,21 @@ export function TradeDrawer({ instanceId, order = [] }: { instanceId: string | n
                 <span className="text-sm text-muted">{t.strategyId ?? "unattributed"}</span>
               </div>
               <div className="mt-2 flex flex-wrap items-baseline gap-x-5 gap-y-1">
-                <span className={`text-3xl font-headline ${toneClass(t.pnl)}`}>{t.pnl == null ? (t.status === "open" ? "open" : DASH) : pnl(t.pnl)}</span>
+                {t.pnl == null && floating != null ? (
+                  <span className={`text-3xl font-headline ${toneClass(floating)}`}>{pnl(floating)}</span>
+                ) : (
+                  <span className={`text-3xl font-headline ${toneClass(t.pnl)}`}>{t.pnl == null ? (t.status === "open" ? "open" : DASH) : pnl(t.pnl)}</span>
+                )}
                 <span className={`text-base font-semibold ${t.r == null ? "text-faint" : toneClass(t.r)}`} title="P&L over the money at risk to the initial stop">
                   {t.r == null ? (t.status === "open" ? "" : "no stop, so no R") : rMultiple(t.r)}
                 </span>
                 {t.status === "closed" && <span className="text-sm text-muted">held {duration(t.holdMs)}</span>}
               </div>
-              <div className="mt-1 text-xs text-faint">Realized after commission, swap and fees{t.legs > 0 ? `, from ${t.legs} venue deal${t.legs === 1 ? "" : "s"}` : ""}.</div>
+              <div className="mt-1 text-xs text-faint">
+                {t.pnl == null && floating != null && lastMark
+                  ? `Floating at the latest venue mark, ${preciseClock(lastMark.ts).slice(0, 8)} UTC, including swap; nothing realized yet.`
+                  : `Realized after commission, swap and fees${t.legs > 0 ? `, from ${t.legs} venue deal${t.legs === 1 ? "" : "s"}` : ""}.`}
+              </div>
             </>
           ) : (
             <div className="mt-3 h-14 animate-pulse rounded bg-raised" />
@@ -321,7 +336,7 @@ export function TradeDrawer({ instanceId, order = [] }: { instanceId: string | n
           {detail.isError ? (
             <div className="px-5 text-sm text-loss">This round trip could not be loaded{detail.error instanceof Error && /404/.test(detail.error.message) ? ": it is not on this instance" : ""}.</div>
           ) : detail.data ? (
-            <Body d={detail.data} />
+            <Body d={detail.data} instanceId={instanceId} />
           ) : (
             <div className="space-y-3 px-5">
               {Array.from({ length: 6 }, (_, i) => (

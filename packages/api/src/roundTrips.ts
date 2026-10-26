@@ -2,7 +2,7 @@ import { Readable } from "node:stream";
 import type { FastifyInstance, FastifyReply } from "fastify";
 import { parseQuery, UNATTRIBUTED_STRATEGY, type ParsedQuery } from "@qkt-insights/contract/query";
 import {
-  listRoundTrips, roundTripAnalytics, roundTripDetail, roundTripFacets, roundTripPages, roundTripTotals, ROUND_TRIP_SORTS, tripPrice,
+  listRoundTrips, positionPath, PATH_BUCKETS, roundTripAnalytics, roundTripDetail, roundTripFacets, roundTripPages, roundTripTotals, ROUND_TRIP_SORTS, tripPrice,
   type Db, type RoundTripQuery, type TripRow, type RoundTripScope, type RoundTripSort, type RoundTripTotals,
 } from "@qkt-insights/store";
 import { requireSession } from "./auth.js";
@@ -149,5 +149,17 @@ export function registerRoundTrips(app: FastifyInstance, deps: { db: Db }): void
     const detail = await versioned.send(req, reply, [{ instance: i }, { marks: i }], () => roundTripDetail(deps.db, i, id));
     if (detail === null) return reply.code(404).send({ error: "no such round trip" });
     return detail;
+  });
+
+  app.get<{ Params: { id: string }; Querystring: Query }>("/round-trips/:id/path", guard, async (req, reply) => {
+    const i = req.query.instance;
+    if (!i) return bad(reply, "instance required");
+    const id = req.params.id;
+    if (id.length > 128) return bad(reply, "id too long");
+    const bucket = req.query.bucket != null ? Number(req.query.bucket) : undefined;
+    if (bucket !== undefined && !(PATH_BUCKETS as readonly number[]).includes(bucket)) return bad(reply, `bucket must be one of ${PATH_BUCKETS.join(", ")}`);
+    const path = await versioned.send(req, reply, [{ instance: i }, { marks: i }], () => positionPath(deps.db, i, id, bucket));
+    if (path === null) return reply.code(404).send({ error: "no such round trip" });
+    return path;
   });
 }
