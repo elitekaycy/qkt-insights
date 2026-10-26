@@ -154,3 +154,62 @@ export function useTripDetail(instanceId: string | null, id: string | null) {
     queryFn: () => get<RoundTripDetail>(`/round-trips/${encodeURIComponent(id!)}?instance=${encodeURIComponent(instanceId!)}`),
   });
 }
+
+/** One candle of venue marks on the UTC grid (/round-trips/:id/path). */
+export interface PathCandle {
+  t: number;
+  o: number;
+  h: number;
+  l: number;
+  c: number;
+  marks: number;
+}
+
+/** A venue mark: the price the position would close at, and its P&L excluding swap. */
+export interface PathMark {
+  ts: number;
+  price: number | null;
+  pnl: number;
+}
+
+/** The path a position took while held, from the broker poll's marks. */
+export interface PositionPath {
+  ticket: string;
+  status: "open" | "closed";
+  side: "long" | "short";
+  entry: { ts: number; price: number | null } | null;
+  exit: { ts: number; price: number | null } | null;
+  stopPrice: number | null;
+  targetPrice: number | null;
+  bucketMs: number;
+  buckets: number[];
+  candles: PathCandle[];
+  pnl: Array<{ ts: number; pnl: number }>;
+  best: PathMark | null;
+  worst: PathMark | null;
+  last: (PathMark & { swap: number | null }) | null;
+  marks: number;
+  firstMarkTs: number | null;
+  longestGap: { from: number; to: number } | null;
+  /** Stretches of at least 15 minutes without a mark, in time order (capped; `gaps` counts all). */
+  gapSpans: Array<{ from: number; to: number }>;
+  /** Stretches of an hour or more at one unchanged price: a closed market or no quotes. */
+  flatSpans: Array<{ from: number; to: number }>;
+  gaps: number;
+}
+
+/** The held path of one position at a candle size (null: the server's choice); polled while it is open. */
+export function usePositionPath(instanceId: string | null, id: string | null, bucketMs: number | null, open: boolean) {
+  return useQuery({
+    queryKey: ["round-trip-path", instanceId, id, bucketMs],
+    enabled: !!instanceId && !!id,
+    queryFn: () => {
+      const p = new URLSearchParams({ instance: instanceId! });
+      if (bucketMs != null) p.set("bucket", String(bucketMs));
+      return get<PositionPath>(`/round-trips/${encodeURIComponent(id!)}/path?${p}`);
+    },
+    // keep the chart while another candle size loads, never another position's path
+    placeholderData: (previous, query) => (query?.queryKey[2] === id ? previous : undefined),
+    refetchInterval: open ? 30_000 : false,
+  });
+}
