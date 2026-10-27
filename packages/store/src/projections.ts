@@ -39,7 +39,7 @@ export const PROJECTIONS: Record<string, Projection> = {
     },
   },
   strategy_daily: {
-    version: 2,
+    version: 3,
     clear: clearDaily,
     step: (db, cursor, batch) => {
       const after = cursor == null ? null : (JSON.parse(cursor) as { source: CloseSource; instanceId: string; strategyId: string });

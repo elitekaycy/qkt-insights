@@ -8,7 +8,7 @@ rebuilt from its source tables at any time; nothing in it is the only copy of an
 |---|---|---|---|---|
 | `closed_trades` | `closed_trades`, `position_closures`, `deals.canonical` | `deals` | per position, on every deal stored, attributed or changed: O(legs) | every closed-trade list and figure, the public cutoff rule, costs |
 | (same) `round_trips` | `round_trips` | `deals`, `orders`, `order.submit` / `order.accepted` / `order.filled` / `bot.close` events; `trade_closes` no deal stands for | per position, with its closed trades (per engine close, `source=ledger`, while neither its strategy nor its broker has a deal); ingest re-marks a position when an order fill names it (`positionId`) or its broker ticket, or an event closes it | the Trades page: one row per position, entry to exit |
-| `strategy_daily` | `strategy_daily`, `strategy_totals` | `closed_trades`, `trade_closes` | in the same transaction, from the first changed day | daily nets, calendar, rolling stats, the strategy list |
+| `strategy_daily` | `strategy_daily`, `strategy_totals` | `closed_trades`, `trade_closes`, adjustment deals (`entry` `ADJUSTMENT`: a stock CFD's dividend, a charge; money in the day's net, no trade) | in the same transaction, from the first changed day | daily nets, calendar, rolling stats, the strategy list |
 | `position_excursions` | `position_excursions` | `closed_trades`, `position_valuations` | per mark: O(1); a pruned mark recomputes its ticket | MAE/MFE |
 | `account_drawdown` | `account_drawdown_state`, `account_labels`, `account_minute_labels`, `account_label_pairs`, `account_groups` | `account_equity` | per minute rollup | `/account/drawdown`, `/account/risk`, month bases, `/account/equity` sampling |
 

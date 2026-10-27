@@ -3,7 +3,7 @@ import { OUT_LEGS } from "./closedTrades.js";
 import { refreshProjections } from "./projections.js";
 import { statement } from "./statements.js";
 import { addMoney, instanceMoneyDigits, roundMoney } from "./money.js";
-import { dailyRows, strategyTotals, type DailyRow } from "./strategyDaily.js";
+import { curveAnchor, dailyRows, strategyTotals, type DailyRow } from "./strategyDaily.js";
 import { excursionsOf } from "./excursions.js";
 
 export { OUT_LEGS };
@@ -353,6 +353,66 @@ export function closedTradeRows(db: Db, f: CloseRowFilter): Array<DealClosedTrad
   });
 }
 
+/** A venue booking that is no trade (a stock CFD's dividend, a charge, a correction): money on its day. */
+export interface AdjustmentRow { ts: number; realized: number; symbol: string; strategyId: string | null }
+
+/**
+ * The canonical adjustment deals (qkt's `broker.deal` entry `ADJUSTMENT`) on the instance, or of one strategy or a
+ * set, oldest first. Their money is in every net, day and equity figure of their strategy, but they are no trade: no
+ * count, win rate, expectancy or excursion reads them. Under closedPositionsOnly only those of fully closed positions
+ * count, as for closes.
+ */
+export function adjustmentRows(db: Db, f: CloseRowFilter): AdjustmentRow[] {
+  requireCutoff(f);
+  return memo(db, "adjustmentRows", f, () => {
+    refreshProjections(db);
+    const cl = ["d.instance_id=@instanceId", "d.entry='ADJUSTMENT'", canonicalDeal("d")];
+    if (f.strategyId != null) cl.push("d.strategy_id=@strategyId");
+    if (f.strategyIds != null) cl.push("d.strategy_id IN (SELECT value FROM json_each(@ids))");
+    if (f.from != null) cl.push("d.ts>=@from");
+    if (f.to != null) cl.push("d.ts<=@to");
+    if (f.closedPositionsOnly) cl.push("d.position_ticket IS NOT NULL", fullyClosedPosition("d"));
+    const digits = instanceMoneyDigits(db, f.instanceId);
+    return (statement(db,
+      `SELECT d.ts, d.profit + COALESCE(d.commission,0) + COALESCE(d.swap,0) + COALESCE(d.fee,0) realized, d.symbol,
+              d.strategy_id strategyId
+       FROM deals d WHERE ${cl.join(" AND ")} ORDER BY d.ts ASC, d.rowid ASC`,
+    ).all({ instanceId: f.instanceId, strategyId: f.strategyId, from: f.from, to: f.to, ids: f.strategyIds }) as AdjustmentRow[])
+      .map((r) => ({ ...r, realized: roundMoney(r.realized, digits) }));
+  });
+}
+
+/** One row of a strategy's money over time: a close (`trade`) or an adjustment. */
+export interface MoneyRow { ts: number; realized: number; entryTs: number | null; trade: boolean }
+
+/**
+ * Closes and adjustments as one series, oldest first; at one timestamp the closes come first, the order the
+ * strategy_daily projection sums them in, so a figure built here is the projection's.
+ */
+export function adjustmentsMerged(closes: readonly ClosedTradeRow[], adjustments: readonly AdjustmentRow[]): MoneyRow[] {
+  const out: MoneyRow[] = [];
+  let a = 0;
+  for (const c of closes) {
+    while (a < adjustments.length && adjustments[a]!.ts < c.ts) {
+      out.push({ ts: adjustments[a]!.ts, realized: adjustments[a]!.realized, entryTs: null, trade: false });
+      a++;
+    }
+    out.push({ ts: c.ts, realized: c.realized, entryTs: c.entryTs, trade: true });
+  }
+  for (; a < adjustments.length; a++) out.push({ ts: adjustments[a]!.ts, realized: adjustments[a]!.realized, entryTs: null, trade: false });
+  return out;
+}
+
+/**
+ * A strategy's money rows: its closes (closes()) with its adjustments when its figures come from broker deals.
+ * Engine trade.closed rows have no venue adjustments beside them.
+ */
+function moneyRows(db: Db, f: AnalyticsFilter): MoneyRow[] {
+  const rows = closes(db, f);
+  if (!dealBacked(db, f)) return rows.map((c) => ({ ts: c.ts, realized: c.realized, entryTs: c.entryTs, trade: true }));
+  return adjustmentsMerged(rows, adjustmentRows(db, { instanceId: f.instanceId, strategyId: f.strategyId, from: f.from, to: f.to, closedPositionsOnly: f.closedPositionsOnly }));
+}
+
 export interface StrategyEquityPoint { ts: number; equity: number; realized: number; unrealized: number }
 
 /**
@@ -376,10 +436,12 @@ function strategyEquityPoints(
 ): StrategyEquityPoint[] {
   // Rows stop at `to` (a later close must not anchor or extend the curve); `from` filters after
   // the cumulative sum so a window still shows true levels.
-  const rows = closes(db, { instanceId: f.instanceId, strategyId: f.strategyId, to: f.to, closedPositionsOnly: f.closedPositionsOnly });
-  if (rows.length === 0) return [];
+  const rows = moneyRows(db, { instanceId: f.instanceId, strategyId: f.strategyId, to: f.to, closedPositionsOnly: f.closedPositionsOnly });
+  const firstClose = rows.find((r) => r.trade);
+  if (firstClose == null) return [];
   const sb = strategyBase(db, f) ?? 0;
-  const pts: StrategyEquityPoint[] = [{ ts: rows[0]!.entryTs ?? rows[0]!.ts, equity: sb, realized: 0, unrealized: 0 }];
+  const firstAdjustment = rows.find((r) => !r.trade);
+  const pts: StrategyEquityPoint[] = [{ ts: curveAnchor(firstClose, firstAdjustment?.ts ?? null), equity: sb, realized: 0, unrealized: 0 }];
   const digits = instanceMoneyDigits(db, f.instanceId);
   let cum = 0;
   for (const r of rows) {
@@ -504,15 +566,15 @@ function dayNets(db: Db, f: AnalyticsFilter): DayNet[] {
   // closing legs. Uses closes() so it falls back to trade.closed rows when broker deals were not
   // polled (engine-native fills), matching report/contribution; otherwise a live book that trades
   // but has no deals shows an empty calendar/equity while the report shows the P&L.
-  const trades = closes(db, f);
-  if (trades.length > 0) {
+  const trades = moneyRows(db, f);
+  if (trades.some((r) => r.trade)) {
     const digits = instanceMoneyDigits(db, f.instanceId);
     const byDay = new Map<string, DayNet>();
     for (const c of trades) {
       const day = utcDay(c.ts);
       const cur = byDay.get(day) ?? { day, net: 0, trades: 0 };
       cur.net = addMoney(cur.net, c.realized, digits);
-      cur.trades++;
+      if (c.trade) cur.trades++;
       byDay.set(day, cur);
     }
     return [...byDay.values()].sort((a, b) => (a.day < b.day ? -1 : 1));
@@ -596,7 +658,13 @@ export function performanceReport(db: Db, f: AnalyticsFilter): PerformanceReport
   // Summed from the same series the trade counts come from — never mix the
   // snapshot span (numerator) with the close count (denominator). In the
   // approximate mode the delta sum telescopes to last - first anyway.
-  const totalNet = deltas.reduce((a, b) => a + b, 0);
+  const tradesNet = deltas.reduce((a, b) => a + b, 0);
+  // Venue adjustments (a stock CFD's dividend, a charge) are money but no trade: in the net and its ratios, never
+  // in a per-trade figure. Only an exact (deal-backed) report has them beside its trades.
+  const adjustments = exact && dealBacked(db, f)
+    ? adjustmentRows(db, { instanceId: f.instanceId, strategyId: f.strategyId, from: f.from, to: f.to, closedPositionsOnly: f.closedPositionsOnly })
+    : [];
+  const totalNet = adjustments.reduce((a, r) => a + r.realized, tradesNet);
 
   const avgWin = wins.length > 0 ? grossProfit / wins.length : null;
   const avgLoss = losses.length > 0 ? grossLoss / losses.length : null;
@@ -658,7 +726,7 @@ export function performanceReport(db: Db, f: AnalyticsFilter): PerformanceReport
 
   return {
     profitFactor,
-    expectancy: deltas.length > 0 ? totalNet / deltas.length : null,
+    expectancy: deltas.length > 0 ? tradesNet / deltas.length : null,
     avgWin,
     avgLoss,
     payoffRatio,

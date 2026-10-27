@@ -1,5 +1,5 @@
 import { createHmac, randomBytes } from "node:crypto";
-import type { AccountSummary, ClosedTradeRow, DealRow, StrategyRow, TripAnalytics, TripBucket, TripRow, TradeRow } from "@qkt-insights/store";
+import type { AccountSummary, AdjustmentRow, ClosedTradeRow, DealRow, StrategyRow, TripAnalytics, TripBucket, TripRow, TradeRow } from "@qkt-insights/store";
 import type { PerformanceBundle } from "./performance.js";
 
 /*
@@ -45,7 +45,8 @@ function publicMetadata(meta: Record<string, unknown> | null): Record<string, un
   return out;
 }
 
-export function publicStrategy(row: StrategyRow, closes: ClosedTradeRow[], cutoff: number): StrategyRow {
+/** A strategy as a public link shows it: its net is its closes' and its venue adjustments' (dividends, charges). */
+export function publicStrategy(row: StrategyRow, closes: ClosedTradeRow[], adjustments: AdjustmentRow[], cutoff: number): StrategyRow {
   return {
     strategyId: row.strategyId,
     firstSeen: row.firstSeen,
@@ -53,7 +54,7 @@ export function publicStrategy(row: StrategyRow, closes: ClosedTradeRow[], cutof
     startingBalance: row.startingBalance,
     definedCapital: row.definedCapital,
     metadata: publicMetadata(row.metadata),
-    realizedNet: closes.length > 0 ? closes.reduce((a, c) => a + c.realized, 0) : null,
+    realizedNet: closes.length > 0 ? adjustments.reduce((a, r) => a + r.realized, closes.reduce((a, c) => a + c.realized, 0)) : null,
     dealCount: closes.length,
     active: true,
   };

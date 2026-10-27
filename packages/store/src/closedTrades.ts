@@ -176,6 +176,12 @@ export function takeNewDeals(db: Db): void {
        SELECT 1 FROM deals d WHERE d.instance_id=deals.instance_id AND d.deal_ticket=deals.deal_ticket AND d.rowid<deals.rowid)
      WHERE rowid > ?`,
   ).run(wm);
+  // An adjustment is money on its owner's day but no closed trade, so no position recompute queues that day.
+  statement(db,
+    `INSERT OR IGNORE INTO projection_dirty (kind, instance_id, key)
+     SELECT DISTINCT 'daily', n.instance_id, 'deal' || char(0) || n.strategy_id || char(0) || date(n.ts / 1000, 'unixepoch') FROM deals n
+     WHERE n.rowid > ? AND n.entry='ADJUSTMENT' AND n.strategy_id IS NOT NULL`,
+  ).run(wm);
   // A strategy's or a broker's first deals make its venue positions its round trips, in place of its engine closes.
   statement(db,
     `DELETE FROM round_trips WHERE source='ledger' AND EXISTS (SELECT 1 FROM deals n WHERE n.rowid > ? AND n.instance_id=round_trips.instance_id
