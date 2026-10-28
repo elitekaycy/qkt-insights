@@ -3,7 +3,7 @@ import { get, type AccountReconciliation, type ReconciledDay, type Reconciliatio
 import { useRoute } from "../router";
 import { count, glyph, signedMoney } from "../format";
 import {
-  DAY_REASON, EMPTY_TEXT, unassignedLabels, unassignedLine, checkedLabel, dayCounts, dayMonth, dayTradesPath, ledgerLine, positionIssues, positionsLine, verdict, type ReconciliationTone,
+  DAY_REASON, EMPTY_TEXT, ignoredLine, unassignedLabels, unassignedLine, checkedLabel, dayCounts, dayMonth, dayTradesPath, ledgerLine, positionIssues, positionsLine, verdict, type ReconciliationTone,
 } from "../reconciliation";
 import { Cell, DataList, InfoIcon, Panel, Pnl, Popover, Skeleton, StatusWord, type Tone } from "./ui";
 
@@ -171,6 +171,17 @@ export function ReconciliationCard({ instances }: { instances: string[] }) {
           <Details label="Labels of deals not assigned to an account" lines={unassignedLabels(v.unassigned.labels)} />
         </div>
       ))}
+      {views.map((v) => {
+        const line = ignoredLine(v.ignored, v.digits);
+        return line && (
+          <div key={`ignored:${v.instanceId}`} className="flex min-w-0 flex-wrap items-center gap-x-2 gap-y-1 border-b border-line/60 px-4 py-2.5">
+            <StatusWord tone="neutral" wrap>
+              {line}
+              {instances.length > 1 ? ` on ${v.instanceId}` : ""}: another system's trades on this account, in no strategy, trade or total; the balance check still counts them
+            </StatusWord>
+          </div>
+        );
+      })}
       {!loading && !failed && accounts.length === 0 && <div className="px-4 py-10 text-center text-sm text-faint">{EMPTY_TEXT}</div>}
       {accounts.length > 0 && (
         <ul className="divide-y divide-line/60">

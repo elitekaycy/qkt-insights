@@ -55,6 +55,25 @@ strictest value applies, and the start balance only when the strategies agree on
 Calendar and monthly returns on the Overview use the account's equity at the start of each
 month, not the strategies' allocations. The variable is read at boot; restart to change it.
 
+## Another system on the same account
+
+When something else trades the venue account an instance reports (a second qkt daemon, a soak, a
+manual EA), qkt still sends its deals and positions, and the instance would show them as
+Unattributed or as retired strategies. On MT5, where each system has its own magic numbers, list
+them in `INSIGHTS_IGNORE_MAGICS`, a JSON object of instance id to inclusive ranges or single magics:
+
+```bash
+INSIGHTS_IGNORE_MAGICS='{"forward":["31000-31199"]}'
+```
+
+A deal, open position or pending order with a magic in a range is then in no strategy, trade,
+total or open-positions check of that instance. The balance check of the Health page's
+Reconciliation card still counts those deals, because they moved the account's balance, and the
+card says how many there are ("12 deals from magics 31000-31199 ignored (net −3.20)"). The account's
+balance and equity stay the venue's, so they include the other system's open positions. The rule
+applies to deals taken in after it is set: set it before the other system starts trading. The
+variable is read at boot; restart to change it.
+
 ## Run modes
 
 One image, one entrypoint, three shapes — pick with the container command:

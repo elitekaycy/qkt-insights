@@ -1,6 +1,6 @@
 import { describe, it, expect } from "vitest";
 import type { AccountReconciliation, ReconciledLedger, ReconciledPositions } from "./api";
-import { DAY_REASON, EMPTY_TEXT, unassignedLabels, unassignedLine, checkedLabel, dayCounts, dayMonth, dayTradesPath, ledgerLine, positionIssues, positionsLine, verdict } from "./reconciliation";
+import { DAY_REASON, EMPTY_TEXT, ignoredLine, unassignedLabels, unassignedLine, checkedLabel, dayCounts, dayMonth, dayTradesPath, ledgerLine, positionIssues, positionsLine, verdict } from "./reconciliation";
 
 const positions = (over: Partial<ReconciledPositions> = {}): ReconciledPositions => ({
   status: "ok", venueAt: Date.UTC(2026, 9, 22, 1, 59), venueCount: 2, insightsCount: 2, missing: [], gone: [], mismatched: [], ...over,
@@ -67,6 +67,14 @@ describe("reconciliation wording", () => {
     expect(unassignedLine(1)).toBe("1 deal not assigned to an account");
     expect(unassignedLine(1204)).toBe("1,204 deals not assigned to an account");
     expect(unassignedLabels([{ broker: "MYSTERY_P1", deals: 2 }, { broker: "OTHER", deals: 1 }])).toEqual(["MYSTERY_P1: 2 deals", "OTHER: 1 deal"]);
+  });
+
+  it("says how many deals an ignored magic range kept out, and their net", () => {
+    expect(ignoredLine({ ranges: [], deals: 0, net: 0 })).toBeNull();
+    expect(ignoredLine({ ranges: ["31000-31199"], deals: 0, net: 0 })).toBe("0 deals from magics 31000-31199 ignored");
+    expect(ignoredLine({ ranges: ["31000-31199"], deals: 1204, net: -3.2 })).toBe("1,204 deals from magics 31000-31199 ignored (net −3.20)");
+    expect(ignoredLine({ ranges: ["40000"], deals: 1, net: 5 })).toBe("1 deal from magic 40000 ignored (net +5.00)");
+    expect(ignoredLine({ ranges: [], deals: 2, net: 1 })).toBe("2 deals from magic ranges no longer configured ignored (net +1.00)");
   });
 
   it("says why the card is empty", () => {
