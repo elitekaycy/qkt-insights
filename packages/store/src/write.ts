@@ -4,6 +4,7 @@ import { refreshProjections } from "./projections.js";
 import { bumpEpoch, bumpMarks, bumpStrategy } from "./versions.js";
 import { OUTAGE_AFTER_MS } from "./monitors.js";
 import { setInstanceCurrency } from "./money.js";
+import { recordAccountCurrency } from "./currencies.js";
 import { isLiveStateType, type Envelope, type QuarantinedEnvelope } from "@qkt-insights/contract";
 import { strategyFromDealComment, withoutAccountCredentials } from "./inferredVenueFacts.js";
 import { strategyFromOrderComment } from "./retiredStrategies.js";
@@ -111,6 +112,7 @@ function withCredentialsRemoved(e: Envelope): Envelope {
 export function persistStateEvent(db: Db, instanceId: string, e: Envelope): void {
   if (e.type === "state.account") {
     setInstanceCurrency(db, instanceId, e.payload.currency);
+    recordAccountCurrency(db, instanceId, e.payload);
     return;
   }
   if (e.type !== "state.positions") return;

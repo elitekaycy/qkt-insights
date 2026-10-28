@@ -24,3 +24,4 @@ export * from "./money.js";
 export { inferenceCounts, onInference, withoutAccountCredentials, type Inference } from "./inferredVenueFacts.js";
 export * from "./reconciliation.js";
 export * from "./retiredStrategies.js";
+export * from "./currencies.js";

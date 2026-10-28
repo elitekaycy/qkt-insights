@@ -162,6 +162,14 @@ names nothing and the deal stays unattributed. One account traded by two qkt ins
 instance's unattributable deals under that instance's strategy names here too, exactly where they are stored as
 unattributed today.
 
+**Accounts in different currencies.** Each venue account's currency is kept as its `state.account` reports it
+(`account_currencies`, `packages/store/src/currencies.ts`), and each round trip takes its account's (`currency`).
+Money is still rounded at the instance currency's minor unit. When an instance's accounts report more than one
+currency, the round-trip totals and the journal aggregates also return `currencies` (net and count per currency).
+The Trades and strategy trade lists then show each currency's net instead of one sum, and every page carries a
+note that a figure spanning accounts (a strategy's or the account's total, a book) adds them 1:1 with no
+conversion. No exchange rate is applied anywhere.
+
 An engine close (`trade.closed`) is a round trip of its own only while neither its strategy nor its broker (the
 symbol's `LABEL:` prefix) has stored a venue deal, so an instance that trades an MT5 account and a venue that sends
 no deals shows both.

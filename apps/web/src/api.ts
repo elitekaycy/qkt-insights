@@ -89,6 +89,8 @@ export interface InstanceRow {
   heardAt: number | null;
   silentFrom: number | null;
   silentTo: number | null;
+  /** The currencies its venue accounts book in, A to Z (absent from an older collector). */
+  currencies?: string[];
 }
 export interface HealthRow {
   instanceId: string;

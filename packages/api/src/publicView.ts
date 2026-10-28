@@ -126,7 +126,7 @@ export function publicDeal(d: DealRow & { fee?: number | null }) {
 /** A round trip without its venue ticket, order ids, broker profile, stop or target. */
 export function publicRoundTrip(r: TripRow) {
   return {
-    id: opaqueId(r.id), broker: null, strategyId: r.strategyId, symbol: publicSymbol(r.symbol), instrument: r.instrument,
+    id: opaqueId(r.id), broker: null, strategyId: r.strategyId, symbol: publicSymbol(r.symbol), instrument: r.instrument, currency: r.currency,
     side: r.side, status: r.status, entryTs: r.entryTs, entryPrice: r.entryPrice, exitTs: r.exitTs, exitPrice: r.exitPrice, qty: r.qty,
     pnl: r.pnl, holdMs: r.holdMs, stopPrice: null, targetPrice: null, risk: null, r: r.r, ended: r.ended, legs: r.legs, entryOrderId: null, source: r.source, priceDigits: r.priceDigits,
   };
@@ -138,7 +138,7 @@ const publicBucket = (b: TripBucket): TripBucket => ({ key: b.key, label: b.labe
 export function publicTripAnalytics(a: TripAnalytics): TripAnalytics {
   const ref = (t: { id: string; pnl: number } | null) => (t ? { id: opaqueId(t.id) ?? "", pnl: t.pnl } : null);
   return {
-    total: a.total, matched: a.matched, closed: a.closed, open: a.open, pnl: a.pnl, grossWin: a.grossWin, grossLoss: a.grossLoss,
+    total: a.total, matched: a.matched, currencies: a.currencies.map((c) => ({ currency: c.currency, net: c.net, n: c.n })), closed: a.closed, open: a.open, pnl: a.pnl, grossWin: a.grossWin, grossLoss: a.grossLoss,
     wins: a.wins, losses: a.losses, breakeven: a.breakeven, winRate: a.winRate, profitFactor: a.profitFactor, avgWin: a.avgWin,
     avgLoss: a.avgLoss, payoff: a.payoff, expectancy: a.expectancy, r: { n: a.r.n, avg: a.r.avg, total: a.r.total },
     best: ref(a.best), worst: ref(a.worst), avgHoldMs: a.avgHoldMs, maxDd: a.maxDd, maxDdWindow: a.maxDdWindow ? { from: a.maxDdWindow.from, to: a.maxDdWindow.to } : null,
