@@ -7,6 +7,7 @@ import { setInstanceCurrency } from "./money.js";
 import { isLiveStateType, type Envelope, type QuarantinedEnvelope } from "@qkt-insights/contract";
 import { strategyFromDealComment, withoutAccountCredentials } from "./inferredVenueFacts.js";
 import { strategyFromOrderComment } from "./retiredStrategies.js";
+import { isIgnoredMagic, recordIgnoredDeal } from "./ignoredMagics.js";
 
 /** A flat position still records one valuation this often so its holding period is visible. */
 /** A flat position is still re-marked this often, so a stored mark proves it was held. */
@@ -305,6 +306,15 @@ export function ingestEnvelopes(db: Db, instanceId: string, events: Envelope[], 
       // no events row, no FTS row, idempotent by deterministic id.
       if (e.type === "broker.deal") {
         const p = e.payload;
+        // Another system's deal on a shared account (ignoredMagics.ts): kept apart, in no strategy or total.
+        if (isIgnoredMagic(db, instanceId, p.magic)) {
+          const costs = dealCosts(p);
+          if (recordIgnoredDeal(db, instanceId, { dealTicket: p.dealTicket, broker: p.broker, accountId: p.accountId ?? null, magic: p.magic!,
+            ts: p.ts, profit: p.profit, ...costs })) accepted++;
+          else duplicate();
+          upInstance.run({ id: instanceId, ts: e.ts, seq: e.seq, heardAt });
+          continue;
+        }
         // qkt names the position and the leg (positionId, legEntry); older releases only MT5's ticket and entry.
         const position = p.positionId ?? p.positionTicket ?? null;
         const resolved = p.strategyId ?? resolveDealStrategy(db, instanceId, p.dealTicket, position, p.comment ?? null, p.attribution == null);
