@@ -119,7 +119,7 @@ export function publicDeal(d: DealRow & { fee?: number | null }) {
   return {
     id: opaqueId(d.id), broker: "Account", dealTicket: opaqueId(d.dealTicket), positionTicket: opaqueId(d.positionTicket), orderTicket: opaqueId(d.orderTicket),
     symbol: publicSymbol(d.symbol), side: d.side, entry: d.entry, qty: d.qty, price: d.price, profit: d.profit, commission: d.commission,
-    swap: d.swap, fee: d.fee ?? null, magic: null, comment: null, strategyId: d.strategyId, ts: d.ts,
+    swap: d.swap, funding: d.funding, fee: d.fee ?? null, magic: null, comment: null, strategyId: d.strategyId, ts: d.ts,
   };
 }
 

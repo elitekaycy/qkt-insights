@@ -3,7 +3,7 @@ import { createPortal } from "react-dom";
 import { DASH, duration, money, pnl, quantity, signedMoney, toneClass, ts } from "../format";
 import { PAGE_PATHS, useSearchParam } from "../router";
 import { usePositionPath, useTripDetail, type RoundTripDetail, type Slippage, type TimelineStep } from "./data";
-import { latency, preciseClock, px, rMultiple } from "./format";
+import { latency, legCosts, preciseClock, px, rMultiple } from "./format";
 import { EndedBadge, SideText } from "./bits";
 import { PositionMap } from "./PositionMap";
 
@@ -124,7 +124,7 @@ function Legs({ legs, digits }: { legs: RoundTripDetail["legs"]; digits: number 
         </thead>
         <tbody>
           {legs.map((l) => {
-            const costs = (l.commission ?? 0) + (l.swap ?? 0) + (l.fee ?? 0);
+            const costs = legCosts(l);
             return (
               <tr key={l.dealTicket} className="border-t border-line" title={l.comment ?? undefined}>
                 <td className="px-1 py-1.5 font-mono text-faint">{l.dealTicket}</td>
@@ -133,7 +133,7 @@ function Legs({ legs, digits }: { legs: RoundTripDetail["legs"]; digits: number 
                 <td className="px-1 py-1.5 text-right text-body">{quantity(l.qty)}</td>
                 <td className="px-1 py-1.5 text-right text-body">{px(l.price, digits)}</td>
                 <td className="px-1 py-1.5 text-right text-body">{signedMoney(l.profit)}</td>
-                <td className="px-1 py-1.5 text-right text-body">{signedMoney(costs)}</td>
+                <td className="px-1 py-1.5 text-right text-body" title={costs.parts || undefined}>{signedMoney(costs.total)}</td>
                 <td className={`px-1 py-1.5 text-right font-semibold ${toneClass(l.net)}`}>{signedMoney(l.net)}</td>
               </tr>
             );

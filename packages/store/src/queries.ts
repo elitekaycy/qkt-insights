@@ -8,7 +8,7 @@ import {
 import { refreshProjections } from "./projections.js";
 import { statement } from "./statements.js";
 import { searchLogs } from "./logSearch.js";
-import { closedTrades, hasClosingDeals, MIN_RATIO_DAYS, SNAPSHOT_EQUITY, strategyBase, strategyEquityCurve, tradePnls, withAnalyticsScope, type StrategyEquityPoint } from "./analytics.js";
+import { closedTrades, hasClosingDeals, MIN_RATIO_DAYS, SNAPSHOT_EQUITY, SWAP_ONLY, strategyBase, strategyEquityCurve, tradePnls, withAnalyticsScope, type StrategyEquityPoint } from "./analytics.js";
 
 // A strategy stays "active" while its roster bump is within this window of the
 // instance's newest bump. Comfortably exceeds the state-poll cadence (~30s) times the
@@ -390,7 +390,9 @@ export function listLogs(db: Db, f: { instanceId: string; strategyId?: string; l
 export interface DealRow {
   id: string; broker: string; dealTicket: string; positionTicket: string | null; orderTicket: string | null;
   symbol: string | null; side: string | null; entry: string | null; qty: number | null; price: number | null;
-  profit: number | null; commission: number | null; swap: number | null;
+  profit: number | null; commission: number | null;
+  /** Swap without perpetual funding; funding: the deal's perpetual funding (0 when it states none). */
+  swap: number | null; funding: number;
   fee: number | null; magic: number | null;
   comment: string | null; strategyId: string | null; ts: number;
 }
@@ -403,7 +405,8 @@ export function listDeals(db: Db, f: { instanceId: string; strategyId?: string; 
   if (f.before != null) cl.push("ts<@before");
   return db.prepare(
     `SELECT id, broker, deal_ticket dealTicket, position_ticket positionTicket, order_ticket orderTicket,
-            symbol, side, entry, qty, price, profit, commission, swap, fee, magic, comment, strategy_id strategyId, ts
+            symbol, side, entry, qty, price, profit, commission, CASE WHEN swap IS NULL THEN NULL ELSE ${SWAP_ONLY("deals")} END swap,
+            COALESCE(funding,0) funding, fee, magic, comment, strategy_id strategyId, ts
      FROM deals WHERE ${cl.join(" AND ")} ORDER BY ts DESC LIMIT @limit`,
   ).all(f) as DealRow[];
 }
