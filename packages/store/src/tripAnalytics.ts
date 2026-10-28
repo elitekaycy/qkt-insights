@@ -3,6 +3,7 @@ import { winRatePct } from "./analytics.js";
 import { addMoney, instanceMoneyDigits, roundMoney } from "./money.js";
 import { refreshProjections } from "./projections.js";
 import { roundTripPages, roundTripTotals, type RoundTripQuery, type TripEnded, type TripRow } from "./tripQueries.js";
+import type { CurrencyNet } from "./currencies.js";
 
 /*
  * The journal's aggregates over round trips: one call answers every card, chart and table of a
@@ -48,6 +49,8 @@ export interface TripPoint {
 export interface TripAnalytics {
   /** Round trips in the scope before the query, and the ones it matched. */
   total: number;
+  /** `pnl` per account currency (RoundTripTotals.currencies): `pnl` adds them 1:1 when there is more than one. */
+  currencies: CurrencyNet[];
   matched: number;
   closed: number;
   open: number;
@@ -91,7 +94,7 @@ export interface TripAnalytics {
   side: TripBucket[];
   ended: TripBucket[];
   hold: TripBucket[];
-  /** By instrument (broker-profile prefixes folded), largest share of trades first. */
+  /** By instrument (broker-profile prefixes folded, venues kept apart: TripRow.venue), largest share of trades first. */
   instrument: TripBucket[];
   weekday: TripBucket[];
   hour: TripBucket[];
@@ -132,7 +135,7 @@ export interface AnalyzeOptions {
  * Aggregates over the matched round trips. `rows` is every matched round trip in any order;
  * `counts` are the scope's totals (before and after the query), computed by the caller.
  */
-export function analyzeTrips(rows: readonly TripRow[], counts: { total: number; matched: number }, opts: AnalyzeOptions = {}): TripAnalytics {
+export function analyzeTrips(rows: readonly TripRow[], counts: { total: number; matched: number }, opts: AnalyzeOptions = {}): Omit<TripAnalytics, "currencies"> {
   const digits = opts.digits ?? 2;
   const plus = (a: number, b: number) => addMoney(a, b, digits);
   const add = (b: { n: number; wins: number; losses: number; pnl: number }, pnl: number) => {
@@ -182,9 +185,11 @@ export function analyzeTrips(rows: readonly TripRow[], counts: { total: number; 
     points.push({ id: t.id, exitTs: t.exitTs, pnl: p, cum });
 
     add(side[t.side], p);
-    const inst = instrument.get(t.instrument) ?? bucket(t.instrument, t.instrument, `symbol:${t.instrument}`);
+    // one bucket per venue for an instrument traded on several (TripRow.venue); its filter still selects every venue's
+    const key = t.venue ? `${t.venue}:${t.instrument}` : t.instrument;
+    const inst = instrument.get(key) ?? bucket(key, key, `symbol:${t.instrument}`);
     add(inst, p);
-    instrument.set(t.instrument, inst);
+    instrument.set(key, inst);
     if (t.ended) add(ended.get(t.ended)!, p);
     if (t.holdMs != null) add(hold.find((_, i) => t.holdMs! >= HOLD_BUCKETS[i]!.min && t.holdMs! < HOLD_BUCKETS[i]!.max) ?? hold[0]!, p);
     if (t.entryTs != null) {
@@ -293,7 +298,8 @@ export function roundTripAnalytics(db: Db, q: RoundTripQuery): TripAnalytics {
   const a = analyzeTrips(rows, { total: totals.total, matched: totals.matched },
     { digits: instanceMoneyDigits(db, q.instanceId), legs: closingLegs(db, q.instanceId, rows, q.filter?.exit) });
   // under an exit: window the headline is what the legs inside it realized, as the count line's net
-  return totals.netInExit ? { ...a, pnl: totals.net } : a;
+  const withCurrencies = { ...a, currencies: totals.currencies };
+  return totals.netInExit ? { ...withCurrencies, pnl: totals.net } : withCurrencies;
 }
 
 /** The closing legs of the venue round trips among `rows` (inside the `exit:` window when there is one), oldest first. */

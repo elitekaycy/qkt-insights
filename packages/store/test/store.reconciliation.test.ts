@@ -308,7 +308,8 @@ describe("reconciliation: ledger", () => {
 describe("reconciliation: empty", () => {
   it("has no accounts before the first account state and no run before the first reconcile", () => {
     const db = openDb(":memory:");
-    expect(reconciliation(db, I)).toEqual({ instanceId: I, digits: 2, checkedAt: null, unassigned: { deals: 0, labels: [] }, accounts: [] });
+    expect(reconciliation(db, I)).toEqual({ instanceId: I, digits: 2, checkedAt: null, unassigned: { deals: 0, labels: [] },
+      ignored: { ranges: [], deals: 0, net: 0 }, accounts: [] });
     expect(reconcile(db, I, { now: OCT(3, 2) })).toEqual({ accounts: 0, daysChecked: 0, diffs: 0, external: 0, unassigned: 0 });
     expect(reconciliation(db, I).checkedAt).toBe(OCT(3, 2));
   });

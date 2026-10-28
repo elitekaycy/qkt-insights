@@ -8,7 +8,7 @@ import {
 import { refreshProjections } from "./projections.js";
 import { statement } from "./statements.js";
 import { searchLogs } from "./logSearch.js";
-import { closedTrades, hasClosingDeals, MIN_RATIO_DAYS, SNAPSHOT_EQUITY, strategyBase, strategyEquityCurve, tradePnls, withAnalyticsScope, type StrategyEquityPoint } from "./analytics.js";
+import { closedTrades, hasClosingDeals, MIN_RATIO_DAYS, SNAPSHOT_EQUITY, SWAP_ONLY, strategyBase, strategyEquityCurve, tradePnls, withAnalyticsScope, type StrategyEquityPoint } from "./analytics.js";
 
 // A strategy stays "active" while its roster bump is within this window of the
 // instance's newest bump. Comfortably exceeds the state-poll cadence (~30s) times the
@@ -22,6 +22,8 @@ export interface InstanceRow {
   /** Collector clock; null only for rows older than the column. */ heardAt: number | null;
   /** The latest silence longer than an outage in the instance's own stream, on the collector's clock; null without one. */
   silentFrom: number | null; silentTo: number | null;
+  /** The currencies its venue accounts book in (currencies.ts), A to Z; more than one means money is split by currency. */
+  currencies: string[];
 }
 export interface StrategyRow { strategyId: string; firstSeen: number; lastSeen: number; startingBalance: number | null; /** Operator-declared capital (STRATEGY_CAPITAL); wins over startingBalance as the strategy's base. */ definedCapital: number | null; metadata: Record<string, unknown> | null; realizedNet: number | null; dealCount: number; active: boolean }
 export interface TradeRow { id: string; strategyId: string | null; ts: number; payload: unknown }
@@ -38,7 +40,12 @@ export interface HealthRow {
 export interface QuarantineCount { type: string | null; v: number | null; count: number; lastReceivedAt: number; reason: string }
 
 export function listInstances(db: Db): InstanceRow[] {
-  return db.prepare("SELECT id, name, first_seen firstSeen, last_seen lastSeen, last_seq lastSeq, heard_at heardAt, silent_from silentFrom, silent_to silentTo FROM instances ORDER BY id").all() as InstanceRow[];
+  const rows = db.prepare(
+    `SELECT id, name, first_seen firstSeen, last_seen lastSeen, last_seq lastSeq, heard_at heardAt, silent_from silentFrom, silent_to silentTo,
+       (SELECT json_group_array(currency) FROM (SELECT DISTINCT c.currency FROM account_currencies c WHERE c.instance_id=instances.id ORDER BY c.currency)) currencies
+     FROM instances ORDER BY id`,
+  ).all() as Array<Omit<InstanceRow, "currencies"> & { currencies: string }>;
+  return rows.map((r) => ({ ...r, currencies: JSON.parse(r.currencies) as string[] }));
 }
 
 /** The roster without realized figures: cheap enough for visibility checks that run per request. */
@@ -390,7 +397,9 @@ export function listLogs(db: Db, f: { instanceId: string; strategyId?: string; l
 export interface DealRow {
   id: string; broker: string; dealTicket: string; positionTicket: string | null; orderTicket: string | null;
   symbol: string | null; side: string | null; entry: string | null; qty: number | null; price: number | null;
-  profit: number | null; commission: number | null; swap: number | null;
+  profit: number | null; commission: number | null;
+  /** Swap without perpetual funding; funding: the deal's perpetual funding (0 when it states none). */
+  swap: number | null; funding: number;
   fee: number | null; magic: number | null;
   comment: string | null; strategyId: string | null; ts: number;
 }
@@ -403,7 +412,8 @@ export function listDeals(db: Db, f: { instanceId: string; strategyId?: string; 
   if (f.before != null) cl.push("ts<@before");
   return db.prepare(
     `SELECT id, broker, deal_ticket dealTicket, position_ticket positionTicket, order_ticket orderTicket,
-            symbol, side, entry, qty, price, profit, commission, swap, fee, magic, comment, strategy_id strategyId, ts
+            symbol, side, entry, qty, price, profit, commission, CASE WHEN swap IS NULL THEN NULL ELSE ${SWAP_ONLY("deals")} END swap,
+            COALESCE(funding,0) funding, fee, magic, comment, strategy_id strategyId, ts
      FROM deals WHERE ${cl.join(" AND ")} ORDER BY ts DESC LIMIT @limit`,
   ).all(f) as DealRow[];
 }

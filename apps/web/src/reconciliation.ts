@@ -95,6 +95,17 @@ export function unassignedLabels(labels: ReadonlyArray<{ broker: string; deals: 
   return labels.map((l) => `${l.broker}: ${count(l.deals)} ${l.deals === 1 ? "deal" : "deals"}`);
 }
 
+/**
+ * "12 deals from magics 31000-31199 ignored (net −3.20)": another system's deals on a shared account
+ * that INSIGHTS_IGNORE_MAGICS keeps out of every view; null when the instance ignores no range.
+ */
+export function ignoredLine(ignored: { ranges: string[]; deals: number; net: number }, digits = 2): string | null {
+  if (ignored.ranges.length === 0 && ignored.deals === 0) return null;
+  const magics = ignored.ranges.length === 0 ? "magic ranges no longer configured" : `${ignored.ranges.length === 1 && !ignored.ranges[0]!.includes("-") ? "magic" : "magics"} ${ignored.ranges.join(", ")}`;
+  const net = ignored.deals > 0 ? ` (net ${signedMoney(ignored.net, digits)})` : "";
+  return `${count(ignored.deals)} ${ignored.deals === 1 ? "deal" : "deals"} from ${magics} ignored${net}`;
+}
+
 /** What an empty card says, and why: no run stores an account before qkt has sent its balance. */
 export const EMPTY_TEXT = "No venue account reconciled yet. The check runs a couple of minutes after the collector starts and every night at 02:00 UTC, for each account qkt has sent a balance for.";
 

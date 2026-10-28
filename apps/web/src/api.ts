@@ -89,6 +89,8 @@ export interface InstanceRow {
   heardAt: number | null;
   silentFrom: number | null;
   silentTo: number | null;
+  /** The currencies its venue accounts book in, A to Z (absent from an older collector). */
+  currencies?: string[];
 }
 export interface HealthRow {
   instanceId: string;
@@ -225,6 +227,8 @@ export interface ReconciliationView {
   checkedAt: number | null;
   /** Canonical deals the latest run could give to no account, per label: never in an account's checks. */
   unassigned: { deals: number; labels: Array<{ broker: string; deals: number }> };
+  /** Deals an ignored magic range (INSIGHTS_IGNORE_MAGICS) keeps out of every view; counted in the balance checks only. */
+  ignored: { ranges: string[]; deals: number; net: number };
   accounts: AccountReconciliation[];
 }
 export interface StrategyRow {
@@ -412,8 +416,8 @@ export interface AccountSummary {
   breakeven: number;
   sumWins: number;
   sumLosses: number;
-  /** Gross = before commission, swap and fee. Null without broker deals. */
-  costs: { grossProfit: number; commission: number; swap: number; fee: number; net: number } | null;
+  /** Gross = before commission, swap, funding and fee; swap excludes perpetual funding. Null without broker deals. */
+  costs: { grossProfit: number; commission: number; swap: number; funding?: number; fee: number; net: number } | null;
   byInstrument: AccountBucket[];
   byStrategy: AccountBucket[];
   /** Capital each traded month's return is measured against. */
@@ -481,6 +485,11 @@ export interface LivePositionRow {
   requestedTakeProfit?: number;
   magic?: number;
   clientOrderId?: string;
+  /** The instrument's kind as qkt states it (cfd, equity, spot, perpetual, future, option). */
+  kind?: string;
+  /** What one unit of `qty` is: lots, shares, coins, contracts, or a unit qkt names. */
+  unit?: string;
+  contractSize?: number;
 }
 export interface LivePendingOrderRow {
   ticket: string;
@@ -526,7 +535,10 @@ export interface DealRow {
   price: number | null;
   profit: number | null;
   commission: number | null;
+  /** Swap without perpetual funding. */
   swap: number | null;
+  /** Perpetual funding, negative when paid (absent from an older collector). */
+  funding?: number;
   fee: number | null;
   magic: number | null;
   comment: string | null;
@@ -581,7 +593,9 @@ export interface CostRow {
   key: string;
   grossProfit: number;
   commission: number;
+  /** Swap without perpetual funding. */
   swap: number;
+  funding?: number;
   fee: number;
   net: number;
   trades: number;

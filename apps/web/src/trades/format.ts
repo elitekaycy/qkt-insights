@@ -1,4 +1,4 @@
-import { DASH, fixed, MINUS, ts, tsShort } from "../format";
+import { DASH, fixed, MINUS, signedMoney, ts, tsShort } from "../format";
 
 /** A price at its instrument's precision ("4122.72"); a dash when missing. */
 export function px(v: number | null | undefined, digits: number): string {
@@ -51,3 +51,21 @@ export const ENDED_TITLE: Record<string, string> = {
   venue: "The venue closed it (stop-out)",
   manual: "Closed by hand (qkt bot close)",
 };
+
+/**
+ * A leg's costs: their total, and each kind it booked for the tooltip ("commission −0.25 · funding −0.90"),
+ * funding apart from swap.
+ */
+export function legCosts(l: { commission: number | null; swap: number | null; funding?: number | null; fee: number | null }): { total: number; parts: string } {
+  const kinds: Array<[string, number | null | undefined]> = [["commission", l.commission], ["swap", l.swap], ["funding", l.funding], ["fee", l.fee]];
+  const booked = kinds.filter(([, v]) => v != null && v !== 0) as Array<[string, number]>;
+  return {
+    total: booked.reduce((a, [, v]) => a + v, 0),
+    parts: booked.map(([k, v]) => `${k} ${signedMoney(v)}`).join(" · "),
+  };
+}
+
+/** The instrument a round trip shows: with its venue ("ALPACA:AAPL") when the instance trades it on more than one. */
+export function tripInstrument(t: { instrument: string; venue?: string | null }): string {
+  return t.venue ? `${t.venue}:${t.instrument}` : t.instrument;
+}

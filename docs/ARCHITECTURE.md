@@ -104,7 +104,7 @@ its way out, what to send instead (`deprecated`). A type without an entry fails 
 
 ```json
 {
-  "contractVersion": "1.0.0",
+  "contractVersion": "1.1.0",
   "majors": [1],
   "types": [{ "type": "balances.updated", "since": "1.0.0" }, "..."],
   "maxBatch": null,
@@ -147,10 +147,11 @@ counts each inference and logs its first use and every thousandth: `venue fact i
 | `strategyId` + `attribution` | deals, positions, orders, fills | the strategy of a deal | a `dsl-<strategy>` deal comment |
 | `positionId`, `legEntry`, `nextPositionId` | deals, fills, `trade.closed` | round-trip identity and leg | `positionTicket`, `entry`; the entry order by its broker ticket |
 | `closeReason` | closing deals, fills, `trade.closed` | `ended`: STOP stop, TAKE_PROFIT tp, STOP_OUT/LIQUIDATION/EXPIRY venue, MANUAL manual, SIGNAL/TIMED signal | `[sl` / `[tp` / `[so` deal comments, then `qkt bot close` and close orders near the exit |
-| `costs[]` | deals | commission, swap (funding, borrow), fee (the rest): the deal's costs, once | the `commission` / `swap` / `fee` scalars, which repeat them when `costs` is sent |
+| `costs[]` | deals | commission, swap (funding, borrow), fee (the rest): the deal's costs, once; the FUNDING part is also kept as `deals.funding`, so reads show swap without funding and perpetual funding apart (nets unchanged) | the `commission` / `swap` / `fee` scalars, which repeat them when `costs` is sent; no funding is known then |
 | `realizedSource` | deals | kept per leg: `venue`, or `engine` for a venue that reports no P&L | |
 | `initialStop`, `initialTarget`, `riskAmount` | entry fills, positions | a round trip's stop, target, risk and R | the entry order's submitted bracket; risk from the venue's gross over the move |
 | `instrument.tickSize`, `instrument.valuePerPoint` | deals, fills, positions | price precision; slippage in money | the decimals of observed prices and metal/FX names; the gross over the move |
+| `instrument.kind`, `instrument.contractSize`, `instrument.quantityUnit` (1.1.0; qkt does not send `quantityUnit` yet) | deals, positions | what a position is (CFD, share, spot coin, perpetual, dated future, option) and the unit of its size, on round trips and open positions (`packages/store/src/instrumentKind.ts`) | the unit from the kind: `cfd` lots, `equity` shares, `spot` coins, `perpetual`/`future`/`option` contracts; no kind, no unit |
 
 **Retired strategies.** qkt attributes a venue deal only to strategies it runs now, so a deal re-sent from
 history whose strategy was retired since arrives with `attribution: "none"`. When its opening deal carries a
@@ -160,7 +161,29 @@ strategy instead of "Unattributed" (`packages/store/src/retiredStrategies.ts`; m
 `041_retired_strategy_attribution` applies the same rule to stored history once). A comment cut inside the name
 names nothing and the deal stays unattributed. One account traded by two qkt instances would file the other
 instance's unattributable deals under that instance's strategy names here too, exactly where they are stored as
-unattributed today.
+unattributed today, unless the other instance's magic numbers are listed in `INSIGHTS_IGNORE_MAGICS`
+(docs/CONFIGURATION.md): its deals then go to `ignored_deals`, which only the balance continuity check and the
+Reconciliation card's count read, and its positions and pending orders are dropped from the live state
+(`packages/store/src/ignoredMagics.ts`).
+
+**Several venues on one instance.** Every broker profile polling an account sends the account's deals, so one
+venue deal can be stored once per profile; only the first copy counts (`deals.canonical`). Copies are rows with
+the same deal ticket **on the same account** (`accountId`; a copy that states none matches any): two accounts can
+number their deals alike (each gateway paper account counts `paper-1`, `paper-2`, ...), and neither is then a copy
+of the other (`closedTrades.ts` `SAME_DEAL`, migration `043_deal_copies_per_account`). A strategy is recovered from
+a copy of the same deal only on its own account. An instrument the instance trades on more than one account (an
+`EXNESS_S01:AAPL` stock CFD beside an `ALPACA:AAPL` share) is two instruments to the journal: each round trip
+names its venue (`venue`, the symbol's broker prefix without a profile suffix), shown as `ALPACA:AAPL`, and the
+by-instrument aggregates keep one bucket per venue. Two accounts reporting the same `accountId` (two gateway paper
+accounts left on the default login `paper`) are one account to the collector: give each its own login.
+
+**Accounts in different currencies.** Each venue account's currency is kept as its `state.account` reports it
+(`account_currencies`, `packages/store/src/currencies.ts`), and each round trip takes its account's (`currency`).
+Money is still rounded at the instance currency's minor unit. When an instance's accounts report more than one
+currency, the round-trip totals and the journal aggregates also return `currencies` (net and count per currency).
+The Trades and strategy trade lists then show each currency's net instead of one sum, and every page carries a
+note that a figure spanning accounts (a strategy's or the account's total, a book) adds them 1:1 with no
+conversion. No exchange rate is applied anywhere.
 
 An engine close (`trade.closed`) is a round trip of its own only while neither its strategy nor its broker (the
 symbol's `LABEL:` prefix) has stored a venue deal, so an instance that trades an MT5 account and a venue that sends

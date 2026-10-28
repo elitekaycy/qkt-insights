@@ -5,6 +5,7 @@ import { ICONS, MAIN_NAV, NavIcon, SETTINGS_NAV, Shell, Wordmark } from "./compo
 import { LiveDot, PageFallback, Select } from "./components/ui";
 import Login from "./pages/Login";
 import { useBrand } from "./useBrand";
+import { mixedCurrencyNote } from "./currencies";
 import { usePullToRefresh } from "./hooks/usePullToRefresh";
 import { useResumeRefresh } from "./hooks/useResumeRefresh";
 import { useRoute, useSearchParam, type PageKey } from "./router";
@@ -89,6 +90,7 @@ export default function App() {
   const selected = (instance && list.some((i) => i.id === instance) ? instance : list[0]?.id) ?? null;
   const selectedRow = list.find((i) => i.id === selected);
   const live = selectedRow != null && Date.now() - selectedRow.lastSeen < 30_000;
+  const mixedNote = selectedRow ? mixedCurrencyNote(selectedRow.id, selectedRow.currencies) : null;
 
   const scope = (iconsOnly: boolean) =>
     iconsOnly ? (
@@ -180,6 +182,9 @@ export default function App() {
           )}
         </div>
         <div className="mx-auto max-w-[1500px] px-4 py-5 sm:px-6 lg:px-8 lg:py-6">
+          {mixedNote && (
+            <p role="note" className="mb-4 rounded-lg border border-warn/40 bg-warn/10 px-3 py-2 text-xs text-body">{mixedNote}</p>
+          )}
           <Suspense fallback={<PageFallback />}>{page}</Suspense>
         </div>
       </main>

@@ -19,14 +19,27 @@ export function parseDailyKey(key: string): { source: CloseSource; strategyId: s
   return { source, strategyId, day };
 }
 
+/**
+ * A deal-backed strategy's money rows: its closes, and its venue adjustments (`broker.deal` entry
+ * `ADJUSTMENT`: a stock CFD's dividend, a charge), which are money but no trade (`trade` 0). At one
+ * timestamp the closes come first, as adjustmentsMerged orders them for the readers.
+ */
+const DEAL_ROWS = (where: string, order: string) => `SELECT ts, realized, entryTs, trade FROM (
+    SELECT ts, realized, entry_ts entryTs, 1 trade, 0 kind, deal_rowid id FROM closed_trades
+     WHERE instance_id=@instanceId AND strategy_id=@strategyId ${where}
+    UNION ALL
+    SELECT ts, profit + COALESCE(commission,0) + COALESCE(swap,0) + COALESCE(fee,0), NULL, 0, 1, rowid FROM deals
+     WHERE instance_id=@instanceId AND strategy_id=@strategyId AND entry='ADJUSTMENT' AND canonical=1 ${where}
+  ) ORDER BY ${order}`;
+
 const CLOSES_SINCE: Record<CloseSource, string> = {
-  deal: "SELECT ts, realized, entry_ts entryTs FROM closed_trades WHERE instance_id=? AND strategy_id=? AND ts>=? ORDER BY ts ASC, deal_rowid ASC",
-  ledger: "SELECT ts, realized, entry_ts entryTs FROM trade_closes WHERE instance_id=? AND strategy_id=? AND ts>=? ORDER BY ts ASC, rowid ASC",
+  deal: DEAL_ROWS("AND ts>=@since", "ts ASC, kind ASC, id ASC"),
+  ledger: "SELECT ts, realized, entry_ts entryTs, 1 trade FROM trade_closes WHERE instance_id=@instanceId AND strategy_id=@strategyId AND ts>=@since ORDER BY ts ASC, rowid ASC",
 };
 
 const CLOSES_NEWEST_FIRST: Record<CloseSource, string> = {
-  deal: "SELECT ts, realized, entry_ts entryTs FROM closed_trades WHERE instance_id=? AND strategy_id=? ORDER BY ts DESC, deal_rowid DESC",
-  ledger: "SELECT ts, realized, entry_ts entryTs FROM trade_closes WHERE instance_id=? AND strategy_id=? ORDER BY ts DESC, rowid DESC",
+  deal: DEAL_ROWS("", "ts DESC, kind DESC, id DESC"),
+  ledger: "SELECT ts, realized, entry_ts entryTs, 1 trade FROM trade_closes WHERE instance_id=@instanceId AND strategy_id=@strategyId ORDER BY ts DESC, rowid DESC",
 };
 
 /**
@@ -42,7 +55,8 @@ export function recomputeDaily(db: Db, instanceId: string, source: CloseSource, 
     "SELECT close_cum cum FROM strategy_daily WHERE instance_id=? AND strategy_id=? AND source=? AND day<? ORDER BY day DESC LIMIT 1",
   ).get(instanceId, strategyId, source, sinceDay) as { cum: number } | undefined;
   statement(db, "DELETE FROM strategy_daily WHERE instance_id=? AND strategy_id=? AND source=? AND day>=?").run(instanceId, strategyId, source, sinceDay);
-  const closes = statement(db, CLOSES_SINCE[source]).all(instanceId, strategyId, Number.isFinite(since) ? since : Number.MIN_SAFE_INTEGER) as Array<{ ts: number; realized: number }>;
+  const closes = statement(db, CLOSES_SINCE[source])
+    .all({ instanceId, strategyId, since: Number.isFinite(since) ? since : Number.MIN_SAFE_INTEGER }) as Array<{ ts: number; realized: number; trade: number }>;
   const ins = statement(db,
     "INSERT INTO strategy_daily (instance_id, strategy_id, source, day, net, trades, close_cum, last_ts) VALUES (?,?,?,?,?,?,?,?)",
   );
@@ -58,17 +72,20 @@ export function recomputeDaily(db: Db, instanceId: string, source: CloseSource, 
     }
     net = add(net, c.realized);
     cum = add(cum, c.realized);
-    trades++;
+    trades += c.trade;
     lastTs = c.ts;
   }
   if (day != null) ins.run(instanceId, strategyId, source, day, net, trades, cum, lastTs);
 
   let total = 0, n = 0;
   let newest: { ts: number } | null = null, oldest: { ts: number; entryTs: number | null } | null = null;
-  for (const c of statement(db, CLOSES_NEWEST_FIRST[source]).iterate(instanceId, strategyId) as IterableIterator<{ ts: number; realized: number; entryTs: number | null }>) {
+  let firstAdjustmentTs: number | null = null;
+  for (const c of statement(db, CLOSES_NEWEST_FIRST[source]).iterate({ instanceId, strategyId }) as IterableIterator<{ ts: number; realized: number; entryTs: number | null; trade: number }>) {
     total = add(total, c.realized);
-    n++;
+    // The newest row of either kind: a reader cut off before it cannot be served whole days.
     newest ??= c;
+    if (c.trade === 0) { firstAdjustmentTs = c.ts; continue; }
+    n++;
     oldest = c;
   }
   if (newest == null || oldest == null) {
@@ -80,7 +97,16 @@ export function recomputeDaily(db: Db, instanceId: string, source: CloseSource, 
      VALUES (?,?,?,?,?,?,?,?) ON CONFLICT(instance_id, strategy_id, source) DO UPDATE SET
        closes=excluded.closes, net_newest_first=excluded.net_newest_first, first_ts=excluded.first_ts,
        first_entry_ts=excluded.first_entry_ts, last_ts=excluded.last_ts`,
-  ).run(instanceId, strategyId, source, n, total, oldest.ts, oldest.entryTs ?? null, newest.ts);
+  ).run(instanceId, strategyId, source, n, total, oldest.ts, curveAnchor(oldest, firstAdjustmentTs), newest.ts);
+}
+
+/**
+ * Where a deal-built equity curve starts: when the strategy's first closed position opened, or its
+ * first adjustment when that came earlier (a dividend on a position still open).
+ */
+export function curveAnchor(firstClose: { ts: number; entryTs: number | null }, firstAdjustmentTs: number | null): number {
+  const opened = firstClose.entryTs ?? firstClose.ts;
+  return firstAdjustmentTs != null && firstAdjustmentTs < opened ? firstAdjustmentTs : opened;
 }
 
 /** Folds queued daily keys: one recompute per strategy and source, from its earliest changed day. */
@@ -99,7 +125,9 @@ export function recomputeDailyKeys(db: Db, rows: Array<{ instanceId: string; key
 export function dailyUnitsAfter(db: Db, after: { source: CloseSource; instanceId: string; strategyId: string } | null, limit: number): Array<{ source: CloseSource; instanceId: string; strategyId: string }> {
   const out: Array<{ source: CloseSource; instanceId: string; strategyId: string }> = [];
   const sql: Record<CloseSource, string> = {
-    deal: `SELECT DISTINCT instance_id instanceId, strategy_id strategyId FROM closed_trades
+    deal: `SELECT DISTINCT instance_id instanceId, strategy_id strategyId FROM (
+             SELECT instance_id, strategy_id FROM closed_trades
+             UNION SELECT instance_id, strategy_id FROM deals WHERE entry='ADJUSTMENT')
            WHERE strategy_id IS NOT NULL AND (instance_id, strategy_id) > (?, ?) ORDER BY instance_id, strategy_id LIMIT ?`,
     ledger: `SELECT DISTINCT instance_id instanceId, strategy_id strategyId FROM trade_closes
              WHERE strategy_id IS NOT NULL AND (instance_id, strategy_id) > (?, ?) ORDER BY instance_id, strategy_id LIMIT ?`,
