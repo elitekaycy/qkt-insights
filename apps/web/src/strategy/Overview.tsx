@@ -234,7 +234,7 @@ export function OverviewSection({ instanceId, strategyId, scope, q, toggle, a, b
         {a.instrument.length > 1 && (
           <Widget icon={ICON.coins} title="Where the money comes from" busy={busy}>
             <SignedBars
-              labelWidth="5.5rem"
+              labelWidth={a.instrument.some((b) => b.label.includes(":")) ? "8rem" : "5.5rem"}
               rows={a.instrument.map((b) => ({ key: b.key, label: b.label, value: b.pnl, n: b.n, pressed: chipOf(q, "symbol") === b.filter, onClick: () => toggle(b.filter), title: `${b.label}: ${b.wins} won, ${b.losses} lost` }))}
             />
           </Widget>
@@ -256,6 +256,11 @@ export function OverviewSection({ instanceId, strategyId, scope, q, toggle, a, b
                   <StatRow label="Commission · swap · fees">
                     <span className="text-body">{signedMoney(costs.total.commission, 0)} · {signedMoney(costs.total.swap, 0)} · {signedMoney(costs.total.fee, 0)}</span>
                   </StatRow>
+                  {costs.total.funding ? (
+                    <StatRow label="Perpetual funding" title="What the venue charged (negative) or paid the strategy's perpetual positions for funding; not in swap">
+                      <span className="text-body">{signedMoney(costs.total.funding)}</span>
+                    </StatRow>
+                  ) : null}
                 </>
               ) : (
                 <div className="pt-2 text-xs text-muted">The cost split needs broker deals; this strategy has none in the range.</div>

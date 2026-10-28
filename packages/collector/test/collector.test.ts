@@ -1,6 +1,6 @@
 import { describe, it, expect, beforeEach, afterEach } from "vitest";
 import Fastify, { type FastifyInstance } from "fastify";
-import { openDb, LiveBus, LiveStateStore, type Db } from "@qkt-insights/store";
+import { openDb, LiveBus, LiveStateStore, ignoredDeals, replaceIgnoredMagics, type Db } from "@qkt-insights/store";
 import { registerCollector } from "../src/index.js";
 import type { Envelope } from "@qkt-insights/contract";
 
@@ -164,6 +164,33 @@ describe("POST /ingest", () => {
     expect(res.statusCode).toBe(200);
     expect(db.prepare("SELECT COUNT(*) c FROM events").get()).toMatchObject({ c: 0 });
     expect(db.prepare("SELECT last_seen, last_seq FROM instances WHERE id='qkt-prod'").get()).toMatchObject({ last_seen: 1718000050000, last_seq: 42 });
+  });
+
+  it("keeps the deals, positions and orders of an ignored magic range out of the store, the live state and the bus", async () => {
+    replaceIgnoredMagics(db, { "qkt-prod": [{ lo: 31000, hi: 31199 }] });
+    const seen: Envelope[] = [];
+    bus.subscribe((e) => seen.push(e));
+    const position = (ticket: string, magic: number) => ({ ticket, symbol: "XAUUSD", side: "BUY", qty: 0.01, entryPrice: 4000, magic });
+    const res = await app.inject({
+      method: "POST", url: "/ingest",
+      headers: { authorization: "Bearer secret" },
+      payload: { instanceId: "qkt-prod", events: [
+        env({ id: "pos", type: "state.positions", payload: { broker: "EXNESS", positions: [position("1", 174), position("2", 31042)] } }),
+        env({ id: "ord", type: "state.orders", payload: { broker: "EXNESS", orders: [{ ticket: "3", symbol: "XAUUSD", side: "SELL", qty: 0.01, magic: 31042 }] } }),
+        env({ id: "deal", type: "broker.deal", payload: { broker: "EXNESS", dealTicket: "9", positionTicket: "2", symbol: "XAUUSD", side: "BUY", entry: "IN",
+          qty: 0.01, price: 4000, profit: 0, commission: -0.1, magic: 31042, strategyId: null, ts: 1718000000000 } }),
+      ] },
+    });
+    expect(res.statusCode).toBe(200);
+    expect(res.json().envelopes.map((s: { status: string }) => s.status)).toEqual(["accepted", "accepted", "accepted"]);
+    const live = liveState.snapshot(1718000000000);
+    expect(live.positions[0]!.list.map((p) => p.ticket)).toEqual(["1"]);
+    expect(live.orders[0]!.list).toEqual([]);
+    expect(db.prepare("SELECT ticket FROM positions_current").all()).toEqual([{ ticket: "1" }]);
+    expect(db.prepare("SELECT COUNT(*) c FROM deals").get()).toMatchObject({ c: 0 });
+    expect(ignoredDeals(db, "qkt-prod")).toEqual({ ranges: ["31000-31199"], deals: 1, net: -0.1 });
+    const published = seen.find((e) => e.type === "state.positions")!;
+    expect((published.payload as { positions: Array<{ ticket: string }> }).positions.map((p) => p.ticket)).toEqual(["1"]);
   });
 });
 

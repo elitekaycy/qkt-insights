@@ -91,7 +91,7 @@ export interface TripAnalytics {
   side: TripBucket[];
   ended: TripBucket[];
   hold: TripBucket[];
-  /** By instrument (broker-profile prefixes folded), largest share of trades first. */
+  /** By instrument (broker-profile prefixes folded, venues kept apart: TripRow.venue), largest share of trades first. */
   instrument: TripBucket[];
   weekday: TripBucket[];
   hour: TripBucket[];
@@ -182,9 +182,11 @@ export function analyzeTrips(rows: readonly TripRow[], counts: { total: number; 
     points.push({ id: t.id, exitTs: t.exitTs, pnl: p, cum });
 
     add(side[t.side], p);
-    const inst = instrument.get(t.instrument) ?? bucket(t.instrument, t.instrument, `symbol:${t.instrument}`);
+    // one bucket per venue for an instrument traded on several (TripRow.venue); its filter still selects every venue's
+    const key = t.venue ? `${t.venue}:${t.instrument}` : t.instrument;
+    const inst = instrument.get(key) ?? bucket(key, key, `symbol:${t.instrument}`);
     add(inst, p);
-    instrument.set(t.instrument, inst);
+    instrument.set(key, inst);
     if (t.ended) add(ended.get(t.ended)!, p);
     if (t.holdMs != null) add(hold.find((_, i) => t.holdMs! >= HOLD_BUCKETS[i]!.min && t.holdMs! < HOLD_BUCKETS[i]!.max) ?? hold[0]!, p);
     if (t.entryTs != null) {

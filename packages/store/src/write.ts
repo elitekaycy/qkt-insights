@@ -7,6 +7,7 @@ import { setInstanceCurrency } from "./money.js";
 import { isLiveStateType, type Envelope, type QuarantinedEnvelope } from "@qkt-insights/contract";
 import { strategyFromDealComment, withoutAccountCredentials } from "./inferredVenueFacts.js";
 import { strategyFromOrderComment } from "./retiredStrategies.js";
+import { isIgnoredMagic, recordIgnoredDeal } from "./ignoredMagics.js";
 
 /** A flat position still records one valuation this often so its holding period is visible. */
 /** A flat position is still re-marked this often, so a stored mark proves it was held. */
@@ -269,8 +270,8 @@ export function ingestEnvelopes(db: Db, instanceId: string, events: Envelope[], 
        (id, instance_id, broker, deal_ticket, position_ticket, order_ticket, symbol, side, entry,
         qty, price, profit, commission, swap, fee, magic, comment, strategy_id, ts,
         account_id, close_reason, realized_source, attribution, next_position_ticket, tick_size, value_per_point,
-        instrument_kind, contract_size, quantity_unit)
-     VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)`,
+        instrument_kind, contract_size, quantity_unit, funding)
+     VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)`,
   );
 
   const tx = db.transaction((evs: Envelope[]): IngestOutcome => {
@@ -306,9 +307,19 @@ export function ingestEnvelopes(db: Db, instanceId: string, events: Envelope[], 
       // no events row, no FTS row, idempotent by deterministic id.
       if (e.type === "broker.deal") {
         const p = e.payload;
+        // Another system's deal on a shared account (ignoredMagics.ts): kept apart, in no strategy or total.
+        if (isIgnoredMagic(db, instanceId, p.magic)) {
+          const costs = dealCosts(p);
+          if (recordIgnoredDeal(db, instanceId, { dealTicket: p.dealTicket, broker: p.broker, accountId: p.accountId ?? null, magic: p.magic!,
+            ts: p.ts, profit: p.profit, ...costs })) accepted++;
+          else duplicate();
+          upInstance.run({ id: instanceId, ts: e.ts, seq: e.seq, heardAt });
+          continue;
+        }
         // qkt names the position and the leg (positionId, legEntry); older releases only MT5's ticket and entry.
         const position = p.positionId ?? p.positionTicket ?? null;
-        const resolved = p.strategyId ?? resolveDealStrategy(db, instanceId, p.dealTicket, position, p.comment ?? null, p.attribution == null);
+        const accountId = p.accountId ?? null;
+        const resolved = p.strategyId ?? resolveDealStrategy(db, instanceId, p.dealTicket, accountId, position, p.comment ?? null, p.attribution == null);
         // A deal qkt could not attribute whose own order comment names a strategy: one retired since
         // (retiredStrategies.ts). It is this instance's own order, so it needs no locality check.
         const retired = resolved == null && p.attribution === "none" ? strategyFromOrderComment(p.comment ?? null) : null;
@@ -320,13 +331,14 @@ export function ingestEnvelopes(db: Db, instanceId: string, events: Envelope[], 
           costs.swap, costs.fee, p.magic ?? null, p.comment ?? null, strategyId, p.ts,
           p.accountId ?? null, p.closeReason ?? null, p.realizedSource ?? null, p.attribution ?? null, p.nextPositionId ?? null,
           p.instrument?.tickSize ?? null, p.instrument?.valuePerPoint ?? null,
-          p.instrument?.kind?.toLowerCase() ?? null, p.instrument?.contractSize ?? null, p.instrument?.quantityUnit ?? null);
+          p.instrument?.kind?.toLowerCase() ?? null, p.instrument?.contractSize ?? null, p.instrument?.quantityUnit ?? null,
+          costs.funding);
         if (info.changes === 0) {
           duplicate();
           // Re-ingested deal (the 30d backfill re-runs on every restart). If it
           // first stored unattributed but now resolves — its strategies row
           // appeared, or a sibling got attributed — fill the NULL instead of skipping.
-          if (strategyId && adoptUnattributed(db, instanceId, strategyId, p.dealTicket, position) > 0)
+          if (strategyId && adoptUnattributed(db, instanceId, strategyId, p.dealTicket, accountId, position) > 0)
             bumpStrategy(db, instanceId, strategyId);
           continue;
         }
@@ -334,7 +346,7 @@ export function ingestEnvelopes(db: Db, instanceId: string, events: Envelope[], 
         upInstance.run({ id: instanceId, ts: e.ts, seq: e.seq , heardAt });
         if (strategyId) {
           upStrategy.run({ i: instanceId, s: strategyId, ts: e.ts });
-          adoptUnattributed(db, instanceId, strategyId, p.dealTicket, position);
+          adoptUnattributed(db, instanceId, strategyId, p.dealTicket, accountId, position);
         }
         bumpStrategy(db, instanceId, strategyId);
         continue;
@@ -443,21 +455,24 @@ function isDealLocalToInstance(db: Db, instanceId: string, strategyId: string | 
   return known.length === 0 || known.some((row) => row.strategyId === strategyId);
 }
 
+/** SQL: a deals row on account `@a` (closedTrades.ts SAME_DEAL: a row or a deal that states no account matches any). */
+const SAME_ACCOUNT = "(account_id IS NULL OR @a IS NULL OR account_id=@a)";
+
 // A deal is sent once per broker profile that shares the account, so the same deal
 // ticket can sit in several rows; analytics reads the oldest row. Every row of the
 // ticket and every earlier leg of the position takes the owner as soon as one copy
 // knows it, so the row analytics picks is never the unattributed one.
 /** Returns how many rows took the owner. */
-function adoptUnattributed(db: Db, instanceId: string, strategyId: string, dealTicket: string, positionTicket: string | null): number {
+function adoptUnattributed(db: Db, instanceId: string, strategyId: string, dealTicket: string, accountId: string | null, positionTicket: string | null): number {
   // An UPDATE on deals runs its projection trigger program even when no row matches; a redelivered
   // deal (the common case) has nothing to adopt, so look before writing.
   const unattributed = statement(db,
-    `SELECT 1 FROM deals WHERE instance_id=@i AND deal_ticket=@d AND strategy_id IS NULL
+    `SELECT 1 FROM deals WHERE instance_id=@i AND deal_ticket=@d AND ${SAME_ACCOUNT} AND strategy_id IS NULL
      UNION ALL SELECT 1 FROM deals WHERE instance_id=@i AND position_ticket=@p AND strategy_id IS NULL LIMIT 1`,
-  ).get({ i: instanceId, d: dealTicket, p: positionTicket });
+  ).get({ i: instanceId, d: dealTicket, a: accountId, p: positionTicket });
   if (!unattributed) return 0;
-  let changes = statement(db, "UPDATE deals SET strategy_id=? WHERE instance_id=? AND deal_ticket=? AND strategy_id IS NULL")
-    .run(strategyId, instanceId, dealTicket).changes;
+  let changes = statement(db, `UPDATE deals SET strategy_id=@s WHERE instance_id=@i AND deal_ticket=@d AND ${SAME_ACCOUNT} AND strategy_id IS NULL`)
+    .run({ s: strategyId, i: instanceId, d: dealTicket, a: accountId }).changes;
   if (positionTicket)
     changes += statement(db, "UPDATE deals SET strategy_id=? WHERE instance_id=? AND position_ticket=? AND strategy_id IS NULL")
       .run(strategyId, instanceId, positionTicket).changes;
@@ -468,15 +483,20 @@ function adoptUnattributed(db: Db, instanceId: string, strategyId: string, dealT
 const COST_COLUMN: Record<string, "commission" | "swap"> = { COMMISSION: "commission", SWAP: "swap", FUNDING: "swap", BORROW: "swap" };
 
 /**
- * A deal's commission, swap and fee, negative when paid. A deal that sends typed `costs` (amount
- * positive when paid) is charged those alone: qkt then repeats them in the scalars, and adding both
- * would count them twice. Profit stays gross either way.
+ * A deal's commission, swap and fee, negative when paid, and the part of swap that is perpetual
+ * funding (kind FUNDING; null when the deal sends no typed costs). A deal that sends typed `costs`
+ * (amount positive when paid) is charged those alone: qkt then repeats them in the scalars, and
+ * adding both would count them twice. Profit stays gross either way.
  */
 function dealCosts(p: { costs?: Array<{ kind: string; amount: number }>; commission?: number; swap?: number; fee?: number }):
-  { commission: number | null; swap: number | null; fee: number | null } {
-  if (!Array.isArray(p.costs)) return { commission: p.commission ?? null, swap: p.swap ?? null, fee: p.fee ?? null };
-  const out = { commission: 0, swap: 0, fee: 0 };
-  for (const c of p.costs) out[COST_COLUMN[c.kind.toUpperCase()] ?? "fee"] -= c.amount;
+  { commission: number | null; swap: number | null; fee: number | null; funding: number | null } {
+  if (!Array.isArray(p.costs)) return { commission: p.commission ?? null, swap: p.swap ?? null, fee: p.fee ?? null, funding: null };
+  const out = { commission: 0, swap: 0, fee: 0, funding: 0 };
+  for (const c of p.costs) {
+    const kind = c.kind.toUpperCase();
+    out[COST_COLUMN[kind] ?? "fee"] -= c.amount;
+    if (kind === "FUNDING") out.funding -= c.amount;
+  }
   return out;
 }
 
@@ -485,11 +505,11 @@ function dealCosts(p: { costs?: Array<{ kind: string; amount: number }>; commiss
 // in qkt's map). The first recovery is any attributed sibling of the same deal ticket or
 // position: the IN leg keeps its attribution. A deal that states no `attribution` (an older qkt)
 // also gets the MT5 comment inference.
-function resolveDealStrategy(db: Db, instanceId: string, dealTicket: string, positionTicket: string | null, comment: string | null,
-  inferFromComment: boolean): string | null {
+function resolveDealStrategy(db: Db, instanceId: string, dealTicket: string, accountId: string | null, positionTicket: string | null,
+  comment: string | null, inferFromComment: boolean): string | null {
   const copy = statement(db,
-    "SELECT strategy_id s FROM deals WHERE instance_id=? AND deal_ticket=? AND strategy_id IS NOT NULL ORDER BY rowid LIMIT 1",
-  ).get(instanceId, dealTicket) as { s: string } | undefined;
+    `SELECT strategy_id s FROM deals WHERE instance_id=@i AND deal_ticket=@d AND ${SAME_ACCOUNT} AND strategy_id IS NOT NULL ORDER BY rowid LIMIT 1`,
+  ).get({ i: instanceId, d: dealTicket, a: accountId }) as { s: string } | undefined;
   if (copy) return copy.s;
   if (positionTicket) {
     const hit = statement(db,

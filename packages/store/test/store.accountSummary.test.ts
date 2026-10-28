@@ -47,7 +47,7 @@ describe("accountSummary", () => {
     expect(s.totalNet).toBeCloseTo(97.5 - 62.5 - 32.5, 9);
     expect(s.wins).toBe(1);
     expect(s.losses).toBe(2);
-    expect(s.costs).toEqual({ grossProfit: 10, commission: -6, swap: -1.5, fee: 0, net: 2.5 });
+    expect(s.costs).toEqual({ grossProfit: 10, commission: -6, swap: -1.5, funding: 0, fee: 0, net: 2.5 });
     expect(s.costs!.net).toBeCloseTo(s.totalNet, 9);
     expect(s.byStrategy.map((b) => [b.key, b.trades, b.net])).toEqual([["live", 1, 97.5], [null, 1, -32.5], ["retired", 1, -62.5]]);
     expect(s.byInstrument.map((b) => [b.key, b.trades])).toEqual([["XAUUSD", 2], ["EURUSD", 1]]);

@@ -271,9 +271,9 @@ export function instrumentOf(symbol: string | null | undefined): string {
   return i >= 0 ? symbol.slice(i + 1) : symbol;
 }
 
-/** A deal leg's net: venue profit plus every cost it booked (commission, swap, fee). */
-export function dealNet(d: { profit: number | null; commission: number | null; swap: number | null; fee?: number | null }): number {
-  return (d.profit ?? 0) + (d.commission ?? 0) + (d.swap ?? 0) + (d.fee ?? 0);
+/** A deal leg's net: venue profit plus every cost it booked (commission, swap, funding, fee). */
+export function dealNet(d: { profit: number | null; commission: number | null; swap: number | null; funding?: number | null; fee?: number | null }): number {
+  return (d.profit ?? 0) + (d.commission ?? 0) + (d.swap ?? 0) + (d.funding ?? 0) + (d.fee ?? 0);
 }
 
 /** A live position's open P&L as the venue floats it: profit plus accrued swap. */
