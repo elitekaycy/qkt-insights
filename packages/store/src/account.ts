@@ -1,6 +1,6 @@
 import type { Db } from "./db.js";
 import {
-  canonicalDeal, closeDealOf, closedTradeRows, fullyClosedPosition, instrumentOf, OUT_LEGS,
+  adjustmentRows, canonicalDeal, closeDealOf, closedTradeRows, fullyClosedPosition, instrumentOf, OUT_LEGS,
   type DayNet, type DealClosedTrade,
 } from "./analytics.js";
 import { addMoney, instanceMoneyDigits, roundMoney } from "./money.js";
@@ -150,6 +150,21 @@ export function accountSummary(db: Db, f: AccountFilter): AccountSummary {
     if (!inst.venues.includes(c.symbol)) inst.venues.push(c.symbol);
     bucket(byStrategy, c.strategyId, c, digits);
   });
+  // Venue adjustments (a stock CFD's dividend, a charge) are the account's money but no close: in the net, its day
+  // and its strategy's and instrument's buckets, never in a trade count or a win.
+  const ids = f.strategyIds ? JSON.stringify([...f.strategyIds]) : null;
+  for (const a of adjustmentRows(db, { instanceId: f.instanceId, from: f.from, to: f.to, closedPositionsOnly: f.closedPositionsOnly, strategyIds: ids })) {
+    totalNet = addMoney(totalNet, a.realized, digits);
+    const day = new Date(a.ts).toISOString().slice(0, 10);
+    const d = byDay.get(day) ?? { day, net: 0, trades: 0 };
+    d.net = addMoney(d.net, a.realized, digits);
+    byDay.set(day, d);
+    for (const [map, key] of [[byStrategy, a.strategyId], [byInstrument, instrumentOf(a.symbol)]] as const) {
+      const b = map.get(key) ?? { key, net: 0, trades: 0, wins: 0, losses: 0 };
+      b.net = addMoney(b.net, a.realized, digits);
+      map.set(key, b);
+    }
+  }
   return {
     closes: [...closes].reverse(),
     dailyNets: [...byDay.values()].sort((a, b) => (a.day < b.day ? -1 : 1)),

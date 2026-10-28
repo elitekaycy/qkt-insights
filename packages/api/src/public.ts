@@ -1,7 +1,7 @@
 import { createHash } from "node:crypto";
 import type { FastifyInstance, FastifyReply, FastifyRequest } from "fastify";
 import {
-  accountDrawdown, accountEquity, accountPerformance, accountRisk, closedTrades, fullyClosedPositions, journalStrategies, listDeals, listRoundTrips, listStrategyRoster, listTrades, openPositionsAt, portfolioGroupOf,
+  accountDrawdown, accountEquity, accountPerformance, accountRisk, adjustmentRows, closedTrades, fullyClosedPositions, journalStrategies, listDeals, listRoundTrips, listStrategyRoster, listTrades, openPositionsAt, portfolioGroupOf,
   roundTripAnalytics, roundTripFacets, roundTripTotals, ROUND_TRIP_SORTS, type RoundTripScope, type RoundTripSort,
   resolveVisibility, strategyEquityCurve, strategyStats, type AccountLimits, type Db, type LiveStateStore, type ShareKind, type ShareRow, type Shares, type StrategyRow, type Views,
 } from "@qkt-insights/store";
@@ -398,7 +398,8 @@ export function registerPublic(app: FastifyInstance, deps: PublicDeps): void {
 
   route("/strategies", {
     params: () => ({}),
-    compute: (scope, _p, cutoff) => scope.strategies.map((s) => publicStrategy(s, closedTrades(deps.db, strict(scope, s.strategyId, cutoff)), cutoff)),
+    compute: (scope, _p, cutoff) => scope.strategies.map((s) => publicStrategy(s, closedTrades(deps.db, strict(scope, s.strategyId, cutoff)),
+      adjustmentRows(deps.db, strict(scope, s.strategyId, cutoff)), cutoff)),
   });
 
   route("/stats", {
