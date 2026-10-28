@@ -104,7 +104,7 @@ its way out, what to send instead (`deprecated`). A type without an entry fails 
 
 ```json
 {
-  "contractVersion": "1.0.0",
+  "contractVersion": "1.1.0",
   "majors": [1],
   "types": [{ "type": "balances.updated", "since": "1.0.0" }, "..."],
   "maxBatch": null,
@@ -151,6 +151,7 @@ counts each inference and logs its first use and every thousandth: `venue fact i
 | `realizedSource` | deals | kept per leg: `venue`, or `engine` for a venue that reports no P&L | |
 | `initialStop`, `initialTarget`, `riskAmount` | entry fills, positions | a round trip's stop, target, risk and R | the entry order's submitted bracket; risk from the venue's gross over the move |
 | `instrument.tickSize`, `instrument.valuePerPoint` | deals, fills, positions | price precision; slippage in money | the decimals of observed prices and metal/FX names; the gross over the move |
+| `instrument.kind`, `instrument.contractSize`, `instrument.quantityUnit` (1.1.0; qkt does not send `quantityUnit` yet) | deals, positions | what a position is (CFD, share, spot coin, perpetual, dated future, option) and the unit of its size, on round trips and open positions (`packages/store/src/instrumentKind.ts`) | the unit from the kind: `cfd` lots, `equity` shares, `spot` coins, `perpetual`/`future`/`option` contracts; no kind, no unit |
 
 **Retired strategies.** qkt attributes a venue deal only to strategies it runs now, so a deal re-sent from
 history whose strategy was retired since arrives with `attribution: "none"`. When its opening deal carries a

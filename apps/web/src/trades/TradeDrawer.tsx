@@ -1,6 +1,6 @@
 import { useEffect, useRef, useState, type ReactNode } from "react";
 import { createPortal } from "react-dom";
-import { DASH, duration, money, pnl, quantity, signedMoney, toneClass, ts } from "../format";
+import { DASH, duration, kindLabel, money, pnl, quantity, signedMoney, sized, toneClass, ts } from "../format";
 import { PAGE_PATHS, useSearchParam } from "../router";
 import { usePositionPath, useTripDetail, type RoundTripDetail, type Slippage, type TimelineStep } from "./data";
 import { latency, preciseClock, px, rMultiple } from "./format";
@@ -181,7 +181,7 @@ function Body({ d, instanceId }: { d: RoundTripDetail; instanceId: string | null
       <div className="grid grid-cols-2 gap-x-4 gap-y-3 border-t border-line px-5 py-4 sm:grid-cols-3">
         <Stat label="Entry (UTC)">{t.entryTs != null ? ts(t.entryTs) : DASH}</Stat>
         <Stat label="Entry price">{px(t.entryPrice, t.priceDigits)}</Stat>
-        <Stat label="Size">{quantity(t.qty)} lots</Stat>
+        <Stat label={kindLabel(t.kind) ? `Size · ${kindLabel(t.kind)}` : "Size"}>{sized(t.qty, t.unit, t.contractSize)}</Stat>
         <Stat label="Exit (UTC)">{t.exitTs != null ? ts(t.exitTs) : t.status === "open" ? "still open" : DASH}</Stat>
         <Stat label="Exit price">{px(t.exitPrice, t.priceDigits)}</Stat>
         <Stat label="Held">{t.status === "open" ? DASH : duration(t.holdMs)}</Stat>

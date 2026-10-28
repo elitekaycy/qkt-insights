@@ -481,6 +481,11 @@ export interface LivePositionRow {
   requestedTakeProfit?: number;
   magic?: number;
   clientOrderId?: string;
+  /** The instrument's kind as qkt states it (cfd, equity, spot, perpetual, future, option). */
+  kind?: string;
+  /** What one unit of `qty` is: lots, shares, coins, contracts, or a unit qkt names. */
+  unit?: string;
+  contractSize?: number;
 }
 export interface LivePendingOrderRow {
   ticket: string;

@@ -4,6 +4,7 @@ import { opaqueAccountId } from "@qkt-insights/contract/accountIdentity";
 import { statement } from "./statements.js";
 import { bumpAccount } from "./versions.js";
 import { profileLabel, withoutAccountCredentials } from "./inferredVenueFacts.js";
+import { quantityUnitOf } from "./instrumentKind.js";
 
 export interface AccountState {
   broker: string; currency: string; balance: number; equity: number;
@@ -37,7 +38,14 @@ export interface LivePosition {
   positionId?: string; attribution?: string;
   /** The entry's initial stop and target, and its money at risk to that stop in account currency, when it had a bracket. */
   initialStop?: number; initialTarget?: number; riskAmount?: number;
+  /** The instrument's kind as qkt states it, the unit of `qty` (instrumentKind.ts) and the contract size, when known. */
+  kind?: string; unit?: string; contractSize?: number;
 }
+
+/** A position as `state.positions` reports it: the live fields, and the instrument facts they are read from. */
+type ReportedPosition = Omit<LivePosition, "kind" | "unit" | "contractSize"> & {
+  instrument?: { kind?: string | null; quantityUnit?: string | null; contractSize?: number | null } | null;
+};
 
 /** A resting (pending) order at the broker: limit/stop waiting to trigger. */
 export interface LivePendingOrder {
@@ -108,13 +116,14 @@ export class LiveStateStore {
       const key = `${instanceId}:${p.broker}`;
       const prev = this.positions.get(key);
       const previousStrategies = new Map(prev?.list.map((x) => [x.ticket, x.strategyId]));
-      const list: LivePosition[] = p.positions.map((x: LivePosition) => ({ ticket: x.ticket, symbol: x.symbol, side: x.side,
+      const list: LivePosition[] = p.positions.map((x: ReportedPosition) => ({ ticket: x.ticket, symbol: x.symbol, side: x.side,
         qty: x.qty, entryPrice: x.entryPrice, currentPrice: x.currentPrice, profit: x.profit, swap: x.swap,
         openedAt: x.openedAt, strategyId: x.strategyId ?? previousStrategies.get(x.ticket) ?? null,
         stopLoss: x.stopLoss, takeProfit: x.takeProfit,
         requestedStopLoss: x.requestedStopLoss, requestedTakeProfit: x.requestedTakeProfit,
         magic: x.magic, clientOrderId: x.clientOrderId,
-        ...stated({ positionId: x.positionId, attribution: x.attribution, initialStop: x.initialStop, initialTarget: x.initialTarget, riskAmount: x.riskAmount }) }));
+        ...stated({ positionId: x.positionId, attribution: x.attribution, initialStop: x.initialStop, initialTarget: x.initialTarget, riskAmount: x.riskAmount,
+          kind: x.instrument?.kind?.toLowerCase(), unit: quantityUnitOf(x.instrument?.kind, x.instrument?.quantityUnit), contractSize: x.instrument?.contractSize }) }));
       this.positions.set(key, { at: e.ts, list, accountId: p.accountId != null ? opaqueAccountId(p.accountId) : undefined });
       return !prev || JSON.stringify(prev.list) !== JSON.stringify(list);
     }

@@ -14,6 +14,12 @@ export interface RoundTrip {
   strategyId: string | null;
   symbol: string;
   instrument: string;
+  /** The instrument's kind as qkt states it on the deals (cfd, equity, spot, perpetual, future, option); absent or null when not stated. */
+  kind?: string | null;
+  /** What one unit of `qty` is (lots, shares, coins, contracts, or a unit qkt names); absent or null when unknown. */
+  unit?: string | null;
+  /** Underlying per unit of `qty`, as stated. */
+  contractSize?: number | null;
   side: "long" | "short";
   status: "open" | "closed";
   entryTs: number | null;
