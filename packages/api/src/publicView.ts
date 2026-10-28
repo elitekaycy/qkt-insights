@@ -126,13 +126,28 @@ export function publicDeal(d: DealRow & { fee?: number | null }) {
 /** A round trip without its venue ticket, order ids, broker profile, stop or target. */
 export function publicRoundTrip(r: TripRow) {
   return {
-    id: opaqueId(r.id), broker: null, strategyId: r.strategyId, symbol: publicSymbol(r.symbol), instrument: r.instrument,
+    id: opaqueId(r.id), broker: null, strategyId: r.strategyId, symbol: publicSymbol(r.symbol), instrument: r.instrument, venue: null,
     side: r.side, status: r.status, entryTs: r.entryTs, entryPrice: r.entryPrice, exitTs: r.exitTs, exitPrice: r.exitPrice, qty: r.qty,
     pnl: r.pnl, holdMs: r.holdMs, stopPrice: null, targetPrice: null, risk: null, r: r.r, ended: r.ended, legs: r.legs, entryOrderId: null, source: r.source, priceDigits: r.priceDigits,
   };
 }
 
 const publicBucket = (b: TripBucket): TripBucket => ({ key: b.key, label: b.label, filter: b.filter, n: b.n, wins: b.wins, losses: b.losses, pnl: b.pnl });
+
+/**
+ * Instrument buckets without the venue a multi-venue instrument's bucket names ("ALPACA:AAPL"): each keeps
+ * its own figures, numbered when the instrument repeats ("AAPL", "AAPL 2").
+ */
+function publicInstrumentBuckets(buckets: readonly TripBucket[]): TripBucket[] {
+  const seen = new Map<string, number>();
+  return buckets.map((b) => {
+    const name = publicSymbol(b.key);
+    const n = (seen.get(name) ?? 0) + 1;
+    seen.set(name, n);
+    const key = n === 1 ? name : `${name} ${n}`;
+    return { ...publicBucket(b), key, label: key };
+  });
+}
 
 /** The journal aggregates with every trade id made opaque. */
 export function publicTripAnalytics(a: TripAnalytics): TripAnalytics {
@@ -148,7 +163,7 @@ export function publicTripAnalytics(a: TripAnalytics): TripAnalytics {
     tradesTruncated: a.tradesTruncated,
     daily: a.daily.map((d) => ({ day: d.day, n: d.n, wins: d.wins, losses: d.losses, pnl: d.pnl })),
     monthly: a.monthly.map((m) => ({ day: m.day, n: m.n, wins: m.wins, losses: m.losses, pnl: m.pnl, grossWin: m.grossWin, grossLoss: m.grossLoss })),
-    side: a.side.map(publicBucket), ended: a.ended.map(publicBucket), hold: a.hold.map(publicBucket), instrument: a.instrument.map(publicBucket),
+    side: a.side.map(publicBucket), ended: a.ended.map(publicBucket), hold: a.hold.map(publicBucket), instrument: publicInstrumentBuckets(a.instrument),
     weekday: a.weekday.map(publicBucket), hour: a.hour.map(publicBucket),
   };
 }

@@ -113,11 +113,23 @@ function writeClosures(db: Db, instanceId: string, position: string): void {
   if (from != null) ins.run(instanceId, position, from, null);
 }
 
+/**
+ * SQL: rows `a` and `b` are copies of one venue deal: the same ticket on the same account. Every broker
+ * profile polling an account stores the account's deals, while two accounts can number their deals alike
+ * (a gateway paper account counts paper-1, paper-2, ...). A copy that states no account (an older qkt)
+ * matches any account.
+ */
+export const SAME_DEAL = (a: string, b: string) =>
+  `${a}.instance_id=${b}.instance_id AND ${a}.deal_ticket=${b}.deal_ticket
+   AND (${a}.account_id IS NULL OR ${b}.account_id IS NULL OR ${a}.account_id=${b}.account_id)`;
+
+/** Whether `deals` is the first-stored copy of its deal (SAME_DEAL). */
+const FIRST_COPY = `NOT EXISTS (SELECT 1 FROM deals d WHERE ${SAME_DEAL("d", "deals")} AND d.rowid<deals.rowid)`;
+
 /** Recomputes the canonical copy of a deal ticket (after a copy was removed or renumbered) and marks its positions. */
 export function recomputeTicket(db: Db, instanceId: string, dealTicket: string): void {
   statement(db,
-    `UPDATE deals SET canonical = (rowid = (SELECT MIN(dd.rowid) FROM deals dd WHERE dd.instance_id=deals.instance_id AND dd.deal_ticket=deals.deal_ticket))
-     WHERE instance_id=? AND deal_ticket=?`,
+    `UPDATE deals SET canonical = ${FIRST_COPY} WHERE instance_id=? AND deal_ticket=?`,
   ).run(instanceId, dealTicket);
   statement(db,
     `INSERT OR IGNORE INTO projection_dirty (kind, instance_id, key)
@@ -172,9 +184,7 @@ export function takeNewDeals(db: Db): void {
     return;
   }
   statement(db,
-    `UPDATE deals SET canonical = NOT EXISTS (
-       SELECT 1 FROM deals d WHERE d.instance_id=deals.instance_id AND d.deal_ticket=deals.deal_ticket AND d.rowid<deals.rowid)
-     WHERE rowid > ?`,
+    `UPDATE deals SET canonical = ${FIRST_COPY} WHERE rowid > ?`,
   ).run(wm);
   // An adjustment is money on its owner's day but no closed trade, so no position recompute queues that day.
   statement(db,
@@ -199,7 +209,7 @@ export function takeNewDeals(db: Db): void {
 /** Empties the closed-trade projection before a full rebuild. */
 export function clearClosedTrades(db: Db): void {
   statement(db,
-    `UPDATE deals SET canonical = (rowid = (SELECT MIN(dd.rowid) FROM deals dd WHERE dd.instance_id=deals.instance_id AND dd.deal_ticket=deals.deal_ticket))`,
+    `UPDATE deals SET canonical = ${FIRST_COPY}`,
   ).run();
   statement(db, "DELETE FROM closed_trades").run();
   statement(db, "DELETE FROM position_closures").run();

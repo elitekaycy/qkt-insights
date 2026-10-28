@@ -234,7 +234,7 @@ export function OverviewSection({ instanceId, strategyId, scope, q, toggle, a, b
         {a.instrument.length > 1 && (
           <Widget icon={ICON.coins} title="Where the money comes from" busy={busy}>
             <SignedBars
-              labelWidth="5.5rem"
+              labelWidth={a.instrument.some((b) => b.label.includes(":")) ? "8rem" : "5.5rem"}
               rows={a.instrument.map((b) => ({ key: b.key, label: b.label, value: b.pnl, n: b.n, pressed: chipOf(q, "symbol") === b.filter, onClick: () => toggle(b.filter), title: `${b.label}: ${b.wins} won, ${b.losses} lost` }))}
             />
           </Widget>

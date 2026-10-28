@@ -51,3 +51,8 @@ export const ENDED_TITLE: Record<string, string> = {
   venue: "The venue closed it (stop-out)",
   manual: "Closed by hand (qkt bot close)",
 };
+
+/** The instrument a round trip shows: with its venue ("ALPACA:AAPL") when the instance trades it on more than one. */
+export function tripInstrument(t: { instrument: string; venue?: string | null }): string {
+  return t.venue ? `${t.venue}:${t.instrument}` : t.instrument;
+}

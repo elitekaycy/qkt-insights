@@ -3,7 +3,7 @@ import { createPortal } from "react-dom";
 import { DASH, duration, money, pnl, quantity, signedMoney, toneClass, ts } from "../format";
 import { PAGE_PATHS, useSearchParam } from "../router";
 import { usePositionPath, useTripDetail, type RoundTripDetail, type Slippage, type TimelineStep } from "./data";
-import { latency, preciseClock, px, rMultiple } from "./format";
+import { latency, preciseClock, px, rMultiple, tripInstrument } from "./format";
 import { EndedBadge, SideText } from "./bits";
 import { PositionMap } from "./PositionMap";
 
@@ -270,7 +270,7 @@ export function TradeDrawer({ instanceId, order = [] }: { instanceId: string | n
         ref={panel}
         role="dialog"
         aria-modal="true"
-        aria-label={t ? `Round trip ${t.instrument} ${t.side}` : "Round trip"}
+        aria-label={t ? `Round trip ${tripInstrument(t)} ${t.side}` : "Round trip"}
         tabIndex={-1}
         className="sheet-in pad-safe-bottom absolute inset-x-0 bottom-0 flex max-h-[92dvh] flex-col overflow-hidden rounded-t-card border border-line-strong bg-panel shadow-pop outline-none sm:inset-y-0 sm:left-auto sm:right-0 sm:max-h-none sm:w-[min(40rem,94vw)] sm:rounded-none sm:border-y-0 sm:border-r-0"
       >
@@ -306,7 +306,7 @@ export function TradeDrawer({ instanceId, order = [] }: { instanceId: string | n
           {t ? (
             <>
               <div className="mt-2 flex flex-wrap items-center gap-x-3 gap-y-1">
-                <h2 className="text-xl font-headline text-bright">{t.instrument}</h2>
+                <h2 className="text-xl font-headline text-bright">{tripInstrument(t)}</h2>
                 <SideText side={t.side} />
                 <EndedBadge ended={t.ended} open={t.status === "open"} />
                 <span className="text-sm text-muted">{t.strategyId ?? "unattributed"}</span>
