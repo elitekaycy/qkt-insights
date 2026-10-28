@@ -160,7 +160,10 @@ strategy instead of "Unattributed" (`packages/store/src/retiredStrategies.ts`; m
 `041_retired_strategy_attribution` applies the same rule to stored history once). A comment cut inside the name
 names nothing and the deal stays unattributed. One account traded by two qkt instances would file the other
 instance's unattributable deals under that instance's strategy names here too, exactly where they are stored as
-unattributed today.
+unattributed today, unless the other instance's magic numbers are listed in `INSIGHTS_IGNORE_MAGICS`
+(docs/CONFIGURATION.md): its deals then go to `ignored_deals`, which only the balance continuity check and the
+Reconciliation card's count read, and its positions and pending orders are dropped from the live state
+(`packages/store/src/ignoredMagics.ts`).
 
 **Several venues on one instance.** Every broker profile polling an account sends the account's deals, so one
 venue deal can be stored once per profile; only the first copy counts (`deals.canonical`). Copies are rows with

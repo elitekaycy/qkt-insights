@@ -5,7 +5,7 @@ import websocket from "@fastify/websocket";
 import fastifyStatic from "@fastify/static";
 import compress from "@fastify/compress";
 import { setImmediate as yieldToEventLoop } from "node:timers/promises";
-import { openDb, checkpoint, reclaimFreePages, rebuildProjection, PROJECTIONS, LiveBus, LiveStateStore, MarketDataEpisodes, Monitors, Sessions, Shares, Views, onInference, pruneRetentionSteps, pruneStaleStrategiesSteps, replaceStrategyCapital, type PruneSteps } from "@qkt-insights/store";
+import { openDb, checkpoint, reclaimFreePages, rebuildProjection, PROJECTIONS, LiveBus, LiveStateStore, MarketDataEpisodes, Monitors, Sessions, Shares, Views, onInference, pruneRetentionSteps, pruneStaleStrategiesSteps, replaceIgnoredMagics, replaceStrategyCapital, type PruneSteps } from "@qkt-insights/store";
 import { registerCollector } from "@qkt-insights/collector";
 import {
   REQUESTS_PER_MINUTE, TotpVerifier, TtlCache, generateTotpSecret, hasSession, registerAuth, registerLive, registerPublic, registerRest, registerSecurity,
@@ -14,6 +14,7 @@ import {
 import { authAlertText, channelsFromEnv, parseHttpMonitors, parseMarketDataMonitor, sendAlert, startMonitors } from "./monitors.js";
 import { parseStrategyCapital } from "./capital.js";
 import { parseAccountLimits } from "./accountLimits.js";
+import { parseIgnoredMagics } from "./ignoredMagics.js";
 import { startReconciliation } from "./reconciliation.js";
 import { existsSync, readFileSync } from "node:fs";
 import { join, dirname } from "node:path";
@@ -81,8 +82,10 @@ export function totpSetupText(account: string): string {
 export async function buildServer(mode: Mode) {
   const capitals = parseStrategyCapital(process.env.STRATEGY_CAPITAL);
   const accountLimits = parseAccountLimits(process.env.INSIGHTS_ACCOUNT_LIMITS);
+  const ignoredMagics = parseIgnoredMagics(process.env.INSIGHTS_IGNORE_MAGICS);
   const db = openDb(env("INSIGHTS_DB", "/data/insights.db"));
   replaceStrategyCapital(db, capitals);
+  replaceIgnoredMagics(db, ignoredMagics);
   const bus = new LiveBus();
   const liveState = new LiveStateStore();
   const monitors = new Monitors(db);
