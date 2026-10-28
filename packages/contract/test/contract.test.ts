@@ -296,4 +296,12 @@ describe("enriched qkt payloads", () => {
     expect(EnvelopeSchema.safeParse({ ...base, type: "portfolio.equity.updated",
       payload: { portfolioId: "book", equity: 1010, realized: 10, unrealized: 0, ts: base.ts } }).success).toBe(true);
   });
+
+  it("reads a deal's instrument kind, contract size and the unit of its quantity when qkt states one", () => {
+    const r = EnvelopeSchema.safeParse({ ...base, type: "broker.deal", payload: {
+      broker: "DERIBIT", dealTicket: "d1", qty: 10, price: 67000, profit: 0, ts: base.ts,
+      instrument: { symbol: "DERIBIT:BTC_USDC_PERPETUAL", kind: "perpetual", contractSize: 0.001, quantityUnit: "contracts" },
+    } });
+    expect(r.success && r.data.type === "broker.deal" && r.data.payload.instrument).toMatchObject({ kind: "perpetual", contractSize: 0.001, quantityUnit: "contracts" });
+  });
 });

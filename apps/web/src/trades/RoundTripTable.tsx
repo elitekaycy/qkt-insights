@@ -1,5 +1,5 @@
 import { useEffect, useMemo, useRef, useState, type ReactNode } from "react";
-import { DASH, duration, pnl, quantity, toneClass } from "../format";
+import { DASH, duration, pnl, quantity, sized, toneClass } from "../format";
 import { Pill, RowChevron } from "../components/ui";
 import { useView } from "../view";
 import { useRoundTrips, type RoundTrip, type RoundTripTotals, type SortKey, type TripScope } from "./data";
@@ -28,7 +28,7 @@ const COLUMNS: Column[] = [
   { key: "entryPrice", label: "Entry", w: "92px", sort: "entryPrice", right: true },
   { key: "exit", label: "Exit (UTC)", w: "112px", sort: "exit" },
   { key: "exitPrice", label: "Exit", w: "92px", sort: "exitPrice", right: true },
-  { key: "size", label: "Size", w: "50px", sort: "size", right: true },
+  { key: "size", label: "Size", w: "64px", sort: "size", right: true },
   { key: "pnl", label: "P&L", w: "104px", sort: "pnl", right: true, title: "Realized, after commission, swap and fees" },
   { key: "r", label: "R", w: "66px", sort: "r", right: true, title: "P&L over the money at risk to the initial stop" },
   { key: "held", label: "Held", w: "74px", sort: "held", right: true },
@@ -80,7 +80,16 @@ function cells(t: RoundTrip, hide: ReadonlySet<string>): ReactNode[] {
     entryPrice: <Cell right className="text-body">{px(t.entryPrice, t.priceDigits)}</Cell>,
     exit: <Cell className="font-mono text-xs text-body">{t.status === "open" ? <Pill tone="info">open</Pill> : <span title={`${minuteStamp(t.exitTs)} UTC`}>{tableStamp(t.exitTs)}</span>}</Cell>,
     exitPrice: <Cell right className="text-body">{t.status === "open" ? DASH : px(t.exitPrice, t.priceDigits)}</Cell>,
-    size: <Cell right className="text-body">{quantity(t.qty)}</Cell>,
+    size: (
+      <Cell right className="text-body">
+        {t.unit ? (
+          <span title={sized(t.qty, t.unit, t.contractSize)}>
+            <span className="block truncate leading-tight">{quantity(t.qty)}</span>
+            <span className="block truncate text-[10px] leading-tight text-muted">{t.unit}</span>
+          </span>
+        ) : quantity(t.qty)}
+      </Cell>
+    ),
     pnl: <Cell right className={`font-semibold ${toneClass(t.pnlInExit ?? t.pnl)}`}>{t.pnl == null ? DASH : <TripPnl t={t} />}</Cell>,
     r: <Cell right className={t.r == null ? "text-faint" : toneClass(t.r)}>{t.r == null ? (t.status === "open" ? DASH : <span title="No stop known for this entry (none was sent, or its events are past retention), so no R">no stop</span>) : rMultiple(t.r)}</Cell>,
     held: <Cell right className="text-body">{t.status === "open" ? DASH : duration(t.holdMs)}</Cell>,

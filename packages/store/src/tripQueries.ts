@@ -6,6 +6,7 @@ import { refreshProjections } from "./projections.js";
 import { statement } from "./statements.js";
 import { instanceMoneyDigits, roundMoney } from "./money.js";
 import { digitsFromPrices, INFERRED_POINT_VALUE, PROFILE_SUFFIX } from "./inferredVenueFacts.js";
+import { quantityUnitOf } from "./instrumentKind.js";
 
 /*
  * Reads over the round_trips projection (one row per venue position, kept on write by the
@@ -26,6 +27,12 @@ export interface TripRow {
   strategyId: string | null;
   symbol: string;
   instrument: string;
+  /** The instrument's kind as qkt states it on the position's deals (cfd, equity, spot, perpetual, future, option); null when not stated. */
+  kind: string | null;
+  /** What one unit of `qty` is (instrumentKind.ts: lots, shares, coins, contracts, or a unit qkt names); null when unknown. */
+  unit: string | null;
+  /** Underlying per unit of `qty`, as stated; null when not stated. */
+  contractSize: number | null;
   /**
    * The venue the position is on, from its symbol's broker prefix without a profile suffix
    * ("EXNESS_S01:AAPL" -> "EXNESS"), when the instance trades this instrument on more than one
@@ -98,9 +105,18 @@ const COLUMNS = `t.position_ticket id, t.broker, t.strategy_id strategyId, coale
   t.side, CASE WHEN t.open = 1 THEN 'open' ELSE 'closed' END status, t.entry_ts entryTs, t.entry_price entryPrice,
   CASE WHEN t.open = 1 THEN NULL ELSE t.exit_ts END exitTs, CASE WHEN t.open = 1 THEN NULL ELSE t.exit_price END exitPrice,
   coalesce(t.qty, 0) qty, ${PNL} pnl, t.hold_ms holdMs, t.stop_price stopPrice, t.target_price targetPrice, ${RISK} risk, ${R} r,
-  ${ENDED} ended, t.legs, t.entry_order_id entryOrderId, t.source, t.close_reason closeReason`;
+  ${ENDED} ended, t.legs, t.entry_order_id entryOrderId, t.source, t.close_reason closeReason,
+  (SELECT json_array(d.instrument_kind, d.contract_size, d.quantity_unit) FROM deals d
+     WHERE d.instance_id=t.instance_id AND d.position_ticket=t.position_ticket
+       AND (d.instrument_kind IS NOT NULL OR d.quantity_unit IS NOT NULL) ORDER BY d.ts, d.rowid LIMIT 1) instrumentFacts`;
 
-type StoredTrip = Omit<TripRow, "priceDigits" | "venue">;
+type StoredTrip = Omit<TripRow, "priceDigits" | "kind" | "unit" | "contractSize" | "venue"> & { instrumentFacts: string | null };
+
+/** A stored row with the instrument facts of its deals read out (kind, unit, contract size). */
+function withInstrument({ instrumentFacts, ...r }: StoredTrip): Omit<TripRow, "priceDigits" | "venue"> {
+  const [kind, contractSize, stated] = instrumentFacts ? (JSON.parse(instrumentFacts) as [string | null, number | null, string | null]) : [null, null, null];
+  return { ...r, kind, unit: quantityUnitOf(kind, stated), contractSize };
+}
 
 const ENTRY_WINDOW_MS = 10 * 60_000;
 const AFTER_MS = 2 * 60_000;
@@ -178,7 +194,7 @@ const instrumentKey = (symbol: string | null): string => {
 };
 
 function withDigits(rows: StoredTrip[], digits: Map<string, number>, venues: ReadonlySet<string>): TripRow[] {
-  return rows.map((r) => ({ ...r, venue: venueOf(r, venues), priceDigits: digits.get(r.instrument) ?? digitsFromPrices([], r.instrument) }));
+  return rows.map((r) => ({ ...withInstrument(r), venue: venueOf(r, venues), priceDigits: digits.get(r.instrument) ?? digitsFromPrices([], r.instrument) }));
 }
 
 /** The venue a round trip names (TripRow.venue): only for an instrument in `venues` (multiVenueInstruments). */
@@ -558,7 +574,7 @@ export function roundTripDetail(db: Db, instanceId: string, id: string): RoundTr
   if (!stored) return null;
   const legs = venueLegs(db, instanceId, stored.id);
   const digits = digitsOf(legs.find((l) => l.tickSize != null)?.tickSize, legs.flatMap((l) => (l.price != null ? [l.price] : [])), stored.instrument);
-  const trip: TripRow = { ...stored, venue: venueOf(stored, multiVenueInstruments(db, instanceId)), priceDigits: digits };
+  const trip: TripRow = { ...withInstrument(stored), venue: venueOf(stored, multiVenueInstruments(db, instanceId)), priceDigits: digits };
   const ids = new Set<string>();
   if (trip.entryOrderId) ids.add(trip.entryOrderId);
   const ticket = trip.id;

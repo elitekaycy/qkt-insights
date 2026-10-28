@@ -11,10 +11,15 @@ const object = <T extends z.ZodRawShape>(shape: T) => z.object(shape).passthroug
 const opt = <T extends z.ZodTypeAny>(t: T) => t.nullable().optional();
 /** Which connector, venue and config entry an envelope is about: `{connector: "mt5", adapter: "exness", label: "EXNESS"}`. */
 const venue = object({ connector: opt(z.string()), adapter: opt(z.string()), label: opt(z.string()) });
-/** What one instrument is: qkt's symbol, the venue's code, its kind, contract size, tick, quote currency and account value of a point. */
+/**
+ * What one instrument is: qkt's symbol, the venue's code, its kind (cfd, equity, spot, perpetual, future, option),
+ * contract size, tick, quote currency and account value of a point. `quantityUnit` says what one unit of `qty` is
+ * (lots, shares, contracts, or a coin code); qkt does not send it yet, and the collector names a unit from `kind`
+ * until it does.
+ */
 const instrument = object({
   symbol: opt(z.string()), venueCode: opt(z.string()), kind: opt(z.string()), contractSize: opt(z.number()),
-  tickSize: opt(z.number()), quoteCurrency: opt(z.string()), valuePerPoint: opt(z.number()),
+  tickSize: opt(z.number()), quoteCurrency: opt(z.string()), valuePerPoint: opt(z.number()), quantityUnit: opt(z.string()),
 });
 /** A typed venue cost; `amount` is positive when paid. */
 const cost = object({ kind: z.string(), amount: z.number(), currency: opt(z.string()) });
@@ -294,7 +299,7 @@ export type EventType = keyof typeof payloadByType;
  * The contract this collector speaks, as semver. Minor: a new type or a new optional field. Major: a rename, a
  * removal or a change of meaning, which also takes a new envelope `v` (envelope.ts `SUPPORTED_MAJORS`).
  */
-export const CONTRACT_VERSION = "1.0.0";
+export const CONTRACT_VERSION = "1.1.0";
 
 /** When a type joined the contract and, once it is on its way out, what replaces it. */
 export interface EventTypeMeta {

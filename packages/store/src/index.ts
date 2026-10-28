@@ -25,3 +25,4 @@ export { inferenceCounts, onInference, withoutAccountCredentials, type Inference
 export * from "./reconciliation.js";
 export * from "./ignoredMagics.js";
 export * from "./retiredStrategies.js";
+export * from "./instrumentKind.js";
