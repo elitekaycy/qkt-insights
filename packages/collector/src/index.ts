@@ -7,7 +7,7 @@ import {
 } from "@qkt-insights/contract";
 import {
   ingestAck, ingestEnvelopes, persistStateEvent, quarantineEnvelopes, touchInstance, upsertRoster,
-  withoutAccountCredentials, type Db, type IngestStatus, type LiveBus, type LiveStateStore,
+  withoutAccountCredentials, withoutIgnoredHoldings, type Db, type IngestStatus, type LiveBus, type LiveStateStore,
 } from "@qkt-insights/store";
 
 export interface CollectorDeps { db: Db; bus: LiveBus; liveState: LiveStateStore; ingestToken: string }
@@ -121,7 +121,8 @@ export function registerCollector(app: FastifyInstance, deps: CollectorDeps): vo
     }
     // One envelope the contract cannot read must never cost the rest of the batch: qkt's journal
     // retries a rejected head batch forever. It is kept raw, acknowledged, and counted on Health.
-    const events = classes.flatMap((c) => (c.ok ? [c.value] : []));
+    // Holdings in a magic range the instance ignores (store ignoredMagics.ts) never reach the live state or the bus.
+    const events = classes.flatMap((c) => (c.ok ? [withoutIgnoredHoldings(deps.db, instanceId, c.value)] : []));
     const quarantined = classes.flatMap((c) => (c.ok ? [] : [{ ...c.quarantined, id: c.quarantined.id ?? contentId(c.quarantined.raw) }]));
     if (quarantined.length > 0) quarantineEnvelopes(deps.db, instanceId, quarantined);
 

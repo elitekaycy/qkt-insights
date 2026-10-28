@@ -14,6 +14,8 @@ export interface RoundTrip {
   strategyId: string | null;
   symbol: string;
   instrument: string;
+  /** The venue, when the instance trades this instrument on more than one venue account (an AAPL CFD beside an AAPL share). */
+  venue?: string | null;
   side: "long" | "short";
   status: "open" | "closed";
   entryTs: number | null;

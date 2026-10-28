@@ -5,6 +5,7 @@ import { refreshProjections } from "./projections.js";
 import { profileLabel } from "./inferredVenueFacts.js";
 import { instanceMoneyDigits, roundMoney, sumMoney } from "./money.js";
 import { bumpReconciliation } from "./versions.js";
+import { ignoredDeals, type IgnoredDeals } from "./ignoredMagics.js";
 
 /*
  * Venue reconciliation: proof that what insights stores matches the venue, from what qkt already
@@ -12,7 +13,8 @@ import { bumpReconciliation } from "./versions.js";
  *
  * - Balance continuity per complete UTC day: the balance change between the last snapshots at or
  *   before the day's two midnights equals the net (profit + commission + swap + fee) of the
- *   account's canonical deals between those snapshots. The snapshots' own times bound the deals, so
+ *   account's canonical deals between those snapshots (with the deals an ignored magic range keeps
+ *   out of every view, ignoredMagics.ts: another system's trades move the balance too). The snapshots' own times bound the deals, so
  *   an outage across midnight moves deals to the day the next snapshot lands in, never off the books.
  * - Open positions now: the venue's latest positions report against the open round trips.
  * - Ledger: the closed round trips add up to the deals of their positions.
@@ -141,6 +143,8 @@ export interface Reconciliation {
   checkedAt: number | null;
   /** Deals the latest run could not give to any account (counted, never in an account's checks). */
   unassigned: UnassignedDeals;
+  /** Deals an ignored magic range keeps out of every view (INSIGHTS_IGNORE_MAGICS): in the balance checks only. Read live. */
+  ignored: IgnoredDeals;
   accounts: AccountReconciliation[];
 }
 
@@ -244,11 +248,16 @@ function hasMinute(db: Db, instanceId: string, account: Account, from: number, t
   return account.labels.some((label) => seek.get(instanceId, label, from, to) != null);
 }
 
+/** The account's deals in (after, upTo], the ones an ignored magic range keeps apart included: they moved its balance too. */
 function dealsBetween(db: Db, instanceId: string, after: number, upTo: number): DealRow[] {
   return statement(db,
     `SELECT broker, account_id accountId, profit, commission, swap, fee FROM deals
-     WHERE instance_id=? AND ts>? AND ts<=? AND canonical=1`,
-  ).all(instanceId, after, upTo) as DealRow[];
+     WHERE instance_id=@i AND ts>@after AND ts<=@upTo AND canonical=1
+     UNION ALL
+     SELECT broker, account_id, profit, commission, swap, fee FROM ignored_deals g
+     WHERE g.instance_id=@i AND g.ts>@after AND g.ts<=@upTo
+       AND NOT EXISTS (SELECT 1 FROM deals d WHERE d.instance_id=g.instance_id AND d.deal_ticket=g.deal_ticket)`,
+  ).all({ i: instanceId, after, upTo }) as DealRow[];
 }
 
 /**
@@ -512,6 +521,7 @@ export function reconciliation(db: Db, instanceId: string): Reconciliation {
   return {
     instanceId, digits, checkedAt: run?.checkedAt ?? null,
     unassigned: { deals: run?.deals ?? 0, labels: run ? (JSON.parse(run.labels) as UnassignedDeals["labels"]) : [] },
+    ignored: ignoredDeals(db, instanceId),
     accounts,
   };
 }

@@ -2,7 +2,8 @@ import { describe, it, expect, beforeEach, afterEach } from "vitest";
 import Fastify, { type FastifyInstance } from "fastify";
 import cookie from "@fastify/cookie";
 import argon2 from "argon2";
-import { openDb, LiveStateStore, Sessions, reconcile, type Db } from "@qkt-insights/store";
+import { openDb, LiveStateStore, Sessions, ingestEvents, reconcile, replaceIgnoredMagics, type Db } from "@qkt-insights/store";
+import type { Envelope } from "@qkt-insights/contract";
 import { registerAuth } from "../src/auth.js";
 import { registerRest } from "../src/rest.js";
 
@@ -42,7 +43,23 @@ describe("GET /health/reconciliation", () => {
   });
 
   it("says why it is empty before the first run", async () => {
-    expect((await get(`/health/reconciliation?instance=${I}`)).json()).toEqual({ instanceId: I, digits: 2, checkedAt: null, unassigned: { deals: 0, labels: [] }, accounts: [] });
+    expect((await get(`/health/reconciliation?instance=${I}`)).json()).toEqual({ instanceId: I, digits: 2, checkedAt: null, unassigned: { deals: 0, labels: [] },
+      ignored: { ranges: [], deals: 0, net: 0 }, accounts: [] });
+  });
+
+  it("counts the deals an ignored magic range keeps out, and a new one changes the response", async () => {
+    replaceIgnoredMagics(db, { [I]: [{ lo: 31000, hi: 31199 }] });
+    reconcile(db, I, { now: OCT(4, 2) });
+    const first = await get(`/health/reconciliation?instance=${I}`);
+    expect(first.json().ignored).toEqual({ ranges: ["31000-31199"], deals: 0, net: 0 });
+    ingestEvents(db, I, [{
+      v: 1, instanceId: I, id: "soak-deal", seq: 1, ts: OCT(4, 1), type: "broker.deal",
+      payload: { broker: "ICM_S01", dealTicket: "77", positionTicket: "p77", symbol: "ICM:XAUUSD", side: "SELL", entry: "OUT", qty: 0.1, price: 2400,
+        profit: 12.5, commission: -0.25, magic: 31007, strategyId: null, ts: OCT(4, 1) },
+    } as Envelope]);
+    const next = await get(`/health/reconciliation?instance=${I}`, { "if-none-match": String(first.headers.etag) });
+    expect(next.statusCode).toBe(200);
+    expect(next.json().ignored).toEqual({ ranges: ["31000-31199"], deals: 1, net: 12.25 });
   });
 
   it("serves the stored run, and answers 304 until the next run writes", async () => {

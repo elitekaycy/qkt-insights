@@ -160,7 +160,21 @@ strategy instead of "Unattributed" (`packages/store/src/retiredStrategies.ts`; m
 `041_retired_strategy_attribution` applies the same rule to stored history once). A comment cut inside the name
 names nothing and the deal stays unattributed. One account traded by two qkt instances would file the other
 instance's unattributable deals under that instance's strategy names here too, exactly where they are stored as
-unattributed today.
+unattributed today, unless the other instance's magic numbers are listed in `INSIGHTS_IGNORE_MAGICS`
+(docs/CONFIGURATION.md): its deals then go to `ignored_deals`, which only the balance continuity check and the
+Reconciliation card's count read, and its positions and pending orders are dropped from the live state
+(`packages/store/src/ignoredMagics.ts`).
+
+**Several venues on one instance.** Every broker profile polling an account sends the account's deals, so one
+venue deal can be stored once per profile; only the first copy counts (`deals.canonical`). Copies are rows with
+the same deal ticket **on the same account** (`accountId`; a copy that states none matches any): two accounts can
+number their deals alike (each gateway paper account counts `paper-1`, `paper-2`, ...), and neither is then a copy
+of the other (`closedTrades.ts` `SAME_DEAL`, migration `043_deal_copies_per_account`). A strategy is recovered from
+a copy of the same deal only on its own account. An instrument the instance trades on more than one account (an
+`EXNESS_S01:AAPL` stock CFD beside an `ALPACA:AAPL` share) is two instruments to the journal: each round trip
+names its venue (`venue`, the symbol's broker prefix without a profile suffix), shown as `ALPACA:AAPL`, and the
+by-instrument aggregates keep one bucket per venue. Two accounts reporting the same `accountId` (two gateway paper
+accounts left on the default login `paper`) are one account to the collector: give each its own login.
 
 An engine close (`trade.closed`) is a round trip of its own only while neither its strategy nor its broker (the
 symbol's `LABEL:` prefix) has stored a venue deal, so an instance that trades an MT5 account and a venue that sends

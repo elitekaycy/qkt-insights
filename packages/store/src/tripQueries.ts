@@ -5,7 +5,7 @@ import { SWAP_ONLY, winRatePct } from "./analytics.js";
 import { refreshProjections } from "./projections.js";
 import { statement } from "./statements.js";
 import { instanceMoneyDigits, roundMoney } from "./money.js";
-import { digitsFromPrices, INFERRED_POINT_VALUE } from "./inferredVenueFacts.js";
+import { digitsFromPrices, INFERRED_POINT_VALUE, PROFILE_SUFFIX } from "./inferredVenueFacts.js";
 
 /*
  * Reads over the round_trips projection (one row per venue position, kept on write by the
@@ -26,6 +26,12 @@ export interface TripRow {
   strategyId: string | null;
   symbol: string;
   instrument: string;
+  /**
+   * The venue the position is on, from its symbol's broker prefix without a profile suffix
+   * ("EXNESS_S01:AAPL" -> "EXNESS"), when the instance trades this instrument on more than one
+   * venue account (an AAPL stock CFD beside an AAPL share); null when the instrument alone says it.
+   */
+  venue: string | null;
   side: TripSide;
   status: "open" | "closed";
   entryTs: number | null;
@@ -94,7 +100,7 @@ const COLUMNS = `t.position_ticket id, t.broker, t.strategy_id strategyId, coale
   coalesce(t.qty, 0) qty, ${PNL} pnl, t.hold_ms holdMs, t.stop_price stopPrice, t.target_price targetPrice, ${RISK} risk, ${R} r,
   ${ENDED} ended, t.legs, t.entry_order_id entryOrderId, t.source, t.close_reason closeReason`;
 
-type StoredTrip = Omit<TripRow, "priceDigits">;
+type StoredTrip = Omit<TripRow, "priceDigits" | "venue">;
 
 const ENTRY_WINDOW_MS = 10 * 60_000;
 const AFTER_MS = 2 * 60_000;
@@ -171,9 +177,39 @@ const instrumentKey = (symbol: string | null): string => {
   return (i >= 0 ? symbol.slice(i + 1) : symbol).toUpperCase();
 };
 
-function withDigits(rows: StoredTrip[], digits: Map<string, number>): TripRow[] {
-  return rows.map((r) => ({ ...r, priceDigits: digits.get(r.instrument) ?? digitsFromPrices([], r.instrument) }));
+function withDigits(rows: StoredTrip[], digits: Map<string, number>, venues: ReadonlySet<string>): TripRow[] {
+  return rows.map((r) => ({ ...r, venue: venueOf(r, venues), priceDigits: digits.get(r.instrument) ?? digitsFromPrices([], r.instrument) }));
 }
+
+/** The venue a round trip names (TripRow.venue): only for an instrument in `venues` (multiVenueInstruments). */
+function venueOf(r: { symbol: string; instrument: string; broker: string | null }, venues: ReadonlySet<string>): string | null {
+  if (!venues.has(r.instrument)) return null;
+  const i = r.symbol.lastIndexOf(":");
+  const prefix = i >= 0 ? r.symbol.slice(0, i) : r.broker;
+  return prefix ? prefix.toUpperCase().replace(PROFILE_SUFFIX, "") : null;
+}
+
+/**
+ * The instruments the instance's venue deals show on more than one venue account (the same stock
+ * as a CFD and as a share), which a round trip then names with its venue. Deals that state no
+ * account (an older qkt) never split an instrument. Cached until a deal is stored.
+ */
+export function multiVenueInstruments(db: Db, instanceId: string): ReadonlySet<string> {
+  const mark = (statement(db, "SELECT MAX(rowid) m FROM deals WHERE instance_id=?").get(instanceId) as { m: number | null }).m ?? 0;
+  let byInstance = venuesCache.get(db);
+  if (!byInstance) venuesCache.set(db, (byInstance = new Map()));
+  const hit = byInstance.get(instanceId);
+  if (hit && hit.mark === mark) return hit.instruments;
+  const instruments = new Set((statement(db,
+    `SELECT upper(substr(symbol, instr(symbol, ':') + 1)) i FROM deals
+     WHERE instance_id=? AND canonical=1 AND symbol IS NOT NULL AND account_id IS NOT NULL
+     GROUP BY i HAVING COUNT(DISTINCT account_id) > 1`,
+  ).all(instanceId) as Array<{ i: string }>).map((r) => r.i));
+  byInstance.set(instanceId, { mark, instruments });
+  return instruments;
+}
+
+const venuesCache = new WeakMap<Db, Map<string, { mark: number; instruments: ReadonlySet<string> }>>();
 
 /** A price at its row's precision, for text (CSV, timeline). */
 export function tripPrice(v: number | null | undefined, digits: number): string {
@@ -394,7 +430,7 @@ export function listRoundTrips(db: Db, q: RoundTripQuery): RoundTripPage {
   const digits = exit ? instanceMoneyDigits(db, q.instanceId) : 2;
   return {
     rows: withDigits(page.map(({ sortValue: _s, ...row }) => (row.pnlInExit == null ? row : { ...row, pnlInExit: roundMoney(row.pnlInExit, digits) })),
-      instrumentDigits(db, q.instanceId)),
+      instrumentDigits(db, q.instanceId), multiVenueInstruments(db, q.instanceId)),
     nextCursor: more && last ? encodeCursor([last.sortValue == null ? 1 : 0, last.sortValue, last.id]) : null,
   };
 }
@@ -522,7 +558,7 @@ export function roundTripDetail(db: Db, instanceId: string, id: string): RoundTr
   if (!stored) return null;
   const legs = venueLegs(db, instanceId, stored.id);
   const digits = digitsOf(legs.find((l) => l.tickSize != null)?.tickSize, legs.flatMap((l) => (l.price != null ? [l.price] : [])), stored.instrument);
-  const trip: TripRow = { ...stored, priceDigits: digits };
+  const trip: TripRow = { ...stored, venue: venueOf(stored, multiVenueInstruments(db, instanceId)), priceDigits: digits };
   const ids = new Set<string>();
   if (trip.entryOrderId) ids.add(trip.entryOrderId);
   const ticket = trip.id;

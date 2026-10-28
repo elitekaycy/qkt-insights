@@ -64,3 +64,8 @@ export function legCosts(l: { commission: number | null; swap: number | null; fu
     parts: booked.map(([k, v]) => `${k} ${signedMoney(v)}`).join(" · "),
   };
 }
+
+/** The instrument a round trip shows: with its venue ("ALPACA:AAPL") when the instance trades it on more than one. */
+export function tripInstrument(t: { instrument: string; venue?: string | null }): string {
+  return t.venue ? `${t.venue}:${t.instrument}` : t.instrument;
+}
