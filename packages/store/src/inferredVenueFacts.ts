@@ -131,9 +131,12 @@ export function withoutAccountCredentials<T>(payload: T): T {
   return redactAccountIdentity(payload, () => used("login-server-account"));
 }
 
+/** The suffix qkt gives a per-strategy broker profile's label: "ICM_S05". */
+export const PROFILE_SUFFIX = /_S\d+$/u;
+
 /** The broker label of a per-profile copy without its profile suffix: "ICM_S05" -> "ICM". */
 export function profileLabel(broker: string): string {
-  const label = broker.replace(/_S\d+$/u, "");
+  const label = broker.replace(PROFILE_SUFFIX, "");
   if (label !== broker) used("profile-label");
   return label;
 }
