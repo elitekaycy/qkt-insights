@@ -62,7 +62,12 @@ export interface RoundTripTotals {
   avg: number | null;
   best: number | null;
   worst: number | null;
+  /** `net` per account currency; more than one means `net` adds them 1:1 and the split is shown instead (absent from an older collector). */
+  currencies?: CurrencyNet[];
 }
+
+/** The net of the round trips booked in one account currency; null when no account reported one. */
+export interface CurrencyNet { currency: string | null; net: number; n: number }
 
 export interface RoundTripPage {
   rows: RoundTrip[];

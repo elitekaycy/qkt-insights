@@ -1,6 +1,6 @@
 import { keepPreviousData, useQuery } from "@tanstack/react-query";
 import { get } from "../api";
-import { tripParams, type TripScope } from "./data";
+import { tripParams, type CurrencyNet, type TripScope } from "./data";
 
 /*
  * The journal aggregates (/round-trips/analytics): every card, chart and table of a strategy's
@@ -26,6 +26,8 @@ export interface TripPoint { id: string; exitTs: number; pnl: number; cum: numbe
 export interface TripAnalytics {
   total: number;
   matched: number;
+  /** `pnl` per account currency (RoundTripTotals.currencies); absent from an older collector. */
+  currencies?: CurrencyNet[];
   closed: number;
   open: number;
   pnl: number;

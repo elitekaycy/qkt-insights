@@ -1,5 +1,6 @@
 import { useSearchParam } from "../router";
 import { count, pnl, toneClass, winPct } from "../format";
+import { currencyName, splitNets } from "../currencies";
 import type { RoundTripTotals, SortKey } from "./data";
 
 const SORTS: ReadonlySet<string> = new Set<SortKey>(["entry", "exit", "pnl", "r", "held", "size", "strategy", "symbol", "side", "entryPrice", "exitPrice", "ended", "ticket"]);
@@ -22,6 +23,7 @@ export function TripCount({ totals, loading, unit = "round trips", compactOnPhon
   compactOnPhone?: boolean;
 }) {
   if (!totals) return <span className="text-sm text-muted">{loading ? "Loading…" : ""}</span>;
+  const split = splitNets(totals.currencies);
   const wide = compactOnPhone ? "max-sm:hidden" : "";
   const phone = compactOnPhone ? "sm:hidden" : "hidden";
   return (
@@ -36,7 +38,18 @@ export function TripCount({ totals, loading, unit = "round trips", compactOnPhon
       {totals.matched > 0 && (
         <span>
           <span className={wide}>{" · net "}</span>
-          <b className={`font-semibold ${toneClass(totals.net)}`} title={totals.netInExit ? "Realized by the closing legs inside the exit: range, as the calendar books it" : undefined}>{pnl(totals.net)}</b>
+          {split ? (
+            <span title="The accounts book in different currencies: each currency's net, never added together">
+              {split.map((c, i) => (
+                <span key={c.currency ?? ""}>
+                  {i > 0 && " · "}
+                  <b className={`font-semibold ${toneClass(c.net)}`}>{pnl(c.net)}</b> {currencyName(c.currency)}
+                </span>
+              ))}
+            </span>
+          ) : (
+            <b className={`font-semibold ${toneClass(totals.net)}`} title={totals.netInExit ? "Realized by the closing legs inside the exit: range, as the calendar books it" : undefined}>{pnl(totals.net)}</b>
+          )}
           <span className={wide}>
             {" · win rate "}
             <b className="font-semibold text-bright" title="Winning over decided closed round trips; breakeven ones excluded">{winPct(totals.winRate)}</b>

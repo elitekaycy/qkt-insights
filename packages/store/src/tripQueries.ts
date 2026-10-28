@@ -7,6 +7,7 @@ import { statement } from "./statements.js";
 import { instanceMoneyDigits, roundMoney } from "./money.js";
 import { digitsFromPrices, INFERRED_POINT_VALUE, PROFILE_SUFFIX } from "./inferredVenueFacts.js";
 import { quantityUnitOf } from "./instrumentKind.js";
+import { instanceCurrencies, TRIP_CURRENCY, type CurrencyNet } from "./currencies.js";
 
 /*
  * Reads over the round_trips projection (one row per venue position, kept on write by the
@@ -27,6 +28,8 @@ export interface TripRow {
   strategyId: string | null;
   symbol: string;
   instrument: string;
+  /** The currency of the account it was booked on (currencies.ts); null when no account reported one. */
+  currency: string | null;
   /** The instrument's kind as qkt states it on the position's deals (cfd, equity, spot, perpetual, future, option); null when not stated. */
   kind: string | null;
   /** What one unit of `qty` is (instrumentKind.ts: lots, shares, coins, contracts, or a unit qkt names); null when unknown. */
@@ -105,7 +108,7 @@ const COLUMNS = `t.position_ticket id, t.broker, t.strategy_id strategyId, coale
   t.side, CASE WHEN t.open = 1 THEN 'open' ELSE 'closed' END status, t.entry_ts entryTs, t.entry_price entryPrice,
   CASE WHEN t.open = 1 THEN NULL ELSE t.exit_ts END exitTs, CASE WHEN t.open = 1 THEN NULL ELSE t.exit_price END exitPrice,
   coalesce(t.qty, 0) qty, ${PNL} pnl, t.hold_ms holdMs, t.stop_price stopPrice, t.target_price targetPrice, ${RISK} risk, ${R} r,
-  ${ENDED} ended, t.legs, t.entry_order_id entryOrderId, t.source, t.close_reason closeReason,
+  ${ENDED} ended, t.legs, t.entry_order_id entryOrderId, t.source, t.close_reason closeReason, ${TRIP_CURRENCY("t")} currency,
   (SELECT json_array(d.instrument_kind, d.contract_size, d.quantity_unit) FROM deals d
      WHERE d.instance_id=t.instance_id AND d.position_ticket=t.position_ticket
        AND (d.instrument_kind IS NOT NULL OR d.quantity_unit IS NOT NULL) ORDER BY d.ts, d.rowid LIMIT 1) instrumentFacts`;
@@ -277,6 +280,12 @@ export interface RoundTripTotals {
   net: number;
   /** Whether `net` is the closing legs inside the query's `exit:` window. */
   netInExit: boolean;
+  /**
+   * `net` and the matched count per account currency, largest count first. `net` adds them 1:1, so a reader
+   * shows these instead when there is more than one. With one known currency (or none) the instance's money
+   * is not split: a single entry holds all of it.
+   */
+  currencies: CurrencyNet[];
   wins: number;
   losses: number;
   /** Winning over decided closed round trips, in percent; null when none was decided. */
@@ -471,7 +480,16 @@ export function roundTripTotals(db: Db, q: RoundTripQuery): RoundTripTotals {
      FROM round_trips t WHERE ${sql.where.join(" AND ")}`,
   ).get(sql.params) as Omit<RoundTripTotals, "total" | "winRate" | "netInExit">;
   // the stored figures are at the minor unit; their float sum is brought back to it
-  return { total, ...a, net: roundMoney(a.net, instanceMoneyDigits(db, q.instanceId)), netInExit: exit != null, winRate: winRatePct(a.wins, a.losses) };
+  const digits = instanceMoneyDigits(db, q.instanceId);
+  const net = roundMoney(a.net, digits);
+  const known = instanceCurrencies(db, q.instanceId);
+  const currencies = known.length > 1
+    ? (db.prepare(
+      `SELECT ${TRIP_CURRENCY("t")} currency, COALESCE(SUM(${exit ? realizedInExit(exit, sql) : "t.realized"}),0) net, COUNT(*) n
+       FROM round_trips t WHERE ${sql.where.join(" AND ")} GROUP BY 1 ORDER BY n DESC, currency IS NULL, currency`,
+    ).all(sql.params) as CurrencyNet[]).map((c) => ({ ...c, net: roundMoney(c.net, digits) }))
+    : a.matched > 0 ? [{ currency: known[0] ?? null, net, n: a.matched }] : [];
+  return { total, ...a, net, netInExit: exit != null, winRate: winRatePct(a.wins, a.losses), currencies };
 }
 
 export interface RoundTripFacets {

@@ -22,6 +22,8 @@ export interface InstanceRow {
   /** Collector clock; null only for rows older than the column. */ heardAt: number | null;
   /** The latest silence longer than an outage in the instance's own stream, on the collector's clock; null without one. */
   silentFrom: number | null; silentTo: number | null;
+  /** The currencies its venue accounts book in (currencies.ts), A to Z; more than one means money is split by currency. */
+  currencies: string[];
 }
 export interface StrategyRow { strategyId: string; firstSeen: number; lastSeen: number; startingBalance: number | null; /** Operator-declared capital (STRATEGY_CAPITAL); wins over startingBalance as the strategy's base. */ definedCapital: number | null; metadata: Record<string, unknown> | null; realizedNet: number | null; dealCount: number; active: boolean }
 export interface TradeRow { id: string; strategyId: string | null; ts: number; payload: unknown }
@@ -38,7 +40,12 @@ export interface HealthRow {
 export interface QuarantineCount { type: string | null; v: number | null; count: number; lastReceivedAt: number; reason: string }
 
 export function listInstances(db: Db): InstanceRow[] {
-  return db.prepare("SELECT id, name, first_seen firstSeen, last_seen lastSeen, last_seq lastSeq, heard_at heardAt, silent_from silentFrom, silent_to silentTo FROM instances ORDER BY id").all() as InstanceRow[];
+  const rows = db.prepare(
+    `SELECT id, name, first_seen firstSeen, last_seen lastSeen, last_seq lastSeq, heard_at heardAt, silent_from silentFrom, silent_to silentTo,
+       (SELECT json_group_array(currency) FROM (SELECT DISTINCT c.currency FROM account_currencies c WHERE c.instance_id=instances.id ORDER BY c.currency)) currencies
+     FROM instances ORDER BY id`,
+  ).all() as Array<Omit<InstanceRow, "currencies"> & { currencies: string }>;
+  return rows.map((r) => ({ ...r, currencies: JSON.parse(r.currencies) as string[] }));
 }
 
 /** The roster without realized figures: cheap enough for visibility checks that run per request. */
