@@ -414,8 +414,8 @@ export interface AccountSummary {
   breakeven: number;
   sumWins: number;
   sumLosses: number;
-  /** Gross = before commission, swap and fee. Null without broker deals. */
-  costs: { grossProfit: number; commission: number; swap: number; fee: number; net: number } | null;
+  /** Gross = before commission, swap, funding and fee; swap excludes perpetual funding. Null without broker deals. */
+  costs: { grossProfit: number; commission: number; swap: number; funding?: number; fee: number; net: number } | null;
   byInstrument: AccountBucket[];
   byStrategy: AccountBucket[];
   /** Capital each traded month's return is measured against. */
@@ -528,7 +528,10 @@ export interface DealRow {
   price: number | null;
   profit: number | null;
   commission: number | null;
+  /** Swap without perpetual funding. */
   swap: number | null;
+  /** Perpetual funding, negative when paid (absent from an older collector). */
+  funding?: number;
   fee: number | null;
   magic: number | null;
   comment: string | null;
@@ -583,7 +586,9 @@ export interface CostRow {
   key: string;
   grossProfit: number;
   commission: number;
+  /** Swap without perpetual funding. */
   swap: number;
+  funding?: number;
   fee: number;
   net: number;
   trades: number;

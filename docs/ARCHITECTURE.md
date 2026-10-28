@@ -147,7 +147,7 @@ counts each inference and logs its first use and every thousandth: `venue fact i
 | `strategyId` + `attribution` | deals, positions, orders, fills | the strategy of a deal | a `dsl-<strategy>` deal comment |
 | `positionId`, `legEntry`, `nextPositionId` | deals, fills, `trade.closed` | round-trip identity and leg | `positionTicket`, `entry`; the entry order by its broker ticket |
 | `closeReason` | closing deals, fills, `trade.closed` | `ended`: STOP stop, TAKE_PROFIT tp, STOP_OUT/LIQUIDATION/EXPIRY venue, MANUAL manual, SIGNAL/TIMED signal | `[sl` / `[tp` / `[so` deal comments, then `qkt bot close` and close orders near the exit |
-| `costs[]` | deals | commission, swap (funding, borrow), fee (the rest): the deal's costs, once | the `commission` / `swap` / `fee` scalars, which repeat them when `costs` is sent |
+| `costs[]` | deals | commission, swap (funding, borrow), fee (the rest): the deal's costs, once; the FUNDING part is also kept as `deals.funding`, so reads show swap without funding and perpetual funding apart (nets unchanged) | the `commission` / `swap` / `fee` scalars, which repeat them when `costs` is sent; no funding is known then |
 | `realizedSource` | deals | kept per leg: `venue`, or `engine` for a venue that reports no P&L | |
 | `initialStop`, `initialTarget`, `riskAmount` | entry fills, positions | a round trip's stop, target, risk and R | the entry order's submitted bracket; risk from the venue's gross over the move |
 | `instrument.tickSize`, `instrument.valuePerPoint` | deals, fills, positions | price precision; slippage in money | the decimals of observed prices and metal/FX names; the gross over the move |

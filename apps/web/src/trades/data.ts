@@ -76,7 +76,9 @@ export interface TimelineStep { ts: number; kind: string; title: string; detail:
 export interface Slippage { reference: number; fill: number; points: number; money: number | null; basis: "reference price" | "stop" | "target" }
 export interface RoundTripLeg {
   dealTicket: string; orderTicket: string | null; broker: string; symbol: string | null; side: string | null; entry: string | null;
-  qty: number | null; price: number | null; profit: number | null; commission: number | null; swap: number | null; fee: number | null;
+  qty: number | null; price: number | null; profit: number | null; commission: number | null;
+  /** Swap without perpetual funding; funding: perpetual funding (absent from an older collector). */
+  swap: number | null; funding?: number; fee: number | null;
   net: number; comment: string | null; ts: number;
 }
 export interface RoundTripDetail {

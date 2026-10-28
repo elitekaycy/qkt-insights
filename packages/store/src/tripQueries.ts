@@ -1,7 +1,7 @@
 import type { QueryFilter, Range, Window } from "@qkt-insights/contract/query";
 import { decimalsOf, MAX_PRICE_DIGITS, roundPrice } from "@qkt-insights/contract/prices";
 import type { Db } from "./db.js";
-import { winRatePct } from "./analytics.js";
+import { SWAP_ONLY, winRatePct } from "./analytics.js";
 import { refreshProjections } from "./projections.js";
 import { statement } from "./statements.js";
 import { instanceMoneyDigits, roundMoney } from "./money.js";
@@ -498,8 +498,10 @@ export function* roundTripPages(db: Db, q: RoundTripQuery, pageSize = 1000): Gen
 
 export interface RoundTripLeg {
   dealTicket: string; orderTicket: string | null; broker: string; symbol: string | null; side: string | null; entry: string | null;
-  qty: number | null; price: number | null; profit: number | null; commission: number | null; swap: number | null; fee: number | null;
-  /** profit + commission + swap + fee. */
+  qty: number | null; price: number | null; profit: number | null; commission: number | null;
+  /** Swap without perpetual funding; funding: the leg's perpetual funding (0 when it states none). */
+  swap: number | null; funding: number; fee: number | null;
+  /** profit + commission + swap + funding + fee. */
   net: number; comment: string | null; ts: number;
   /** Why this leg closed, as qkt stated it; null for an opening leg or when not stated. */
   closeReason: string | null;
@@ -597,10 +599,11 @@ export function roundTripDetail(db: Db, instanceId: string, id: string): RoundTr
 
 function venueLegs(db: Db, instanceId: string, ticket: string): RoundTripLeg[] {
   const rows = statement(db, `SELECT d.deal_ticket dealTicket, d.order_ticket orderTicket, d.broker, d.symbol, d.side, d.entry, d.qty, d.price,
-      d.profit, d.commission, d.swap, d.fee, d.comment, d.ts, d.close_reason closeReason, d.realized_source realizedSource,
+      d.profit, d.commission, CASE WHEN d.swap IS NULL THEN NULL ELSE ${SWAP_ONLY("d")} END swap, COALESCE(d.funding,0) funding, d.fee,
+      d.comment, d.ts, d.close_reason closeReason, d.realized_source realizedSource,
       d.tick_size tickSize, d.value_per_point valuePerPoint
     FROM deals d WHERE d.instance_id=? AND d.position_ticket=? AND d.canonical=1 ORDER BY d.ts, d.rowid`).all(instanceId, ticket) as Omit<RoundTripLeg, "net">[];
-  return rows.map((l) => ({ ...l, net: (l.profit ?? 0) + (l.commission ?? 0) + (l.swap ?? 0) + (l.fee ?? 0) }));
+  return rows.map((l) => ({ ...l, net: (l.profit ?? 0) + (l.commission ?? 0) + (l.swap ?? 0) + l.funding + (l.fee ?? 0) }));
 }
 
 /**

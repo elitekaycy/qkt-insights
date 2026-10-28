@@ -269,8 +269,8 @@ export function ingestEnvelopes(db: Db, instanceId: string, events: Envelope[], 
     `INSERT OR IGNORE INTO deals
        (id, instance_id, broker, deal_ticket, position_ticket, order_ticket, symbol, side, entry,
         qty, price, profit, commission, swap, fee, magic, comment, strategy_id, ts,
-        account_id, close_reason, realized_source, attribution, next_position_ticket, tick_size, value_per_point)
-     VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)`,
+        account_id, close_reason, realized_source, attribution, next_position_ticket, tick_size, value_per_point, funding)
+     VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)`,
   );
 
   const tx = db.transaction((evs: Envelope[]): IngestOutcome => {
@@ -329,7 +329,7 @@ export function ingestEnvelopes(db: Db, instanceId: string, events: Envelope[], 
           p.symbol ?? null, p.side ?? null, p.legEntry ?? p.entry ?? null, p.qty, p.price, p.profit, costs.commission,
           costs.swap, costs.fee, p.magic ?? null, p.comment ?? null, strategyId, p.ts,
           p.accountId ?? null, p.closeReason ?? null, p.realizedSource ?? null, p.attribution ?? null, p.nextPositionId ?? null,
-          p.instrument?.tickSize ?? null, p.instrument?.valuePerPoint ?? null);
+          p.instrument?.tickSize ?? null, p.instrument?.valuePerPoint ?? null, costs.funding);
         if (info.changes === 0) {
           duplicate();
           // Re-ingested deal (the 30d backfill re-runs on every restart). If it
@@ -480,15 +480,20 @@ function adoptUnattributed(db: Db, instanceId: string, strategyId: string, dealT
 const COST_COLUMN: Record<string, "commission" | "swap"> = { COMMISSION: "commission", SWAP: "swap", FUNDING: "swap", BORROW: "swap" };
 
 /**
- * A deal's commission, swap and fee, negative when paid. A deal that sends typed `costs` (amount
- * positive when paid) is charged those alone: qkt then repeats them in the scalars, and adding both
- * would count them twice. Profit stays gross either way.
+ * A deal's commission, swap and fee, negative when paid, and the part of swap that is perpetual
+ * funding (kind FUNDING; null when the deal sends no typed costs). A deal that sends typed `costs`
+ * (amount positive when paid) is charged those alone: qkt then repeats them in the scalars, and
+ * adding both would count them twice. Profit stays gross either way.
  */
 function dealCosts(p: { costs?: Array<{ kind: string; amount: number }>; commission?: number; swap?: number; fee?: number }):
-  { commission: number | null; swap: number | null; fee: number | null } {
-  if (!Array.isArray(p.costs)) return { commission: p.commission ?? null, swap: p.swap ?? null, fee: p.fee ?? null };
-  const out = { commission: 0, swap: 0, fee: 0 };
-  for (const c of p.costs) out[COST_COLUMN[c.kind.toUpperCase()] ?? "fee"] -= c.amount;
+  { commission: number | null; swap: number | null; fee: number | null; funding: number | null } {
+  if (!Array.isArray(p.costs)) return { commission: p.commission ?? null, swap: p.swap ?? null, fee: p.fee ?? null, funding: null };
+  const out = { commission: 0, swap: 0, fee: 0, funding: 0 };
+  for (const c of p.costs) {
+    const kind = c.kind.toUpperCase();
+    out[COST_COLUMN[kind] ?? "fee"] -= c.amount;
+    if (kind === "FUNDING") out.funding -= c.amount;
+  }
   return out;
 }
 
