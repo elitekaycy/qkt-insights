@@ -982,11 +982,19 @@ function endOfDayEquity(db: Db, f: AnalyticsFilter): Map<string, number> {
   return out;
 }
 
+/**
+ * SQL: a deals row's swap without the perpetual funding it holds (044_deal_funding.sql), for reads that show
+ * costs by kind; a net keeps summing `swap`, which still includes it.
+ */
+export const SWAP_ONLY = (d: string) => `(COALESCE(${d}.swap,0) - COALESCE(${d}.funding,0))`;
+
 export interface CostRow {
   key: string;
   grossProfit: number;
   commission: number;
+  /** Swap without perpetual funding. */
   swap: number;
+  funding: number;
   fee: number;
   net: number;
   trades: number;
@@ -1012,7 +1020,8 @@ export function costDecomposition(db: Db, f: AnalyticsFilter): CostDecomposition
     `SELECT strftime('%Y-%m', ts/1000, 'unixepoch') key,
             SUM(profit) grossProfit,
             SUM(COALESCE(commission,0)) commission,
-            SUM(COALESCE(swap,0)) swap,
+            SUM(${SWAP_ONLY("deals")}) swap,
+            SUM(COALESCE(funding,0)) funding,
             SUM(COALESCE(fee,0)) fee,
             SUM(profit + COALESCE(commission,0) + COALESCE(swap,0) + COALESCE(fee,0)) net,
             SUM(CASE WHEN entry IN ${OUT_LEGS} THEN 1 ELSE 0 END) trades
@@ -1025,11 +1034,12 @@ export function costDecomposition(db: Db, f: AnalyticsFilter): CostDecomposition
       grossProfit: t.grossProfit + r.grossProfit,
       commission: t.commission + r.commission,
       swap: t.swap + r.swap,
+      funding: t.funding + r.funding,
       fee: t.fee + r.fee,
       net: t.net + r.net,
       trades: t.trades + r.trades,
     }),
-    { key: "total", grossProfit: 0, commission: 0, swap: 0, fee: 0, net: 0, trades: 0 },
+    { key: "total", grossProfit: 0, commission: 0, swap: 0, funding: 0, fee: 0, net: 0, trades: 0 },
   );
   return { byMonth: rows, total };
 }

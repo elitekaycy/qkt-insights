@@ -1,6 +1,6 @@
 import type { Db } from "./db.js";
 import {
-  adjustmentRows, canonicalDeal, closeDealOf, closedTradeRows, fullyClosedPosition, instrumentOf, OUT_LEGS,
+  adjustmentRows, canonicalDeal, SWAP_ONLY, closeDealOf, closedTradeRows, fullyClosedPosition, instrumentOf, OUT_LEGS,
   type DayNet, type DealClosedTrade,
 } from "./analytics.js";
 import { addMoney, instanceMoneyDigits, roundMoney } from "./money.js";
@@ -76,7 +76,8 @@ export function accountCloses(db: Db, f: AccountFilter): AccountClose[] {
 /** The round trip a close belongs to ("p:<position>", "d:<deal rowid>"); an engine close has none (it is its own). */
 const tripOf = new WeakMap<AccountClose, string>();
 
-export interface AccountCosts { grossProfit: number; commission: number; swap: number; fee: number; net: number }
+/** Costs by kind, negative when paid: swap without funding, and perpetual funding apart. net = the sum of all five. */
+export interface AccountCosts { grossProfit: number; commission: number; swap: number; funding: number; fee: number; net: number }
 
 export interface AccountBucket {
   /** Instrument, or strategy id; null is the unattributed bucket. */
@@ -181,7 +182,7 @@ export function accountSummary(db: Db, f: AccountFilter): AccountSummary {
   };
 }
 
-/** Commission, swap and fee across every leg (The5ers books commission on the entry leg too). */
+/** Commission, swap, funding and fee across every leg (The5ers books commission on the entry leg too). */
 function accountCosts(db: Db, f: AccountFilter): AccountCosts | null {
   const cl = ["d.instance_id=@instanceId", canonicalDeal("d")];
   if (f.from != null) cl.push("d.ts>=@from");
@@ -192,13 +193,14 @@ function accountCosts(db: Db, f: AccountFilter): AccountCosts | null {
   const row = db.prepare(
     `SELECT COUNT(*) n, SUM(CASE WHEN d.entry IN ${OUT_LEGS} THEN 1 ELSE 0 END) outs,
             COALESCE(SUM(d.profit),0) grossProfit, COALESCE(SUM(d.commission),0) commission,
-            COALESCE(SUM(d.swap),0) swap, COALESCE(SUM(d.fee),0) fee
+            COALESCE(SUM(${SWAP_ONLY("d")}),0) swap, COALESCE(SUM(d.funding),0) funding, COALESCE(SUM(d.fee),0) fee
      FROM deals d WHERE ${cl.join(" AND ")}`,
   ).get({ instanceId: f.instanceId, from: f.from, to: f.to, ids }) as {
-    n: number; outs: number | null; grossProfit: number; commission: number; swap: number; fee: number;
+    n: number; outs: number | null; grossProfit: number; commission: number; swap: number; funding: number; fee: number;
   };
   if (!row.outs) return null;
   const digits = instanceMoneyDigits(db, f.instanceId);
-  const [grossProfit, commission, swap, fee] = [row.grossProfit, row.commission, row.swap, row.fee].map((v) => roundMoney(v, digits)) as [number, number, number, number];
-  return { grossProfit, commission, swap, fee, net: roundMoney(grossProfit + commission + swap + fee, digits) };
+  const [grossProfit, commission, swap, funding, fee] = [row.grossProfit, row.commission, row.swap, row.funding, row.fee]
+    .map((v) => roundMoney(v, digits)) as [number, number, number, number, number];
+  return { grossProfit, commission, swap, funding, fee, net: roundMoney(grossProfit + commission + swap + funding + fee, digits) };
 }

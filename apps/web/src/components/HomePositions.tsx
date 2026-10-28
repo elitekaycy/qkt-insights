@@ -1,6 +1,6 @@
 import type { ReactNode } from "react";
 import type { LivePositionRow } from "../api";
-import { DASH, duration, human, instrumentOf, openPnl, price, quantity } from "../format";
+import { DASH, duration, human, instrumentOf, openPnl, price, quantity, sized } from "../format";
 import { positionRisks } from "../home";
 import { Link, useRoute } from "../router";
 import { Card, Cell, FlashValue, Freshness, Pill, Pnl, RowChevron, SideTag } from "./ui";
@@ -78,7 +78,10 @@ export function OpenPositions({ positions, strategyName, now, freshness }: {
                       {ticket(p)}
                     </Cell>
                     <Cell><SideTag side={p.side} /></Cell>
-                    <Cell className="text-right">{quantity(p.qty)}</Cell>
+                    <Cell className="text-right">
+                      <span title={sized(p.qty, p.unit, p.contractSize)}>{quantity(p.qty)}</span>
+                      {p.unit && <div className="text-[10px] text-muted">{p.unit}</div>}
+                    </Cell>
                     <Cell className="text-right text-muted">{price(p.entryPrice)}</Cell>
                     <Cell className="text-right">{price(p.currentPrice)}</Cell>
                     <Cell className="text-right text-muted">{level(p.stopLoss)}</Cell>
@@ -107,7 +110,7 @@ export function OpenPositions({ positions, strategyName, now, freshness }: {
                 <div className="flex items-baseline gap-2">
                   <span className="font-semibold text-bright">{instrumentOf(p.symbol)}</span>
                   <SideTag side={p.side} />
-                  <span className="text-muted">{quantity(p.qty)}</span>
+                  <span className="text-muted">{sized(p.qty, p.unit, p.contractSize)}</span>
                   <span className="ml-auto font-semibold"><Pnl value={openPnl(p)} glyphs={false} /></span>
                   <RowChevron className="self-center" />
                 </div>

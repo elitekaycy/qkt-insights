@@ -1,9 +1,9 @@
 import { useEffect, useMemo, useRef, useState, type ReactNode } from "react";
-import { DASH, duration, pnl, quantity, toneClass } from "../format";
+import { DASH, duration, pnl, quantity, sized, toneClass } from "../format";
 import { Pill, RowChevron } from "../components/ui";
 import { useView } from "../view";
 import { useRoundTrips, type RoundTrip, type RoundTripTotals, type SortKey, type TripScope } from "./data";
-import { minuteStamp, px, rMultiple, tableStamp } from "./format";
+import { minuteStamp, px, rMultiple, tableStamp, tripInstrument } from "./format";
 import { EndedBadge, SideText } from "./bits";
 import { TradeDrawer, useOpenTrade } from "./TradeDrawer";
 
@@ -22,13 +22,13 @@ interface Column { key: string; label: string; w: string; sort?: SortKey; right?
 const COLUMNS: Column[] = [
   { key: "id", label: "#", w: "88px", sort: "ticket", title: "Venue position ticket" },
   { key: "strategy", label: "Strategy", w: "minmax(120px,1fr)", sort: "strategy" },
-  { key: "instrument", label: "Symbol", w: "72px", sort: "symbol", title: "The instrument, whatever broker profile traded it" },
+  { key: "instrument", label: "Symbol", w: "72px", sort: "symbol", title: "The instrument, whatever broker profile traded it; with its venue beneath when the instance trades it on more than one" },
   { key: "side", label: "Side", w: "70px", sort: "side" },
   { key: "entry", label: "Entry (UTC)", w: "112px", sort: "entry" },
   { key: "entryPrice", label: "Entry", w: "92px", sort: "entryPrice", right: true },
   { key: "exit", label: "Exit (UTC)", w: "112px", sort: "exit" },
   { key: "exitPrice", label: "Exit", w: "92px", sort: "exitPrice", right: true },
-  { key: "size", label: "Size", w: "50px", sort: "size", right: true },
+  { key: "size", label: "Size", w: "64px", sort: "size", right: true },
   { key: "pnl", label: "P&L", w: "104px", sort: "pnl", right: true, title: "Realized, after commission, swap and fees" },
   { key: "r", label: "R", w: "66px", sort: "r", right: true, title: "P&L over the money at risk to the initial stop" },
   { key: "held", label: "Held", w: "74px", sort: "held", right: true },
@@ -65,13 +65,31 @@ function cells(t: RoundTrip, hide: ReadonlySet<string>): ReactNode[] {
   const all: Record<string, ReactNode> = {
     id: <Cell className="font-mono text-xs text-faint">{t.id}</Cell>,
     strategy: <Cell><StrategyName id={t.strategyId} /></Cell>,
-    instrument: <Cell className="font-semibold text-bright">{t.instrument}</Cell>,
+    instrument: (
+      <Cell className="font-semibold text-bright">
+        {t.venue ? (
+          <span title={tripInstrument(t)}>
+            <span className="block truncate leading-tight">{t.instrument}</span>
+            <span className="block truncate text-[10px] font-normal leading-tight text-muted">{t.venue}</span>
+          </span>
+        ) : t.instrument}
+      </Cell>
+    ),
     side: <Cell><SideText side={t.side} /></Cell>,
     entry: <Cell className="font-mono text-xs text-body"><span title={`${minuteStamp(t.entryTs)} UTC`}>{tableStamp(t.entryTs)}</span></Cell>,
     entryPrice: <Cell right className="text-body">{px(t.entryPrice, t.priceDigits)}</Cell>,
     exit: <Cell className="font-mono text-xs text-body">{t.status === "open" ? <Pill tone="info">open</Pill> : <span title={`${minuteStamp(t.exitTs)} UTC`}>{tableStamp(t.exitTs)}</span>}</Cell>,
     exitPrice: <Cell right className="text-body">{t.status === "open" ? DASH : px(t.exitPrice, t.priceDigits)}</Cell>,
-    size: <Cell right className="text-body">{quantity(t.qty)}</Cell>,
+    size: (
+      <Cell right className="text-body">
+        {t.unit ? (
+          <span title={sized(t.qty, t.unit, t.contractSize)}>
+            <span className="block truncate leading-tight">{quantity(t.qty)}</span>
+            <span className="block truncate text-[10px] leading-tight text-muted">{t.unit}</span>
+          </span>
+        ) : quantity(t.qty)}
+      </Cell>
+    ),
     pnl: <Cell right className={`font-semibold ${toneClass(t.pnlInExit ?? t.pnl)}`}>{t.pnl == null ? DASH : <TripPnl t={t} />}</Cell>,
     r: <Cell right className={t.r == null ? "text-faint" : toneClass(t.r)}>{t.r == null ? (t.status === "open" ? DASH : <span title="No stop known for this entry (none was sent, or its events are past retention), so no R">no stop</span>) : rMultiple(t.r)}</Cell>,
     held: <Cell right className="text-body">{t.status === "open" ? DASH : duration(t.holdMs)}</Cell>,
@@ -253,7 +271,7 @@ export function RoundTripTable({ scope, q, sort, dir, onSort, hide = [], height 
     return (
       <div key={t.id} {...common} className={`group absolute inset-x-0 flex flex-col justify-center gap-1 border-b border-line pl-3 pr-1.5 text-sm ${clickable ? "cursor-pointer active:bg-press" : ""} ${selected ? "bg-accent-soft" : ""}`}>
         <div className="flex items-center gap-2">
-          <span className="font-semibold text-bright">{t.instrument}</span>
+          <span className="min-w-0 truncate font-semibold text-bright" title={tripInstrument(t)}>{tripInstrument(t)}</span>
           <SideText side={t.side} />
           <span className={`ml-auto shrink-0 font-semibold ${toneClass(t.pnlInExit ?? t.pnl)}`}>{t.status === "open" ? <Pill tone="info">open</Pill> : <TripPnl t={t} />}</span>
           {clickable && <RowChevron />}

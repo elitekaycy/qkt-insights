@@ -23,5 +23,7 @@ export * from "./logSearch.js";
 export * from "./money.js";
 export { inferenceCounts, onInference, withoutAccountCredentials, type Inference } from "./inferredVenueFacts.js";
 export * from "./reconciliation.js";
+export * from "./ignoredMagics.js";
 export * from "./retiredStrategies.js";
 export * from "./currencies.js";
+export * from "./instrumentKind.js";

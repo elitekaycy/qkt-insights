@@ -1,9 +1,9 @@
 import { useEffect, useRef, useState, type ReactNode } from "react";
 import { createPortal } from "react-dom";
-import { DASH, duration, money, pnl, quantity, signedMoney, toneClass, ts } from "../format";
+import { DASH, duration, kindLabel, money, pnl, quantity, signedMoney, sized, toneClass, ts } from "../format";
 import { PAGE_PATHS, useSearchParam } from "../router";
 import { usePositionPath, useTripDetail, type RoundTripDetail, type Slippage, type TimelineStep } from "./data";
-import { latency, preciseClock, px, rMultiple } from "./format";
+import { latency, legCosts, preciseClock, px, rMultiple, tripInstrument } from "./format";
 import { EndedBadge, SideText } from "./bits";
 import { PositionMap } from "./PositionMap";
 
@@ -124,7 +124,7 @@ function Legs({ legs, digits }: { legs: RoundTripDetail["legs"]; digits: number 
         </thead>
         <tbody>
           {legs.map((l) => {
-            const costs = (l.commission ?? 0) + (l.swap ?? 0) + (l.fee ?? 0);
+            const costs = legCosts(l);
             return (
               <tr key={l.dealTicket} className="border-t border-line" title={l.comment ?? undefined}>
                 <td className="px-1 py-1.5 font-mono text-faint">{l.dealTicket}</td>
@@ -133,7 +133,7 @@ function Legs({ legs, digits }: { legs: RoundTripDetail["legs"]; digits: number 
                 <td className="px-1 py-1.5 text-right text-body">{quantity(l.qty)}</td>
                 <td className="px-1 py-1.5 text-right text-body">{px(l.price, digits)}</td>
                 <td className="px-1 py-1.5 text-right text-body">{signedMoney(l.profit)}</td>
-                <td className="px-1 py-1.5 text-right text-body">{signedMoney(costs)}</td>
+                <td className="px-1 py-1.5 text-right text-body" title={costs.parts || undefined}>{signedMoney(costs.total)}</td>
                 <td className={`px-1 py-1.5 text-right font-semibold ${toneClass(l.net)}`}>{signedMoney(l.net)}</td>
               </tr>
             );
@@ -181,7 +181,7 @@ function Body({ d, instanceId }: { d: RoundTripDetail; instanceId: string | null
       <div className="grid grid-cols-2 gap-x-4 gap-y-3 border-t border-line px-5 py-4 sm:grid-cols-3">
         <Stat label="Entry (UTC)">{t.entryTs != null ? ts(t.entryTs) : DASH}</Stat>
         <Stat label="Entry price">{px(t.entryPrice, t.priceDigits)}</Stat>
-        <Stat label="Size">{quantity(t.qty)} lots</Stat>
+        <Stat label={kindLabel(t.kind) ? `Size · ${kindLabel(t.kind)}` : "Size"}>{sized(t.qty, t.unit, t.contractSize)}</Stat>
         <Stat label="Exit (UTC)">{t.exitTs != null ? ts(t.exitTs) : t.status === "open" ? "still open" : DASH}</Stat>
         <Stat label="Exit price">{px(t.exitPrice, t.priceDigits)}</Stat>
         <Stat label="Held">{t.status === "open" ? DASH : duration(t.holdMs)}</Stat>
@@ -270,7 +270,7 @@ export function TradeDrawer({ instanceId, order = [] }: { instanceId: string | n
         ref={panel}
         role="dialog"
         aria-modal="true"
-        aria-label={t ? `Round trip ${t.instrument} ${t.side}` : "Round trip"}
+        aria-label={t ? `Round trip ${tripInstrument(t)} ${t.side}` : "Round trip"}
         tabIndex={-1}
         className="sheet-in pad-safe-bottom absolute inset-x-0 bottom-0 flex max-h-[92dvh] flex-col overflow-hidden rounded-t-card border border-line-strong bg-panel shadow-pop outline-none sm:inset-y-0 sm:left-auto sm:right-0 sm:max-h-none sm:w-[min(40rem,94vw)] sm:rounded-none sm:border-y-0 sm:border-r-0"
       >
@@ -306,7 +306,7 @@ export function TradeDrawer({ instanceId, order = [] }: { instanceId: string | n
           {t ? (
             <>
               <div className="mt-2 flex flex-wrap items-center gap-x-3 gap-y-1">
-                <h2 className="text-xl font-headline text-bright">{t.instrument}</h2>
+                <h2 className="text-xl font-headline text-bright">{tripInstrument(t)}</h2>
                 <SideText side={t.side} />
                 <EndedBadge ended={t.ended} open={t.status === "open"} />
                 <span className="text-sm text-muted">{t.strategyId ?? "unattributed"}</span>

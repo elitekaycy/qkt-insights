@@ -83,6 +83,24 @@ export function quantity(v: number | null | undefined): string {
   return price(v);
 }
 
+/** A quantity with its unit when the unit is known: "10 shares", "0.1 lots", "12"; a contract size follows ("10 contracts × 0.001"). */
+export function sized(qty: number | null | undefined, unit?: string | null, contractSize?: number | null): string {
+  if (missing(qty)) return DASH;
+  const n = quantity(qty);
+  if (!unit) return n;
+  return unit === "contracts" && contractSize != null && contractSize !== 1 ? `${n} contracts × ${quantity(contractSize)}` : `${n} ${unit}`;
+}
+
+/** An instrument kind as qkt states it, in words: "cfd" -> "CFD", "equity" -> "Share", "future" -> "Dated future". */
+export function kindLabel(kind: string | null | undefined): string | null {
+  if (!kind) return null;
+  return KIND_LABEL[kind.toLowerCase()] ?? kind;
+}
+
+const KIND_LABEL: Record<string, string> = {
+  cfd: "CFD", equity: "Share", spot: "Spot coin", perpetual: "Perpetual", future: "Dated future", option: "Option",
+};
+
 /** Compact axis value, e.g. 1234 → "1.2k", −56000 → "−56k"; tooltips and tables keep full precision. */
 export function compact(v: number): string {
   const abs = Math.abs(v);
@@ -253,9 +271,9 @@ export function instrumentOf(symbol: string | null | undefined): string {
   return i >= 0 ? symbol.slice(i + 1) : symbol;
 }
 
-/** A deal leg's net: venue profit plus every cost it booked (commission, swap, fee). */
-export function dealNet(d: { profit: number | null; commission: number | null; swap: number | null; fee?: number | null }): number {
-  return (d.profit ?? 0) + (d.commission ?? 0) + (d.swap ?? 0) + (d.fee ?? 0);
+/** A deal leg's net: venue profit plus every cost it booked (commission, swap, funding, fee). */
+export function dealNet(d: { profit: number | null; commission: number | null; swap: number | null; funding?: number | null; fee?: number | null }): number {
+  return (d.profit ?? 0) + (d.commission ?? 0) + (d.swap ?? 0) + (d.funding ?? 0) + (d.fee ?? 0);
 }
 
 /** A live position's open P&L as the venue floats it: profit plus accrued swap. */

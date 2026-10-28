@@ -14,6 +14,14 @@ export interface RoundTrip {
   strategyId: string | null;
   symbol: string;
   instrument: string;
+  /** The instrument's kind as qkt states it on the deals (cfd, equity, spot, perpetual, future, option); absent or null when not stated. */
+  kind?: string | null;
+  /** What one unit of `qty` is (lots, shares, coins, contracts, or a unit qkt names); absent or null when unknown. */
+  unit?: string | null;
+  /** Underlying per unit of `qty`, as stated. */
+  contractSize?: number | null;
+  /** The venue, when the instance trades this instrument on more than one venue account (an AAPL CFD beside an AAPL share). */
+  venue?: string | null;
   side: "long" | "short";
   status: "open" | "closed";
   entryTs: number | null;
@@ -79,7 +87,9 @@ export interface TimelineStep { ts: number; kind: string; title: string; detail:
 export interface Slippage { reference: number; fill: number; points: number; money: number | null; basis: "reference price" | "stop" | "target" }
 export interface RoundTripLeg {
   dealTicket: string; orderTicket: string | null; broker: string; symbol: string | null; side: string | null; entry: string | null;
-  qty: number | null; price: number | null; profit: number | null; commission: number | null; swap: number | null; fee: number | null;
+  qty: number | null; price: number | null; profit: number | null; commission: number | null;
+  /** Swap without perpetual funding; funding: perpetual funding (absent from an older collector). */
+  swap: number | null; funding?: number; fee: number | null;
   net: number; comment: string | null; ts: number;
 }
 export interface RoundTripDetail {
