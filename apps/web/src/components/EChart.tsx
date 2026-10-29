@@ -1,6 +1,6 @@
 import { useEffect, useRef, useState } from "react";
 import * as echarts from "echarts/core";
-import { BarChart, CandlestickChart, CustomChart, EffectScatterChart, HeatmapChart, LineChart, ScatterChart } from "echarts/charts";
+import { BarChart, CandlestickChart, CustomChart, HeatmapChart, LineChart, ScatterChart } from "echarts/charts";
 import {
   DataZoomComponent,
   GridComponent,
@@ -20,7 +20,6 @@ echarts.use([
   BarChart,
   CandlestickChart,
   ScatterChart,
-  EffectScatterChart,
   HeatmapChart,
   CustomChart,
   GridComponent,
@@ -220,7 +219,7 @@ const INSIDE_ID = "qkt-inside-zoom";
 
 type AxisLike = { type?: string } | undefined;
 const ORDERED = new Set(["line", "bar", "candlestick"]);
-const MARKERS = new Set(["scatter", "effectScatter"]);
+const MARKERS = new Set(["scatter"]);
 
 function zoomablePoints(option: QktChartOption): number {
   const x = (Array.isArray(option.xAxis) ? option.xAxis[0] : option.xAxis) as AxisLike;

@@ -56,35 +56,6 @@ export function moments(path: PositionPath, realized: number | null): Moment[] {
 
 const ORDER: MomentKey[] = ["entry", "best", "worst", "now", "exit"];
 
-export interface PathSummary {
-  /** Entry to the exit, or to the latest mark while open. */
-  heldMs: number | null;
-  /** Entry to the best mark. */
-  toBestMs: number | null;
-  /** The best mark to the latest mark (open) or the exit (closed). */
-  sinceBestMs: number | null;
-  /** Open: the best mark's P&L less the latest mark's (both excluding swap). */
-  offBest: number | null;
-  /** Closed: the realized net over the best mark's P&L, in percent, when the best was a gain; 0 when it closed at a loss. */
-  keptPct: number | null;
-  /** The latest mark's P&L including its swap: the floating P&L the venue shows. */
-  floating: number | null;
-}
-
-export function pathSummary(path: PositionPath, realized: number | null): PathSummary {
-  const entryTs = path.entry?.ts ?? null;
-  const endTs = path.status === "closed" ? (path.exit?.ts ?? path.last?.ts ?? null) : (path.last?.ts ?? null);
-  const best = path.best;
-  return {
-    heldMs: entryTs != null && endTs != null ? endTs - entryTs : null,
-    toBestMs: entryTs != null && best ? best.ts - entryTs : null,
-    sinceBestMs: best && endTs != null ? endTs - best.ts : null,
-    offBest: path.status === "open" && best && path.last ? best.pnl - path.last.pnl : null,
-    keptPct: path.status === "closed" && best && best.pnl > 0 && realized != null ? Math.max(0, (realized / best.pnl) * 100) : null,
-    floating: path.status === "open" && path.last ? path.last.pnl + (path.last.swap ?? 0) : null,
-  };
-}
-
 /** A stop or target level and whether the chart draws it: levels far outside the path would flatten it. */
 export interface Level {
   key: "stop" | "target";
@@ -173,7 +144,6 @@ export interface PathOptionInput {
   view: PathView;
   digits: number;
   narrow: boolean;
-  reduceMotion: boolean;
 }
 
 /**
@@ -197,7 +167,7 @@ export function shadedSpans(path: PositionPath, xMin: number, xMax: number, narr
   return data.length > 0 ? { silent: true, data } : undefined;
 }
 
-export function pathOption({ path, moments: ms, view, digits, narrow, reduceMotion }: PathOptionInput): QktChartOption {
+export function pathOption({ path, moments: ms, view, digits, narrow }: PathOptionInput): QktChartOption {
   const bucket = path.bucketMs;
   const points = plotted(ms, view);
   const range = priceRange(path);
@@ -245,7 +215,6 @@ export function pathOption({ path, moments: ms, view, digits, narrow, reduceMoti
       label: markerLabel(m),
     };
   });
-  const live = path.status === "open" && !reduceMotion ? points.find((m) => m.key === "now") : undefined;
 
   const series: Array<Record<string, unknown>> = [];
   if (view === "price") {
@@ -284,19 +253,6 @@ export function pathOption({ path, moments: ms, view, digits, narrow, reduceMoti
     emphasis: { scale: 1.45, label: { show: true } },
     cursor: "pointer",
   });
-  if (live) {
-    series.push({
-      name: "live",
-      type: "effectScatter",
-      z: 4,
-      silent: true,
-      data: [[live.ts, live.y]],
-      symbolSize: 9,
-      rippleEffect: { scale: 2.6, period: 3.2, brushType: "stroke" },
-      itemStyle: { color: tok("bright", 0.6) },
-      tooltip: { show: false },
-    });
-  }
 
   return {
     grid: { ...qktChartGrid, left: Math.max(44, Math.round(yLabelWidth * 6.6) + 14), right: narrow ? 12 : 64, top: 22 },

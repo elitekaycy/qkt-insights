@@ -69,3 +69,47 @@ export function legCosts(l: { commission: number | null; swap: number | null; fu
 export function tripInstrument(t: { instrument: string; venue?: string | null }): string {
   return t.venue ? `${t.venue}:${t.instrument}` : t.instrument;
 }
+
+/** How a trade ended, as a sentence fragment: "Hit the stop", "Hit the target", "Closed by the strategy". */
+const ENDED_STORY: Record<string, string> = {
+  stop: "Hit the stop",
+  tp: "Hit the target",
+  signal: "Closed by the strategy",
+  venue: "Closed by the venue",
+  manual: "Closed by hand",
+};
+
+/** One step of a trade's story in the drawer: what happened, when (UTC) and at what price. */
+export interface StoryStep {
+  key: "opened" | "protection" | "closed" | "open";
+  label: string;
+  ts: number | null;
+  price: number | null;
+  /** A second price on the step: the target beside the stop. */
+  detail?: string;
+}
+
+/**
+ * A trade as three plain steps: opened (time, price); its stop and target when it had them; then closed (time,
+ * price, how) or still open. Steps with nothing known are left out, never invented.
+ */
+export function tradeStory(t: {
+  status: "open" | "closed"; entryTs: number | null; entryPrice: number | null; exitTs: number | null; exitPrice: number | null;
+  stopPrice: number | null; targetPrice: number | null; ended: string | null; priceDigits: number;
+}): StoryStep[] {
+  const steps: StoryStep[] = [{ key: "opened", label: "Opened", ts: t.entryTs, price: t.entryPrice }];
+  const stop = t.stopPrice != null && t.stopPrice > 0 ? t.stopPrice : null;
+  const target = t.targetPrice != null && t.targetPrice > 0 ? t.targetPrice : null;
+  if (stop != null || target != null) {
+    steps.push({
+      key: "protection",
+      label: stop != null ? "Stop" : "Target",
+      ts: null,
+      price: stop ?? target,
+      detail: stop != null && target != null ? `target ${px(target, t.priceDigits)}` : undefined,
+    });
+  }
+  if (t.status === "open") steps.push({ key: "open", label: "Still open", ts: null, price: null });
+  else steps.push({ key: "closed", label: t.ended ? (ENDED_STORY[t.ended] ?? "Closed") : "Closed", ts: t.exitTs, price: t.exitPrice });
+  return steps;
+}
