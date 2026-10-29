@@ -1,8 +1,8 @@
 import type { ReactNode } from "react";
 import type { AccountRiskRow, LiveAccount } from "../api";
 import { clock, count, money, pctValue, signedMoney, signedPct } from "../format";
-import { accountToday, dailyMeasured, dailyReferenceLabel, dayBasisLabel, limitLine, drawdownMeasured, limitUse, type LimitUse, type OpenRisk } from "../home";
-import { accountProfiles, accountTitle } from "../accounts";
+import { accountToday, dailyMeasured, floatingNoteText, type FloatingNote, dailyReferenceLabel, dayBasisLabel, limitLine, drawdownMeasured, limitUse, type LimitUse, type OpenRisk } from "../home";
+import { accountHint, accountName, accountProfiles, accountTitle } from "../accounts";
 import { Card, FlashValue, Freshness, InfoIcon, Pill, Pnl, Popover } from "./ui";
 
 /*
@@ -130,6 +130,7 @@ export function AccountStrip({
   realizedToday,
   dayLabel,
   open,
+  note = null,
   isPublic,
 }: {
   account: LiveAccount;
@@ -142,18 +143,22 @@ export function AccountStrip({
   dayLabel: string;
   /** Open risk over this account's positions; null on shared links, which never show positions. */
   open: OpenRisk | null;
+  /** Why the account's floating differs from its listed positions; null when it does not. */
+  note?: FloatingNote | null;
   isPublic: boolean;
 }) {
   const today = accountToday(account, realizedToday);
   const use = risk ? limitUse(risk, account.equity) : null;
   const openCount = open ? open.priced + open.noStop + open.unpriced : 0;
-  const title = accountTitle(account, isPublic);
+  const title = accountName(account, isPublic);
+  const hint = accountHint(account);
   const profiles = isPublic ? [] : accountProfiles(account, labels);
   return (
     <section className={account.stale ? "opacity-90" : ""} aria-label={`Account ${title}`}>
       <div className="flex flex-wrap items-center gap-x-2.5 gap-y-1 text-sm">
-        <span className="font-semibold text-bright" title={isPublic ? undefined : `last reported by broker profile ${account.broker}; the login shows its last four characters`}>{title}</span>
-        <Pill>{account.currency}</Pill>
+        <span className="font-semibold text-bright" title={isPublic ? accountTitle(account, isPublic) : `${accountTitle(account)} · last reported by broker profile ${account.broker}; the login shows its last four characters`}>{title}</span>
+        {hint && <span className="text-xs text-faint">{hint}</span>}
+        {account.stopped && <Pill tone="warn">stopped reporting</Pill>}
         {!isPublic && account.server && <span className="text-xs text-faint">{account.server}</span>}
         {profiles.length > 1 && <ProfileCount profiles={profiles} />}
         <span className="ml-auto">
@@ -164,14 +169,35 @@ export function AccountStrip({
         <Kpi icon={ICON.wallet} label="Balance" sub="closed trades only" info={<p>The venue's balance in {account.currency}: closed trades only. Open P&L is in Equity.</p>}>
           <FlashValue value={account.balance}><span className="text-bright">{money(account.balance)}</span></FlashValue>
         </Kpi>
-        <Kpi icon={ICON.pulse} label="Equity" sub={<>floating <Pnl value={account.equity - account.balance} glyphs={false} /></>} info={<p>Balance plus the open positions' floating P&L, as the venue marks them.</p>}>
+        <Kpi
+          icon={ICON.pulse}
+          label="Equity"
+          sub={<>floating <Pnl value={account.equity - account.balance} glyphs={false} /></>}
+          info={
+            <>
+              <p>Balance plus the open positions' floating P&L, as the venue marks them.</p>
+              {note && (
+                <p className="text-warn">
+                  {signedMoney(note.account)} floating on the account, of which {floatingNoteText(note)}.
+                  {note.outside && " Another system trades this account; its positions move equity but are not listed here."}
+                  {note.unmarked > 0 && " The venue sends no mark for those positions, so their floating is only in equity."}
+                </p>
+              )}
+            </>
+          }
+        >
           <FlashValue value={account.equity}><span className="text-bright">{money(account.equity)}</span></FlashValue>
         </Kpi>
         <Kpi
           icon={ICON.sun}
           label="Today"
           sub={`${signedMoney(today.realized)} closed`}
-          info={<p>{signedMoney(today.realized)} from trades closed since the day began, {signedMoney(today.floating)} open now. The day runs from {dayLabel.replace(/^day from /, "")}.</p>}
+          info={
+            <>
+              <p>{signedMoney(today.realized)} from trades closed since the day began, {signedMoney(today.floating)} open now. The day runs from {dayLabel.replace(/^day from /, "")}.</p>
+              {note && <p className="text-warn">Open now includes {floatingNoteText(note)}.</p>}
+            </>
+          }
         >
           <FlashValue value={today.total}><Pnl value={today.total} /></FlashValue>
         </Kpi>
@@ -225,7 +251,33 @@ export function AccountStrip({
           <Card className="col-span-2 flex items-center p-4 text-sm text-muted">Loss limits appear with the account's first equity rollup.</Card>
         )}
       </div>
+      {note && <FloatingLine note={note} />}
     </section>
+  );
+}
+
+/**
+ * The account's floating P&L split so it reconciles with the positions listed below it: what the listed positions
+ * float, and what floats outside them (another system's positions on the account, positions the venue marks not).
+ */
+function FloatingLine({ note }: { note: FloatingNote }) {
+  const n = (k: number, one: string, many: string) => `${count(k)} ${k === 1 ? one : many}`;
+  const parts: ReactNode[] = [];
+  if (note.marked > 0) parts.push(<><Pnl value={note.listed} glyphs={false} /> on the {n(note.marked, "position", "positions")} listed below</>);
+  if (note.outside) {
+    parts.push(
+      <>
+        {note.outside.floating != null && <><Pnl value={note.outside.floating} glyphs={false} /> on </>}
+        {n(note.outside.count, "position", "positions")} outside this instance (another system trading this account; not listed)
+      </>,
+    );
+  }
+  if (note.unmarked > 0) parts.push(<>{n(note.unmarked, "listed position has", "listed positions have")} no mark from the venue, so {note.unmarked === 1 ? "its" : "their"} floating is in equity only</>);
+  return (
+    <p className="mt-2 text-xs text-muted">
+      Equity floats <Pnl value={note.account} glyphs={false} />:{" "}
+      {parts.map((part, i) => <span key={i}>{i > 0 && "; "}{part}</span>)}.
+    </p>
   );
 }
 

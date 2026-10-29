@@ -4,6 +4,7 @@ export * from "./queries.js";
 export * from "./emitter.js";
 export * from "./analytics.js";
 export * from "./liveState.js";
+export * from "./stoppedAccounts.js";
 export * from "./retention.js";
 export * from "./monitors.js";
 export * from "./marketData.js";

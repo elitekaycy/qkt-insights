@@ -3,11 +3,11 @@ import type { FastifyReply, FastifyRequest } from "fastify";
 import { createHash, timingSafeEqual } from "node:crypto";
 import {
   BatchSchema, CONTRACT_VERSION, SUPPORTED_MAJORS, classifyEnvelope, eventTypeMeta, isLiveStateType,
-  type EnvelopeClass, type EventType, type EventTypeMeta,
+  type Envelope, type EnvelopeClass, type EventType, type EventTypeMeta,
 } from "@qkt-insights/contract";
 import {
-  ingestAck, ingestEnvelopes, persistStateEvent, quarantineEnvelopes, touchInstance, upsertRoster,
-  withoutAccountCredentials, withoutIgnoredHoldings, withoutSourceText, type Db, type IngestStatus, type LiveBus, type LiveStateStore,
+  ignoredPositions, ingestAck, ingestEnvelopes, persistStateEvent, quarantineEnvelopes, touchInstance, upsertRoster,
+  withoutAccountCredentials, withoutIgnoredHoldings, withoutSourceText, type Db, type IngestStatus, type LiveBus, type LiveStateStore, type OutsidePosition,
 } from "@qkt-insights/store";
 
 export interface CollectorDeps { db: Db; bus: LiveBus; liveState: LiveStateStore; ingestToken: string }
@@ -122,7 +122,15 @@ export function registerCollector(app: FastifyInstance, deps: CollectorDeps): vo
     // One envelope the contract cannot read must never cost the rest of the batch: qkt's journal
     // retries a rejected head batch forever. It is kept raw, acknowledged, and counted on Health.
     // Holdings in a magic range the instance ignores (store ignoredMagics.ts) never reach the live state or the bus.
-    const events = classes.flatMap((c) => (c.ok ? [withoutIgnoredHoldings(deps.db, instanceId, c.value)] : []));
+    // What another system on a shared account holds is kept only as each position's floating P&L, so the account's
+    // floating (equity - balance) can be split into the positions shown and those outside the instance.
+    const outside = new Map<Envelope, OutsidePosition[]>();
+    const events = classes.flatMap((c) => {
+      if (!c.ok) return [];
+      const kept = withoutIgnoredHoldings(deps.db, instanceId, c.value);
+      if (c.value.type === "state.positions") outside.set(kept, ignoredPositions(deps.db, instanceId, c.value));
+      return [kept];
+    });
     const quarantined = classes.flatMap((c) => (c.ok ? [] : [{ ...c.quarantined, id: c.quarantined.id ?? contentId(c.quarantined.raw) }]));
     if (quarantined.length > 0) quarantineEnvelopes(deps.db, instanceId, quarantined);
 
@@ -133,7 +141,7 @@ export function registerCollector(app: FastifyInstance, deps: CollectorDeps): vo
     const rest = events.filter((e) => !isLiveStateType(e.type) && e.type !== "instance.roster");
     const outcome = ingestEnvelopes(deps.db, instanceId, rest);
     for (const e of stateEvents) {
-      deps.liveState.upsert(instanceId, e);
+      deps.liveState.upsert(instanceId, e, outside.get(e));
       persistStateEvent(deps.db, instanceId, e);
     }
     // Each session announces only its own ids; upsert them all so sessions union

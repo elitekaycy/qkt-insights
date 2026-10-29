@@ -70,7 +70,10 @@ A deal, open position or pending order with a magic in a range is then in no str
 total or open-positions check of that instance. The balance check of the Health page's
 Reconciliation card still counts those deals, because they moved the account's balance, and the
 card says how many there are ("12 deals from magics 31000-31199 ignored (net −3.20)"). The account's
-balance and equity stay the venue's, so they include the other system's open positions. The rule
+balance and equity stay the venue's, so they include the other system's open positions; Home
+splits the account's floating P&L under its figures ("Equity floats −584.39: +9.20 on the 3 positions
+listed below; −593.59 on 2 positions outside this instance"), counting those positions without
+listing them. The rule
 applies to deals taken in after it is set: set it before the other system starts trading. The
 variable is read at boot; restart to change it.
 

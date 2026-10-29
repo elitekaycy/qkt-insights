@@ -1,4 +1,5 @@
 import type { Db } from "./db.js";
+import { maskLogin } from "@qkt-insights/contract/accountIdentity";
 import { statement } from "./statements.js";
 
 /*
@@ -8,12 +9,40 @@ import { statement } from "./statements.js";
  */
 
 /** Records the currency a state.account poll reported for its account; a repeat writes nothing. */
-export function recordAccountCurrency(db: Db, instanceId: string, p: { broker: string; currency: string; accountId?: string | null }): void {
+export function recordAccountCurrency(db: Db, instanceId: string, p: {
+  broker: string; currency: string; accountId?: string | null; login?: string | null;
+  venue?: { connector?: string | null; adapter?: string | null; tradeMode?: string | null } | null;
+}): void {
   statement(db,
-    `INSERT INTO account_currencies (instance_id, account, label, currency) VALUES (@i, @account, @label, @currency)
-     ON CONFLICT(instance_id, account) DO UPDATE SET label=excluded.label, currency=excluded.currency
-     WHERE label <> excluded.label OR currency <> excluded.currency`,
-  ).run({ i: instanceId, account: p.accountId ?? p.broker, label: p.broker, currency: p.currency.trim().toUpperCase() });
+    `INSERT INTO account_currencies (instance_id, account, label, currency, connector, adapter, trade_mode, login)
+     VALUES (@i, @account, @label, @currency, @connector, @adapter, @tradeMode, @login)
+     ON CONFLICT(instance_id, account) DO UPDATE SET label=excluded.label, currency=excluded.currency,
+       connector=COALESCE(excluded.connector, connector), adapter=COALESCE(excluded.adapter, adapter),
+       trade_mode=COALESCE(excluded.trade_mode, trade_mode), login=COALESCE(excluded.login, login)
+     WHERE label <> excluded.label OR currency <> excluded.currency
+       OR excluded.connector IS NOT connector OR excluded.adapter IS NOT adapter
+       OR excluded.trade_mode IS NOT trade_mode OR excluded.login IS NOT login`,
+  ).run({
+    i: instanceId, account: p.accountId ?? p.broker, label: p.broker, currency: p.currency.trim().toUpperCase(),
+    connector: p.venue?.connector ?? null, adapter: p.venue?.adapter ?? null, tradeMode: p.venue?.tradeMode ?? null,
+    login: p.login ? maskLogin(p.login) : null,
+  });
+}
+
+/** What a venue account is, as its last state.account stated it (049_account_venue_facts.sql). */
+export interface AccountVenueFacts {
+  account: string; label: string; currency: string;
+  connector: string | null; adapter: string | null; tradeMode: string | null;
+  /** The login masked to its last four characters ("•••9381"). */
+  login: string | null;
+}
+
+/** The venue facts of every account the instance ever reported, by account id (or label, for an account without one). */
+export function accountVenueFacts(db: Db, instanceId: string): AccountVenueFacts[] {
+  return statement(db,
+    `SELECT account, label, currency, connector, adapter, trade_mode tradeMode, login FROM account_currencies
+     WHERE instance_id=? ORDER BY account`,
+  ).all(instanceId) as AccountVenueFacts[];
 }
 
 /** The currencies the instance's venue accounts book in, A to Z. */

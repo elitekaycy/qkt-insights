@@ -196,6 +196,49 @@ export function openRisk(positions: LivePositionRow[]): OpenRisk {
   return out;
 }
 
+/**
+ * Why an account's floating P&L (equity - balance, the venue's figure) can differ from its listed positions: positions
+ * of another system on the same account (a magic range the instance ignores) are counted but not listed, and a
+ * venue that marks no position leaves its floating in equity only. Null when neither applies.
+ */
+export interface FloatingNote {
+  /** The account's floating P&L: equity - balance. */
+  account: number;
+  /** Floating of the listed positions that carry a venue mark, swap included. */
+  listed: number;
+  /** Listed positions with a venue mark. */
+  marked: number;
+  /** Listed positions without a venue mark. */
+  unmarked: number;
+  /** Positions outside this instance; floating null when one of them has no mark. */
+  outside: { count: number; floating: number | null } | null;
+}
+
+export function floatingNote(
+  account: { balance: number; equity: number },
+  positions: readonly LivePositionRow[],
+  outside: { count: number; floating: number | null } | null | undefined,
+): FloatingNote | null {
+  const unmarked = positions.filter((p) => p.profit == null).length;
+  const hidden = outside && outside.count > 0 ? outside : null;
+  if (unmarked === 0 && !hidden) return null;
+  const listed = positions.reduce((a, p) => (p.profit == null ? a : a + openPnl(p)), 0);
+  return { account: account.equity - account.balance, listed, marked: positions.length - unmarked, unmarked, outside: hidden };
+}
+
+/** The note in words, e.g. "−597.30 on 1 position outside this instance · 2 listed without a venue mark". */
+export function floatingNoteText(n: FloatingNote): string {
+  const plural = (k: number, word: string) => `${k} ${word}${k === 1 ? "" : "s"}`;
+  const parts: string[] = [];
+  if (n.outside) {
+    parts.push(n.outside.floating != null
+      ? `${signedMoney(n.outside.floating)} on ${plural(n.outside.count, "position")} outside this instance`
+      : `${plural(n.outside.count, "position")} outside this instance`);
+  }
+  if (n.unmarked > 0) parts.push(`${plural(n.unmarked, "listed position")} without a venue mark`);
+  return parts.join(" · ");
+}
+
 export interface StrategyPeriods {
   /** Strategy id; null is the unattributed bucket. */
   key: string | null;

@@ -78,15 +78,45 @@ export function venueName(a: Pick<LiveAccount, "connector" | "adapter">): string
   return VENUE_NAMES[a.adapter.toLowerCase()] ?? `${a.adapter.charAt(0).toUpperCase()}${a.adapter.slice(1)}`;
 }
 
+/** A paper account: qkt's own paper broker, or the gateway's paper adapter. Paper has no environment to state. */
+function isPaper(a: Pick<LiveAccount, "connector" | "adapter">): boolean {
+  return a.connector === "paper" || (a.connector === "vgp" && a.adapter === "paper");
+}
+
 /**
- * An account's title: the venue, its environment and the login masked to its last four characters, e.g.
- * "Exness · demo · •••4821" or "Paper (Deribit prices) · •••er-b", never the broker profile that happened to
- * report it. A paper account has no environment to state. Shared links leave the login out.
+ * THE name of a venue account, the one every page, table, legend, tooltip and drill-down shows: the venue in short
+ * and the login masked to its last four characters ("Exness •••2618", "Paper •••er-a", "IC Markets •••0042"). An
+ * account whose login was never stated keeps its broker label beside the venue ("Paper PAPER_F"); one whose venue
+ * was never stated is named by its label alone. Shared links leave the login out (their labels are "Account 2").
+ * Never a broker profile such as EXNESS_O13 when the venue is known: several profiles share one account.
  */
-export function accountTitle(a: Pick<LiveAccount, "broker" | "connector" | "adapter" | "tradeMode" | "login">, isPublic = false): string {
-  const venue = venueName(a);
-  const paper = a.connector === "paper" || (a.connector === "vgp" && a.adapter === "paper");
-  const parts = [venue ?? accountName(a), venue && !paper ? a.tradeMode : undefined, !isPublic && a.login ? maskLogin(a.login) : undefined];
+export function accountName(a: Pick<LiveAccount, "broker" | "connector" | "adapter" | "login">, isPublic = false): string {
+  const venue = shortVenue(a);
+  if (!venue) return profileName(a);
+  if (isPublic) return venue;
+  if (a.login) return `${venue} ${maskLogin(a.login)}`;
+  // a gateway label names one account (one gateway per venue account); an MT5 label can be one of many profiles
+  const label = a.connector === "vgp" ? a.broker : profileName(a);
+  return label.toUpperCase() === venue.toUpperCase().replace(/\s+/gu, "") ? venue : `${venue} ${label}`;
+}
+
+/** The venue as an account's name starts: venueName, with the gateway's paper adapter as plain "Paper". */
+function shortVenue(a: Pick<LiveAccount, "connector" | "adapter">): string | null {
+  return a.connector === "vgp" && a.adapter === "paper" ? "Paper" : venueName(a);
+}
+
+/** The muted detail beside an account's name: its environment (not for paper) and currency ("demo · USD"). */
+export function accountHint(a: Pick<LiveAccount, "connector" | "adapter" | "tradeMode"> & { currency?: string }): string {
+  return [!isPaper(a) ? a.tradeMode : undefined, a.currency].filter(Boolean).join(" · ");
+}
+
+/**
+ * An account's hover title: its name, then what the venue is in full, the environment and currency, and whether it
+ * stopped reporting, e.g. "Exness •••4821 · Exness · demo · USD" or "Paper •••er-b · Paper (Deribit prices) · USDC".
+ */
+export function accountTitle(a: Pick<LiveAccount, "broker" | "connector" | "adapter" | "tradeMode" | "login"> & { currency?: string; stopped?: boolean }, isPublic = false): string {
+  const full = venueName(a);
+  const parts = [accountName(a, isPublic), full !== shortVenue(a) ? full : undefined, accountHint(a), a.stopped ? "stopped reporting" : undefined];
   return parts.filter((p): p is string => !!p).join(" · ");
 }
 
@@ -101,12 +131,12 @@ export function accountOfLabel<T extends Pick<LiveAccount, "instanceId" | "broke
 }
 
 /**
- * The name an account strip shows. Several qkt broker profiles can share one venue account (forward
- * runs 15 Exness profiles on one login), and the live row carries whichever profile reported last,
- * so a label of the venue's own profiles (`EXNESS_P174` on adapter `exness`) reads as the venue,
- * steady across polls. Any other label (ICMARKETS, PROP_S01) is shown as it is.
+ * An account's broker label, steady across polls. Several qkt broker profiles can share one venue account
+ * (forward runs 15 Exness profiles on one login), and the live row carries whichever profile reported last,
+ * so a label of the venue's own profiles (`EXNESS_P174` on adapter `exness`) reads as the venue. Any other
+ * label (ICMARKETS, PROP_S01) is kept as it is.
  */
-export function accountName(a: Pick<LiveAccount, "broker" | "adapter">): string {
+function profileName(a: Pick<LiveAccount, "broker" | "adapter">): string {
   const venue = a.adapter?.toUpperCase();
   return venue && a.broker.toUpperCase().startsWith(`${venue}_`) ? venue : a.broker;
 }
@@ -116,16 +146,9 @@ export function accountKey(a: Pick<LiveAccount, "accountId" | "broker">): string
   return a.accountId ?? a.broker;
 }
 
-/**
- * One account in the account switcher: the venue in short and the masked login ("Exness •••2618", "Paper •••er-a"),
- * a muted hint of its environment and currency ("demo · USD"), and the full account title on hover.
- */
+/** One account as a tab or table row shows it: its name (accountName), the muted hint, and the title on hover. */
 export function accountTab(a: LiveAccount, isPublic = false): { name: string; hint: string; title: string } {
-  const paper = a.connector === "paper" || (a.connector === "vgp" && a.adapter === "paper");
-  const venue = a.connector === "vgp" && a.adapter === "paper" ? "Paper" : venueName(a) ?? accountName(a);
-  const name = [venue, !isPublic && a.login ? maskLogin(a.login) : undefined].filter(Boolean).join(" ");
-  const hint = [!paper ? a.tradeMode : undefined, a.currency].filter(Boolean).join(" · ");
-  return { name, hint, title: accountTitle(a, isPublic) };
+  return { name: accountName(a, isPublic), hint: accountHint(a), title: accountTitle(a, isPublic) };
 }
 
 /** The instance's accounts in the switcher's order: by name, so a tab never moves when another account reports. */

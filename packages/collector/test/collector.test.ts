@@ -211,6 +211,43 @@ describe("POST /ingest", () => {
   });
 });
 
+describe("positions outside the instance", () => {
+  it("counts another system's positions on a shared account, once per ticket across the profiles that report them", async () => {
+    replaceIgnoredMagics(db, { "qkt-prod": [{ lo: 0, hi: 30999 }] });
+    const acct = "mt5:748e270a7f5018e5";
+    const position = (ticket: string, magic: number, profit?: number) =>
+      ({ ticket, symbol: "XAUUSD", side: "BUY", qty: 0.01, entryPrice: 4000, magic, ...(profit != null ? { profit, swap: -0.5 } : {}) });
+    const res = await app.inject({
+      method: "POST", url: "/ingest",
+      headers: { authorization: "Bearer secret" },
+      payload: { instanceId: "qkt-prod", events: [
+        env({ id: "a", type: "state.positions", payload: { broker: "EXNESS_O10", accountId: acct, positions: [position("1", 31010, 4.11), position("7", 777, -400), position("8", 778, -196.8)] } }),
+        env({ id: "b", type: "state.positions", payload: { broker: "EXNESS_O11", accountId: acct, positions: [position("2", 31011, 1.06), position("7", 777, -400), position("8", 778, -196.8)] } }),
+      ] },
+    });
+    expect(res.statusCode).toBe(200);
+    const [group] = liveState.snapshot(1718000000000).positions;
+    expect(group!.list.map((p) => p.ticket).sort()).toEqual(["1", "2"]);
+    expect(group!.outside!.count).toBe(2);
+    expect(group!.outside!.floating).toBeCloseTo(-597.8, 9);
+  });
+
+  it("states an outside position's floating as unknown when the venue marks none, and adds nothing without an outside position", async () => {
+    replaceIgnoredMagics(db, { "qkt-prod": [{ lo: 0, hi: 30999 }] });
+    const position = (ticket: string, magic: number) => ({ ticket, symbol: "BTC", side: "BUY", qty: 0.001, entryPrice: 80000, magic });
+    await app.inject({
+      method: "POST", url: "/ingest", headers: { authorization: "Bearer secret" },
+      payload: { instanceId: "qkt-prod", events: [
+        env({ id: "c", type: "state.positions", payload: { broker: "VENUE", positions: [position("5", 31010), position("6", 12)] } }),
+        env({ id: "d", type: "state.positions", payload: { broker: "OTHER", positions: [position("9", 31010)] } }),
+      ] },
+    });
+    const groups = liveState.snapshot(1718000000000).positions;
+    expect(groups.find((g) => g.broker === "VENUE")!.outside).toEqual({ count: 1, floating: null });
+    expect(groups.find((g) => g.broker === "OTHER")!.outside).toBeUndefined();
+  });
+});
+
 describe("ingest token failures", () => {
   it("refuses an IP with 429 after repeated bad tokens, while the right token from another IP still works", async () => {
     const bad = () => app.inject({ method: "POST", url: "/ingest", remoteAddress: "6.6.6.6", headers: { authorization: "Bearer wrong" }, payload: { instanceId: "qkt-prod", events: [] } });

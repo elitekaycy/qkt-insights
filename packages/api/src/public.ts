@@ -535,13 +535,16 @@ export function registerPublic(app: FastifyInstance, deps: PublicDeps): void {
         const prev = latest.get(p.account);
         if (!prev || p.minuteTs >= prev.minuteTs) latest.set(p.account, p);
       }
-      // Only accounts still reporting at the cutoff are shown; each in its own currency.
+      // Every account with a minute in the last day, each in its own currency; one that stopped reporting before the
+      // cutoff is marked stopped with its last figures, as the private view lists it.
       const accounts = groups.flatMap((g) => {
         const p = latest.get(g.key);
-        if (!p || p.minuteTs < cutoff - ACCOUNT_REPORTING_MS) return [];
+        if (!p) return [];
+        const stopped = p.minuteTs < cutoff - ACCOUNT_REPORTING_MS;
         return [{
           instanceId: scope.instanceId, broker: label(g.key), currency: accountCurrency(deps.db, scope.instanceId, g) ?? "USD",
-          balance: p.balance ?? 0, equity: p.equity ?? 0, openProfit: p.openProfit ?? 0, lastSeen: p.minuteTs, stale: false,
+          balance: p.balance ?? 0, equity: p.equity ?? 0, openProfit: p.openProfit ?? 0, lastSeen: p.minuteTs, stale: stopped,
+          ...(stopped ? { stopped: true } : {}),
         }];
       });
       const unrealized = open.reduce((a, p) => a + (p.profit ?? 0) + (p.swap ?? 0), 0);
