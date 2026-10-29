@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 import type { LiveAccount } from "./api";
-import { accountName, accountOfLabel, accountProfiles, accountTitle, groupAccounts, maskLogin, venueName } from "./accounts";
+import { accountByKey, accountKey, accountName, accountOfLabel, accountProfiles, accountTab, accountTitle, groupAccounts, maskLogin, switcherOrder, venueName } from "./accounts";
 
 const acct = (broker: string, lastSeen: number, extra: Partial<LiveAccount> = {}): LiveAccount => ({
   instanceId: "i", broker, currency: "USD", balance: 100, equity: 100, lastSeen, stale: false, ...extra,
@@ -108,5 +108,33 @@ describe("accountOfLabel", () => {
     expect(accountOfLabel([shared], "i", "EXNESS_O12")).toBe(shared);
     expect(accountOfLabel([shared], "other", "EXNESS_P7")).toBeNull();
     expect(accountOfLabel([shared], "i", "ICMARKETS")).toBeNull();
+  });
+});
+
+describe("account switcher", () => {
+  const exness = acct("EXNESS_O12", 5_000, { accountId: "mt5:748e270a7f5018e5", connector: "mt5", adapter: "exness", tradeMode: "demo", login: "277312618", profiles: ["EXNESS_O11", "EXNESS_O12"] });
+  const paperB = acct("PAPER_DERIBIT_B", 6_000, { accountId: "vgp:7bf764b24864a0b1", connector: "vgp", adapter: "paper", login: "paper-b", currency: "USDC" });
+  const paperA = acct("PAPER_DERIBIT", 7_000, { accountId: "vgp:932e246860ee1284", connector: "vgp", adapter: "paper", login: "paper-a", currency: "USDC" });
+
+  it("names a tab by venue and masked login, with environment and currency as its hint", () => {
+    expect(accountTab(exness)).toEqual({ name: "Exness •••2618", hint: "demo · USD", title: "Exness · demo · •••2618" });
+    expect(accountTab(paperA)).toEqual({ name: "Paper •••er-a", hint: "USDC", title: "Paper (Deribit prices) · •••er-a" });
+    // a shared link carries neither login nor venue: the account's public name
+    expect(accountTab(acct("Account 2", 1, { currency: "USDC" }), true)).toEqual({ name: "Account 2", hint: "USDC", title: "Account 2" });
+  });
+
+  it("keeps the tabs in one order whichever account reported last", () => {
+    const order = (list: LiveAccount[]) => switcherOrder(groupAccounts(list)).map((g) => accountTab(g.account).name);
+    expect(order([paperB, exness, paperA])).toEqual(["Exness •••2618", "Paper •••er-a", "Paper •••er-b"]);
+    expect(order([paperA, paperB, exness])).toEqual(order([exness, paperA, paperB]));
+  });
+
+  it("finds an account by its key, a folded label or a profile that reported it", () => {
+    const groups = groupAccounts([exness, paperA, paperB]);
+    expect(accountByKey(groups, accountKey(paperB))?.account.broker).toBe("PAPER_DERIBIT_B");
+    expect(accountByKey(groups, "EXNESS_O11")?.account.broker).toBe("EXNESS_O12");
+    expect(accountByKey(groups, "")).toBeNull();
+    expect(accountByKey(groups, "vgp:0000000000000000")).toBeNull();
+    expect(accountKey(acct("Account 2", 1))).toBe("Account 2");
   });
 });

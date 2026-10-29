@@ -170,3 +170,43 @@ describe("a position reported under a name the instance does not know", () => {
     expect(floatingByStrategy(all).get("silver_dsl_name")).toBeUndefined();
   });
 });
+
+describe("several venue accounts on one instance", () => {
+  const PAPER = "vgp:00000000000000aa";
+
+  beforeEach(() => {
+    const eq = db.prepare("INSERT INTO account_equity (instance_id, broker, minute_ts, balance, equity, open_profit, account) VALUES (?, 'PAPER_A', ?, ?, ?, ?, ?)");
+    eq.run(I, dayStart - 10 * MIN, 10_000, 10_000, 0, PAPER);
+    eq.run(I, now - MIN, 10_005.87, 10_007, 1.13, PAPER);
+    ingestEvents(db, I, ["IN", "OUT"].map((entry, k) => ({
+      v: 1, instanceId: I, id: `paper-${entry}`, seq: ++seq, ts: dayStart + (k + 1) * MIN, type: "broker.deal",
+      payload: { broker: "PAPER_A", dealTicket: `pd-${entry}`, positionTicket: "paper-pos", orderTicket: `po-${entry}`, symbol: "PAPER_A:BTC_USDC_PERPETUAL",
+        side: entry === "IN" ? "BUY" : "SELL", entry, qty: 0.001, price: 80_000, profit: entry === "OUT" ? 5.87 : 0, commission: 0, swap: 0,
+        ts: dayStart + (k + 1) * MIN, strategyId: "silver", accountId: PAPER },
+    }) as unknown as Envelope));
+    liveState.upsert(I, { v: 1, instanceId: I, id: "paper-acct", seq: ++seq, ts: now, type: "state.account",
+      payload: { broker: "PAPER_A", currency: "USDC", balance: 10_005.87, equity: 10_007, openProfit: 1.13, accountId: PAPER, venue: { connector: "vgp", adapter: "paper" } } } as unknown as Envelope);
+  });
+
+  it("gives each account the closes of its own day, never the instance's", async () => {
+    const [risk, state] = await Promise.all([get<AccountRiskRow[]>(`/account/risk?instance=${I}`), get<LiveStateSnapshot>("/live/state")]);
+    expect(risk).toHaveLength(2);
+    const icm = state.accounts.find((a) => a.broker === "ICM")!;
+    const paper = state.accounts.find((a) => a.broker === "PAPER_A")!;
+    expect(riskRowFor(icm, risk)!.dailyLoss.realizedToday).toBe(10);
+    expect(riskRowFor(paper, risk)!.dailyLoss.realizedToday).toBe(5.87);
+    expect(accountToday(paper, riskRowFor(paper, risk)!.dailyLoss.realizedToday).total).toBeCloseTo(7, 9);
+  });
+
+  it("keeps one account's closes in its roll-up, by its id or a broker label", async () => {
+    const all = await get<AccountSummary>(`/account/summary?instance=${I}`);
+    const paper = await get<AccountSummary>(`/account/summary?instance=${I}&account=${encodeURIComponent(PAPER)}`);
+    const icm = await get<AccountSummary>(`/account/summary?instance=${I}&account=ICM`);
+    expect(paper.totalNet).toBe(5.87);
+    expect(paper.byStrategy.map((b) => b.key)).toEqual(["silver"]);
+    expect(icm.trades + paper.trades).toBe(all.trades);
+    expect(icm.totalNet + paper.totalNet).toBeCloseTo(all.totalNet, 9);
+    const unknown = await app.inject({ method: "GET", url: `/account/summary?instance=${I}&account=nope`, headers: { cookie: session } });
+    expect(unknown.statusCode).toBe(404);
+  });
+});

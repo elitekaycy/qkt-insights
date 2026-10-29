@@ -203,3 +203,50 @@ describe("account identity in the rollup", () => {
     expect(db.prepare("SELECT broker, account FROM account_equity").all()).toEqual([{ broker: "PAPER_DERIBIT", account: vgpAccountId("paper", "paper") }]);
   });
 });
+
+describe("accounts of one instance", () => {
+  const EX = mt5AccountId("1001", "Exness-Trial");
+  const PAPER = vgpAccountId("paper", "paper-a");
+
+  function dealOn(db: Db, broker: string, account: string | null, pos: string, ts: number, profit: number, strategyId: string): void {
+    const ins = db.prepare(
+      `INSERT INTO deals (id, instance_id, broker, deal_ticket, position_ticket, symbol, side, entry, qty, price, profit, strategy_id, ts, account_id)
+       VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?)`,
+    );
+    ins.run(`${broker}-${pos}-in`, I, broker, `${pos}-in`, pos, `${broker}:XAUUSD`, "BUY", "IN", 0.1, 2000, 0, strategyId, ts - HOUR, account);
+    ins.run(`${broker}-${pos}-out`, I, broker, `${pos}-out`, pos, `${broker}:XAUUSD`, "SELL", "OUT", 0.1, 2000, profit, strategyId, ts, account);
+  }
+
+  function twoAccounts(): Db {
+    const db = openDb(":memory:");
+    equity(db, "EXNESS_O12", T0 - 2 * HOUR, 5_000, 5_000, EX);
+    equity(db, "EXNESS_O12", T0 - HOUR, 5_000, 4_400, EX);
+    equity(db, "PAPER_A", T0 - 2 * HOUR, 10_000, 10_000, PAPER);
+    equity(db, "PAPER_A", T0 - HOUR, 10_000, 10_001, PAPER);
+    // one venue account reached through a profile label that never reported equity
+    dealOn(db, "EXNESS_O04", EX, "e1", T0 - 3 * HOUR, -587.06, "gold");
+    dealOn(db, "EXNESS_O12", EX, "e2", T0 - 2 * HOUR, 0.01, "gold");
+    dealOn(db, "PAPER_A", PAPER, "p1", T0 - 90 * M, 5.87, "perp");
+    // an engine close of a strategy without deals, on the paper account's profile
+    db.prepare("INSERT INTO trade_closes (id, instance_id, strategy_id, symbol, side, qty, price, realized, ts) VALUES (?,?,?,?,?,?,?,?,?)")
+      .run("t1", I, "ledger", "PAPER_A:BTC_USDC_PERPETUAL", "SELL", 0.001, 80_000, 0.5, T0 - 30 * M);
+    return db;
+  }
+
+  it("counts each account's own closes in its realized today, never the instance's", () => {
+    const rows = accountRisk(twoAccounts(), { instanceId: I, now: T0 });
+    const today = Object.fromEntries(rows.map((r) => [r.account, r.dailyLoss.realizedToday]));
+    expect(today).toEqual({ [EX]: -587.05, [PAPER]: 6.37 });
+  });
+
+  it("scopes the account roll-up to one account's closes", () => {
+    const db = twoAccounts();
+    const ex = accountPerformance(db, { instanceId: I, account: { identity: EX, labels: ["EXNESS_O12"] } });
+    expect(ex.totalNet).toBe(-587.05);
+    expect(ex.byStrategy.map((b) => b.key)).toEqual(["gold"]);
+    const paper = accountPerformance(db, { instanceId: I, account: { identity: PAPER, labels: ["PAPER_A"] } });
+    expect(paper.byStrategy.map((b) => [b.key, b.net])).toEqual([["perp", 5.87], ["ledger", 0.5]]);
+    expect(paper.costs?.grossProfit).toBe(5.87);
+    expect(accountPerformance(db, { instanceId: I }).totalNet).toBe(-580.68);
+  });
+});

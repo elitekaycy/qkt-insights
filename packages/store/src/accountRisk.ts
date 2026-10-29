@@ -1,6 +1,7 @@
 import type { Db } from "./db.js";
-import { accountCloses, accountSummary, type AccountFilter, type AccountSummary } from "./account.js";
+import { accountCloses, accountSummary, type AccountFilter, type AccountScope, type AccountSummary } from "./account.js";
 import { dataVersion } from "./versions.js";
+import { addMoney, instanceMoneyDigits } from "./money.js";
 import { NeedsScan, projectedViews, seriesViews, type AccountView } from "./accountViews.js";
 
 const HOUR = 3_600_000;
@@ -261,6 +262,17 @@ export function accountGroups(db: Db, instanceId: string, to?: number): Array<Pi
 }
 
 /**
+ * The close scope of the account `key` names (its id, key or one of its broker labels) as of `to`: undefined when
+ * the instance has a single account (every close is that account's), null when no account answers to `key`.
+ */
+export function accountScope(db: Db, instanceId: string, key: string, to?: number): AccountScope | null | undefined {
+  const groups = accountGroups(db, instanceId, to);
+  if (groups.length <= 1) return undefined;
+  const g = groups.find((a) => a.key === key || a.identity === key) ?? groups.find((a) => a.labels.includes(key));
+  return g ? { identity: g.identity, labels: g.labels } : null;
+}
+
+/**
  * Runs `read` over the instance's accounts as of `to`, answered from the account projections; when
  * they cannot answer one of its questions exactly, over the full stitched series instead.
  */
@@ -282,6 +294,7 @@ function riskRows(
   // The strategies' risk config cannot say which account it belongs to, so it applies only when
   // the instance reports a single account.
   const fallback = accounts.length === 1 ? strategyProfile(db, f.instanceId) : null;
+  const digits = instanceMoneyDigits(db, f.instanceId);
   return accounts.map((s) => {
     const configured = (s.identity != null ? f.limits?.[s.identity] : undefined)
       ?? s.labels.map((l) => f.limits?.[l]).find((p) => p != null)
@@ -310,9 +323,11 @@ function riskRows(
     const dayReference = dailyBase === "higher" && dayStartEquity != null
       ? Math.max(dayStartBalance ?? dayStartEquity, dayStartEquity)
       : dayStartBalance;
+    // Each account's own closes; with one account on the instance, every close is its.
     const realizedToday = accountCloses(db, {
       instanceId: f.instanceId, strategyIds: f.strategyIds, from: dayStart, to: f.now, closedPositionsOnly: f.closedPositionsOnly,
-    }).reduce((a, c) => a + c.realized, 0);
+      account: accounts.length > 1 ? { identity: s.identity, labels: s.labels } : undefined,
+    }).reduce((a, c) => addMoney(a, c.realized, digits), 0);
     const includesFloating = profile.dailyLossIncludesFloating ?? false;
     const dailyUsed = includesFloating
       ? (dayReference != null ? Math.max(0, dayReference - last.equity) : null)

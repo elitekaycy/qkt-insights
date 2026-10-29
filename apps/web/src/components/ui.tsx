@@ -1,4 +1,4 @@
-import { useEffect, useRef, useState, type ReactNode } from "react";
+import { useEffect, useLayoutEffect, useRef, useState, type ReactNode } from "react";
 import { createPortal } from "react-dom";
 import { useOrigin, useSearchParam } from "../router";
 import { DASH, glyph, pnl, signedMoney, signedPct, toneClass, tsDay, tsShort } from "../format";
@@ -347,6 +347,8 @@ export function Popover({ trigger, label, children, align = "left", hover = fals
 }) {
   const [open, setOpen] = useState(false);
   const box = useRef<HTMLSpanElement>(null);
+  const panel = useRef<HTMLSpanElement>(null);
+  const [at, setAt] = useState<{ top: number; left: number } | null>(null);
   const closeTimer = useRef<number | null>(null);
   const hoverProps = hover
     ? {
@@ -365,7 +367,8 @@ export function Popover({ trigger, label, children, align = "left", hover = fals
   useEffect(() => {
     if (!open) return;
     const onDown = (e: Event) => {
-      if (box.current && !box.current.contains(e.target as Node)) setOpen(false);
+      const target = e.target as Node;
+      if (!box.current?.contains(target) && !panel.current?.contains(target)) setOpen(false);
     };
     const onKey = (e: KeyboardEvent) => {
       if (e.key === "Escape") setOpen(false);
@@ -377,6 +380,33 @@ export function Popover({ trigger, label, children, align = "left", hover = fals
       window.removeEventListener("keydown", onKey);
     };
   }, [open]);
+  // The panel lives on the page body, placed against the viewport: no scrolling ancestor clips it and no sidebar
+  // covers it. It opens under the trigger (above when there is no room below), kept inside the viewport.
+  useLayoutEffect(() => {
+    if (!open) {
+      setAt(null);
+      return;
+    }
+    const place = () => {
+      const t = box.current?.getBoundingClientRect();
+      const p = panel.current;
+      if (!t || !p) return;
+      const gap = 6, edge = 8;
+      const width = p.offsetWidth, height = p.offsetHeight;
+      const viewW = document.documentElement.clientWidth, viewH = window.innerHeight;
+      const left = Math.min(Math.max(edge, align === "right" ? t.right - width : t.left), viewW - width - edge);
+      const below = t.bottom + gap;
+      const top = below + height > viewH - edge && t.top - gap - height >= edge ? t.top - gap - height : below;
+      setAt({ top, left });
+    };
+    place();
+    window.addEventListener("resize", place);
+    window.addEventListener("scroll", place, true);
+    return () => {
+      window.removeEventListener("resize", place);
+      window.removeEventListener("scroll", place, true);
+    };
+  }, [open, align]);
   return (
     <span ref={box} className="relative inline-flex" {...hoverProps}>
       <button
@@ -393,20 +423,22 @@ export function Popover({ trigger, label, children, align = "left", hover = fals
       >
         {trigger}
       </button>
-      {open && (
+      {open && createPortal(
         <span
+          ref={panel}
           role="dialog"
           aria-label={label}
+          {...hoverProps}
           onClick={(e) => {
             e.preventDefault();
             e.stopPropagation();
           }}
-          className={`pop-in absolute top-full z-40 mt-1.5 w-max max-w-[min(20rem,80vw)] rounded-xl border border-line-strong bg-panel p-3 text-left text-xs font-normal normal-case leading-relaxed tracking-normal text-body shadow-pop ${
-            align === "right" ? "right-0" : "left-0"
-          }`}
+          style={{ top: at?.top ?? 0, left: at?.left ?? 0, visibility: at ? "visible" : "hidden" }}
+          className="pop-in fixed z-[70] w-max max-w-[min(20rem,calc(100vw-1rem))] rounded-xl border border-line-strong bg-panel p-3 text-left text-xs font-normal normal-case leading-relaxed tracking-normal text-body shadow-pop"
         >
           {children}
-        </span>
+        </span>,
+        document.body,
       )}
     </span>
   );
@@ -421,7 +453,8 @@ export function Segmented<T extends string>({
   dense = false,
 }: {
   value: T;
-  options: readonly { key: T; label: string }[];
+  /** `title` is the option's full name on hover, for a label that shortens it. */
+  options: readonly { key: T; label: ReactNode; title?: string }[];
   onChange: (v: T) => void;
   label: string;
   /** Narrower buttons on phones, for a control that shares its row. */
@@ -434,6 +467,7 @@ export function Segmented<T extends string>({
           key={o.key}
           type="button"
           role="tab"
+          title={o.title}
           aria-selected={value === o.key}
           onClick={() => onChange(o.key)}
           className={`h-7 shrink-0 whitespace-nowrap rounded-md font-medium transition ${dense ? "px-1.5 text-xs sm:px-3 sm:text-sm" : "px-3 text-sm"} ${

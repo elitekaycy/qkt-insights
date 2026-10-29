@@ -61,13 +61,16 @@ export function EquityChart({ points, shade, height = 260 }: { points: EquityPoi
 }
 
 export interface ComparisonSeries {
-  strategyId: string;
+  /** The series' name in the legend and tooltip: a strategy id, or an account's name. */
+  name: string;
   color: string;
   points: { ts: number; pct: number }[];
 }
 
-/** Normalized (% from first snapshot) curves so strategies with different capital compare fairly. */
-export function ComparisonChart({ series, height = 320 }: { series: ComparisonSeries[]; height?: number | `${number}%` }) {
+/** Normalized (% from first snapshot) curves so strategies or accounts with different capital (or currency) compare fairly. */
+export function ComparisonChart({ series, height = 320, label = "Strategy equity, percent change from each first point" }: {
+  series: ComparisonSeries[]; height?: number | `${number}%`; label?: string;
+}) {
   const narrow = useNarrowChart();
   const active = series.filter((s) => s.points.length > 0);
   if (active.length === 0) return empty;
@@ -92,7 +95,7 @@ export function ComparisonChart({ series, height = 320 }: { series: ComparisonSe
     xAxis: { type: "time", ...qktXAxis },
     yAxis: { type: "value", scale: true, splitNumber: 4, ...qktChartAxis, axisLabel: { ...qktChartAxis.axisLabel, formatter: (v: number) => `${axisTick(v)}%` } },
     series: active.map((s) => ({
-      name: s.strategyId,
+      name: s.name,
       type: "line",
       showSymbol: false,
       smooth: false,
@@ -100,7 +103,7 @@ export function ComparisonChart({ series, height = 320 }: { series: ComparisonSe
       lineStyle: { width: 2 },
     })),
   };
-  return <EChart option={option} height={height} label="Strategy equity, percent change from each first point" />;
+  return <EChart option={option} height={height} label={label} />;
 }
 
 /** Underwater (drawdown %) area: 0 along the top, dips when equity sits below its running peak. */
