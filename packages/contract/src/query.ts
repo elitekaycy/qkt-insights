@@ -9,7 +9,7 @@
  */
 
 export type QueryKey =
-  | "text" | "strategy" | "symbol" | "side" | "outcome" | "pnl" | "r" | "held" | "entry" | "exit" | "ended" | "size" | "ticket"
+  | "text" | "strategy" | "symbol" | "side" | "outcome" | "pnl" | "r" | "held" | "entry" | "exit" | "ended" | "size" | "ticket" | "type"
   | "weekday" | "hour"
   | "level" | "logger" | "time";
 
@@ -22,6 +22,31 @@ export type Side = "long" | "short";
 export type Outcome = "win" | "loss" | "breakeven" | "open" | "closed";
 export type Ended = "stop" | "tp" | "signal" | "venue" | "manual";
 export type Level = "ERROR" | "WARN" | "INFO" | "DEBUG" | "TRACE";
+
+/**
+ * What a position is, in one word a filter and a badge share: a CFD (a stock CFD is one whose venue files it
+ * under stocks or shares), a share, a coin bought spot, a perpetual future, a dated future, or an option.
+ */
+export type InstrumentType = "stock-cfd" | "cfd" | "share" | "coin" | "perpetual" | "future" | "option";
+export const INSTRUMENT_TYPES: readonly InstrumentType[] = ["cfd", "stock-cfd", "share", "coin", "perpetual", "future", "option"];
+
+/** Whether a venue folder holds shares: MT5 files stock CFDs under `Stocks` (`Standard\Stocks\AAPLm`) or `Shares`. */
+export function isStockCategory(category: string | null | undefined): boolean {
+  return category != null && /stock|share|equit/iu.test(category);
+}
+
+/** The type of an instrument of qkt `kind` (cfd, equity, spot, perpetual, future, option) filed under `category`; null when unknown. */
+export function instrumentType(kind: string | null | undefined, category?: string | null): InstrumentType | null {
+  switch (kind?.toLowerCase()) {
+    case "cfd": return isStockCategory(category) ? "stock-cfd" : "cfd";
+    case "equity": return "share";
+    case "spot": return "coin";
+    case "perpetual": return "perpetual";
+    case "future": return "future";
+    case "option": return "option";
+    default: return null;
+  }
+}
 
 export interface QueryFilter {
   /** Free words; each must match somewhere (strategy, instrument, ticket, how it ended; the message on Logs). */
@@ -44,6 +69,8 @@ export interface QueryFilter {
    */
   exit?: Window;
   ended?: Ended;
+  /** What the position is; `cfd` includes stock CFDs. */
+  type?: InstrumentType;
   size?: Range;
   ticket?: string;
   /** Entry weekday, UTC: 0 is Monday, 6 is Sunday. */
@@ -87,7 +114,7 @@ export interface QueryContext {
 }
 
 /** The keys each page applies; the bar keeps the others as chips but says the page ignores them. */
-export const TRADE_KEYS: ReadonlySet<QueryKey> = new Set<QueryKey>(["text", "strategy", "symbol", "side", "outcome", "pnl", "r", "held", "entry", "exit", "ended", "size", "ticket", "weekday", "hour"]);
+export const TRADE_KEYS: ReadonlySet<QueryKey> = new Set<QueryKey>(["text", "strategy", "symbol", "side", "outcome", "pnl", "r", "held", "entry", "exit", "ended", "size", "ticket", "weekday", "hour", "type"]);
 export const LOG_KEYS: ReadonlySet<QueryKey> = new Set<QueryKey>(["text", "strategy", "level", "logger", "time"]);
 
 const KEY_ALIAS: Record<string, QueryKey> = {
@@ -101,6 +128,7 @@ const KEY_ALIAS: Record<string, QueryKey> = {
   entry: "entry", entered: "entry", opened: "entry",
   exit: "exit", exited: "exit", closed: "exit", day: "exit", date: "exit",
   ended: "ended", end: "ended", by: "ended", reason: "ended",
+  type: "type", kind: "type",
   size: "size", qty: "size", lots: "size", volume: "size",
   ticket: "ticket", id: "ticket", position: "ticket", trade: "ticket",
   weekday: "weekday", dow: "weekday", wd: "weekday",
@@ -119,6 +147,18 @@ const SIDES: Record<string, Side> = { long: "long", buy: "long", short: "short",
 const OUTCOMES: Record<string, Outcome> = {
   win: "win", wins: "win", winner: "win", winners: "win", loss: "loss", losses: "loss", loser: "loss", losers: "loss",
   breakeven: "breakeven", even: "breakeven", flat: "breakeven", open: "open", running: "open", closed: "closed",
+};
+const TYPES: Record<string, InstrumentType> = {
+  cfd: "cfd", cfds: "cfd",
+  "stock-cfd": "stock-cfd", stockcfd: "stock-cfd", stock_cfd: "stock-cfd",
+  share: "share", shares: "share", equity: "share", equities: "share", stock: "share", stocks: "share",
+  coin: "coin", coins: "coin", spot: "coin",
+  perpetual: "perpetual", perpetuals: "perpetual", perp: "perpetual", perps: "perpetual",
+  future: "future", futures: "future", dated: "future",
+  option: "option", options: "option",
+};
+const TYPE_LABEL: Record<InstrumentType, string> = {
+  cfd: "CFDs", "stock-cfd": "Stock CFDs", share: "Shares", coin: "Coins (spot)", perpetual: "Perpetual futures", future: "Dated futures", option: "Options",
 };
 const ENDED: Record<string, Ended> = {
   stop: "stop", sl: "stop", stopped: "stop", stop_loss: "stop", stoploss: "stop",
@@ -257,7 +297,7 @@ export function foldInstrument(symbol: string): string {
   return (i >= 0 ? symbol.slice(i + 1) : symbol).toUpperCase();
 }
 
-const KNOWN = "strategy:, symbol:, side:, pnl:, r:, held:, entry:, exit:, ended:, size:, weekday:, hour:, #ticket, level:, logger:, time:";
+const KNOWN = "strategy:, symbol:, side:, pnl:, r:, held:, entry:, exit:, ended:, type:, size:, weekday:, hour:, #ticket, level:, logger:, time:";
 const HINT: Partial<Record<QueryKey, string>> = {
   side: "side: long or short",
   outcome: "outcome: win, loss, breakeven, open or closed",
@@ -268,6 +308,7 @@ const HINT: Partial<Record<QueryKey, string>> = {
   exit: "exit: a UTC date or month like 2026-10-21, 2026-10, >=2026-10-15, 2026-10-01..2026-10-15, today or 7d",
   time: "time: a UTC date or span like 2026-10-21, >=2026-10-15, today, 1h or 7d",
   ended: "ended: stop, tp, signal, venue or manual",
+  type: "type: cfd, stock-cfd, share, coin, perpetual, future or option",
   size: "size: lots like >=0.5, <1 or 0.1..0.5",
   weekday: "weekday: the UTC entry day, mon to sun",
   hour: "hour: the UTC entry hour 0-23, like 14, >=8 or 8..16",
@@ -323,6 +364,10 @@ function interpret(key: QueryKey, value: string, ctx: QueryContext): Interpreted
       const e = ENDED[lv];
       const label = { stop: "Hit the stop", tp: "Hit the target", signal: "Closed by the strategy", venue: "Closed by the venue", manual: "Closed by hand" };
       return e ? { key, text: `ended:${e}`, label: label[e], apply: (f) => { f.ended = e; } } : HINT.ended!;
+    }
+    case "type": {
+      const t = TYPES[lv];
+      return t ? { key, text: `type:${t}`, label: TYPE_LABEL[t], apply: (f) => { f.type = t; } } : HINT.type!;
     }
     case "level": {
       const l = LEVELS[lv];

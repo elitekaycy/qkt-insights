@@ -20,6 +20,8 @@ export interface RoundTrip {
   unit?: string | null;
   /** Underlying per unit of `qty`, as stated. */
   contractSize?: number | null;
+  /** The venue's folder for the instrument (`Stocks` for an MT5 stock CFD); absent or null when not stated. */
+  category?: string | null;
   /** The venue, when the instance trades this instrument on more than one venue account (an AAPL CFD beside an AAPL share). */
   venue?: string | null;
   side: "long" | "short";

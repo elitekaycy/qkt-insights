@@ -1,4 +1,4 @@
-import type { QueryFilter, Range, Window } from "@qkt-insights/contract/query";
+import type { InstrumentType, QueryFilter, Range, Window } from "@qkt-insights/contract/query";
 import { decimalsOf, MAX_PRICE_DIGITS, roundPrice } from "@qkt-insights/contract/prices";
 import type { Db } from "./db.js";
 import { SWAP_ONLY, winRatePct } from "./analytics.js";
@@ -36,6 +36,8 @@ export interface TripRow {
   unit: string | null;
   /** Underlying per unit of `qty`, as stated; null when not stated. */
   contractSize: number | null;
+  /** The venue's folder for the instrument (`Stocks` for an MT5 stock CFD), as stated; null when not stated. */
+  category: string | null;
   /**
    * The venue the position is on, from its symbol's broker prefix without a profile suffix
    * ("EXNESS_S01:AAPL" -> "EXNESS"), when the instance trades this instrument on more than one
@@ -109,17 +111,29 @@ const COLUMNS = `t.position_ticket id, t.broker, t.strategy_id strategyId, coale
   CASE WHEN t.open = 1 THEN NULL ELSE t.exit_ts END exitTs, CASE WHEN t.open = 1 THEN NULL ELSE t.exit_price END exitPrice,
   coalesce(t.qty, 0) qty, ${PNL} pnl, t.hold_ms holdMs, t.stop_price stopPrice, t.target_price targetPrice, ${RISK} risk, ${R} r,
   ${ENDED} ended, t.legs, t.entry_order_id entryOrderId, t.source, t.close_reason closeReason, ${TRIP_CURRENCY("t")} currency,
-  (SELECT json_array(d.instrument_kind, d.contract_size, d.quantity_unit) FROM deals d
+  (SELECT json_array(d.instrument_kind, d.contract_size, d.quantity_unit, d.instrument_category) FROM deals d
      WHERE d.instance_id=t.instance_id AND d.position_ticket=t.position_ticket
        AND (d.instrument_kind IS NOT NULL OR d.quantity_unit IS NOT NULL) ORDER BY d.ts, d.rowid LIMIT 1) instrumentFacts`;
 
-type StoredTrip = Omit<TripRow, "priceDigits" | "kind" | "unit" | "contractSize" | "venue"> & { instrumentFacts: string | null };
+type StoredTrip = Omit<TripRow, "priceDigits" | "kind" | "unit" | "contractSize" | "category" | "venue"> & { instrumentFacts: string | null };
 
-/** A stored row with the instrument facts of its deals read out (kind, unit, contract size). */
+/** A stored row with the instrument facts of its deals read out (kind, unit, contract size, venue folder). */
 function withInstrument({ instrumentFacts, ...r }: StoredTrip): Omit<TripRow, "priceDigits" | "venue"> {
-  const [kind, contractSize, stated] = instrumentFacts ? (JSON.parse(instrumentFacts) as [string | null, number | null, string | null]) : [null, null, null];
-  return { ...r, kind, unit: quantityUnitOf(kind, stated), contractSize };
+  const [kind, contractSize, stated, category] = instrumentFacts
+    ? (JSON.parse(instrumentFacts) as [string | null, number | null, string | null, string | null]) : [null, null, null, null];
+  return { ...r, kind, unit: quantityUnitOf(kind, stated), contractSize, category: category ?? null };
 }
+
+/** Each instrument type as a condition on one deal `d` of the position (contract query.ts instrumentType). */
+const TYPE_SQL: Record<InstrumentType, string> = {
+  cfd: "d.instrument_kind='cfd'",
+  "stock-cfd": "d.instrument_kind='cfd' AND (lower(d.instrument_category) LIKE '%stock%' OR lower(d.instrument_category) LIKE '%share%' OR lower(d.instrument_category) LIKE '%equit%')",
+  share: "d.instrument_kind='equity'",
+  coin: "d.instrument_kind='spot'",
+  perpetual: "d.instrument_kind='perpetual'",
+  future: "d.instrument_kind='future'",
+  option: "d.instrument_kind='option'",
+};
 
 const ENTRY_WINDOW_MS = 10 * 60_000;
 const AFTER_MS = 2 * 60_000;
@@ -392,6 +406,7 @@ function filterSql(f: QueryFilter | undefined, sql: Sql, hideIds = false): void 
   windowSql("t.entry_ts", f.entry, sql);
   exitSql(f.exit, sql);
   if (f.ended) sql.where.push(`t.ended=${sql.bind(f.ended === "venue" ? "so" : f.ended)}`);
+  if (f.type) sql.where.push(`EXISTS (SELECT 1 FROM deals d WHERE d.instance_id=t.instance_id AND d.position_ticket=t.position_ticket AND ${TYPE_SQL[f.type]})`);
   if (f.weekday !== undefined) sql.where.push(`t.entry_ts IS NOT NULL AND ${ENTRY_WEEKDAY}=${sql.bind(f.weekday)}`);
   if (f.hour) {
     sql.where.push("t.entry_ts IS NOT NULL");

@@ -1,5 +1,5 @@
 import { describe, it, expect } from "vitest";
-import { parseQuery, parseToken, parseDuration, parseWindow, tokenize, withoutChip, withTokens, withoutKeys, foldInstrument } from "../src/query.js";
+import { parseQuery, parseToken, parseDuration, parseWindow, tokenize, withoutChip, withTokens, withoutKeys, foldInstrument, instrumentType, isStockCategory } from "../src/query.js";
 
 const H = 3_600_000, D = 86_400_000;
 const NOW = Date.UTC(2026, 9, 21, 15, 30);
@@ -77,6 +77,34 @@ describe("query tags", () => {
     // the backtester's exit:stop means how it ended; say so
     expect(one("exit:stop").errors[0]).toBe('"exit:stop": exit: takes a date. For how a trade ended use ended:stop');
     expect(parseWindow("yesterday", NOW)).toEqual({ from: Date.UTC(2026, 9, 20), to: Date.UTC(2026, 9, 21) });
+  });
+
+  it("type: what the position is, a stock CFD apart from the other CFDs", () => {
+    expect(one("type:cfd").filter.type).toBe("cfd");
+    expect(one("type:stock-cfd").filter.type).toBe("stock-cfd");
+    expect(one("type:stockcfd").chips[0]!.text).toBe("type:stock-cfd");
+    expect(one("type:shares").filter.type).toBe("share");
+    expect(one("type:equity").filter.type).toBe("share");
+    expect(one("type:spot").filter.type).toBe("coin");
+    expect(one("type:perp").filter.type).toBe("perpetual");
+    expect(one("type:futures").filter.type).toBe("future");
+    expect(one("kind:options").filter.type).toBe("option");
+    expect(one("type:bond").errors[0]).toMatch(/type: cfd, stock-cfd, share, coin, perpetual, future or option/);
+  });
+
+  it("names a position's type from the kind and venue folder qkt states", () => {
+    expect(instrumentType("cfd", "Stocks")).toBe("stock-cfd");
+    expect(instrumentType("CFD", "Standard\\Shares")).toBe("stock-cfd");
+    expect(instrumentType("cfd", "Forex")).toBe("cfd");
+    expect(instrumentType("cfd", null)).toBe("cfd");
+    expect(instrumentType("equity", null)).toBe("share");
+    expect(instrumentType("spot", null)).toBe("coin");
+    expect(instrumentType("perpetual", null)).toBe("perpetual");
+    expect(instrumentType("future", null)).toBe("future");
+    expect(instrumentType("option", null)).toBe("option");
+    expect(instrumentType("warrant", null)).toBeNull();
+    expect(instrumentType(null, "Stocks")).toBeNull();
+    expect(isStockCategory("Metals")).toBe(false);
   });
 
   it("ended: stop, tp, signal, venue or manual", () => {

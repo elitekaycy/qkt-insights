@@ -258,8 +258,20 @@ export interface StrategySourceText {
   truncated: boolean;
 }
 
+/** One symbol a strategy traded, as its newest deal there states it (store queries.ts StrategyInstrument). */
+export interface StrategyInstrument {
+  symbol: string;
+  broker: string;
+  kind: string;
+  category: string | null;
+  contractSize: number | null;
+  unit: string | null;
+}
+
 export interface StrategyRow {
   strategyId: string;
+  /** What the strategy traded, by venue symbol; absent on shared links. */
+  instruments?: StrategyInstrument[];
   firstSeen: number;
   lastSeen: number;
   startingBalance: number | null;
@@ -521,6 +533,8 @@ export interface LivePositionRow {
   /** What one unit of `qty` is: lots, shares, coins, contracts, or a unit qkt names. */
   unit?: string;
   contractSize?: number;
+  /** The venue's folder for the instrument (`Stocks` for an MT5 stock CFD), when stated. */
+  category?: string;
 }
 export interface LivePendingOrderRow {
   ticket: string;
