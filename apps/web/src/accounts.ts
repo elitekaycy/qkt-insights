@@ -60,6 +60,46 @@ export function realAccounts(accounts: readonly LiveAccount[]): LiveAccount[] {
   return [...byInstance.values()].flatMap((list) => groupAccounts(list).map((g) => g.account));
 }
 
+/** Venues by the adapter qkt states (MT5: the trade server's first word), in their own spelling. */
+const VENUE_NAMES: Record<string, string> = {
+  exness: "Exness", icmarkets: "IC Markets", icmarketssc: "IC Markets", icmarketseu: "IC Markets", fivepercentonline: "The5ers",
+  deribit: "Deribit", bybit: "Bybit", alpaca: "Alpaca", binance: "Binance",
+};
+
+/**
+ * The venue an account is at, in words: the venue for an MT5 or gateway account, "Paper (Deribit prices)" for
+ * the gateway's paper adapter (it fills on Deribit's public prices), "qkt paper" for qkt's own paper broker. Null
+ * when qkt states no venue (a release before venue facts).
+ */
+export function venueName(a: Pick<LiveAccount, "connector" | "adapter">): string | null {
+  if (a.connector === "paper") return "qkt paper";
+  if (!a.adapter) return null;
+  if (a.connector === "vgp" && a.adapter === "paper") return "Paper (Deribit prices)";
+  return VENUE_NAMES[a.adapter.toLowerCase()] ?? `${a.adapter.charAt(0).toUpperCase()}${a.adapter.slice(1)}`;
+}
+
+/**
+ * An account's title: the venue, its environment and the login masked to its last four characters, e.g.
+ * "Exness · demo · •••4821" or "Paper (Deribit prices) · •••er-b", never the broker profile that happened to
+ * report it. A paper account has no environment to state. Shared links leave the login out.
+ */
+export function accountTitle(a: Pick<LiveAccount, "broker" | "connector" | "adapter" | "tradeMode" | "login">, isPublic = false): string {
+  const venue = venueName(a);
+  const paper = a.connector === "paper" || (a.connector === "vgp" && a.adapter === "paper");
+  const parts = [venue ?? accountName(a), venue && !paper ? a.tradeMode : undefined, !isPublic && a.login ? maskLogin(a.login) : undefined];
+  return parts.filter((p): p is string => !!p).join(" · ");
+}
+
+/** Every broker profile behind one account: those that reported it, and the labels folded into it, sorted. */
+export function accountProfiles(a: Pick<LiveAccount, "broker" | "profiles">, labels: readonly string[] = [a.broker]): string[] {
+  return [...new Set([...(a.profiles ?? []), ...labels])].sort((x, y) => x.localeCompare(y, "en", { numeric: true }));
+}
+
+/** The live account broker profile `label` reports on `instanceId`, or null when none does. */
+export function accountOfLabel<T extends Pick<LiveAccount, "instanceId" | "broker" | "profiles">>(accounts: readonly T[], instanceId: string, label: string): T | null {
+  return accounts.find((a) => a.instanceId === instanceId && (a.broker === label || (a.profiles ?? []).includes(label))) ?? null;
+}
+
 /**
  * The name an account strip shows. Several qkt broker profiles can share one venue account (forward
  * runs 15 Exness profiles on one login), and the live row carries whichever profile reported last,

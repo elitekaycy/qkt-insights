@@ -21,7 +21,11 @@ positions with SL, TP, money to the stop, floating P&L incl. swap and held time;
 strategy table (status and halt reason, Today, 7D, MTD, all-time, max drawdown, trades, win rate,
 last close, plus an unattributed row) whose rows open the strategy; realized P&L by UTC day with
 7D/MTD/YTD/All chips held in the URL (`range`); and the month calendar, whose days open their
-trades. Shared links show the same page 15 minutes behind, with open positions as a count and
+trades. Each account is titled by the account, not by the qkt broker profile that reported it:
+the venue, its environment and the login's last four characters (`Exness · demo · •••4821`; a
+gateway paper account reads `Paper (Deribit prices) · •••er-b`). One venue account reached
+through several broker profiles is shown once, with "via 41 profiles" naming them on hover or tap.
+Shared links show the same page 15 minutes behind, with open positions as a count and
 total only. Instrument splits, monthly returns and drawdown periods live on Calendar, Equity &
 risk and the strategy pages.
 

@@ -9,8 +9,11 @@ const object = <T extends z.ZodRawShape>(shape: T) => z.object(shape).passthroug
  * value of an unexpected shape must not cost the envelope, so enums are plain strings.
  */
 const opt = <T extends z.ZodTypeAny>(t: T) => t.nullable().optional();
-/** Which connector, venue and config entry an envelope is about: `{connector: "mt5", adapter: "exness", label: "EXNESS"}`. */
-const venue = object({ connector: opt(z.string()), adapter: opt(z.string()), label: opt(z.string()) });
+/**
+ * Which connector, venue and config entry an envelope is about: `{connector: "mt5", adapter: "exness", label: "EXNESS"}`.
+ * `tradeMode` (1.3.0) is the account's environment as the venue states it: `demo`, `real`, or MT5's `contest`.
+ */
+const venue = object({ connector: opt(z.string()), adapter: opt(z.string()), label: opt(z.string()), tradeMode: opt(z.string()) });
 /**
  * What one instrument is: qkt's symbol, the venue's code, its kind (cfd, equity, spot, perpetual, future, option),
  * contract size, tick, quote currency and account value of a point. `quantityUnit` says what one unit of `qty` is
@@ -309,7 +312,7 @@ export type EventType = keyof typeof payloadByType;
  * The contract this collector speaks, as semver. Minor: a new type or a new optional field. Major: a rename, a
  * removal or a change of meaning, which also takes a new envelope `v` (envelope.ts `SUPPORTED_MAJORS`).
  */
-export const CONTRACT_VERSION = "1.2.0";
+export const CONTRACT_VERSION = "1.3.0";
 
 /** When a type joined the contract and, once it is on its way out, what replaces it. */
 export interface EventTypeMeta {

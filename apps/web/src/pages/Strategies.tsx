@@ -1,4 +1,4 @@
-import { accountName, realAccounts } from "../accounts";
+import { accountTitle, realAccounts } from "../accounts";
 import { useQuery } from "@tanstack/react-query";
 import { get, type AccountRiskRow, type AccountSummary, type StrategyRow } from "../api";
 import { useMemo, useState } from "react";
@@ -280,7 +280,7 @@ function PortfolioDetail({
           value={money(account?.equity)}
           sub={
             account
-              ? `${accountName(account)} · shared account`
+              ? `${accountTitle(account, view.public)} · shared account`
               : accounts.length > 1
                 ? "multiple broker accounts"
                 : "account state unavailable"

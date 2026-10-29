@@ -492,6 +492,10 @@ export interface LiveAccount {
   accountId?: string;
   connector?: string;
   adapter?: string;
+  /** The account's environment as the venue states it: `demo`, `real`, `contest`. */
+  tradeMode?: string;
+  /** Every broker profile that reported this account; several when one venue account sits behind many profiles. */
+  profiles?: string[];
   lastSeen: number;
   stale: boolean;
 }

@@ -16,8 +16,10 @@ export interface AccountState {
   login?: string; server?: string; name?: string;
   /** The opaque venue account id (`mt5:<16 hex>`, `vgp:<16 hex>`): one account however many labels report it. */
   accountId?: string;
-  /** The connector and venue behind the label, as qkt stated them. */
-  connector?: string; adapter?: string;
+  /** The connector and venue behind the label, as qkt stated them, and the account's environment (`demo`, `real`, `contest`). */
+  connector?: string; adapter?: string; tradeMode?: string;
+  /** Every broker profile that reported this account since the collector started, sorted: one venue account can sit behind many. */
+  profiles?: string[];
   lastSeen: number;
 }
 
@@ -104,12 +106,13 @@ export class LiveStateStore {
       const next: StoredAccountState = { instanceId, broker: prev?.broker ?? labelOf(p), currency: p.currency, balance: p.balance, equity: p.equity,
         margin: p.margin, marginFree: p.marginFree, openProfit: p.openProfit, marginLevel: p.marginLevel,
         login: p.login, server: p.server, name: p.name, accountId,
-        connector: p.venue?.connector ?? undefined, adapter: p.venue?.adapter ?? undefined,
+        connector: p.venue?.connector ?? undefined, adapter: p.venue?.adapter ?? undefined, tradeMode: p.venue?.tradeMode ?? undefined,
+        profiles: [...new Set([...(prev?.profiles ?? []), p.broker])].sort(),
         lastSeen: e.ts };
       this.accounts.set(key, next);
       if (!prev) return true;
-      return (["broker", "currency", "balance", "equity", "margin", "marginFree", "openProfit", "marginLevel", "login", "server", "name", "accountId"] as const)
-        .some((f) => prev[f] !== next[f]);
+      return (["broker", "currency", "balance", "equity", "margin", "marginFree", "openProfit", "marginLevel", "login", "server", "name", "accountId", "tradeMode"] as const)
+        .some((f) => prev[f] !== next[f]) || prev.profiles?.length !== next.profiles?.length;
     }
     if (e.type === "state.positions") {
       const p = e.payload;
