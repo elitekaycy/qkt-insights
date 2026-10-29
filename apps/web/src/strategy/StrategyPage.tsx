@@ -436,7 +436,7 @@ function StrategyLogs({ instanceId, strategyId }: { instanceId: string; strategy
         </div>
         <div className="px-2 pb-2">
           {rows.map((l) => <LogLine key={l.id} log={l} showStrategy={false} />)}
-          {rows.length === 0 && <div className="px-4 py-8 text-center text-sm text-muted">{all ? "No log lines yet." : "No warnings or orders yet."}</div>}
+          {rows.length === 0 && <div className="px-4 py-8 text-center text-sm text-muted">{all ? "No log lines yet." : "No orders or errors in the latest lines."}</div>}
         </div>
         <div className="border-t border-line px-4 py-2 text-[11px] text-muted sm:hidden">
           <Link to={`${PAGE_PATHS.logs}?q=${encodeURIComponent(`strategy:${strategyId}`)}`} from={`${strategyId} · Logs`} className="font-medium text-accent-ink">Full history on Logs →</Link>
