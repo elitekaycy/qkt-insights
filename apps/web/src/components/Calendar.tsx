@@ -165,12 +165,12 @@ export function CalendarView({
           </span>
           {best && best.net > 0 && (
             <span className="hidden text-muted @2xl:inline">
-              best <b className="font-semibold text-gain">{signedMoney(best.net, 0)}</b>
+              best <b className="font-semibold text-gain">{signedMoney(best.net)}</b>
             </span>
           )}
           {worst && worst.net < 0 && (
             <span className="hidden text-muted @2xl:inline">
-              worst <b className="font-semibold text-loss">{signedMoney(worst.net, 0)}</b>
+              worst <b className="font-semibold text-loss">{signedMoney(worst.net)}</b>
             </span>
           )}
         </div>
@@ -237,7 +237,7 @@ export function CalendarView({
                 })}
                 <div role="gridcell" className="hidden flex-col justify-center gap-0.5 rounded-lg border border-dashed border-line-strong px-2 py-1.5 text-[11px] text-muted @xl:flex">
                   <span>Week {wi + 1}</span>
-                  <b className={`text-sm font-semibold ${wTrades ? (wNet >= 0 ? "text-gain" : "text-loss") : "text-muted"}`}>{wTrades ? signedMoney(wNet, 0) : DASH}</b>
+                  <b className={`text-sm font-semibold ${wTrades ? (wNet >= 0 ? "text-gain" : "text-loss") : "text-muted"}`}>{wTrades ? signedMoney(wNet) : DASH}</b>
                   <span>{wTrades} trades</span>
                 </div>
               </div>

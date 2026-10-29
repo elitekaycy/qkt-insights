@@ -706,6 +706,8 @@ export interface ShareState {
 }
 
 export interface SharesView {
+  /** How far behind now a public link's figures are; absent from a collector before it was stated. */
+  delayMinutes?: number;
   overview: ShareState;
   portfolios: Array<ShareState & { id: string }>;
   strategies: Array<ShareState & { id: string }>;

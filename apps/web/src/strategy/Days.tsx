@@ -250,7 +250,7 @@ function YearHeat({ months, onMonth }: { months: readonly TripDay[]; onMonth: (m
                       </td>
                     );
                   })}
-                  <td className={`text-right font-semibold ${toneClass(total)}`}>{signedMoney(total, 0)}</td>
+                  <td className={`text-right font-semibold ${toneClass(total)}`}>{signedMoney(total)}</td>
                 </tr>
               );
             })}

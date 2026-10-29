@@ -48,6 +48,18 @@ export function cardFigures(line: CardLine, digits = 2): CardFigures {
   };
 }
 
+/** What the cards add to: net incl. open and today, summed from the same figures each card prints. */
+export function cardsTotal(lines: readonly CardLine[], digits = 2): { net: number; today: number } {
+  let net = 0;
+  let today = 0;
+  for (const l of lines) {
+    const f = cardFigures(l, digits);
+    net = roundMoney(net + f.net, digits);
+    today = roundMoney(today + f.today, digits);
+  }
+  return { net, today };
+}
+
 /**
  * A line the page folds away until asked: a retired strategy. A strategy on the live roster always
  * shows, traded or not, so a book deployed today lists every member before its first trade.

@@ -32,7 +32,9 @@ that strategy on.
 | Portfolio | The portfolio page and its public children | Account balance and equity, other strategies |
 | Strategy | That strategy's page and tabs, but Code and Logs | Its code, everything else |
 
-Every figure runs `PUBLIC_DELAY_MINUTES` behind (default 15). Strategy cards and pages show
+Every figure runs `PUBLIC_DELAY_MINUTES` behind (default 15). `GET /shares` states it as
+`delayMinutes`, and the dashboard's Share panel quotes it in the confirm it asks for before a
+link goes public. Strategy cards and pages show
 realized and open P&L as of that delayed moment, and the overview adds how many positions
 are open. Individual positions (symbol, side, size, entry, stops) are never shown. Anyone
 who knows a strategy's symbol can still roughly infer an open position's direction from how

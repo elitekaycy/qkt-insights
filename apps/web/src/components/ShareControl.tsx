@@ -2,13 +2,13 @@ import { useState } from "react";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { get, rotateShareLink, setShareVisibility, shareUrl, type ShareKind, type ShareState, type SharesView } from "../api";
 import { useView } from "../view";
+import { Popover } from "./ui";
 
-const EYE = "M1 12s4-7 11-7 11 7 11 7-4 7-11 7S1 12 1 12zM12 15a3 3 0 1 0 0-6 3 3 0 0 0 0 6z";
-const EYE_OFF = "M17.94 17.94A10.07 10.07 0 0 1 12 19c-7 0-11-7-11-7a18.45 18.45 0 0 1 5.06-5.94M9.9 4.24A9.12 9.12 0 0 1 12 4c7 0 11 7 11 7a18.5 18.5 0 0 1-2.16 3.19M1 1l22 22";
-const COPY = "M9 9h11v11H9zM5 15H4a1 1 0 0 1-1-1V4a1 1 0 0 1 1-1h10a1 1 0 0 1 1 1v1";
-const CHECK = "M20 6L9 17l-5-5";
-const ROTATE = "M21 12a9 9 0 1 1-2.64-6.36M21 3v6h-6";
-const INHERIT = "M9 14L4 9l5-5M4 9h11a5 5 0 0 1 0 10h-3";
+const GLOBE = "M12 21a9 9 0 1 0 0-18 9 9 0 0 0 0 18zM3.6 9h16.8M3.6 15h16.8M12 3a14 14 0 0 1 0 18M12 3a14 14 0 0 0 0 18";
+const LOCK = "M5 11h14v10H5zM8 11V7a4 4 0 0 1 8 0v4";
+
+/** The delay a collector applies to shared links when it does not state one (PUBLIC_DELAY_MINUTES' default). */
+const DEFAULT_DELAY_MINUTES = 15;
 
 function stateOf(view: SharesView | undefined, kind: ShareKind, subject: string): ShareState | null {
   if (!view) return null;
@@ -17,24 +17,33 @@ function stateOf(view: SharesView | undefined, kind: ShareKind, subject: string)
   return list.find((s) => s.id === subject) ?? null;
 }
 
-function Icon({ d }: { d: string }) {
+function Icon({ d, className = "h-4 w-4" }: { d: string; className?: string }) {
   return (
-    <svg viewBox="0 0 24 24" className="h-4 w-4" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+    <svg viewBox="0 0 24 24" className={className} fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" aria-hidden>
       <path d={d} />
     </svg>
   );
 }
 
-const BUTTON = "inline-flex h-9 items-center gap-1.5 rounded-lg border px-2.5 text-xs font-semibold transition disabled:opacity-50";
+const SMALL = "inline-flex h-8 items-center justify-center rounded-lg border px-3 text-xs font-semibold transition disabled:opacity-50";
+const QUIET = `${SMALL} border-ctl bg-raised text-bright hover:bg-well`;
+
+/** What a public link of this subject shows, in the words of the confirm. */
+function subjectWords(kind: ShareKind): string {
+  return kind === "overview" ? "this dashboard's P&L" : kind === "portfolio" ? "this portfolio's P&L" : "this strategy's P&L";
+}
 
 /**
- * Eye toggle and share link for the overview, a portfolio or a strategy. Absent on shared
- * links. The copy and regenerate icons appear only while the subject is public.
+ * "Share…": the overview's, a portfolio's or a strategy's sharing in one small panel. It says the state first
+ * (private, or public with its link), and going public takes an explicit confirm that says what a stranger will
+ * see and how far behind. Making it private, copying and replacing the link are one click from there. Absent on
+ * shared links.
  */
 export function ShareControl({ instanceId, kind, subject = "" }: { instanceId: string; kind: ShareKind; subject?: string }) {
   const view = useView();
   const qc = useQueryClient();
   const [copied, setCopied] = useState(false);
+  const [confirming, setConfirming] = useState(false);
   const shares = useQuery({
     queryKey: ["shares", instanceId],
     queryFn: () => get<SharesView>(`/shares?instance=${encodeURIComponent(instanceId)}`),
@@ -44,7 +53,7 @@ export function ShareControl({ instanceId, kind, subject = "" }: { instanceId: s
   const update = (next: SharesView) => qc.setQueryData(["shares", instanceId], next);
   const toggle = useMutation({
     mutationFn: (visibility: "public" | "private" | null) => setShareVisibility(instanceId, kind, subject, visibility),
-    onSuccess: update,
+    onSuccess: (next) => { update(next); setConfirming(false); },
   });
   const rotate = useMutation({ mutationFn: () => rotateShareLink(instanceId, kind, subject), onSuccess: update });
 
@@ -52,15 +61,27 @@ export function ShareControl({ instanceId, kind, subject = "" }: { instanceId: s
   const state = stateOf(shares.data, kind, subject);
   if (!state) return null;
   const busy = toggle.isPending || rotate.isPending;
-  const what = kind === "overview" ? "overview" : kind;
-  const origin = state.visibility != null ? "set here" : kind === "overview" ? "default" : "inherited";
+  const delay = shares.data?.delayMinutes ?? DEFAULT_DELAY_MINUTES;
+  const inherited = state.visibility == null && kind !== "overview";
+  const url = state.token ? shareUrl(state.token) : null;
 
   const copy = async () => {
-    if (!state.token) return;
-    await navigator.clipboard.writeText(shareUrl(state.token));
+    if (!url) return;
+    await navigator.clipboard.writeText(url);
     setCopied(true);
     setTimeout(() => setCopied(false), 1600);
   };
+
+  const trigger = (
+    <span
+      className={`inline-flex h-9 items-center gap-1.5 rounded-lg border px-2.5 text-xs font-semibold transition ${
+        state.effective ? "border-accent/50 bg-accent/10 text-accent-ink" : "border-ctl bg-raised text-body hover:border-line-strong hover:text-bright"
+      }`}
+    >
+      <Icon d={state.effective ? GLOBE : LOCK} />
+      {state.effective ? "Public…" : "Share…"}
+    </span>
+  );
 
   return (
     <div className="flex items-center gap-1.5">
@@ -69,55 +90,66 @@ export function ShareControl({ instanceId, kind, subject = "" }: { instanceId: s
           {state.views} {state.views === 1 ? "view" : "views"}
         </span>
       )}
-      <button
-        type="button"
-        disabled={busy}
-        onClick={() => toggle.mutate(state.effective ? "private" : "public")}
-        aria-pressed={state.effective}
-        title={`${state.effective ? "Public" : "Private"} (${origin}). Click to make this ${what} ${state.effective ? "private" : "public"}.`}
-        className={`${BUTTON} ${state.effective ? "border-accent/50 bg-accent/10 text-accent-ink" : "border-line bg-raised text-muted hover:border-line-strong hover:text-body"}`}
-      >
-        <Icon d={state.effective ? EYE : EYE_OFF} />
-        {state.effective ? "Public" : "Private"}
-      </button>
-      {state.visibility != null && kind !== "overview" && (
-        <button
-          type="button"
-          disabled={busy}
-          onClick={() => toggle.mutate(null)}
-          title="Stop overriding: follow the portfolio or overview setting again"
-          aria-label="reset to inherited visibility"
-          className={`${BUTTON} border-line bg-raised text-muted hover:border-line-strong hover:text-body`}
-        >
-          <Icon d={INHERIT} />
-        </button>
-      )}
-      {state.effective && state.token && (
-        <>
-          <button
-            type="button"
-            onClick={() => void copy()}
-            title="Copy the public link"
-            aria-label="copy public link"
-            className={`${BUTTON} border-line bg-raised ${copied ? "text-gain" : "text-muted hover:border-line-strong hover:text-body"}`}
-          >
-            <Icon d={copied ? CHECK : COPY} />
-            {copied && "Copied"}
-          </button>
-          <button
-            type="button"
-            disabled={busy}
-            onClick={() => {
-              if (window.confirm("Replace the link? Anyone holding the current one loses access.")) rotate.mutate();
-            }}
-            title="Regenerate the link: the current one stops working"
-            aria-label="regenerate public link"
-            className={`${BUTTON} border-line bg-raised text-muted hover:border-line-strong hover:text-body`}
-          >
-            <Icon d={ROTATE} />
-          </button>
-        </>
-      )}
+      <Popover label={state.effective ? "Sharing: public" : "Sharing: private"} align="right" trigger={trigger}>
+        <div className="grid w-[min(18rem,calc(100vw-2.5rem))] gap-2.5">
+          <p className="flex items-center gap-1.5 font-semibold text-bright">
+            <Icon d={state.effective ? GLOBE : LOCK} className="h-3.5 w-3.5" />
+            {state.effective ? "Public" : "Private"}
+            {inherited && <span className="font-normal text-muted">· from the overview</span>}
+          </p>
+          {state.effective ? (
+            <>
+              <p className="text-muted">Anyone with the link sees it, {delay} minutes behind.</p>
+              {url && (
+                <div className="flex items-center gap-1.5">
+                  <input readOnly value={url} onFocus={(e) => e.currentTarget.select()} aria-label="Public link" className="h-8 min-w-0 flex-1 rounded-lg border border-ctl bg-panel px-2 font-mono text-[11px] text-body" />
+                  <button type="button" onClick={() => void copy()} className={QUIET}>{copied ? "Copied" : "Copy"}</button>
+                </div>
+              )}
+              <div className="flex flex-wrap gap-1.5">
+                <button type="button" disabled={busy} onClick={() => toggle.mutate("private")} className={QUIET}>Make private</button>
+                <button
+                  type="button"
+                  disabled={busy}
+                  onClick={() => { if (window.confirm("Replace the link? Anyone holding the current one loses access.")) rotate.mutate(); }}
+                  className={QUIET}
+                  title="The current link stops working"
+                >
+                  New link
+                </button>
+                {state.visibility != null && kind !== "overview" && (
+                  <button type="button" disabled={busy} onClick={() => toggle.mutate(null)} className={QUIET} title="Stop overriding: follow the portfolio or overview setting again">
+                    Follow above
+                  </button>
+                )}
+              </div>
+            </>
+          ) : confirming ? (
+            <>
+              <p className="text-body">Anyone with the link sees {subjectWords(kind)}, {delay} minutes behind.</p>
+              <div className="flex gap-1.5">
+                <button type="button" disabled={busy} onClick={() => toggle.mutate("public")} className={`${SMALL} border-transparent bg-accent text-on-accent hover:bg-accent-hi`}>
+                  Make public
+                </button>
+                <button type="button" onClick={() => setConfirming(false)} className={QUIET}>Cancel</button>
+              </div>
+            </>
+          ) : (
+            <>
+              <p className="text-muted">Only you can see it.</p>
+              <div className="flex flex-wrap gap-1.5">
+                <button type="button" onClick={() => setConfirming(true)} className={QUIET}>Create a public link…</button>
+                {state.visibility != null && kind !== "overview" && (
+                  <button type="button" disabled={busy} onClick={() => toggle.mutate(null)} className={QUIET} title="Stop overriding: follow the portfolio or overview setting again">
+                    Follow above
+                  </button>
+                )}
+              </div>
+            </>
+          )}
+          {toggle.isError && <p className="text-loss">The change did not save. Try again.</p>}
+        </div>
+      </Popover>
     </div>
   );
 }

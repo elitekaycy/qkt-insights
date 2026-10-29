@@ -145,7 +145,7 @@ export function OverviewSection({ instanceId, strategyId, scope, q, toggle, a, b
             </span>
           </div>
           <div className="mt-1 text-sm tabular-nums text-muted">
-            <span className="text-gain">{signedMoney(a.grossWin, 0)}</span> / <span className="text-loss">{signedMoney(a.grossLoss, 0)}</span>
+            <span className="font-mono text-gain">{signedMoney(a.grossWin)}</span> won / <span className="font-mono text-loss">{signedMoney(a.grossLoss)}</span> lost
           </div>
         </Widget>
         <Widget
@@ -247,7 +247,7 @@ export function OverviewSection({ instanceId, strategyId, scope, q, toggle, a, b
             <div className={`grid gap-x-8 ${a.instrument.length > 1 ? "" : "@3xl:grid-cols-2"}`}>
               <StatRow label="Max drawdown on equity">
                 <span className={r?.maxDrawdownPct ? "text-loss" : ""}>{r?.maxDrawdownPct == null ? DASH : pctValue(-r.maxDrawdownPct, 1)}</span>
-                {r?.maxDrawdownAbs ? <span className="ml-2 font-normal text-muted">{signedMoney(-r.maxDrawdownAbs, 0)}</span> : null}
+                {r?.maxDrawdownAbs ? <span className="ml-2 font-normal text-muted">{signedMoney(-r.maxDrawdownAbs)}</span> : null}
               </StatRow>
               <StatRow label="Longest under water">{days(r?.drawdownDurationDays)}</StatRow>
               <StatRow label="Recovery factor" title="Total net over the deepest drawdown">{num(r?.recoveryFactor)}</StatRow>
@@ -255,7 +255,7 @@ export function OverviewSection({ instanceId, strategyId, scope, q, toggle, a, b
                 <>
                   <StatRow label="Gross, before costs"><span className={toneClass(costs.total.grossProfit)}>{signedMoney(costs.total.grossProfit)}</span></StatRow>
                   <StatRow label={<><CostTerm kind="commission" /> · <CostTerm kind="swap">swap</CostTerm> · <CostTerm kind="fee">fees</CostTerm></>}>
-                    <span className="text-body">{signedMoney(costs.total.commission, 0)} · {signedMoney(costs.total.swap, 0)} · {signedMoney(costs.total.fee, 0)}</span>
+                    <span className="text-body">{signedMoney(costs.total.commission)} · {signedMoney(costs.total.swap)} · {signedMoney(costs.total.fee)}</span>
                   </StatRow>
                   {costs.total.funding ? (
                     <StatRow label={<>Perpetual <CostTerm kind="funding">funding</CostTerm></>} title="What the venue charged (negative) or paid the strategy's perpetual positions for funding; not in swap">

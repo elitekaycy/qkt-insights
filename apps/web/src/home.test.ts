@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 import type { AccountRiskRow, LivePositionRow } from "./api";
-import { dailyMeasured, drawdownMeasured, emptyPeriods, floatingNote, floatingNoteText, limitLine, limitUse, noAccountMessage, openRisk, positionRisks, rangeFirstDay, riskRowFor, strategyLines, strategyPeriods } from "./home";
+import { dailyMeasured, drawdownMeasured, emptyPeriods, floatingNote, floatingNoteText, limitLine, limitUse, noAccountMessage, openRisk, positionRisks, rangeFirstDay, riskRowFor, strategyLines, strategyPeriods, strategyTotal, todayHeadline, todaySplit } from "./home";
 
 function position(p: Partial<LivePositionRow> & Pick<LivePositionRow, "ticket">): LivePositionRow {
   return { symbol: "XAUUSD", side: "BUY", qty: 1, entryPrice: 100, ...p };
@@ -187,7 +187,7 @@ describe("floatingNote", () => {
     expect(n.account).toBeCloseTo(-584.39, 6);
     expect(n.listed).toBeCloseTo(9.2, 9);
     expect(n.unmarked).toBe(0);
-    expect(floatingNoteText(n)).toBe("\u2212593.59 on 2 positions outside this instance");
+    expect(floatingNoteText(n)).toBe("\u2212593.59 on 2 trades from another system");
   });
 
   it("names listed positions the venue sends no mark for, never counting them as 0.00", () => {
@@ -195,8 +195,8 @@ describe("floatingNote", () => {
     const n = floatingNote({ balance: 9_999.96, equity: 10_001.02 }, paper, null)!;
     expect(n).toMatchObject({ marked: 1, unmarked: 1, outside: null });
     expect(n.listed).toBeCloseTo(1.06, 9);
-    expect(floatingNoteText(n)).toBe("1 listed position without a venue mark");
-    expect(floatingNoteText(floatingNote(account, listed, { count: 1, floating: null })!)).toBe("1 position outside this instance");
+    expect(floatingNoteText(n)).toBe("1 trade with no price from the venue");
+    expect(floatingNoteText(floatingNote(account, listed, { count: 1, floating: null })!)).toBe("1 trade from another system");
   });
 
   it("has nothing to say when every listed position is marked and the account floats what they float", () => {
@@ -210,7 +210,70 @@ describe("floatingNote", () => {
     const n = floatingNote({ balance: 4_983_990.48, equity: 4_982_840.72 }, [position({ ticket: "e", profit: 1.06, swap: 0 })], null)!;
     expect(n.outside).toBeNull();
     expect(n.elsewhere).toBeCloseTo(-1_150.82, 2);
-    expect(floatingNoteText(n)).toBe("\u22121,150.82 on positions this instance does not list");
+    expect(floatingNoteText(n)).toBe("\u22121,150.82 on trades not listed here");
     expect(floatingNote(account, listed, null)!.elsewhere).toBeCloseTo(-593.59, 2);
+  });
+});
+
+describe("todaySplit", () => {
+  it("splits an account's Today into qkt's closes and listed positions and another system's floating, adding to the account", () => {
+    // the review's Exness tab: +16.93 closed, +1.42 on qkt's 2 listed positions, -767.77 on positions qkt does not list
+    const account = { balance: 4_983_990.48, equity: 4_983_990.48 + 1.42 - 767.77 };
+    const n = floatingNote(account, [position({ ticket: "a", profit: 1.0, swap: 0 }), position({ ticket: "b", profit: 0.42, swap: 0 })], null);
+    const s = todaySplit(account, 16.93, n);
+    expect(s).toEqual({ total: -749.42, qkt: 18.35, other: -767.77, unassigned: 0 });
+  });
+
+  it("is all qkt's when nothing floats outside the listed positions", () => {
+    expect(todaySplit({ balance: 10_000, equity: 10_002.5 }, -1.25, null)).toEqual({ total: 1.25, qkt: 1.25, other: null, unassigned: 0 });
+  });
+
+  it("keeps what no part explains (a listed position without a mark) as unassigned, never as qkt's or the other system's", () => {
+    const account = { balance: 9_999.96, equity: 10_001.02 };
+    const n = floatingNote(account, [position({ ticket: "p", profit: undefined, swap: undefined }), position({ ticket: "q", profit: 1.06, swap: 0 })], null);
+    expect(todaySplit(account, 0.5, n)).toEqual({ total: 1.56, qkt: 1.56, other: null, unassigned: 0 });
+    // an outside position whose floating is unknown: the account's remainder stays unassigned
+    const outside = floatingNote({ balance: 100, equity: 90 }, [position({ ticket: "r", profit: 2, swap: 0 })], { count: 1, floating: null })!;
+    expect(todaySplit({ balance: 100, equity: 90 }, 0, outside)).toEqual({ total: -10, qkt: 2, other: null, unassigned: -12 });
+    // a stopped account lists no positions: its last floating is not another system's
+    const stopped = { balance: 9_999.96, equity: 10_001.85, stopped: true };
+    expect(todaySplit(stopped, 0, floatingNote(stopped, [], null))).toEqual({ total: 1.89, qkt: 0, other: null, unassigned: 1.89 });
+  });
+});
+
+describe("strategyTotal", () => {
+  it("adds the rows and names what the account holds beyond them, so the total row adds up", () => {
+    const split = { total: -749.42, qkt: 18.35, other: -767.77, unassigned: 0 };
+    expect(strategyTotal([17.16, 0.85, 0.34], split)).toEqual({ rows: 18.35, other: -767.77, account: -749.42, rest: 0 });
+    expect(strategyTotal([17.16, 0.85], split)).toEqual({ rows: 18.01, other: -767.77, account: -749.42, rest: 0.34 });
+  });
+
+  it("only sums the rows on All accounts", () => {
+    expect(strategyTotal([1.1, 2.2, -0.3], null)).toEqual({ rows: 3, other: null, account: null, rest: 0 });
+  });
+});
+
+describe("todayHeadline", () => {
+  const split = (qkt: number, other: number | null = null) => ({ total: qkt + (other ?? 0), qkt, other, unassigned: 0 });
+
+  it("sums qkt per currency and names each account's other-system floating", () => {
+    const h = todayHeadline([
+      { key: "x", name: "Exness •••2618", currency: "USD", split: split(18.35, -767.77) },
+      { key: "a", name: "Paper A", currency: "USDC", split: split(0.5) },
+      { key: "b", name: "Paper B", currency: "USDC", split: split(-0.54) },
+    ]);
+    expect(h.missing).toBe(0);
+    expect(h.parts).toEqual([
+      { kind: "qkt", value: 18.35, currency: "USD" },
+      { kind: "qkt", value: -0.04, currency: "USDC" },
+      { kind: "other", value: -767.77, currency: "USD", account: { key: "x", name: "Exness •••2618" } },
+    ]);
+  });
+
+  it("leaves zero parts out, keeps one zero when there is nothing else, and counts accounts not known yet", () => {
+    expect(todayHeadline([{ key: "a", name: "A", currency: "USDC", split: split(0) }, { key: "b", name: "B", currency: "USD", split: split(2) }]).parts)
+      .toEqual([{ kind: "qkt", value: 2, currency: "USD" }]);
+    expect(todayHeadline([{ key: "a", name: "A", currency: "USDC", split: split(0) }]).parts).toEqual([{ kind: "qkt", value: 0, currency: "USDC" }]);
+    expect(todayHeadline([{ key: "a", name: "A", currency: "USDC", split: null }])).toEqual({ parts: [], missing: 1 });
   });
 });

@@ -148,7 +148,7 @@ function AccountBlock({ a, view, showInstance }: { a: AccountReconciliation; vie
 }
 
 /** The Health page's Reconciliation card: every venue account of every reporting instance. */
-export function ReconciliationCard({ instances }: { instances: string[] }) {
+export function ReconciliationCard({ instances, pending = false }: { instances: string[]; /** The instance list is still loading. */ pending?: boolean }) {
   const results = useQueries({
     queries: instances.map((i) => ({
       queryKey: ["reconciliation", i],
@@ -157,7 +157,7 @@ export function ReconciliationCard({ instances }: { instances: string[] }) {
     })),
   });
   const views = results.flatMap((r) => (r.data ? [r.data] : []));
-  const loading = results.some((r) => r.isLoading);
+  const loading = pending || results.some((r) => r.isLoading);
   const failed = results.some((r) => r.isError && !r.data);
   const accounts = views.flatMap((view) => view.accounts.map((a) => ({ view, a })));
   const unassigned = views.filter((v) => v.unassigned.deals > 0);

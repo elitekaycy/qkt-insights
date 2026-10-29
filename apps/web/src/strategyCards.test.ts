@@ -1,7 +1,7 @@
 import { describe, expect, it } from "vitest";
 import type { StrategyRow } from "./api";
 import { emptyPeriods } from "./home";
-import { cardFigures, isFolded, mergeCurves, realizedCurves, sortCards, sparkPath, thinCurve, type CardLine } from "./strategyCards";
+import { cardFigures, cardsTotal, isFolded, mergeCurves, realizedCurves, sortCards, sparkPath, thinCurve, type CardLine } from "./strategyCards";
 
 const row = (strategyId: string, extra: Partial<StrategyRow> = {}): StrategyRow =>
   ({ strategyId, metadata: null, active: true, halted: false, definedCapital: null, startingBalance: null, ...extra }) as StrategyRow;
@@ -70,5 +70,14 @@ describe("curves", () => {
     expect(sparkPath([0], 100, 40)).toBeNull();
     expect(sparkPath([0, 5, 10], 100, 40)!.zeroY).toBeNull();
     expect(sparkPath([0, -10, 10], 100, 40)!.zeroY).toBe(20);
+  });
+});
+
+describe("cardsTotal", () => {
+  it("adds the cards' own figures, so the footer is what the cards on screen add to", () => {
+    const a: CardLine = { key: "a", row: null, periods: { ...emptyPeriods("a"), all: -5.94, floating: 0.75, today: -4.97 } };
+    const b: CardLine = { key: "b", row: null, periods: { ...emptyPeriods("b"), all: 17.06, floating: 0.1, today: 0.1 } };
+    expect(cardsTotal([a, b])).toEqual({ net: 11.97, today: -4.87 });
+    expect(cardsTotal([])).toEqual({ net: 0, today: 0 });
   });
 });

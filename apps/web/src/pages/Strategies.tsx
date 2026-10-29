@@ -5,11 +5,11 @@ import { useMemo, useState } from "react";
 import { StrategySearch, type StrategyLine } from "../components/HomeStrategies";
 import { CardGrid, PortfolioGroup, StrategyCard } from "../components/StrategyCards";
 import { Card, Cell, Empty, Loadable, PageHeader, Panel, Pill, Pnl, Popover, Row, Select, Stat, Table } from "../components/ui";
-import { age, count, money, openPnl, pct, ts } from "../format";
+import { age, count, money, openPnl, pct, signedMoney } from "../format";
 import { emptyPeriods, floatingByStrategy, riskRowFor, strategyLines, strategyPeriods } from "../home";
 import { routePath, useRoute, useSearchParam } from "../router";
 import { asksForRetired, matchesStrategy } from "../strategyFilter";
-import { CARD_SORTS, cardGroups, isFolded, mergeCurves, realizedCurves, sortCards, type CardSort } from "../strategyCards";
+import { CARD_SORTS, cardGroups, cardsTotal, isFolded, mergeCurves, realizedCurves, sortCards, type CardSort } from "../strategyCards";
 import { strategyLegs } from "../instruments";
 import { useLiveState } from "../useLiveState";
 import { portfolioGroupId, strategyCapital, strategyDisplayName as displayName, summarizePortfolio } from "../portfolio";
@@ -195,7 +195,7 @@ function StrategyCardList({ lines, closes, now, instanceId }: { lines: StrategyL
         </section>
       )}
       <div className="flex flex-wrap items-center gap-x-3 gap-y-1 text-[11px] text-faint">
-        <span>as of {ts(now).slice(11, 16)} UTC · cards add up to the account; unattributed = deals no strategy claimed</span>
+        <CardsTotal lines={shown} />
         {foldedCount > 0 && !asksForRetired(find) && (
           <button type="button" onClick={() => setShowAll((s) => !s)} className="text-xs font-medium text-accent-ink hover:underline">
             {showAll ? "Hide retired" : `Show ${foldedCount} retired`}
@@ -203,6 +203,16 @@ function StrategyCardList({ lines, closes, now, instanceId }: { lines: StrategyL
         )}
       </div>
     </div>
+  );
+}
+
+/** The cards' total, summed from what each card shows. */
+function CardsTotal({ lines }: { lines: StrategyLine[] }) {
+  const t = cardsTotal(lines);
+  return (
+    <span className="text-xs text-muted">
+      Total <span className="font-mono text-body">{signedMoney(t.net)}</span> · today <span className="font-mono text-body">{signedMoney(t.today)}</span>
+    </span>
   );
 }
 

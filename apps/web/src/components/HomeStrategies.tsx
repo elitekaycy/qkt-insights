@@ -1,8 +1,8 @@
 import { useState, type ReactNode } from "react";
 import type { StrategyRow } from "../api";
-import { age, count, DASH, money, pct, ts } from "../format";
+import { age, count, DASH, money, pct, signedMoney, ts } from "../format";
 import { haltSummary } from "../halt";
-import type { StrategyPeriods } from "../home";
+import { strategyTotal, type StrategyPeriods, type TodaySplit } from "../home";
 import { strategyDisplayName } from "../portfolio";
 import { asksForRetired, matchesStrategy } from "../strategyFilter";
 import { Link, useRoute, useSearchParam } from "../router";
@@ -63,21 +63,20 @@ const quiet = (row: StrategyRow | null) => row != null && (!row.active || haltSu
 
 export function StrategyTable({
   lines,
-  now,
   title = "Strategies",
   hint,
   right,
-  footer = "the rows add up to the account; unattributed = deals no strategy claimed",
+  account = null,
   search = false,
   origin,
 }: {
   lines: StrategyLine[];
-  now: number;
   title?: string;
   hint?: string;
   /** Extra header content at the right edge, e.g. a group's total. */
   right?: ReactNode;
-  footer?: string;
+  /** The shown account's Today split; the total row then sets the rows against the account's own figure. Null on All accounts. */
+  account?: TodaySplit | null;
   /** Draws the search box in the header; the search (`find` in the URL) applies either way. */
   search?: boolean;
   /** The page the table is on, for the strategy page's way back. */
@@ -220,9 +219,7 @@ export function StrategyTable({
           </ul>
         </div>
       )}
-      <div className="border-t border-line px-4 py-2 text-[11px] text-faint">
-        as of {ts(now).slice(11, 16)} UTC · {footer}
-      </div>
+      <TotalLine total={strategyTotal(shown.map((l) => l.periods.today), account)} hidden={lines.length - shown.length} />
     </Card>
   );
 }
@@ -255,6 +252,23 @@ function Mini({ k, children }: { k: string; children: ReactNode }) {
     <div className="min-w-0">
       <div className="text-faint">{k}</div>
       <div className="truncate">{children}</div>
+    </div>
+  );
+}
+
+/**
+ * The table's total from the rows shown: "Total +18.35"; on one account, set against the account's own Today
+ * ("· other system −767.77 · account −749.42"), with whatever else it holds named so the parts add up.
+ */
+function TotalLine({ total, hidden }: { total: ReturnType<typeof strategyTotal>; hidden: number }) {
+  const part = (label: string, v: number) => <span className="whitespace-nowrap">{label} <span className="font-mono tabular-nums text-body">{signedMoney(v)}</span></span>;
+  const parts = [part("Total", total.rows)];
+  if (total.other != null) parts.push(part("other system", total.other));
+  if (total.account != null && total.rest !== 0) parts.push(part(hidden > 0 ? "rows not shown" : "not in a row", total.rest));
+  if (total.account != null) parts.push(part("account", total.account));
+  return (
+    <div className="flex flex-wrap items-center gap-x-1.5 gap-y-0.5 border-t border-line px-4 py-2 text-xs text-muted">
+      {parts.map((p, i) => <span key={i} className="inline-flex items-center gap-1.5">{i > 0 && <span className="text-faint">·</span>}{p}</span>)}
     </div>
   );
 }

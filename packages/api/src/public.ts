@@ -41,6 +41,8 @@ export interface SharesDeps {
   cache: TtlCache;
   /** When present, each subject's state carries its view count. */
   views?: Views;
+  /** How far behind now a public link's figures are; stated so the share control can say it before going public. */
+  delayMs?: number;
 }
 
 interface ShareState { visibility: "public" | "private" | null; effective: boolean; token: string | null; views: number }
@@ -74,7 +76,7 @@ export function sweepHiddenShares(db: Db, shares: Shares): number {
   return shares.instancesWithExposedLinks().reduce((n, id) => n + revokeHiddenShares(db, shares, id), 0);
 }
 
-function sharesView(db: Db, shares: Shares, instanceId: string, views?: Views) {
+function sharesView(db: Db, shares: Shares, instanceId: string, views?: Views, delayMs?: number) {
   revokeHiddenShares(db, shares, instanceId);
   const roster = listStrategyRoster(db, instanceId);
   const rows = shares.list(instanceId);
@@ -88,6 +90,7 @@ function sharesView(db: Db, shares: Shares, instanceId: string, views?: Views) {
     views: counts.get(`${kind}:${subject}`) ?? 0,
   });
   return {
+    ...(delayMs != null ? { delayMinutes: Math.round(delayMs / 60_000) } : {}),
     overview: state("overview", "", vis.overview),
     portfolios: [...vis.portfolios.entries()].sort(([a], [b]) => a.localeCompare(b)).map(([id, effective]) => ({ id, ...state("portfolio", id, effective) })),
     strategies: roster.map((s) => ({ id: s.strategyId, ...state("strategy", s.strategyId, vis.strategies.get(s.strategyId) ?? false) })),
@@ -123,7 +126,7 @@ export function registerShares(app: FastifyInstance, deps: SharesDeps): void {
 
   app.get<{ Querystring: { instance?: string } }>("/shares", guard, async (req, reply) => {
     if (!req.query.instance) return reply.code(400).send({ error: "instance required" });
-    return sharesView(deps.db, deps.shares, req.query.instance, deps.views);
+    return sharesView(deps.db, deps.shares, req.query.instance, deps.views, deps.delayMs);
   });
 
   const mutate = (apply: (body: ShareBody) => void) => async (req: FastifyRequest<{ Body: ShareBody }>, reply: FastifyReply) => {
@@ -134,7 +137,7 @@ export function registerShares(app: FastifyInstance, deps: SharesDeps): void {
     // replaced before the view is built.
     revokeHiddenShares(deps.db, deps.shares, req.body.instance);
     invalidateShareScopes(deps.cache);
-    return sharesView(deps.db, deps.shares, req.body.instance, deps.views);
+    return sharesView(deps.db, deps.shares, req.body.instance, deps.views, deps.delayMs);
   };
 
   app.put<{ Body: ShareBody }>("/shares", { ...guard, schema: { body: { ...ShareSubject, required: [...ShareSubject.required, "visibility"] } } }, mutate((b) => {

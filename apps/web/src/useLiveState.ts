@@ -52,6 +52,15 @@ export function applyEnvelope(prev: LiveStateSnapshot | undefined, e: Pick<LiveE
 }
 
 /**
+ * A push folded into the cache, once the cache holds the collector's full snapshot. Before that a push would make a
+ * snapshot of one account: Home would draw that account as the only one, "flat", while the others are still loading.
+ * Undefined leaves the cache as it is (react-query skips an updater that returns undefined).
+ */
+export function foldPush(prev: LiveStateSnapshot | undefined, e: Pick<LiveEnvelope, "instanceId" | "ts" | "payload">): LiveStateSnapshot | undefined {
+  return prev === undefined ? undefined : applyEnvelope(prev, e);
+}
+
+/**
  * Broker truth from collector memory: account snapshots and open position
  * lists for every instance. Polls every 10s as reconciliation; a WS state.*
  * envelope (passed in from useLiveStream) is applied straight into the cache
@@ -68,7 +77,7 @@ export function useLiveState(live: LiveEnvelope[] = []): UseQueryResult<LiveStat
   const newest = live[0];
   useEffect(() => {
     if (newest?.type === "state.account") {
-      qc.setQueryData<LiveStateSnapshot>(["live-state"], (prev) => applyEnvelope(prev, newest));
+      qc.setQueryData<LiveStateSnapshot>(["live-state"], (prev) => foldPush(prev, newest));
     } else if (newest?.type === "state.positions" || newest?.type === "state.orders") {
       void qc.invalidateQueries({ queryKey: ["live-state"] });
     }

@@ -197,7 +197,7 @@ export default function Equity({ instanceId }: { instanceId: string | null }) {
 
         <Panel title="Drawdown periods" hint={focusId}>
           <Loadable
-            loading={!!focusId && performance.isPending}
+            loading={strategies.isPending || (!!focusId && performance.isPending)}
             error={performance.isError}
             retry={() => performance.refetch()}
             what="drawdown periods"

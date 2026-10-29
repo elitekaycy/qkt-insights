@@ -2,14 +2,14 @@ import { useQuery } from "@tanstack/react-query";
 import { get, type AccountRiskRow, type AccountSummary, type InstanceRow, type LivePositionRow, type StrategyRow } from "../api";
 import { accountKey, accountProfiles, accountTab, groupAccounts } from "../accounts";
 import { AccountsTable, AccountTabs, useAccountChoice, type AccountLine } from "../components/AccountSwitch";
-import { AccountStrip } from "../components/HomeAccount";
+import { AccountStrip, TodayHeadline } from "../components/HomeAccount";
 import { MonthCalendar, PnlChart } from "../components/HomeCharts";
 import { OpenPositions, PublicOpenPositions } from "../components/HomePositions";
 import { StrategyTable, type StrategyLine } from "../components/HomeStrategies";
 import { ShareControl } from "../components/ShareControl";
 import { Card, Loadable, PageHeader } from "../components/ui";
 import { day as utcDay } from "../format";
-import { dayBasisLabel, floatingByStrategy, floatingNote, HOME_RANGES, noAccountMessage, openRisk, riskRowFor, strategyLines, strategyPeriods, type HomeRange } from "../home";
+import { dayBasisLabel, floatingByStrategy, floatingNote, HOME_RANGES, noAccountMessage, openRisk, riskRowFor, strategyLines, strategyPeriods, todayHeadline, todaySplit, type HomeRange } from "../home";
 import { strategyDisplayName } from "../portfolio";
 import { useSearchParam } from "../router";
 import { useLiveState } from "../useLiveState";
@@ -115,16 +115,38 @@ export default function Home({ instanceId }: { instanceId: string | null }) {
   const accountLines: AccountLine[] = choice.accounts.map((g) => {
     const row = riskRowFor(g.account, riskRows);
     return { group: g, risk: row, realizedToday: row?.dailyLoss.realizedToday ?? null, open: view.public ? null : openRisk(positionsOf(g)),
-      note: view.public ? null : floatingNote(g.account, positionsOf(g), outsideOf(groupsOf(g))) };
+      note: view.public ? null : floatingNote(g.account, positionsOf(g), outsideOf(groupsOf(g))), pending: risk.isPending };
   });
   const shown = choice.chosen;
   const shownName = scoped ? accountTab(scoped.account, view.public).name : null;
+  // the shown account's Today as the strip shows it (its risk row, else the strategies' closes today)
+  const shownNote = shown && !view.public ? (choice.many ? floatingNote(shown.account, positionsOf(shown), outsideOf(groupsOf(shown))) : floatingNote(shown.account, positions, outsideOf(groups))) : null;
+  const shownRealized = shown ? (riskRowFor(shown.account, riskRows)?.dailyLoss.realizedToday ?? (periods ? realizedFallback : null)) : null;
+  const shownSplit = shown && shownRealized != null ? todaySplit(shown.account, shownRealized, shownNote) : null;
+  const headline = todayHeadline(shown
+    ? [{ key: accountKey(shown.account), name: accountTab(shown.account, view.public).name, currency: shown.account.currency, split: shownSplit }]
+    : accountLines.map((l) => ({ key: accountKey(l.group.account), name: accountTab(l.group.account, view.public).name, currency: l.group.account.currency,
+      split: l.realizedToday == null ? null : todaySplit(l.group.account, l.realizedToday, l.note) })));
+  const headlinePending = liveState.isPending || risk.isPending || (shown != null && shownRealized == null && summary.isPending);
 
   return (
     <div className="grid grid-cols-1 gap-4">
       <PageHeader
         title="Home"
-        sub={view.public ? `${instanceId} · shared view, figures ${view.meta.delayMinutes} minutes behind · times UTC` : `${instanceId}: where the account stands right now · times UTC`}
+        sub={
+          <>
+            {view.public && <div>{`${instanceId} · shared view, figures ${view.meta.delayMinutes} minutes behind · times UTC`}</div>}
+            {(accounts.length > 0 || liveState.isPending) && (
+              <TodayHeadline
+                parts={headline.parts}
+                missing={headline.missing}
+                pending={headlinePending}
+                onQkt={() => document.getElementById("home-strategies")?.scrollIntoView({ behavior: "smooth", block: "start" })}
+                onAccount={(key) => choice.choose(choice.accounts.find((g) => accountKey(g.account) === key) ?? null)}
+              />
+            )}
+          </>
+        }
         right={<ShareControl instanceId={instanceId} kind="overview" />}
       />
 
@@ -151,7 +173,8 @@ export default function Home({ instanceId }: { instanceId: string | null }) {
                 realizedToday={row?.dailyLoss.realizedToday ?? realizedFallback}
                 dayLabel={row ? dayBasisLabel(row) : dayLabel}
                 open={view.public ? null : openRisk(choice.many ? positionsOf(shown) : positions)}
-                note={view.public ? null : choice.many ? floatingNote(shown.account, positionsOf(shown), outsideOf(groupsOf(shown))) : floatingNote(shown.account, positions, outsideOf(groups))}
+                note={shownNote}
+                riskPending={risk.isPending}
                 isPublic={view.public}
               />
             );
@@ -172,14 +195,15 @@ export default function Home({ instanceId }: { instanceId: string | null }) {
         what="the strategies"
         lines={5}
       >
-        <StrategyTable
-          lines={lines}
-          now={now}
-          search
-          origin="Home"
-          hint={`${shownName ? `on ${shownName} · ` : ""}Today includes open P&L · other columns are closed trades`}
-          footer={scoped ? "the rows add up to this account; unattributed = its deals no strategy claimed" : undefined}
-        />
+        <div id="home-strategies" className="scroll-mt-4">
+          <StrategyTable
+            lines={lines}
+            search
+            origin="Home"
+            hint={`${shownName ? `on ${shownName} · ` : ""}Today includes open P&L · other columns are closed trades`}
+            account={scoped || !choice.many ? shownSplit : null}
+          />
+        </div>
       </Loadable>
 
       <Loadable loading={summary.isPending} error={summary.isError} retry={() => summary.refetch()} what="the P&L history" lines={6}>
