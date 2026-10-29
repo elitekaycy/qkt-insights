@@ -1,10 +1,10 @@
-import { useMemo, useState, type ReactNode } from "react";
-import { DASH, duration, human, signedMoney, toneClass, tsShort } from "../format";
+import { useMemo, useState } from "react";
+import { DASH, human, signedMoney, toneClass, tsShort } from "../format";
 import { EChart, useNarrowChart } from "../components/EChart";
 import { Freshness, Segmented } from "../components/ui";
 import { usePositionPath, type PositionPath } from "./data";
 import { latency, preciseClock, px } from "./format";
-import { bucketLabel, levels, markerIndex, moments, pathOption, pathSummary, type Moment, type MomentKey, type PathView } from "./positionMap";
+import { bucketLabel, markerIndex, moments, pathOption, type Moment, type MomentKey, type PathView } from "./positionMap";
 
 /*
  * The position map in the trade drawer: where the position went while it was held, drawn from
@@ -34,10 +34,10 @@ export function PositionMap({ instanceId, ticket, open, digits, realized }: {
   const path = q.data && q.data.ticket === ticket ? q.data : null;
 
   return (
-    <section className="px-5 pb-5" aria-label="Position map">
+    <section className="px-5 py-4" aria-label="How the price moved">
       <div className="mb-3 flex flex-wrap items-center gap-x-3 gap-y-2">
-        <h3 className="text-xs font-semibold uppercase tracking-[0.06em] text-muted">Position map</h3>
-        {path && path.status === "open" && path.last && <Freshness at={path.last.ts} stale={Date.now() - path.last.ts > STALE_MARK_MS} />}
+        <h3 className="text-sm font-medium text-body">How the price moved</h3>
+        {path && path.status === "open" && path.last && <Freshness at={path.last.ts} stale={Date.now() - path.last.ts > STALE_MARK_MS} quiet />}
         {path && path.candles.length > 0 && (
           <div className="flex w-full flex-wrap items-center justify-between gap-2 sm:ml-auto sm:w-auto sm:justify-end">
             {view === "price" && path.buckets.length > 1 && (
@@ -54,7 +54,7 @@ export function PositionMap({ instanceId, ticket, open, digits, realized }: {
         )}
       </div>
       {q.isError ? (
-        <p className="rounded-lg border border-line bg-raised px-3 py-6 text-center text-sm text-loss">The position's path could not be loaded.</p>
+        <p className="rounded-lg border border-line bg-raised px-3 py-6 text-center text-sm text-loss">The chart could not be loaded.</p>
       ) : !path ? (
         <div className="space-y-3" aria-busy>
           <div className="grid grid-cols-2 gap-3 sm:grid-cols-4">
@@ -73,14 +73,9 @@ export function PositionMap({ instanceId, ticket, open, digits, realized }: {
 
 function NoMarks({ path }: { path: PositionPath }) {
   return (
-    <div className="rounded-lg border border-dashed border-line-strong px-4 py-6 text-center">
-      <p className="text-sm text-body">No venue marks for this position{path.status === "open" ? " yet" : ""}.</p>
-      <p className="mx-auto mt-1 max-w-md text-xs text-muted">
-        {path.status === "open"
-          ? "Insights records the price and P&L each time qkt reports the account's positions; the first poll after the entry starts the map."
-          : "Marks are recorded while a position is open and kept for 30 days after it closes, so older trades have no map."}
-      </p>
-    </div>
+    <p className="rounded-lg border border-dashed border-line-strong px-4 py-6 text-center text-sm text-muted">
+      {path.status === "open" ? "The chart starts with the next price from the venue." : "No chart: prices are kept for 30 days after a trade closes."}
+    </p>
   );
 }
 
@@ -96,35 +91,16 @@ function PathChart({ path, view, digits, realized, narrow, hover, setHover, pinn
   setPinned: (k: MomentKey | null) => void;
 }) {
   const ms = useMemo(() => moments(path, realized), [path, realized]);
-  const summary = useMemo(() => pathSummary(path, realized), [path, realized]);
-  const reduceMotion = typeof window !== "undefined" && (window.matchMedia?.("(prefers-reduced-motion: reduce)").matches ?? false);
-  const option = useMemo(() => pathOption({ path, moments: ms, view, digits, narrow, reduceMotion }), [path, ms, view, digits, narrow, reduceMotion]);
+  const option = useMemo(() => pathOption({ path, moments: ms, view, digits, narrow }), [path, ms, view, digits, narrow]);
   const index = useMemo(() => markerIndex(ms, view), [ms, view]);
   const markerSeries = 1;
   const active = hover ?? pinned;
   const at = active != null ? index.get(active) : undefined;
   const focus = at != null ? { seriesIndex: markerSeries, dataIndex: at } : null;
   const byIndex = useMemo(() => new Map([...index].map(([k, i]) => [i, k])), [index]);
-  const offChart = levels(path).filter((l) => !l.inView);
-  const first = path.entry && path.firstMarkTs != null ? path.firstMarkTs - path.entry.ts : null;
 
   return (
     <div className="space-y-3">
-      <dl className="grid grid-cols-2 gap-x-4 gap-y-2.5 sm:grid-cols-4">
-        <Figure label={path.status === "open" ? "Held so far" : "Held"}>{duration(summary.heldMs)}</Figure>
-        <Figure label="Best came after" title="From the entry to the best mark">{duration(summary.toBestMs)}</Figure>
-        <Figure label={path.status === "open" ? "Since the best" : "Best to exit"}>{duration(summary.sinceBestMs)}</Figure>
-        {path.status === "open" ? (
-          <Figure label="Off the best" title="The best mark's P&L less the latest mark's, both excluding swap">
-            {summary.offBest == null ? DASH : summary.offBest <= 0 ? <span className="text-body">at the best</span> : <span className="text-loss">{signedMoney(-summary.offBest)}</span>}
-          </Figure>
-        ) : (
-          <Figure label="Kept of the best" title="The realized net after costs over the best mark's P&L">
-            {summary.keptPct == null ? DASH : summary.keptPct === 0 ? <span className="text-loss">none</span> : <span className="text-bright">{Math.round(summary.keptPct)}%</span>}
-          </Figure>
-        )}
-      </dl>
-
       <div className="-mx-1">
         <EChart
           option={option}
@@ -154,30 +130,6 @@ function PathChart({ path, view, digits, realized, narrow, hover, setHover, pinn
         ))}
       </ul>
 
-      <p className="text-[11px] leading-relaxed text-faint">
-        Sampled from {path.marks.toLocaleString("en-US")} venue mark{path.marks === 1 ? "" : "s"}: the price the position would close at, polled from the broker; a move between polls is not seen.
-        P&L excludes swap{path.last?.swap ? ` (swap so far ${signedMoney(path.last.swap)})` : ""}. Times UTC.
-        {first != null && first > 5 * 60_000 && <> The first mark came {duration(first)} after the entry.</>}
-        {path.gaps > 0 && path.longestGap && (
-          <>
-            {" "}{path.gaps === 1 ? "One stretch" : `${path.gaps} stretches`} without marks {path.gaps === 1 ? "is" : "are"} shaded
-            {path.gaps > 1 ? `; the longest ${duration(path.longestGap.to - path.longestGap.from)} from ${tsShort(path.longestGap.from)}` : `, ${duration(path.longestGap.to - path.longestGap.from)} from ${tsShort(path.longestGap.from)}`}.
-          </>
-        )}
-        {path.flatSpans.length > 0 && <> Lighter shading: the price did not move for an hour or more (market closed or no quotes).</>}
-        {offChart.map((l) => (
-          <span key={l.key}> {l.key === "stop" ? "Initial stop" : "Target"} {px(l.price, digits)} is off the chart.</span>
-        ))}
-      </p>
-    </div>
-  );
-}
-
-function Figure({ label, title, children }: { label: string; title?: string; children: ReactNode }) {
-  return (
-    <div className="min-w-0" title={title}>
-      <dt className="text-[11px] text-muted">{label}</dt>
-      <dd className="mt-0.5 truncate font-mono text-sm tabular-nums text-bright">{children}</dd>
     </div>
   );
 }
@@ -196,7 +148,7 @@ function MomentCard({ m, digits, selected, plotted, onHover, onSelect }: {
       type="button"
       aria-pressed={selected}
       disabled={!plotted}
-      title={`${m.label}: ${human(m.ts)}`}
+      title={`${m.label}: ${human(m.ts)}${m.key === "exit" ? " · after costs" : ""}`}
       onMouseEnter={() => onHover(true)}
       onMouseLeave={() => onHover(false)}
       onFocus={() => onHover(true)}
@@ -218,7 +170,6 @@ function MomentCard({ m, digits, selected, plotted, onHover, onSelect }: {
       <div className="mt-0.5 truncate font-mono text-[11px] tabular-nums text-faint">
         {tsShort(m.ts)}:{preciseClock(m.ts).slice(6, 8)}
       </div>
-      {m.key === "exit" && <div className="mt-0.5 text-[10px] text-faint">realized, after costs</div>}
     </button>
   );
 }

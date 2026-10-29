@@ -1,19 +1,19 @@
 import { useEffect, useRef, useState, type ReactNode } from "react";
 import { createPortal } from "react-dom";
-import { DASH, duration, money, pnl, quantity, signedMoney, toneClass, ts } from "../format";
-import { CostTerm, TypeBadge } from "../components/InstrumentType";
-import { instrumentType, sizeInWords, type CostKind } from "../instruments";
+import { DASH, duration, money, pnl, quantity, signedMoney, toneClass, ts, tsShort } from "../format";
+import { CostTerm } from "../components/InstrumentType";
+import { sizeInWords, type CostKind } from "../instruments";
 import { PAGE_PATHS, useSearchParam } from "../router";
 import { usePositionPath, useTripDetail, type RoundTripDetail, type Slippage, type TimelineStep } from "./data";
-import { latency, legCosts, preciseClock, px, rMultiple, tripInstrument } from "./format";
-import { EndedBadge, SideText } from "./bits";
+import { latency, legCosts, preciseClock, px, rMultiple, tradeStory, tripInstrument } from "./format";
 import { PositionMap } from "./PositionMap";
+import { useStrategyNames } from "../hooks/useStrategyNames";
 
 /*
- * One round trip in full, opened from any list of trades (Trades, a strategy's trades, a
- * calendar day) and deep-linkable as ?trade=<ticket>: what it made, how it was placed and
- * closed step by step with the time between steps, what execution cost against the price the
- * engine expected, the venue's own deals, and the raw events behind it all.
+ * One trade, opened from any list of trades (Trades, a strategy's trades, a calendar day, Home's positions) and
+ * deep-linkable as ?trade=<ticket>. It tells one story: what it is and what it made, then opened, stop and target,
+ * closed; then how the price moved; everything else (ids, fills, the venue's deals, costs, raw events) folded
+ * under Details.
  */
 
 const X = "M18 6L6 18M6 6l12 12";
@@ -38,13 +38,11 @@ function IconButton({ label, d, onClick, disabled }: { label: string; d: string;
   );
 }
 
-function Section({ title, hint, children }: { title: string; hint?: ReactNode; children: ReactNode }) {
+/** A labelled block inside Details. */
+function Section({ title, children }: { title: string; children: ReactNode }) {
   return (
-    <section className="border-t border-line px-5 py-4">
-      <div className="mb-3 flex items-baseline gap-2">
-        <h3 className="text-xs font-semibold uppercase tracking-[0.06em] text-muted">{title}</h3>
-        {hint && <span className="ml-auto text-[11px] text-faint">{hint}</span>}
-      </div>
+    <section className="pt-4">
+      <h4 className="mb-2 text-sm font-medium text-body">{title}</h4>
       {children}
     </section>
   );
@@ -73,7 +71,7 @@ function SlippageLine({ label, s, digits }: { label: string; s: Slippage | null;
             {px(pts, digits)} pts {s.points > 0 ? "worse" : "better"}
           </span>
           {s.money != null && <span className={`ml-1.5 ${toneClass(-s.money)}`}>{signedMoney(-s.money)}</span>}
-          <span className="ml-1.5 text-xs text-faint">vs {s.basis}</span>
+          <span className="ml-1.5 text-xs text-muted">vs {s.basis}</span>
         </>
       )}
     </Stat>
@@ -86,7 +84,7 @@ const KIND_DOT: Record<string, string> = {
 };
 
 function Timeline({ steps }: { steps: TimelineStep[] }) {
-  if (steps.length === 0) return <p className="text-sm text-muted">No engine events or venue deals for this round trip.</p>;
+  if (steps.length === 0) return <p className="text-sm text-muted">No engine events for this trade.</p>;
   return (
     <ol className="relative">
       {steps.map((s, i) => (
@@ -102,7 +100,7 @@ function Timeline({ steps }: { steps: TimelineStep[] }) {
           <div className="min-w-0 leading-5">
             <div className="text-sm text-bright">
               {s.title}
-              {s.source === "venue" && <span className="ml-1.5 text-[11px] text-faint">venue time</span>}
+              {s.source === "venue" && <span className="ml-1.5 text-[11px] text-muted">venue time</span>}
             </div>
             {s.detail && <div className="break-words text-xs text-muted">{s.detail}</div>}
           </div>
@@ -113,14 +111,14 @@ function Timeline({ steps }: { steps: TimelineStep[] }) {
 }
 
 function Legs({ legs, digits }: { legs: RoundTripDetail["legs"]; digits: number }) {
-  if (legs.length === 0) return <p className="text-sm text-muted">No venue deals are stored for this position.</p>;
+  if (legs.length === 0) return <p className="text-sm text-muted">No venue deals stored for this trade.</p>;
   return (
     <div className="-mx-1 overflow-x-auto">
       <table className="w-full min-w-[34rem] text-xs">
         <thead>
           <tr className="text-left">
             {["Deal", "Time (UTC)", "Leg", "Qty", "Price", "Profit", "Costs", "Net"].map((h, i) => (
-              <th key={h} className={`eyebrow !text-[10px] px-1 pb-1.5 ${i >= 3 ? "text-right" : ""}`}>{h}</th>
+              <th key={h} className={`px-1 pb-1.5 text-[11px] font-normal text-muted ${i >= 3 ? "text-right" : ""}`}>{h}</th>
             ))}
           </tr>
         </thead>
@@ -153,7 +151,7 @@ function CostKinds({ legs }: { legs: RoundTripDetail["legs"] }) {
   if (booked.length === 0) return null;
   return (
     <p className="mt-2 flex flex-wrap items-center gap-x-2 gap-y-1 px-1 text-[11px] text-muted">
-      Costs here:
+      Costs:
       {booked.map((k: CostKind, i) => <span key={k}><CostTerm kind={k} />{i < booked.length - 1 ? "," : ""}</span>)}
     </p>
   );
@@ -168,7 +166,7 @@ function RawEvents({ events }: { events: RoundTripDetail["events"] }) {
         <svg viewBox="0 0 24 24" className="h-3.5 w-3.5 transition group-open:rotate-90" fill="none" stroke="currentColor" strokeWidth="2" aria-hidden>
           <path d="M9 18l6-6-6-6" />
         </svg>
-        {events.length} raw event{events.length === 1 ? "" : "s"}
+        {events.length} engine event{events.length === 1 ? "" : "s"}
         <button
           type="button"
           onClick={(e) => {
@@ -188,54 +186,66 @@ function RawEvents({ events }: { events: RoundTripDetail["events"] }) {
   );
 }
 
+/** Opened → stop and target → closed, with the time and price of each step. */
+function Story({ t }: { t: RoundTripDetail["trip"] }) {
+  const steps = tradeStory(t);
+  return (
+    <ol className="px-5 py-4" aria-label="What happened">
+      {steps.map((s, i) => (
+        <li key={s.key} className="relative grid grid-cols-[1rem_1fr_auto] items-baseline gap-x-3 pb-4 last:pb-0">
+          {i < steps.length - 1 && <span aria-hidden className="absolute bottom-0 left-[0.4375rem] top-4 w-px bg-line-strong" />}
+          <span aria-hidden className={`relative h-2.5 w-2.5 translate-y-0.5 rounded-full ${s.key === "opened" ? "bg-accent-hi" : s.key === "closed" ? "bg-bright" : "border-2 border-line-strong bg-panel"}`} />
+          <span className="min-w-0">
+            <span className="text-sm font-medium text-bright">{s.label}</span>
+            {s.price != null && <span className="ml-2 font-mono text-sm tabular-nums text-body">{px(s.price, t.priceDigits)}</span>}
+            {s.detail && <span className="ml-2 text-sm text-muted">· {s.detail}</span>}
+          </span>
+          <span className="font-mono text-xs tabular-nums text-muted">{s.ts != null ? `${tsShort(s.ts)}:${preciseClock(s.ts).slice(6, 8)}` : ""}</span>
+        </li>
+      ))}
+    </ol>
+  );
+}
+
 function Body({ d, instanceId }: { d: RoundTripDetail; instanceId: string | null }) {
   const t = d.trip;
   return (
     <>
-      <PositionMap key={t.id} instanceId={instanceId} ticket={t.id} open={t.status === "open"} digits={t.priceDigits} realized={t.status === "closed" ? t.pnl : null} />
-      <div className="grid grid-cols-2 gap-x-4 gap-y-3 border-t border-line px-5 py-4 sm:grid-cols-3">
-        <Stat label="Entry (UTC)">{t.entryTs != null ? ts(t.entryTs) : DASH}</Stat>
-        <Stat label="Entry price">{px(t.entryPrice, t.priceDigits)}</Stat>
-        <Stat label="Size">{sizeInWords(t.qty, t)}</Stat>
-        <Stat label="Exit (UTC)">{t.exitTs != null ? ts(t.exitTs) : t.status === "open" ? "still open" : DASH}</Stat>
-        <Stat label="Exit price">{px(t.exitPrice, t.priceDigits)}</Stat>
-        <Stat label="Held">{t.status === "open" ? DASH : duration(t.holdMs)}</Stat>
-        <Stat label="Initial stop">{px(t.stopPrice, t.priceDigits)}</Stat>
-        <Stat label="Target">{px(t.targetPrice, t.priceDigits)}</Stat>
-        <Stat label="Risk to the stop" title="What the venue would have paid out at the initial stop">{t.risk == null ? DASH : money(t.risk)}</Stat>
+      <Story t={t} />
+      <div className="border-t border-line">
+        <PositionMap key={t.id} instanceId={instanceId} ticket={t.id} open={t.status === "open"} digits={t.priceDigits} realized={t.status === "closed" ? t.pnl : null} />
       </div>
-
-      <Section title="Execution" hint="slippage against the price the engine expected">
-        <div className="grid grid-cols-1 gap-3 sm:grid-cols-2">
+      <details className="group border-t border-line px-5 py-4">
+        <summary className="flex cursor-pointer list-none items-center gap-2 text-sm font-medium text-body hover:text-bright">
+          <svg viewBox="0 0 24 24" className="h-3.5 w-3.5 transition group-open:rotate-90" fill="none" stroke="currentColor" strokeWidth="2" aria-hidden>
+            <path d="M9 18l6-6-6-6" />
+          </svg>
+          Details
+        </summary>
+        <div className="grid grid-cols-2 gap-x-4 gap-y-3 pt-4 sm:grid-cols-3">
+          <Stat label="Ticket"><span className="font-mono text-xs">{t.id}</span></Stat>
+          <Stat label="Opened (UTC)">{t.entryTs != null ? ts(t.entryTs) : DASH}</Stat>
+          <Stat label="Closed (UTC)">{t.exitTs != null ? ts(t.exitTs) : DASH}</Stat>
+          <Stat label="Risk to the stop" title="What the venue would have paid out at the initial stop">{t.risk == null ? DASH : money(t.risk)}</Stat>
           <SlippageLine label="Entry fill" s={d.entrySlippage} digits={t.priceDigits} />
           <SlippageLine label="Exit fill" s={d.exitSlippage} digits={t.priceDigits} />
-          <Stat label="Worst open P&L (MAE)" title="Lowest marked P&L while the position was open">
-            {d.excursion ? <span className={toneClass(d.excursion.mae)}>{signedMoney(d.excursion.mae)}</span> : <span className="text-faint">not sampled</span>}
+          <Stat label="Worst while open" title="Lowest P&L the venue marked while the trade was open">
+            {d.excursion ? <span className={toneClass(d.excursion.mae)}>{signedMoney(d.excursion.mae)}</span> : DASH}
           </Stat>
-          <Stat label="Best open P&L (MFE)" title="Highest marked P&L while the position was open">
-            {d.excursion ? (
-              <>
-                <span className={toneClass(d.excursion.mfe)}>{signedMoney(d.excursion.mfe)}</span>
-                <span className="ml-1.5 text-xs text-faint">{d.excursion.marks} marks</span>
-              </>
-            ) : (
-              <span className="text-faint">not sampled</span>
-            )}
+          <Stat label="Best while open" title="Highest P&L the venue marked while the trade was open">
+            {d.excursion ? <span className={toneClass(d.excursion.mfe)}>{signedMoney(d.excursion.mfe)}</span> : DASH}
           </Stat>
         </div>
-      </Section>
-
-      <Section title="Timeline" hint="engine clock, venue deals at venue time · gap since the step before">
-        <Timeline steps={d.timeline} />
-      </Section>
-
-      <Section title="Venue deals" hint={`${d.legs.length} leg${d.legs.length === 1 ? "" : "s"}`}>
-        <Legs legs={d.legs} digits={t.priceDigits} />
-      </Section>
-
-      <Section title="Raw events">
-        <RawEvents events={d.events} />
-      </Section>
+        <Section title="Venue deals">
+          <Legs legs={d.legs} digits={t.priceDigits} />
+        </Section>
+        <Section title="Engine timeline">
+          <Timeline steps={d.timeline} />
+        </Section>
+        <Section title="Raw events">
+          <RawEvents events={d.events} />
+        </Section>
+      </details>
     </>
   );
 }
@@ -270,6 +280,8 @@ export function TradeDrawer({ instanceId, order = [] }: { instanceId: string | n
   const live = usePositionPath(instanceId, t?.status === "open" && t.pnl == null ? id : null, null, true);
   const lastMark = live.data?.ticket === id ? live.data.last : null;
   const floating = lastMark ? lastMark.pnl + (lastMark.swap ?? 0) : null;
+  const open_ = t != null && t.status === "open" && t.pnl == null;
+  const strategyName = useStrategyNames(instanceId);
 
   if (!open) return null;
   const at = order.indexOf(id);
@@ -285,16 +297,19 @@ export function TradeDrawer({ instanceId, order = [] }: { instanceId: string | n
         ref={panel}
         role="dialog"
         aria-modal="true"
-        aria-label={t ? `Round trip ${tripInstrument(t)} ${t.side}` : "Round trip"}
+        aria-label={t ? `Trade ${tripInstrument(t)} ${t.side}` : "Trade"}
         tabIndex={-1}
         className="sheet-in pad-safe-bottom absolute inset-x-0 bottom-0 flex max-h-[92dvh] flex-col overflow-hidden rounded-t-card border border-line-strong bg-panel shadow-pop outline-none sm:inset-y-0 sm:left-auto sm:right-0 sm:max-h-none sm:w-[min(40rem,94vw)] sm:rounded-none sm:border-y-0 sm:border-r-0"
       >
         <header className="shrink-0 border-b border-line px-5 pb-4 pt-3">
           <div aria-hidden className="mx-auto mb-2 h-1 w-10 rounded-full bg-well sm:hidden" />
           <div className="flex items-center gap-1">
-            <span className="eyebrow">Round trip</span>
-            <span className="ml-2 truncate font-mono text-xs text-faint">{t ? `#${t.id}` : ""}</span>
-            <span className="ml-auto flex items-center">
+            {t ? (
+              <h2 className="min-w-0 truncate text-lg font-headline text-bright">
+                {tripInstrument(t)} <span className="font-sans text-base font-medium text-body">{t.side === "long" ? "Long" : "Short"} · {sizeInWords(t.qty, t)}</span>
+              </h2>
+            ) : <span className="h-6 w-40 rounded bg-raised" />}
+            <span className="ml-auto flex shrink-0 items-center">
               {order.length > 1 && (
                 <>
                   <IconButton label="Previous trade (k)" d={UP} onClick={() => step(-1)} disabled={at <= 0} />
@@ -320,37 +335,26 @@ export function TradeDrawer({ instanceId, order = [] }: { instanceId: string | n
           </div>
           {t ? (
             <>
-              <div className="mt-2 flex flex-wrap items-center gap-x-3 gap-y-1">
-                <h2 className="text-xl font-headline text-bright">{tripInstrument(t)}</h2>
-                <TypeBadge type={instrumentType(t.kind, t.category)} explain />
-                <SideText side={t.side} />
-                <EndedBadge ended={t.ended} open={t.status === "open"} />
-                <span className="text-sm text-muted">{t.strategyId ?? "unattributed"}</span>
-              </div>
-              <div className="mt-2 flex flex-wrap items-baseline gap-x-5 gap-y-1">
-                {t.pnl == null && floating != null ? (
-                  <span className={`text-3xl font-headline ${toneClass(floating)}`}>{pnl(floating)}</span>
+              <div className="mt-2 flex flex-wrap items-baseline gap-x-4 gap-y-1">
+                {open_ ? (
+                  <span className={`text-3xl font-headline ${toneClass(floating)}`} title={lastMark ? `Open, as the venue priced it at ${preciseClock(lastMark.ts).slice(0, 8)} UTC (swap included)` : undefined}>{floating == null ? DASH : pnl(floating)}</span>
                 ) : (
-                  <span className={`text-3xl font-headline ${toneClass(t.pnl)}`}>{t.pnl == null ? (t.status === "open" ? "open" : DASH) : pnl(t.pnl)}</span>
+                  <span className={`text-3xl font-headline ${toneClass(t.pnl)}`} title="After commission, swap and fees">{pnl(t.pnl)}</span>
                 )}
-                <span className={`text-base font-semibold ${t.r == null ? "text-faint" : toneClass(t.r)}`} title="P&L over the money at risk to the initial stop">
-                  {t.r == null ? (t.status === "open" ? "" : "no stop, so no R") : rMultiple(t.r)}
-                </span>
-                {t.status === "closed" && <span className="text-sm text-muted">held {duration(t.holdMs)}</span>}
+                {t.r != null && <span className={`text-base font-semibold ${toneClass(t.r)}`} title="P&L over the money at risk to the initial stop">{rMultiple(t.r)}</span>}
               </div>
-              <div className="mt-1 text-xs text-faint">
-                {t.pnl == null && floating != null && lastMark
-                  ? `Floating at the latest venue mark, ${preciseClock(lastMark.ts).slice(0, 8)} UTC, including swap; nothing realized yet.`
-                  : `Realized after commission, swap and fees${t.legs > 0 ? `, from ${t.legs} venue deal${t.legs === 1 ? "" : "s"}` : ""}.`}
+              <div className="mt-1 text-sm text-muted">
+                {open_ ? "Open" : `Held ${duration(t.holdMs)}`}
+                {t.strategyId && <> · {strategyName(t.strategyId)}</>}
               </div>
             </>
           ) : (
-            <div className="mt-3 h-14 rounded bg-raised" />
+            <div className="mt-3 h-10 w-32 rounded bg-raised" />
           )}
         </header>
-        <div className="min-h-0 flex-1 overflow-y-auto overscroll-contain pt-4">
+        <div className="min-h-0 flex-1 overflow-y-auto overscroll-contain">
           {detail.isError ? (
-            <div className="px-5 text-sm text-loss">This round trip could not be loaded{detail.error instanceof Error && /404/.test(detail.error.message) ? ": it is not on this instance" : ""}.</div>
+            <div className="px-5 text-sm text-loss">This trade could not be loaded{detail.error instanceof Error && /404/.test(detail.error.message) ? ": it is not on this instance" : ""}.</div>
           ) : detail.data ? (
             <Body d={detail.data} instanceId={instanceId} />
           ) : (
