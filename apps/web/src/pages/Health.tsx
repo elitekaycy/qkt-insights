@@ -187,7 +187,16 @@ function MonitorRow({ m }: { m: MonitorSummary }) {
 }
 
 /** The glance row: how much of the fleet is alive right now. */
-function FleetStats({ monitors, rows, accounts }: { monitors: MonitorSummary[]; rows: HealthRow[]; accounts: LiveAccount[] }) {
+function FleetStats({ monitors, rows, accounts, pending }: { monitors: MonitorSummary[]; rows: HealthRow[]; accounts: LiveAccount[]; pending: boolean }) {
+  if (pending) {
+    return (
+      <div className="mt-6 grid grid-cols-2 gap-3 xl:grid-cols-4" role="status" aria-label="Loading the fleet's status">
+        {["daemons up", "strategies", "broker accounts", "monitors down"].map((label) => (
+          <Stat key={label} label={label} value={<span className="inline-block h-6 w-16 rounded bg-raised" />} sub=" " />
+        ))}
+      </div>
+    );
+  }
   const daemons = monitors.filter((m) => m.kind === "heartbeat");
   const daemonsUp = daemons.filter((m) => m.status === "up").length;
   const strategies = rows.reduce((n, r) => n + r.strategies, 0);
@@ -229,7 +238,7 @@ function Monitors({ view, loading, failed }: { view: MonitorsView | undefined; l
       </Panel>
 
       <Panel className="mt-6" title="Incidents" hint="every up/down transition, newest first · a down lasts until the monitor's next up" scroll="max-h-[24rem]">
-        <DataList
+        {!view ? (loading ? <Skeleton lines={3} className="p-4" /> : null) : <DataList
           head={["When (UTC)", "Monitor", "Status", "Lasted", "Reason"]}
           rows={events}
           keyOf={(e) => `${e.monitor}:${e.ts}`}
@@ -255,15 +264,15 @@ function Monitors({ view, loading, failed }: { view: MonitorsView | undefined; l
               {e.status === "down" && <div className="mt-1 text-xs text-muted">lasted {lasted(e, events)}{e.detail ? ` · ${e.detail}` : ""}</div>}
             </>
           )}
-        />
+        />}
       </Panel>
     </>
   );
 }
 
-/** A down transition's length: to the same monitor's next up, "ongoing" without one; blank for an up. */
+/** A down transition's length: to the same monitor's next up, "ongoing" without one; a dash for an up. */
 function lasted(e: MonitorEventRow, events: MonitorEventRow[]): string {
-  if (e.status !== "down") return "";
+  if (e.status !== "down") return "—";
   const up = events.filter((x) => x.monitor === e.monitor && x.status === "up" && x.ts > e.ts).reduce<MonitorEventRow | null>((a, x) => (a == null || x.ts < a.ts ? x : a), null);
   return up ? duration(up.ts - e.ts) : "ongoing";
 }
@@ -402,11 +411,11 @@ export default function Health() {
     <div>
       <PageHeader title="Health" sub="Uptime, venue reconciliation, runtime status, collector delivery, and broker account truth in one place." />
 
-      <FleetStats monitors={monitors.data?.monitors ?? []} rows={rows} accounts={accounts} />
+      <FleetStats monitors={monitors.data?.monitors ?? []} rows={rows} accounts={accounts} pending={monitors.isPending || health.isPending || liveState.isPending} />
 
       <Monitors view={monitors.data} loading={monitors.isLoading} failed={monitors.isError} />
 
-      <ReconciliationCard instances={rows.map((r) => r.instanceId)} />
+      <ReconciliationCard instances={rows.map((r) => r.instanceId)} pending={health.isPending} />
 
       <Panel
         className="mt-6"
@@ -422,7 +431,8 @@ export default function Health() {
         scroll="max-h-[72vh]"
       >
         <ul className="divide-y divide-line/60 sm:hidden">
-          {rows.length === 0 && (
+          {health.isPending && <li><Skeleton lines={3} /></li>}
+          {health.isSuccess && rows.length === 0 && (
             <li className="px-4 py-10 text-center text-sm text-faint">No instances reporting yet — enable the insights block on a qkt instance.</li>
           )}
           {rows.map((r) => {
@@ -477,7 +487,8 @@ export default function Health() {
 
         <div className="hidden sm:block">
         <Table head={["Instance", "Status", "Last event", "Seq", "Strategies", "Broker", "Equity", "Sink", "Journal", ""]}>
-          {rows.length === 0 && <Empty colSpan={10}>No instances reporting yet — enable the insights block on a qkt instance.</Empty>}
+          {health.isPending && <tr><td colSpan={10}><Skeleton lines={3} /></td></tr>}
+          {health.isSuccess && rows.length === 0 && <Empty colSpan={10}>No instances reporting yet — enable the insights block on a qkt instance.</Empty>}
           {rows.map((r) => {
             const rowAccounts = accounts.filter((a) => a.instanceId === r.instanceId);
             const acct = accountSummary(rowAccounts);

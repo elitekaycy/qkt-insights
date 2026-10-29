@@ -1,7 +1,7 @@
 import type { ReactNode } from "react";
 import type { AccountRiskRow, LiveAccount } from "../api";
-import { clock, count, money, pctValue, signedMoney, signedPct } from "../format";
-import { accountToday, dailyMeasured, floatingNoteText, type FloatingNote, dailyReferenceLabel, dayBasisLabel, limitLine, drawdownMeasured, limitUse, type LimitUse, type OpenRisk } from "../home";
+import { clock, count, money, pctValue, signedMoney, signedPct, toneClass } from "../format";
+import { dailyMeasured, floatingNoteText, type FloatingNote, dailyReferenceLabel, dayBasisLabel, limitLine, drawdownMeasured, limitUse, todaySplit, type LimitUse, type OpenRisk, type TodayPart } from "../home";
 import { accountHint, accountName, accountProfiles, accountTitle } from "../accounts";
 import { Card, FlashValue, Freshness, InfoIcon, Pill, Pnl, Popover } from "./ui";
 
@@ -131,6 +131,7 @@ export function AccountStrip({
   dayLabel,
   open,
   note = null,
+  riskPending = false,
   isPublic,
 }: {
   account: LiveAccount;
@@ -145,9 +146,12 @@ export function AccountStrip({
   open: OpenRisk | null;
   /** Why the account's floating differs from its listed positions; null when it does not. */
   note?: FloatingNote | null;
+  /** The risk rows are still loading: the loss limits are not known yet, so nothing claims there are none. */
+  riskPending?: boolean;
   isPublic: boolean;
 }) {
-  const today = accountToday(account, realizedToday);
+  const today = todaySplit(account, realizedToday, note);
+  const split = today.other != null || today.unassigned !== 0;
   const use = risk ? limitUse(risk, account.equity) : null;
   const openCount = open ? open.priced + open.noStop + open.unpriced : 0;
   const title = accountName(account, isPublic);
@@ -191,15 +195,20 @@ export function AccountStrip({
         <Kpi
           icon={ICON.sun}
           label="Today"
-          sub={`${signedMoney(today.realized)} closed`}
+          sub={
+            split
+              ? <>{today.other != null && <><span className="font-mono">{signedMoney(today.other)}</span> other system</>}{today.other != null && today.unassigned !== 0 && " · "}{today.unassigned !== 0 && <><span className="font-mono">{signedMoney(today.unassigned)}</span> not attributed</>}</>
+              : `${signedMoney(realizedToday)} closed`
+          }
           info={
             <>
-              <p>{signedMoney(today.realized)} from trades closed since the day began, {signedMoney(today.floating)} open now. The day runs from {dayLabel.replace(/^day from /, "")}.</p>
-              {note && <p className="text-warn">Open now includes {floatingNoteText(note)}.</p>}
+              {split && <p className="text-bright">The account's own Today is {signedMoney(today.total)}: {signedMoney(today.qkt)} from qkt{today.other != null ? `, ${signedMoney(today.other)} floating on positions of another system trading this login` : ""}{today.unassigned !== 0 ? `, ${signedMoney(today.unassigned)} not attributed to either` : ""}.</p>}
+              <p>qkt: {signedMoney(realizedToday)} from trades closed since the day began, {signedMoney(today.qkt - realizedToday)} open now on its listed positions. The day runs from {dayLabel.replace(/^day from /, "")}.</p>
+              {note && <p className="text-muted">Outside qkt's positions: {floatingNoteText(note)}.</p>}
             </>
           }
         >
-          <FlashValue value={today.total}><Pnl value={today.total} /></FlashValue>
+          <FlashValue value={today.qkt}><Pnl value={today.qkt} />{split && <span className="ml-1.5 font-sans text-sm text-muted">qkt</span>}</FlashValue>
         </Kpi>
         {open && (
           <Kpi
@@ -247,11 +256,16 @@ export function AccountStrip({
               }
             />
           </>
+        ) : riskPending ? (
+          <Card className="col-span-2 p-4">
+            <div className="h-4 w-24 rounded bg-raised" />
+            <div className="mt-3 h-7 w-32 rounded bg-raised" />
+          </Card>
         ) : (
           <Card className="col-span-2 flex items-center p-4 text-sm text-muted">Loss limits appear with the account's first equity rollup.</Card>
         )}
       </div>
-      {note && <FloatingLine note={note} />}
+      {note && <FloatingLine note={note} stopped={account.stopped === true} />}
     </section>
   );
 }
@@ -261,7 +275,7 @@ export function AccountStrip({
  * float, and what floats outside them (another system's positions on the account, known or not, and positions the
  * venue marks not).
  */
-function FloatingLine({ note }: { note: FloatingNote }) {
+function FloatingLine({ note, stopped }: { note: FloatingNote; stopped: boolean }) {
   const n = (k: number, one: string, many: string) => `${count(k)} ${k === 1 ? one : many}`;
   const parts: ReactNode[] = [];
   if (note.marked > 0) parts.push(<><Pnl value={note.listed} glyphs={false} /> on the {n(note.marked, "position", "positions")} listed below</>);
@@ -274,7 +288,9 @@ function FloatingLine({ note }: { note: FloatingNote }) {
     );
   }
   if (note.elsewhere != null) {
-    parts.push(<><Pnl value={note.elsewhere} glyphs={false} /> on positions this instance does not list (another system trading this account; qkt reports only its own)</>);
+    parts.push(stopped
+      ? <><Pnl value={note.elsewhere} glyphs={false} /> on positions no longer listed (the account stopped reporting)</>
+      : <><Pnl value={note.elsewhere} glyphs={false} /> on positions from another system on this login (qkt reports only its own)</>);
   }
   if (note.unmarked > 0) parts.push(<>{n(note.unmarked, "listed position has", "listed positions have")} no mark from the venue, so {note.unmarked === 1 ? "its" : "their"} floating is in equity only</>);
   return (
@@ -287,4 +303,34 @@ function FloatingLine({ note }: { note: FloatingNote }) {
 
 function limitSource(risk: AccountRiskRow): string {
   return risk.source == null ? `No limits configured. ${NO_LIMIT_HINT}` : `Limits from ${risk.source}.`;
+}
+
+/**
+ * Home's answer in one line: "Today +18.35 USD qkt · −767.77 USD other system on Exness •••2618". qkt's part opens the
+ * strategy table, another system's part that account's tab. `missing` counts accounts whose Today is not known yet.
+ */
+export function TodayHeadline({ parts, missing, pending, onQkt, onAccount }: {
+  parts: TodayPart[]; missing: number; pending: boolean;
+  onQkt: () => void; onAccount: (key: string) => void;
+}) {
+  if (pending) return <span className="inline-block h-4 w-72 max-w-full rounded bg-raised align-middle" role="status" aria-label="Loading today's figures" />;
+  if (parts.length === 0) return <span>Today: not known yet, waiting for the accounts' first rollup</span>;
+  const link = "rounded-sm underline decoration-line-strong decoration-dotted underline-offset-4 hover:decoration-current focus-visible:outline-2 focus-visible:outline-accent-hi";
+  return (
+    <span className="flex flex-col items-start gap-x-2 gap-y-0.5 sm:flex-row sm:flex-wrap sm:items-baseline">
+      <span className="font-medium text-body">Today</span>
+      {parts.map((p, i) => (
+        <span key={i} className="inline-flex items-baseline gap-2">
+          {i > 0 && <span aria-hidden className="hidden text-faint sm:inline">·</span>}
+          <button type="button" className={link} onClick={() => (p.kind === "qkt" || !p.account ? onQkt() : onAccount(p.account.key))}
+            title={p.kind === "qkt" ? "qkt's closes since each account's day began plus what its positions float; opens the strategies" : `Floating on positions of another system trading ${p.account?.name}; opens the account`}>
+            <span className={`font-mono font-semibold tabular-nums ${toneClass(p.value)}`}>{signedMoney(p.value)}</span>
+            <span className="ml-1 text-xs text-muted">{p.currency}</span>
+            <span className="ml-1.5">{p.kind === "qkt" ? "qkt" : `other system on ${p.account?.name}`}</span>
+          </button>
+        </span>
+      ))}
+      {missing > 0 && <span className="text-faint"><span aria-hidden className="hidden sm:inline">· </span>{missing} {missing === 1 ? "account" : "accounts"} not known yet</span>}
+    </span>
+  );
 }

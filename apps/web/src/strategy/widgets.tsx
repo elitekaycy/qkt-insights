@@ -173,7 +173,7 @@ export function PayoffBars({ avgWin, avgLoss, onWin, onLoss }: { avgWin: number 
       <span className="h-1.5 overflow-hidden rounded-full bg-raised">
         <span className="block h-full rounded-full" style={{ width: `${(Math.abs(v ?? 0) / max) * 100}%`, background: fill }} />
       </span>
-      <span className={`min-w-16 text-right font-semibold tabular-nums ${toneClass(v)}`}>{v == null ? DASH : signedMoney(v, 0)}</span>
+      <span className={`min-w-16 text-right font-semibold tabular-nums ${toneClass(v)}`}>{v == null ? DASH : signedMoney(v)}</span>
     </button>
   );
   return (
@@ -231,9 +231,9 @@ export function SignedBars({ rows, labelWidth = "3.5rem" }: { rows: SignedRow[];
                 />
               )}
             </span>
-            <span className="min-w-[6.5rem] whitespace-nowrap text-right tabular-nums">
+            <span className="min-w-[8rem] whitespace-nowrap text-right tabular-nums">
               <span className="text-muted">{r.n} · </span>
-              <span className={r.n === 0 ? "text-faint" : toneClass(r.value)}>{r.n === 0 ? "0" : signedMoney(r.value, 0)}</span>
+              <span className={r.n === 0 ? "text-faint" : toneClass(r.value)}>{r.n === 0 ? "0" : signedMoney(r.value)}</span>
             </span>
           </button>
         );

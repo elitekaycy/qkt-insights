@@ -7,7 +7,7 @@ import { LogLine } from "../components/LogLine";
 import { ShareControl } from "../components/ShareControl";
 import { Card, LiveDot, Loadable, OriginBack, Pill, Popover, RangeChips, rangeStart, ReturnPct, Segmented, Skeleton, useRangeParam } from "../components/ui";
 import { age, DASH, glyph, money, openPnl, signedMoney, toneClass } from "../format";
-import { haltClearing, haltSince, resumeCommand } from "../halt";
+import { haltClearing, haltReasonText, haltSince, resumeCommand } from "../halt";
 import { strategyCapital, strategyDisplayName } from "../portfolio";
 import { QueryBar, TRADE_PRESETS } from "../query/QueryBar";
 import { Link, PAGE_PATHS, PRIVATE_STRATEGY_TABS, routePath, STRATEGY_TABS, useRoute, useSearchParam, type StrategyTab } from "../router";
@@ -344,8 +344,8 @@ function HaltBanner({ row }: { row: StrategyRow }) {
         Halted by the engine
       </span>
       <span className="min-w-0 text-body">
-        {row.haltReason ?? "no reason given"}
-        {row.haltedAt != null && <span className="text-muted" title={row.haltedBefore ? "re-asserted at a restart; its start is not stored" : undefined}> · {haltSince(row)} ({row.haltedBefore ? "at least " : ""}{age(row.haltedAt)})</span>}
+        <span title={row.haltReason ?? undefined}>{haltReasonText(row.haltReason)}</span>
+        {row.haltedAt != null && <span className="text-muted" title={row.haltedBefore ? "re-asserted at a restart; its start is not stored" : undefined}> {haltSince(row)} ({row.haltedBefore ? "at least " : ""}{age(row.haltedAt)})</span>}
         <span className="text-muted"> · {haltClearing(row)}</span>
       </span>
       {command && <code className="rounded bg-raised px-1.5 py-0.5 font-mono text-xs text-bright">{command}</code>}

@@ -47,7 +47,7 @@ export function OriginBack({ className = "", iconOnly = false }: { className?: s
   );
 }
 
-export function PageHeader({ title, sub, right, scope }: { title: string; sub?: string; right?: ReactNode; scope?: ReactNode }) {
+export function PageHeader({ title, sub, right, scope }: { title: string; sub?: ReactNode; right?: ReactNode; scope?: ReactNode }) {
   return (
     <header>
       <div className="flex flex-wrap items-center justify-between gap-3">
@@ -56,7 +56,7 @@ export function PageHeader({ title, sub, right, scope }: { title: string; sub?: 
             <OriginBack />
             <h1 className="min-w-0 truncate text-xl font-headline text-bright">{title}</h1>
           </div>
-          {sub && <p className="mt-0.5 text-sm text-muted">{sub}</p>}
+          {sub && <div className="mt-0.5 text-sm text-muted">{sub}</div>}
         </div>
         {right}
       </div>

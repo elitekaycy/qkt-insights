@@ -27,6 +27,84 @@ export function accountToday(account: { balance: number; equity: number }, reali
   return { total: realizedToday + floating, realized: realizedToday, floating };
 }
 
+/**
+ * An account's Today split by who made it. qkt: closes since the day began plus what qkt's listed positions float.
+ * Other system: floating on positions this instance does not list (another system on the same login), known or
+ * inferred (FloatingNote outside and elsewhere). `unassigned` is the rest of the account's own figure that neither
+ * part explains (listed positions without a venue mark, an outside position without a mark, the floating of an account
+ * that stopped reporting), so qkt + other + unassigned is always the account's Today. Without a note the whole figure
+ * is qkt's.
+ */
+export interface TodaySplit {
+  /** The account's own Today: realized today plus equity - balance. */
+  total: number;
+  qkt: number;
+  /** Null when no other system floats on the account. */
+  other: number | null;
+  /** What neither part explains; 0 when the parts add up. */
+  unassigned: number;
+}
+
+export function todaySplit(account: { balance: number; equity: number; stopped?: boolean }, realizedToday: number, note: FloatingNote | null | undefined): TodaySplit {
+  const total = roundMoney(accountToday(account, realizedToday).total, 2);
+  if (!note) return { total, qkt: total, other: null, unassigned: 0 };
+  const qkt = roundMoney(realizedToday + note.listed, 2);
+  // an account that stopped reporting lists no positions any more: what it floated is not another system's
+  const parts = [note.outside?.floating, account.stopped ? null : note.elsewhere].filter((v): v is number => v != null);
+  const other = parts.length > 0 ? roundMoney(parts.reduce((a, v) => a + v, 0), 2) : null;
+  return { total, qkt, other, unassigned: roundMoney(total - qkt - (other ?? 0), 2) };
+}
+
+/**
+ * The strategy table's total row: what the rows add to, against the account's own Today when one account is shown.
+ * `rest` is the part of the account figure neither the rows nor the other system hold (an unmarked position, a
+ * close the account's day counts and the rows' day does not), so rows + other + rest is the account figure. Null
+ * account fields on All accounts, where the rows span accounts and their trading days.
+ */
+export interface StrategyTotal {
+  rows: number;
+  other: number | null;
+  account: number | null;
+  /** The account figure minus the rows and the other system; 0 when they add up. */
+  rest: number;
+}
+
+export function strategyTotal(rowsToday: readonly number[], split: TodaySplit | null): StrategyTotal {
+  const rows = roundMoney(rowsToday.reduce((a, v) => a + v, 0), 2);
+  if (!split) return { rows, other: null, account: null, rest: 0 };
+  return { rows, other: split.other, account: split.total, rest: roundMoney(split.total - rows - (split.other ?? 0), 2) };
+}
+
+/** One part of Home's headline: qkt's Today in one currency, or another system's floating on one account. */
+export interface TodayPart {
+  kind: "qkt" | "other";
+  value: number;
+  currency: string;
+  /** The account the part is on (key and name), for "other": where it lives. */
+  account?: { key: string; name: string };
+}
+
+/**
+ * Home's headline, "Today +18.35 USD qkt · −767.77 USD other system on Exness •••2618": qkt's Today summed per
+ * currency (never across currencies), then each account's other-system floating. Zero parts are left out, except a
+ * qkt total of zero when nothing else is to say. Accounts whose Today is not known yet (no risk row) are skipped and
+ * counted in `missing`, so the line never passes a partial sum off as the whole.
+ */
+export function todayHeadline(items: ReadonlyArray<{ key: string; name: string; currency: string; split: TodaySplit | null }>): { parts: TodayPart[]; missing: number } {
+  const qkt = new Map<string, number>();
+  const other: TodayPart[] = [];
+  let missing = 0;
+  for (const it of items) {
+    if (!it.split) { missing++; continue; }
+    qkt.set(it.currency, roundMoney((qkt.get(it.currency) ?? 0) + it.split.qkt, 2));
+    if (it.split.other != null && it.split.other !== 0) other.push({ kind: "other", value: it.split.other, currency: it.currency, account: { key: it.key, name: it.name } });
+  }
+  const own: TodayPart[] = [...qkt].map(([currency, value]) => ({ kind: "qkt", value, currency }));
+  const nonZero = own.filter((p) => p.value !== 0);
+  const parts = [...(nonZero.length > 0 || other.length > 0 ? nonZero : own.slice(0, 1)), ...other];
+  return { parts, missing };
+}
+
 export interface LimitUse {
   used: number | null;
   cap: number | null;

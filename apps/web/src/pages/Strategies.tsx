@@ -5,11 +5,11 @@ import { useMemo, useState } from "react";
 import { StrategySearch, type StrategyLine } from "../components/HomeStrategies";
 import { CardGrid, PortfolioGroup, StrategyCard } from "../components/StrategyCards";
 import { Card, Cell, Empty, Loadable, PageHeader, Panel, Pill, Pnl, Popover, Row, Select, Stat, Table } from "../components/ui";
-import { age, count, money, openPnl, pct, ts } from "../format";
+import { age, count, money, openPnl, pct, signedMoney, ts } from "../format";
 import { emptyPeriods, floatingByStrategy, riskRowFor, strategyLines, strategyPeriods } from "../home";
 import { routePath, useRoute, useSearchParam } from "../router";
 import { asksForRetired, matchesStrategy } from "../strategyFilter";
-import { CARD_SORTS, cardGroups, isFolded, mergeCurves, realizedCurves, sortCards, type CardSort } from "../strategyCards";
+import { CARD_SORTS, cardGroups, cardsTotal, isFolded, mergeCurves, realizedCurves, sortCards, type CardSort } from "../strategyCards";
 import { strategyLegs } from "../instruments";
 import { useLiveState } from "../useLiveState";
 import { portfolioGroupId, strategyCapital, strategyDisplayName as displayName, summarizePortfolio } from "../portfolio";
@@ -195,7 +195,7 @@ function StrategyCardList({ lines, closes, now, instanceId }: { lines: StrategyL
         </section>
       )}
       <div className="flex flex-wrap items-center gap-x-3 gap-y-1 text-[11px] text-faint">
-        <span>as of {ts(now).slice(11, 16)} UTC · cards add up to the account; unattributed = deals no strategy claimed</span>
+        <CardsTotal lines={shown} now={now} />
         {foldedCount > 0 && !asksForRetired(find) && (
           <button type="button" onClick={() => setShowAll((s) => !s)} className="text-xs font-medium text-accent-ink hover:underline">
             {showAll ? "Hide retired" : `Show ${foldedCount} retired`}
@@ -203,6 +203,18 @@ function StrategyCardList({ lines, closes, now, instanceId }: { lines: StrategyL
         )}
       </div>
     </div>
+  );
+}
+
+/** The cards' total, computed from the cards shown: net incl. open and today, so the line is what the cards add to. */
+function CardsTotal({ lines, now }: { lines: StrategyLine[]; now: number }) {
+  const t = cardsTotal(lines);
+  return (
+    <span className="text-xs text-muted" title="Sum of the cards shown: realized over every close plus open P&L now; today is realized since the account's day began plus open P&L">
+      <span className="text-faint">as of {ts(now).slice(11, 16)} UTC · </span>
+      Total of {count(lines.length)} {lines.length === 1 ? "card" : "cards"}: net incl. open <span className="font-mono text-body">{signedMoney(t.net)}</span>
+      {" · "}today <span className="font-mono text-body">{signedMoney(t.today)}</span>
+    </span>
   );
 }
 

@@ -73,7 +73,7 @@ export function Edge({ instanceId }: { instanceId: string | null }) {
 
       <Panel
         title="Day × hour P&L"
-        hint={`close-time buckets, UTC · ${totalTrades} closed trades · cells under n=${MIN_N} desaturated`}
+        hint={`close-time buckets, UTC${perf.isSuccess ? ` · ${totalTrades} closed trades` : ""} · cells under n=${MIN_N} desaturated`}
        
         className="min-w-0"
       >

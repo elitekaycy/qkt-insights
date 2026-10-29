@@ -1,7 +1,7 @@
 import { describe, expect, it } from "vitest";
 import { accountName, accountTab } from "./accounts";
 import type { LiveStateSnapshot } from "./api";
-import { applyEnvelope } from "./useLiveState";
+import { applyEnvelope, foldPush } from "./useLiveState";
 
 /*
  * Home folds each pushed state.account into the snapshot. The push states the venue nested and under the profile
@@ -38,5 +38,10 @@ describe("applyEnvelope", () => {
     const a = applyEnvelope(undefined, push("EXNESS_O13", 4_983_401.47)).accounts[0]!;
     expect(accountName(a)).toBe("Exness •••2618");
     expect(a).not.toHaveProperty("venue");
+  });
+
+  it("waits for the collector's full snapshot: a push before it never becomes a one-account snapshot", () => {
+    expect(foldPush(undefined, push("EXNESS_O13", 4_983_401.47))).toBeUndefined();
+    expect(foldPush(snapshot, push("EXNESS_O13", 4_983_400))!.accounts[0]!.equity).toBe(4_983_400);
   });
 });

@@ -1,7 +1,7 @@
 import type { AccountRiskRow } from "../api";
 import { accountByKey, accountKey, accountTab, switcherOrder, type AccountGroup } from "../accounts";
 import { clock, count, DASH, money, pctValue, signedMoney } from "../format";
-import { accountToday, floatingNoteText, limitUse, type FloatingNote, type OpenRisk } from "../home";
+import { floatingNoteText, limitUse, todaySplit, type FloatingNote, type OpenRisk, type TodaySplit } from "../home";
 import { useSearchParam } from "../router";
 import { DataList, Cell, Freshness, Pnl, Segmented } from "./ui";
 
@@ -80,6 +80,8 @@ export interface AccountLine {
   open: OpenRisk | null;
   /** Why the account's floating differs from its listed positions (Home floatingNote); null when it does not. */
   note?: FloatingNote | null;
+  /** The account's risk rows are still loading: Today and drawdown are not known yet, never shown as missing. */
+  pending?: boolean;
 }
 
 const HEAD = ["Account", "Balance", "Equity", "Today", "Open risk", "Drawdown", "Updated"];
@@ -106,7 +108,7 @@ export function AccountsTable({ lines, choice, isPublic }: { lines: AccountLine[
 
 function figures(l: AccountLine) {
   const a = l.group.account;
-  const today = l.realizedToday == null ? null : accountToday(a, l.realizedToday);
+  const today = l.realizedToday == null ? null : todaySplit(a, l.realizedToday, l.note);
   const use = l.risk ? limitUse(l.risk, a.equity) : null;
   const dd = use ? (use.drawdown.usedPct ?? (use.drawdown.used === 0 ? 0 : null)) : null;
   return { a, today, dd };
@@ -149,10 +151,10 @@ function AccountCells({ line, isPublic }: { line: AccountLine; isPublic: boolean
       <Cell className="font-mono tabular-nums">{money(a.balance)}</Cell>
       <Cell className="font-mono tabular-nums">{money(a.equity)}</Cell>
       <Cell className="font-mono tabular-nums">
-        {today ? <span title={`${money(today.realized)} closed, ${money(today.floating)} open${line.note ? `, of which ${floatingNoteText(line.note)}` : ""}`}><Pnl value={today.total} />{line.note?.outside?.floating != null && <span className="block text-[11px] text-muted">{signedMoney(line.note.outside.floating)} outside this instance</span>}{line.note?.elsewhere != null && <span className="block text-[11px] text-muted">{signedMoney(line.note.elsewhere)} not on listed positions</span>}</span> : <span className="text-faint">{DASH}</span>}
+        {line.pending ? <Pending /> : today ? <TodayFigure split={today} note={line.note ?? null} realized={line.realizedToday!} /> : <span className="text-faint">{DASH}</span>}
       </Cell>
       <Cell className="font-mono tabular-nums"><OpenRiskCell open={line.open} /></Cell>
-      <Cell className={`font-mono tabular-nums ${dd != null && dd > 0 ? "text-loss" : ""}`}>{dd == null ? <span className="text-faint">{DASH}</span> : pctValue(dd, 2)}</Cell>
+      <Cell className={`font-mono tabular-nums ${dd != null && dd > 0 ? "text-loss" : ""}`}>{line.pending ? <Pending /> : dd == null ? <span className="text-faint">{DASH}</span> : pctValue(dd, 2)}</Cell>
       <Cell className="whitespace-nowrap"><Updated line={line} isPublic={isPublic} /></Cell>
     </>
   );
@@ -164,13 +166,38 @@ function AccountCard({ line, isPublic }: { line: AccountLine; isPublic: boolean 
     <>
       <div className="flex items-baseline gap-2">
         <Name line={line} isPublic={isPublic} />
-        <span className="ml-auto shrink-0 font-mono text-sm tabular-nums">{today ? <Pnl value={today.total} /> : <span className="text-faint">{DASH}</span>}</span>
+        <span className="ml-auto shrink-0 text-right font-mono text-sm tabular-nums">{line.pending ? <Pending /> : today ? <TodayFigure split={today} note={line.note ?? null} realized={line.realizedToday!} /> : <span className="text-faint">{DASH}</span>}</span>
       </div>
       <div className="mt-1 flex flex-wrap items-center gap-x-3 gap-y-1 text-xs text-muted">
         <span>equity <span className="font-mono text-body tabular-nums">{money(a.equity)}</span></span>
-        <span>DD <span className={`font-mono tabular-nums ${dd != null && dd > 0 ? "text-loss" : "text-body"}`}>{dd == null ? DASH : pctValue(dd, 2)}</span></span>
+        <span>DD <span className={`font-mono tabular-nums ${dd != null && dd > 0 ? "text-loss" : "text-body"}`}>{line.pending ? "…" : dd == null ? DASH : pctValue(dd, 2)}</span></span>
         <span className="ml-auto"><Updated line={line} isPublic={isPublic} /></span>
       </div>
     </>
+  );
+}
+
+/** A figure still loading: a flat bar the height of the figure, never a dash that reads as "none". */
+function Pending() {
+  return <span className="inline-block h-3.5 w-16 rounded bg-raised align-middle" role="status" aria-label="loading" />;
+}
+
+/**
+ * An account's Today on one right edge: what qkt made (closes since the day began and its listed positions'
+ * floating) on line 1, what another system on the same login floats on line 2. The account's own total, and any
+ * part neither explains, on hover. Without another system the line is the account's Today alone.
+ */
+export function TodayFigure({ split, note, realized }: { split: TodaySplit; note: FloatingNote | null; realized: number }) {
+  const parts = [`Account today ${signedMoney(split.total)}`, `${signedMoney(realized)} closed`, `${signedMoney(split.qkt - realized)} open on qkt's positions`];
+  if (split.other != null) parts.push(`${signedMoney(split.other)} on positions of another system on this login`);
+  if (split.unassigned !== 0 && note) parts.push(`${signedMoney(split.unassigned)} not attributed (${floatingNoteText(note)})`);
+  const title = parts.join(" · ");
+  if (split.other == null && split.unassigned === 0) return <span title={title}><Pnl value={split.total} /></span>;
+  return (
+    <span className="inline-flex flex-col items-end leading-tight" title={title}>
+      <span className="whitespace-nowrap"><Pnl value={split.qkt} /> <span className="font-sans text-xs text-muted">qkt</span></span>
+      {split.other != null && <span className="whitespace-nowrap text-xs text-muted">{signedMoney(split.other)} <span className="font-sans">other system</span></span>}
+      {split.unassigned !== 0 && <span className="whitespace-nowrap text-xs text-muted">{signedMoney(split.unassigned)} <span className="font-sans">not attributed</span></span>}
+    </span>
   );
 }
