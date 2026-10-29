@@ -1,3 +1,4 @@
+import { roundMoney } from "@qkt-insights/contract/money";
 import type { AccountRiskRow } from "../api";
 import { accountByKey, accountKey, accountTab, switcherOrder, type AccountGroup } from "../accounts";
 import { clock, count, DASH, money, pctValue, signedMoney } from "../format";
@@ -196,21 +197,19 @@ function Pending() {
 }
 
 /**
- * An account's Today on one right edge: what qkt made (closes since the day began and its listed positions'
- * floating) on line 1, what another system on the same login floats on line 2. The account's own total, and any
- * part neither explains, on hover. Without another system the line is the account's Today alone.
+ * An account's Today on one right edge: what your strategies made (closes since the day began and their listed
+ * positions' floating) on line 1, anything else on the account (another system on the same login, trades not listed
+ * here) as a muted "other" line 2 when it is not zero. The account's own total and each part on hover.
  */
 function TodayFigure({ split, note, realized }: { split: TodaySplit; note: FloatingNote | null; realized: number }) {
-  const parts = [`Account today ${signedMoney(split.total)}`, `${signedMoney(realized)} closed`, `${signedMoney(split.qkt - realized)} open on qkt's positions`];
+  const parts = [`Account today ${signedMoney(split.total)}`, `${signedMoney(realized)} closed`, `${signedMoney(split.qkt - realized)} open on your strategies' positions`];
   if (split.other != null) parts.push(`${signedMoney(split.other)} on positions of another system on this login`);
   if (split.unassigned !== 0 && note) parts.push(`${signedMoney(split.unassigned)} on trades not listed here (${floatingNoteText(note)})`);
-  const title = parts.join(" · ");
-  if (split.other == null && split.unassigned === 0) return <span title={title}><Pnl value={split.total} /></span>;
+  const other = roundMoney((split.other ?? 0) + split.unassigned, 2);
   return (
-    <span className="inline-flex flex-col items-end leading-tight" title={title}>
-      <span className="whitespace-nowrap"><Pnl value={split.qkt} /> <span className="font-sans text-xs text-muted">qkt</span></span>
-      {split.other != null && <span className="whitespace-nowrap text-xs text-muted">{signedMoney(split.other)} <span className="font-sans">other system</span></span>}
-      {split.unassigned !== 0 && <span className="whitespace-nowrap text-xs text-muted">{signedMoney(split.unassigned)} <span className="font-sans">unlisted</span></span>}
+    <span className="inline-flex flex-col items-end leading-tight" title={parts.join(" · ")}>
+      <Pnl value={split.qkt} />
+      {other !== 0 && <span className="whitespace-nowrap text-xs text-muted"><span className="font-sans">other</span> {signedMoney(other)}</span>}
     </span>
   );
 }

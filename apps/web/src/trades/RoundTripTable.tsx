@@ -1,7 +1,8 @@
-import { useEffect, useMemo, useRef, useState, type ReactNode } from "react";
-import { DASH, duration, openPnl, pnl, quantity, signedMoney, toneClass } from "../format";
+import { useCallback, useEffect, useMemo, useRef, useState, type ReactNode } from "react";
+import { accountName, accountOfLabel } from "../accounts";
+import { compactDuration, DASH, duration, openPnl, pnl, quantity, signedMoney, toneClass } from "../format";
 import { TypeBadge } from "../components/InstrumentType";
-import { instrumentType, optionFromSymbol, optionLine, sizeInWords } from "../instruments";
+import { instrumentType, optionFromSymbol, optionLine, shortInstrument, sizeInWords } from "../instruments";
 import { Pill, RowChevron, Skeleton, Spinner } from "../components/ui";
 import { useStrategyNames } from "../hooks/useStrategyNames";
 import { useView } from "../view";
@@ -25,18 +26,18 @@ interface Column { key: string; label: string; w: string; sort?: SortKey; right?
 
 const COLUMNS: Column[] = [
   { key: "id", label: "#", w: "minmax(72px,0.6fr)", sort: "ticket", title: "Venue position ticket" },
-  { key: "strategy", label: "Strategy", w: "minmax(120px,1fr)", sort: "strategy" },
-  { key: "instrument", label: "Symbol", w: "minmax(140px,1.4fr)", sort: "symbol", title: "The instrument; with its venue beneath when the instance trades it on more than one" },
-  { key: "type", label: "Type", w: "72px", title: "What the position is: CFD, stock CFD, share, coin, perpetual or dated future, option; hover a badge for what it means" },
-  { key: "side", label: "Side", w: "70px", sort: "side" },
-  { key: "entry", label: "Entry (UTC)", w: "112px", sort: "entry" },
-  { key: "entryPrice", label: "Entry", w: "92px", sort: "entryPrice", right: true },
-  { key: "exit", label: "Exit (UTC)", w: "112px", sort: "exit" },
-  { key: "exitPrice", label: "Exit", w: "92px", sort: "exitPrice", right: true },
+  { key: "strategy", label: "Strategy", w: "minmax(112px,1fr)", sort: "strategy" },
+  { key: "instrument", label: "Symbol", w: "minmax(104px,1fr)", sort: "symbol", title: "The instrument; with its venue beneath when the instance trades it on more than one; the full symbol on hover" },
+  { key: "type", label: "Type", w: "80px", title: "What the position is: CFD, stock CFD, share, coin, perpetual or dated future, option; hover a badge for what it means" },
+  { key: "side", label: "Side", w: "68px", sort: "side" },
+  { key: "entry", label: "Entry (UTC)", w: "104px", sort: "entry" },
+  { key: "entryPrice", label: "Entry", w: "84px", sort: "entryPrice", right: true },
+  { key: "exit", label: "Exit (UTC)", w: "104px", sort: "exit" },
+  { key: "exitPrice", label: "Exit", w: "84px", sort: "exitPrice", right: true },
   { key: "size", label: "Size", w: "64px", sort: "size", right: true },
-  { key: "pnl", label: "P&L", w: "104px", sort: "pnl", right: true, title: "Realized, after commission, swap and fees" },
+  { key: "pnl", label: "P&L", w: "96px", sort: "pnl", right: true, title: "Realized, after commission, swap and fees" },
   { key: "r", label: "R", w: "66px", sort: "r", right: true, title: "P&L over the money at risk to the initial stop" },
-  { key: "held", label: "Held", w: "66px", sort: "held", right: true },
+  { key: "held", label: "Held", w: "60px", sort: "held", right: true },
   { key: "ended", label: "Ended by", w: "76px", sort: "ended" },
 ];
 
@@ -76,7 +77,7 @@ function OpenPnl({ value }: { value: number | undefined }) {
   return <span className="font-normal italic text-muted" title="Open: what it is worth now, not realized">open {signedMoney(value)}</span>;
 }
 
-function cells(t: RoundTrip, hide: ReadonlySet<string>, strategyName: (id: string) => string, floating: ReadonlyMap<string, number>, commonUnit: string | null): ReactNode[] {
+function cells(t: RoundTrip, hide: ReadonlySet<string>, strategyName: (id: string) => string, floating: ReadonlyMap<string, number>, commonUnit: string | null, venueOf: (label: string) => string): ReactNode[] {
   const option = optionLine(t.symbol);
   const premium = option ? optionFromSymbol(t.symbol)?.premium : null;
   const all: Record<string, ReactNode> = {
@@ -84,12 +85,10 @@ function cells(t: RoundTrip, hide: ReadonlySet<string>, strategyName: (id: strin
     strategy: <Cell><StrategyName id={t.strategyId} name={strategyName} /></Cell>,
     instrument: (
       <Cell className="font-semibold text-bright">
-        {t.venue || option ? (
-          <span title={tripInstrument(t)}>
-            <span className="block truncate leading-tight">{t.instrument}</span>
-            <span className="block truncate text-[10px] font-normal leading-tight text-muted">{[option, t.venue].filter(Boolean).join(" · ")}</span>
-          </span>
-        ) : t.instrument}
+        <span title={tripInstrument(t)}>
+          <span className="block truncate leading-tight">{shortInstrument(t.instrument, tripType(t))}</span>
+          {(t.venue || option) && <span className="block truncate text-[10px] font-normal leading-tight text-muted">{[option, t.venue ? venueOf(t.venue) : null].filter(Boolean).join(" · ")}</span>}
+        </span>
       </Cell>
     ),
     type: <Cell>{tripType(t) ? <TypeBadge type={tripType(t)} short /> : <span className="text-faint" title="qkt did not state this instrument's type">{DASH}</span>}</Cell>,
@@ -118,8 +117,8 @@ function cells(t: RoundTrip, hide: ReadonlySet<string>, strategyName: (id: strin
       </Cell>
     ),
     pnl: <Cell right className={`font-semibold ${toneClass(t.pnlInExit ?? t.pnl)}`}>{t.pnl == null ? (t.status === "open" ? <OpenPnl value={floating.get(t.id)} /> : DASH) : <TripPnl t={t} />}</Cell>,
-    r: <Cell right className={t.r == null ? "text-faint" : toneClass(t.r)}>{t.r == null ? (t.status === "open" ? DASH : <span title="No stop known for this entry (none was sent, or its events are past retention), so no R">no stop</span>) : rMultiple(t.r)}</Cell>,
-    held: <Cell right className="text-body">{t.status === "open" ? DASH : duration(t.holdMs)}</Cell>,
+    r: <Cell right className={t.r == null ? "text-faint" : toneClass(t.r)}>{t.r == null ? (t.status === "open" ? DASH : <span title="No stop set, so no R">{DASH}</span>) : rMultiple(t.r)}</Cell>,
+    held: <Cell right className="text-body">{t.status === "open" ? DASH : <span title={duration(t.holdMs)}>{compactDuration(t.holdMs)}</span>}</Cell>,
     ended: <Cell>{t.status === "open" ? null : <EndedBadge ended={t.ended} />}</Cell>,
   };
   return COLUMNS.filter((c) => !hide.has(c.key)).map((c) => <span key={c.key} className="contents">{all[c.key]}</span>);
@@ -171,6 +170,11 @@ export function RoundTripTable({ scope, q, sort, dir, onSort, hide = [], height 
   const strategyName = useStrategyNames(scope?.instanceId);
   // open trades show what they are worth now, from the live positions (never on a shared link)
   const live = useLiveState();
+  // a venue label (PAPER_F) reads as its account's name (Paper F); a label no live account reports stays as it is
+  const venueOf = useCallback((label: string) => {
+    const a = scope ? accountOfLabel(live.data?.accounts ?? [], scope.instanceId, label) : null;
+    return a ? accountName(a, view.public) : label;
+  }, [live.data, scope, view.public]);
   const floating = useMemo(() => {
     const out = new Map<string, number>();
     if (view.public) return out;
@@ -304,7 +308,7 @@ export function RoundTripTable({ scope, q, sort, dir, onSort, hide = [], height 
     if (wide) {
       return (
         <div key={t.id} {...common} className={`group absolute inset-x-0 grid items-center border-b border-line text-sm transition-colors ${clickable ? "cursor-pointer" : ""} ${selected ? "bg-accent-soft shadow-[inset_3px_0_0_var(--color-accent-hi)]" : "hover:bg-hover"}`}>
-          {cells(t, hidden, strategyName, floating, commonUnit)}
+          {cells(t, hidden, strategyName, floating, commonUnit, venueOf)}
           <div role="cell" className="flex justify-center">{clickable && <RowChevron className={selected ? "opacity-100" : ""} />}</div>
         </div>
       );
@@ -312,7 +316,7 @@ export function RoundTripTable({ scope, q, sort, dir, onSort, hide = [], height 
     return (
       <div key={t.id} {...common} className={`group absolute inset-x-0 flex flex-col justify-center gap-1 border-b border-line pl-3 pr-1.5 text-sm ${clickable ? "cursor-pointer active:bg-press" : ""} ${selected ? "bg-accent-soft" : ""}`}>
         <div className="flex items-center gap-2">
-          <span className="min-w-0 truncate font-semibold text-bright" title={tripInstrument(t)}>{tripInstrument(t)}</span>
+          <span className="min-w-0 truncate font-semibold text-bright" title={tripInstrument(t)}>{shortInstrument(t.instrument, tripType(t))}{t.venue && <span className="font-normal text-muted"> · {venueOf(t.venue)}</span>}</span>
           <TypeBadge type={tripType(t)} short />
           <SideText side={t.side} />
           <span className={`ml-auto shrink-0 font-semibold ${toneClass(t.pnlInExit ?? t.pnl)}`}>{t.status === "open" ? <OpenPnl value={floating.get(t.id)} /> : <TripPnl t={t} />}</span>

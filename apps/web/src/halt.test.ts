@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 import type { StrategyRow } from "./api";
-import { haltClearing, haltReasonText, haltSince, haltSummary, resumeCommand } from "./halt";
+import { haltClearing, haltReasonText, haltSince, haltSummary, haltWords, resumeCommand } from "./halt";
 
 const HALTED_AT = Date.UTC(2026, 8, 21, 14, 2, 11);
 const LATER = Date.UTC(2026, 8, 23, 9, 0, 0);
@@ -30,9 +30,9 @@ describe("halt display", () => {
 
   it("summarizes a halt for a tooltip, and nothing for a running or shared-link row", () => {
     expect(haltSummary(row({ halted: true, haltReason: "loss streak 3", haltScope: "PERSISTENT", haltPersistent: true, haltedAt: HALTED_AT }), LATER))
-      .toBe("Halted: loss streak 3 at 2026-09-21 14:02 UTC · stays halted until an operator resumes it · qkt resume gold_paper");
+      .toBe("The engine halted it at 2026-09-21 14:02 UTC · stays halted until an operator resumes it · qkt resume gold_paper");
     expect(haltSummary(row({ halted: true, haltReason: null, haltScope: "DAILY", haltPersistent: false, haltedAt: null })))
-      .toBe("Halted: no reason given · resumes 00:00 UTC");
+      .toBe("The engine halted it · resumes 00:00 UTC");
     expect(haltSummary(row({ halted: false }))).toBeNull();
     expect(haltSummary(row({}))).toBeNull();
   });
@@ -60,5 +60,28 @@ describe("halt display", () => {
     const at = Date.UTC(2026, 9, 29, 2, 10, 37);
     expect(haltSummary(row({ halted: true, haltReason: "strategy daily loss 3.49900000 exceeds max 3", haltScope: "DAILY", haltPersistent: false, haltedAt: at }), at + 60_000))
       .toBe("Daily loss 3.50 hit the 3.00 cap at 02:10 UTC · resumes 00:00 UTC");
+  });
+
+  const ROLL_FAULT = "engine fault: tick PAPER_DERIBIT:BTC_USDC@front@1793260800476: PAPER_DERIBIT:BTC_USDC_30OCT26 refused the closing leg"
+    + " roll:PAPER_DERIBIT:BTC_USDC@front:1793260800000:soak_o14_roll order id roll:PAPER_DERIBIT:BTC_USDC@front:1793260800000:soak_o14_roll"
+    + " is longer than 64 characters";
+
+  it("names each kind of halt in plain words for a pill and a banner, never the engine's raw text", () => {
+    const persistent = { halted: true, haltScope: "PERSISTENT" as const, haltPersistent: true };
+    expect(haltWords(row({ halted: true, haltReason: "strategy daily loss 3.49900000 exceeds max 3", haltScope: "DAILY", haltPersistent: false })))
+      .toEqual({ label: "Daily loss cap hit · resumes 00:00 UTC", sentence: "Daily loss 3.50 hit the 3.00 cap. Resumes 00:00 UTC." });
+    expect(haltWords(row({ ...persistent, haltReason: "strategy drawdown 0.0896 exceeds max 0.05" }))?.label).toBe("Drawdown cap hit · needs a resume");
+    expect(haltWords(row({ ...persistent, haltReason: "global daily drawdown 0.02 exceeds max 0.01" }))?.label).toBe("Account daily drawdown cap hit · needs a resume");
+    expect(haltWords(row({ ...persistent, haltReason: ROLL_FAULT })))
+      .toEqual({ label: "Roll failed · needs a resume", sentence: "Rolling to the next contract failed. Stays halted until an operator resumes it." });
+    expect(haltWords(row({ ...persistent, haltReason: "engine fault: java.lang.IllegalStateException at 1793260800000" })))
+      .toEqual({ label: "Stopped by an error · needs a resume", sentence: "An engine error stopped it. Stays halted until an operator resumes it." });
+    expect(haltWords(row({ ...persistent, haltReason: "halted by operator" }))?.label).toBe("Halted by an operator · needs a resume");
+    expect(haltWords(row({ halted: true, haltReason: "loss streak 3", haltScope: null, haltPersistent: null }))?.label).toBe("Halted by the engine");
+    expect(haltWords(row({ halted: false }))).toBeNull();
+    for (const reason of [ROLL_FAULT, "engine fault: order 1793260800000 refused"]) {
+      const words = haltWords(row({ ...persistent, haltReason: reason }))!;
+      expect(`${words.label} ${words.sentence} ${haltSummary(row({ ...persistent, haltReason: reason }))}`).not.toMatch(/\d{10,}|PAPER_|engine fault/u);
+    }
   });
 });

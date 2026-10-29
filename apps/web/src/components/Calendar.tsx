@@ -239,9 +239,13 @@ export function CalendarView({
                   );
                 })}
                 <div role="gridcell" className="hidden flex-col justify-center gap-0.5 rounded-lg border border-dashed border-line-strong px-2 py-1.5 text-[11px] text-muted @xl:flex">
-                  <span>Week {wi + 1}</span>
-                  <b className={`text-sm font-semibold ${wTrades ? (wNet >= 0 ? "text-gain" : "text-loss") : "text-muted"}`} title={wTrades ? mix?.title : undefined}>{wTrades ? signedMoney(wNet) : DASH}</b>
-                  <span>{wTrades} trades</span>
+                  {wTrades > 0 && (
+                    <>
+                      <span>Week {wi + 1}</span>
+                      <b className={`text-sm font-semibold ${wNet >= 0 ? "text-gain" : "text-loss"}`} title={mix?.title}>{signedMoney(wNet)}</b>
+                      <span>{wTrades} trades</span>
+                    </>
+                  )}
                 </div>
               </div>
             );

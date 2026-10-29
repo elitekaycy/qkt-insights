@@ -4,7 +4,7 @@ import { get, logout, logoutEverywhere, type StrategyRow } from "../api";
 import { ThemeToggle } from "../components/chrome";
 import { InstallApp } from "../components/InstallApp";
 import { ShareControl } from "../components/ShareControl";
-import { Button, Card, PageFallback, PageHeader, Segmented } from "../components/ui";
+import { Button, Card, InfoIcon, PageFallback, PageHeader, Popover, Segmented } from "../components/ui";
 import { portfolioGroupId, strategyDisplayName } from "../portfolio";
 import { routePath, useRoute, type SettingsSection } from "../router";
 
@@ -41,11 +41,11 @@ export default function Settings({ instanceId, onSignedOut }: { instanceId: stri
   );
 }
 
-function Row({ title, sub, children }: { title: string; sub?: string; children: React.ReactNode }) {
+function Row({ title, sub, info, children }: { title: string; sub?: string; info?: React.ReactNode; children: React.ReactNode }) {
   return (
     <div className="flex flex-wrap items-center gap-3 border-b border-line px-4 py-3 last:border-b-0">
       <div className="min-w-0 flex-1">
-        <div className="truncate text-sm font-medium text-bright">{title}</div>
+        <div className="flex min-w-0 items-center gap-1.5 text-sm font-medium text-bright"><span className="truncate">{title}</span>{info}</div>
         {sub && <div className="text-xs text-muted">{sub}</div>}
       </div>
       {children}
@@ -65,21 +65,26 @@ function Sharing({ instanceId }: { instanceId: string | null }) {
   const portfolios = [...new Set(rows.map(portfolioGroupId).filter((p): p is string => p != null))];
   return (
     <div className="grid grid-cols-1 gap-4">
-      <p className="max-w-2xl text-sm text-muted">
-        A public link shows the page read-only, 15 minutes behind, without tickets, logs or account logins. Strategies and portfolios follow the
-        overview unless set here.
-      </p>
       <Card className="overflow-hidden">
-        <Row title="Overview" sub={`the whole ${instanceId} dashboard`}>
+        <Row
+          title="Overview"
+          sub={`the whole ${instanceId} dashboard`}
+          info={
+            <Popover label="What a public link shows" trigger={<InfoIcon className="h-3.5 w-3.5 text-faint hover:text-bright" />}>
+              A public link shows the page read-only, 15 minutes behind, without tickets, logs or account logins. Strategies and portfolios follow the
+              overview unless set here.
+            </Popover>
+          }
+        >
           <ShareControl instanceId={instanceId} kind="overview" />
         </Row>
         {portfolios.map((p) => (
-          <Row key={p} title={p} sub="portfolio">
+          <Row key={p} title={p}>
             <ShareControl instanceId={instanceId} kind="portfolio" subject={p} />
           </Row>
         ))}
         {rows.map((r) => (
-          <Row key={r.strategyId} title={strategyDisplayName(r)} sub="strategy">
+          <Row key={r.strategyId} title={strategyDisplayName(r)}>
             <ShareControl instanceId={instanceId} kind="strategy" subject={r.strategyId} />
           </Row>
         ))}

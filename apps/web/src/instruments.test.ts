@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 import type { LiveAccount } from "./api";
-import { distinctLegs, GLOSSARY, INSTRUMENT_TYPE_KEYS, legLabel, optionFromSymbol, optionLine, sizeInWords, strategyCurrencies, strategyEnvironment, strategyLegs, TYPE_LABEL, type InstrumentType } from "./instruments";
+import { distinctLegs, GLOSSARY, INSTRUMENT_TYPE_KEYS, legLabel, legsLine, optionFromSymbol, optionLine, shortInstrument, sizeInWords, strategyCurrencies, strategyEnvironment, strategyLegs, TYPE_LABEL, type InstrumentType, type Leg } from "./instruments";
 
 const NOW = Date.UTC(2026, 9, 29);
 
@@ -135,5 +135,35 @@ describe("optionFromSymbol", () => {
     expect(optionFromSymbol("BTC_USDC_30OCT26")).toBeNull();
     expect(optionFromSymbol("EURUSD")).toBeNull();
     expect(optionLine("XAUUSD")).toBeNull();
+  });
+});
+
+describe("short instrument names", () => {
+  const leg = (name: string, type: InstrumentType | null, venue: string | null, extra: Partial<Leg> = {}): Leg => ({ symbol: `L:${name}`, name, type, venue, ...extra });
+
+  it("names a derivative by its coin and kind, anything else by its name", () => {
+    expect(shortInstrument("PAPER_F:BTC_USDC_PERPETUAL", "perpetual")).toBe("BTC perp");
+    expect(shortInstrument("PAPER_DERIBIT:BTC_USDC@front", "future")).toBe("BTC future");
+    expect(shortInstrument("PAPER_DERIBIT:BTC_USDC_30OCT26", "future")).toBe("BTC future 30 Oct");
+    expect(shortInstrument("BTC_USDC_29OCT26_80500_C", "option")).toBe("BTC option");
+    expect(shortInstrument("EXNESS_O12:XAUUSD", "cfd")).toBe("XAUUSD");
+    expect(shortInstrument("XAUUSD", null)).toBe("XAUUSD");
+  });
+
+  it("says what a strategy trades in one short line, every leg in full in the title", () => {
+    expect(legsLine([leg("XAUUSD", "cfd", "Exness")]).text).toBe("XAUUSD · Exness");
+    expect(legsLine([leg("BTC_USDC_PERPETUAL", "perpetual", "Paper (Deribit prices)")]).text).toBe("BTC perp · Paper");
+    const expiry = legsLine([
+      leg("BTC_USDC_PERPETUAL", "perpetual", "Paper (Deribit prices)"),
+      leg("BTC_USDC_29OCT26_80500_C", "option", "Paper (Deribit prices)"),
+    ], NOW);
+    expect(expiry.text).toBe("BTC perp + options · Paper");
+    expect(legsLine([leg("PAPER_DERIBIT_B.BTC_USDC", null, null), leg("BTC_USDC_PERPETUAL", "perpetual", "Paper (Deribit prices)")]).text).toBe("BTC perp · Paper");
+    expect(legsLine([leg("PAPER_DERIBIT_B.ETH_USDC", null, null), leg("BTC_USDC_PERPETUAL", "perpetual", "Paper (Deribit prices)")]).text).toBe("BTC perp, ETH · Paper");
+    expect(expiry.title).toBe("Perpetual future BTC_USDC_PERPETUAL · Paper (Deribit prices)\nOption BTC 80500 call, 29 Oct · Paper (Deribit prices)");
+    expect(legsLine([leg("BTC_USDC_29OCT26_80500_C", "option", null), leg("BTC_USDC_29OCT26_80000_P", "option", null)]).text).toBe("BTC options");
+    expect(legsLine([leg("AAPL", "stock-cfd", "Exness"), leg("XAUUSD", "cfd", "Exness")]).text).toBe("AAPL, XAUUSD · Exness");
+    expect(legsLine([]).text).toBe("");
+    for (const l of [expiry.text, legsLine([leg("BTC_USDC@front", "future", "Paper (Deribit prices)")]).text]) expect(l).not.toMatch(/PAPER_|_USDC|\(|more/u);
   });
 });
