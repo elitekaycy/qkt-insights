@@ -80,6 +80,19 @@ export function withoutIgnoredHoldings(db: Db, instanceId: string, e: Envelope):
   return kept.length === list.length ? e : ({ ...e, payload: { ...e.payload, [key]: kept } } as Envelope);
 }
 
+/** An open position of another system on a shared account: its ticket and floating P&L incl. swap (null when the venue marks none). */
+export interface OutsidePosition { ticket: string; floating: number | null }
+
+/** The positions of a state.positions envelope that are in an ignored range: what withoutIgnoredHoldings drops. */
+export function ignoredPositions(db: Db, instanceId: string, e: Envelope): OutsidePosition[] {
+  if (e.type !== "state.positions") return [];
+  const ranges = rangesOf(db, instanceId);
+  if (ranges.length === 0) return [];
+  const positions = (e.payload as { positions: Array<{ ticket: string; magic?: number; profit?: number; swap?: number }> }).positions;
+  return positions.filter((x) => within(ranges, x.magic))
+    .map((x) => ({ ticket: x.ticket, floating: x.profit == null ? null : x.profit + (x.swap ?? 0) }));
+}
+
 const rangeText = (r: MagicRange) => (r.lo === r.hi ? String(r.lo) : `${r.lo}-${r.hi}`);
 
 export function ignoredDeals(db: Db, instanceId: string): IgnoredDeals {

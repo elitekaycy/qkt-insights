@@ -1,5 +1,5 @@
 import type { FastifyInstance } from "fastify";
-import { listInstances, listStrategies, listTrades, searchEvents, equityCurve, instanceHealth, searchLogs, logPage, strategyStats, listDeals, accountEquity, accountDrawdown, accountPerformance, accountRisk, accountScope, monitorSummaries, withJournalStrategies, listMonitorEvents, reconciliation, strategySources, strategySourceText, type AccountLimits, type Db, type LiveStateStore, type Monitors } from "@qkt-insights/store";
+import { listInstances, listStrategies, listTrades, searchEvents, equityCurve, instanceHealth, searchLogs, logPage, strategyStats, listDeals, accountEquity, accountDrawdown, accountPerformance, accountRisk, accountScope, monitorSummaries, withJournalStrategies, withStoppedAccounts, listMonitorEvents, reconciliation, strategySources, strategySourceText, type AccountLimits, type Db, type LiveStateStore, type Monitors } from "@qkt-insights/store";
 import { CONTRACT_VERSION, SUPPORTED_MAJORS } from "@qkt-insights/contract";
 import { UNATTRIBUTED_STRATEGY } from "@qkt-insights/contract/query";
 import { requireSession } from "./auth.js";
@@ -131,7 +131,9 @@ export function registerRest(app: FastifyInstance, deps: RestDeps): void {
     return versioned.send(req, reply, [{ strategy: f }], () => equityCurve(deps.db, f));
   });
 
-  app.get("/live/state", guard, async () => withJournalStrategies(deps.db, deps.liveState.snapshot(Date.now())));
+  // An account that stopped reporting stays listed (stopped, with its last stored minute) under the name it had live.
+  app.get("/live/state", guard, async () => withJournalStrategies(deps.db,
+    withStoppedAccounts(deps.db, deps.liveState.snapshot(Date.now()), listInstances(deps.db).map((i) => i.id))));
 
   app.get<{ Querystring: Record<string, string> }>("/deals", guard, async (req, reply) => {
     const q = req.query; if (!need(reply, q.instance, "instance")) return;

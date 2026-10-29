@@ -1,7 +1,7 @@
 import type { AccountRiskRow } from "../api";
 import { accountByKey, accountKey, accountTab, switcherOrder, type AccountGroup } from "../accounts";
-import { clock, count, DASH, money, pctValue } from "../format";
-import { accountToday, limitUse, type OpenRisk } from "../home";
+import { clock, count, DASH, money, pctValue, signedMoney } from "../format";
+import { accountToday, floatingNoteText, limitUse, type FloatingNote, type OpenRisk } from "../home";
 import { useSearchParam } from "../router";
 import { DataList, Cell, Freshness, Pnl, Segmented } from "./ui";
 
@@ -45,10 +45,12 @@ export function AccountTabs({ choice, isPublic }: { choice: AccountChoice; isPub
       const tab = accountTab(g.account, isPublic);
       return {
         key: accountKey(g.account),
-        title: g.account.stale ? `${tab.title} · stale, no update since ${clock(g.account.lastSeen)} UTC` : tab.title,
+        title: g.account.stopped
+          ? `${tab.title} · last reported ${clock(g.account.lastSeen)} UTC`
+          : g.account.stale ? `${tab.title} · stale, no update since ${clock(g.account.lastSeen)} UTC` : tab.title,
         label: (
-          <span className="inline-flex items-center gap-1.5">
-            {g.account.stale && <span className="inline-block h-1.5 w-1.5 shrink-0 rounded-full bg-warn" aria-label="stale" />}
+          <span className={`inline-flex items-center gap-1.5 ${g.account.stopped ? "opacity-70" : ""}`}>
+            {g.account.stale && <span className={`inline-block h-1.5 w-1.5 shrink-0 rounded-full ${g.account.stopped ? "bg-faint" : "bg-warn"}`} aria-label={g.account.stopped ? "stopped reporting" : "stale"} />}
             <span>{tab.name}</span>
             {tab.hint && <span className="text-xs font-normal text-faint">{tab.hint}</span>}
           </span>
@@ -76,6 +78,8 @@ export interface AccountLine {
   realizedToday: number | null;
   /** Null on shared links, which never show positions. */
   open: OpenRisk | null;
+  /** Why the account's floating differs from its listed positions (Home floatingNote); null when it does not. */
+  note?: FloatingNote | null;
 }
 
 const HEAD = ["Account", "Balance", "Equity", "Today", "Open risk", "Drawdown", "Updated"];
@@ -133,6 +137,7 @@ function OpenRiskCell({ open }: { open: OpenRisk | null }) {
 
 function Updated({ line, isPublic }: { line: AccountLine; isPublic: boolean }) {
   const a = line.group.account;
+  if (a.stopped) return <span className="text-xs text-muted" title={`no report since ${clock(a.lastSeen)} UTC; the figures are its last stored minute`}>stopped · {clock(a.lastSeen)} UTC</span>;
   return isPublic ? <span className="text-xs text-muted">as of {clock(a.lastSeen)} UTC</span> : <Freshness at={a.lastSeen} stale={a.stale} />;
 }
 
@@ -144,7 +149,7 @@ function AccountCells({ line, isPublic }: { line: AccountLine; isPublic: boolean
       <Cell className="font-mono tabular-nums">{money(a.balance)}</Cell>
       <Cell className="font-mono tabular-nums">{money(a.equity)}</Cell>
       <Cell className="font-mono tabular-nums">
-        {today ? <span title={`${money(today.realized)} closed, ${money(today.floating)} open`}><Pnl value={today.total} /></span> : <span className="text-faint">{DASH}</span>}
+        {today ? <span title={`${money(today.realized)} closed, ${money(today.floating)} open${line.note ? `, of which ${floatingNoteText(line.note)}` : ""}`}><Pnl value={today.total} />{line.note?.outside?.floating != null && <span className="block text-[11px] text-muted">{signedMoney(line.note.outside.floating)} outside this instance</span>}</span> : <span className="text-faint">{DASH}</span>}
       </Cell>
       <Cell className="font-mono tabular-nums"><OpenRiskCell open={line.open} /></Cell>
       <Cell className={`font-mono tabular-nums ${dd != null && dd > 0 ? "text-loss" : ""}`}>{dd == null ? <span className="text-faint">{DASH}</span> : pctValue(dd, 2)}</Cell>

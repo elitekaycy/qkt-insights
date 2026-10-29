@@ -473,6 +473,24 @@ describe("several accounts on a public overview", () => {
     expect(new Set(curve.filter((p) => p.balance === 507).map((p) => `${p.broker}/${p.account}`))).toEqual(new Set([`${paperName}/${paperName}`]));
   });
 
+  it("lists an account that stopped reporting before the cutoff as stopped, under its public name, with its last figures", async () => {
+    const STOPPED = "vgp:00000000000000cc";
+    db.prepare("INSERT INTO account_equity (instance_id, broker, minute_ts, balance, equity, open_profit, account) VALUES ('i1', 'PAPER_F', ?, 9999.77, 9999.77, 0, ?)")
+      .run(BEFORE, STOPPED);
+    db.prepare("INSERT INTO account_currencies (instance_id, account, label, currency, connector, adapter, login) VALUES ('i1', ?, 'PAPER_F', 'USDC', 'vgp', 'paper', '•••er-f')").run(STOPPED);
+    const token = (await share("overview", "", "public")).overview.token!;
+    const state = (await pub(token, "/live/state")).json() as { accounts: Array<Record<string, unknown>> };
+    const stopped = state.accounts.find((a) => a.balance === 9999.77)!;
+    expect(stopped).toEqual({ instanceId: "i1", broker: stopped.broker, currency: "USDC", balance: 9999.77, equity: 9999.77, openProfit: 0, lastSeen: BEFORE, stale: true, stopped: true });
+    expect(stopped.broker).toMatch(/^Account( \d+)?$/u);
+    expect(state.accounts.filter((a) => a !== stopped).every((a) => a.stopped === undefined && a.stale === false)).toBe(true);
+    // the same name on the equity curve
+    const curve = (await pub(token, "/account/equity")).json() as Array<{ account: string; balance: number }>;
+    expect(new Set(curve.filter((p) => p.balance === 9999.77).map((p) => p.account))).toEqual(new Set([stopped.broker]));
+    expectNoSecrets(JSON.stringify(state));
+    expect(JSON.stringify(state)).not.toContain("er-f");
+  });
+
   it("keeps one account's closes when the link asks for it by its public name", async () => {
     paperAccount();
     const token = (await share("overview", "", "public")).overview.token!;

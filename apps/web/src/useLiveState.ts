@@ -17,19 +17,37 @@ function accountKey(instanceId: string, account: Pick<LiveAccount, "broker" | "l
 }
 
 /** The label an account is shown under: the config entry qkt named, else the label without its profile suffix. */
-function displayBroker(p: { broker: string; venue?: { label?: string | null } }): string {
+function displayBroker(p: { broker: string; venue?: { label?: string | null } | null }): string {
   return p.venue?.label ?? p.broker.replace(/_S\d+$/u, "");
 }
 
-/** Folds pushed account state into the cached snapshot so values tick instantly. */
-function applyEnvelope(prev: LiveStateSnapshot | undefined, e: LiveEnvelope): LiveStateSnapshot {
+type PushedAccount = Omit<LiveAccount, "instanceId" | "lastSeen" | "stale" | "connector" | "adapter" | "tradeMode"> & {
+  venue?: { label?: string | null; connector?: string | null; adapter?: string | null; tradeMode?: string | null } | null;
+};
+
+/**
+ * Folds pushed account state into the cached snapshot so values tick instantly. The push states the venue nested
+ * (`venue.connector`, ...) where the snapshot has it flat; the account keeps the label and profiles the collector
+ * shows it under, so its name (accounts.ts accountName) is the same before and after a push.
+ */
+export function applyEnvelope(prev: LiveStateSnapshot | undefined, e: Pick<LiveEnvelope, "instanceId" | "ts" | "payload">): LiveStateSnapshot {
   const snap = prev ?? { accounts: [], positions: [], orders: [] };
-  const p = e.payload as unknown as Omit<LiveAccount, "instanceId" | "lastSeen" | "stale"> & { venue?: { label?: string | null } };
-  const { venue: _venue, ...fields } = p;
-  const next: LiveAccount = { ...fields, broker: displayBroker(p), instanceId: e.instanceId, lastSeen: e.ts, stale: false };
-  const same = (a: LiveAccount) => accountKey(a.instanceId, a) === accountKey(e.instanceId, next);
-  // The collector resolves an account id for an envelope that states none; keep it.
-  next.accountId ??= snap.accounts.find(same)?.accountId;
+  const p = e.payload as unknown as PushedAccount;
+  const { venue, ...fields } = p;
+  const pushed: LiveAccount = { ...fields, broker: displayBroker(p), instanceId: e.instanceId, lastSeen: e.ts, stale: false };
+  const same = (a: LiveAccount) => accountKey(a.instanceId, a) === accountKey(e.instanceId, pushed);
+  const known = snap.accounts.find(same);
+  const next: LiveAccount = {
+    ...pushed,
+    broker: known?.broker ?? pushed.broker,
+    // The collector resolves an account id for an envelope that states none; keep it.
+    accountId: pushed.accountId ?? known?.accountId,
+    connector: venue?.connector ?? known?.connector,
+    adapter: venue?.adapter ?? known?.adapter,
+    tradeMode: venue?.tradeMode ?? known?.tradeMode,
+    profiles: [...new Set([...(known?.profiles ?? []), p.broker])].sort(),
+  };
+  for (const k of ["accountId", "connector", "adapter", "tradeMode"] as const) if (next[k] == null) delete next[k];
   return { ...snap, accounts: replaceOrAppend(snap.accounts, same, next) };
 }
 

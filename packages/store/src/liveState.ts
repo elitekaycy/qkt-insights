@@ -5,6 +5,7 @@ import { statement } from "./statements.js";
 import { bumpAccount } from "./versions.js";
 import { profileLabel, withoutAccountCredentials } from "./inferredVenueFacts.js";
 import { quantityUnitOf } from "./instrumentKind.js";
+import type { OutsidePosition } from "./ignoredMagics.js";
 
 export interface AccountState {
   broker: string; currency: string; balance: number; equity: number;
@@ -59,10 +60,18 @@ export interface LivePendingOrder {
 }
 
 export interface LiveStateSnapshot {
-  accounts: Array<AccountState & { instanceId: string; stale: boolean }>;
-  positions: Array<{ instanceId: string; broker: string; at: number; stale: boolean; list: LivePosition[] }>;
+  /** `stopped`: no longer in collector memory; the figures are its last stored minute (stoppedAccounts.ts). */
+  accounts: Array<AccountState & { instanceId: string; stale: boolean; stopped?: boolean }>;
+  positions: Array<{ instanceId: string; broker: string; at: number; stale: boolean; list: LivePosition[]; outside?: OutsideHoldings }>;
   orders: Array<{ instanceId: string; broker: string; at: number; stale: boolean; list: LivePendingOrder[] }>;
 }
+
+/**
+ * The open positions of another system on the same venue account (a magic range the instance ignores,
+ * ignoredMagics.ts): never listed, but counted, so the account's floating P&L can be told apart from the
+ * floating of the positions shown. `floating` is null when one of them carries no venue mark.
+ */
+export interface OutsideHoldings { count: number; floating: number | null }
 
 interface PositionGroup {
   instanceId: string;
@@ -70,7 +79,10 @@ interface PositionGroup {
   at: number;
   stale: boolean;
   list: LivePosition[];
+  outside?: OutsideHoldings;
 }
+
+interface StoredPositions { at: number; list: LivePosition[]; accountId?: string; outside?: OutsidePosition[] }
 
 interface OrderGroup {
   instanceId: string;
@@ -93,11 +105,11 @@ function splitKey(key: string): [string, string] {
  */
 export class LiveStateStore {
   private accounts = new Map<string, StoredAccountState>();
-  private positions = new Map<string, { at: number; list: LivePosition[]; accountId?: string }>();
+  private positions = new Map<string, StoredPositions>();
   private orders = new Map<string, { at: number; list: LivePendingOrder[]; accountId?: string }>();
 
   /** Returns true when the visible state changed (drives WS broadcasts). */
-  upsert(instanceId: string, e: Envelope): boolean {
+  upsert(instanceId: string, e: Envelope, outside?: readonly OutsidePosition[]): boolean {
     if (e.type === "state.account") {
       const p = withoutAccountCredentials(e.payload);
       const accountId = p.accountId ?? undefined;
@@ -128,8 +140,9 @@ export class LiveStateStore {
         ...stated({ positionId: x.positionId, attribution: x.attribution, initialStop: x.initialStop, initialTarget: x.initialTarget, riskAmount: x.riskAmount,
           kind: x.instrument?.kind?.toLowerCase(), unit: quantityUnitOf(x.instrument?.kind, x.instrument?.quantityUnit), contractSize: x.instrument?.contractSize,
           category: x.instrument?.category }) }));
-      this.positions.set(key, { at: e.ts, list, accountId: p.accountId != null ? opaqueAccountId(p.accountId) : undefined });
-      return !prev || JSON.stringify(prev.list) !== JSON.stringify(list);
+      this.positions.set(key, { at: e.ts, list, accountId: p.accountId != null ? opaqueAccountId(p.accountId) : undefined,
+        ...(outside && outside.length > 0 ? { outside: [...outside] } : {}) });
+      return !prev || JSON.stringify(prev.list) !== JSON.stringify(list) || JSON.stringify(prev.outside) !== JSON.stringify(outside?.length ? outside : undefined);
     }
     if (e.type === "state.orders") {
       const p = e.payload;
@@ -205,12 +218,14 @@ function groupOf(instanceId: string, broker: string, accountId: string | undefin
 }
 
 function collapsePositions(
-  positions: Map<string, { at: number; list: LivePosition[]; accountId?: string }>,
+  positions: Map<string, StoredPositions>,
   now: number,
   staleAfterMs: number,
   shownLabel: Map<string, string>,
 ): PositionGroup[] {
   const groups = new Map<string, PositionGroup>();
+  // several broker profiles of one account each report its outside positions: one entry per ticket
+  const outsideOf = new Map<string, Map<string, number | null>>();
   for (const [key, value] of positions) {
     const [instanceId, broker] = splitKey(key);
     const { key: groupKey, display } = groupOf(instanceId, broker, value.accountId, shownLabel);
@@ -228,6 +243,16 @@ function collapsePositions(
     group.stale = group.stale && stale;
     group.list = [...byTicket.values()];
     groups.set(groupKey, group);
+    if (value.outside) {
+      const tickets = outsideOf.get(groupKey) ?? new Map<string, number | null>();
+      for (const o of value.outside) tickets.set(o.ticket, o.floating);
+      outsideOf.set(groupKey, tickets);
+    }
+  }
+  for (const [groupKey, tickets] of outsideOf) {
+    const values = [...tickets.values()];
+    const floating = values.some((v) => v == null) ? null : values.reduce<number>((a, v) => a + v!, 0);
+    groups.get(groupKey)!.outside = { count: tickets.size, floating };
   }
   return [...groups.values()];
 }

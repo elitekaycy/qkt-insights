@@ -510,6 +510,8 @@ export interface LiveAccount {
   profiles?: string[];
   lastSeen: number;
   stale: boolean;
+  /** No longer reporting: the figures are its last stored minute (store stoppedAccounts.ts). */
+  stopped?: boolean;
 }
 export interface LivePositionRow {
   ticket: string;
@@ -557,6 +559,8 @@ export interface LivePositionGroup {
   at: number;
   stale: boolean;
   list: LivePositionRow[];
+  /** Positions of another system on the same account (a magic range the instance ignores): never listed, only counted. `floating` is null when one has no venue mark. */
+  outside?: { count: number; floating: number | null };
 }
 export interface LiveStateSnapshot {
   accounts: LiveAccount[];
