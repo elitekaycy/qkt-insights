@@ -21,7 +21,18 @@ positions with SL, TP, money to the stop, floating P&L incl. swap and held time;
 strategy table (status and halt reason, Today, 7D, MTD, all-time, max drawdown, trades, win rate,
 last close, plus an unattributed row) whose rows open the strategy; realized P&L by UTC day with
 7D/MTD/YTD/All chips held in the URL (`range`); and the month calendar, whose days open their
-trades. Shared links show the same page 15 minutes behind, with open positions as a count and
+trades. Each account is titled by the account, not by the qkt broker profile that reported it:
+the venue, its environment and the login's last four characters (`Exness · demo · •••4821`; a
+gateway paper account reads `Paper (Deribit prices) · •••er-b`). One venue account reached
+through several broker profiles is shown once, with "via 41 profiles" naming them on hover or tap.
+With several venue accounts on the instance, a one-line switcher sits under the title: **All accounts**,
+then one tab per account (venue and masked login, its environment and currency muted beside it, a dot when
+it is stale). All accounts is one table, a row per account in its own currency (balance, equity, Today,
+open risk, drawdown, freshness), never added across accounts; a row opens the account's tab. An account's
+tab shows its own cards, positions, strategies (those that traded on it), realized P&L and calendar. The
+choice is the URL's `account` parameter, so a reload, Back and a shared link keep it, and Equity & risk
+opens on the same account.
+Shared links show the same page 15 minutes behind, with open positions as a count and
 total only. Instrument splits, monthly returns and drawdown periods live on Calendar, Equity &
 risk and the strategy pages.
 
@@ -30,7 +41,9 @@ risk and the strategy pages.
 ## Equity & risk
 
 Broker account equity over time, per-strategy equity normalized to % change,
-underwater curve, and drawdown periods.
+underwater curve, and drawdown periods. With several accounts it has Home's switcher: All accounts
+compares the accounts' equity as % change from each one's first point (each in its own currency), and an
+account's tab shows its equity curve and the strategies that traded on it.
 
 ![Equity](assets/screenshots/equity.png)
 
@@ -62,7 +75,7 @@ reason; when none survives it reads "before <the first re-assertion>" (`haltedBe
 restart.
 
 The sections are in the URL (`/s/<id>`, `/s/<id>/calendar`, `daily`, `monthly`, `trades`, `time`,
-`logs`) and all read one scope: the date range chips (Today, 7D, MTD, YTD, All, as `range`) and the
+`code`, `logs`) and all read one scope: the date range chips (Today, 7D, MTD, YTD, All, as `range`) and the
 query bar (`q`), with "Showing k of n round trips" and their net and win rate. The unit is the
 closed round trip.
 
@@ -78,6 +91,13 @@ closed round trip.
 - **Trades**: the round trips of the query, sortable, with CSV export.
 - **Time & risk**: side, how trades ended, hold time, UTC entry weekday and hour (with n; buckets
   under 30 trades are faded), R, streaks and how the next trade went after N losses.
+- **Code**: the strategy's source as qkt runs it, highlighted with qkt's own TextMate grammar
+  (`apps/web/src/strategy/code/qkt.tmLanguage.json`, a copy of qkt's `editor/textmate/qkt.tmLanguage.json`:
+  refresh it by copying that file unchanged), with line numbers, a copy button, the file's path and sha256,
+  and when it first ran. Every earlier version qkt reported is listed by its sha and can be opened, and
+  "Changes since" shows a line diff against the version before. A version without text says why: qkt sent
+  none (a release before qkt reported code), or it sent the text at an earlier start this collector does not
+  hold. The section is admin only; shared links never show it.
 - **Logs**: the latest lines, and a link to Logs filtered with `strategy:<id>`.
 
 Every bar, bucket, row and ring segment narrows the query to the trades behind it (a second click
@@ -97,7 +117,8 @@ round trips that closed on it (each opens the trade drawer, and "Open in Trades"
 ## Edge
 
 When a strategy makes money: day-of-week × hour P&L heatmap, weekday/hour bars with
-per-bucket sample size, and rolling edge stability. Buckets under 30 trades render
+per-bucket sample size, and rolling edge stability. It opens on the strategy with the most closed
+trades; the picker marks strategies that have none. Buckets under 30 trades render
 desaturated — thin slices are noise, and the UI says so.
 
 ![Edge](assets/screenshots/edge.png)
@@ -111,8 +132,19 @@ the strategy's signal, the venue, or by hand). Unattributed positions are includ
 The query bar takes free text and tags, and every tag becomes a removable chip:
 `strategy:gold_ema_pullback`, `symbol:XAUUSD` (broker prefixes folded), `side:long|short`, `pnl:>50`,
 `pnl:<0`, `r:>=1`, `held:<1h`, `held:1h..4h`, `entry:2026-10`, `exit:2026-10-21`,
-`ended:stop|tp|signal|venue|manual`, `size:>=0.5`, `weekday:mon` and `hour:14` (UTC entry), `#<ticket>`, and the bare
+`ended:stop|tp|signal|venue|manual`, `type:cfd|stock-cfd|share|coin|perpetual|future|option` (`type:cfd`
+includes stock CFDs), `size:>=0.5`, `weekday:mon` and `hour:14` (UTC entry), `#<ticket>`, and the bare
 words `win`, `loss` and `open`.
+
+**What each position is.** Every round trip, open position and trade drawer carries a type badge: CFD,
+Stock CFD, Share, Coin (spot), Perpetual future, Dated future or Option. qkt names the type
+(`instrument.kind`, and the venue folder `instrument.category` that sets a stock CFD apart from an FX or
+metal CFD). Hover or tap the badge for what the type is and what holding it costs. Sizes are in words:
+"2 shares", "0.01 lot = 1 share", "10 contracts × 0.001". Each strategy names what it trades, leg by leg,
+on its card and its page: "Stock CFD · AAPL · Exness", "Option · BTC 70000 call, 29 Nov · Deribit". Open
+positions filter by type once there are two. The trade drawer explains each cost kind its deals booked
+(commission, swap, funding, fee). One glossary (`apps/web/src/instruments.ts`) holds every explanation.
+An instrument qkt states no type for shows none rather than a guess.
 A later tag of the same key replaces the earlier one; a word it cannot read gets a message naming
 what it expected, and the rest still apply. Completions come from the instance's own strategies,
 instruments and days. `/` focuses the bar, `Esc` clears it, `j`/`k` move through the rows and

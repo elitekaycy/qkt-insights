@@ -169,19 +169,28 @@ export function publicTripAnalytics(a: TripAnalytics): TripAnalytics {
 }
 
 /**
- * Account labels become "Account", "Account 2", ... in order of first appearance; TOTAL keeps its
- * name. With a single real account every label is "Account": one account is often stored under
- * several broker labels over time (a profile rename), and those are not separate accounts.
+ * Venue accounts become "Account", "Account 2", ... in the order the instance first reported them, and every name
+ * one account goes by (its id, key and broker labels) becomes that account's name, so each public route names an
+ * account alike. With a single account every label is "Account": one account is often stored under several broker
+ * labels over time (a profile rename), and those are not separate accounts. TOTAL keeps its name; a name no account
+ * answers to is numbered after them.
  */
-export function accountLabeller(singleAccount = false): (broker: string) => string {
+export function accountLabeller(accounts: ReadonlyArray<{ key: string; identity: string | null; labels: readonly string[] }>): (name: string) => string {
+  const single = accounts.length <= 1;
   const labels = new Map<string, string>();
-  return (broker) => {
-    if (broker === "TOTAL") return broker;
-    if (singleAccount) return "Account";
-    let label = labels.get(broker);
+  accounts.forEach((a, i) => {
+    const label = i === 0 ? "Account" : `Account ${i + 1}`;
+    for (const n of [a.key, a.identity, ...a.labels]) if (n != null && !labels.has(n)) labels.set(n, label);
+  });
+  let next = accounts.length;
+  return (name) => {
+    if (name === "TOTAL") return name;
+    if (single) return "Account";
+    let label = labels.get(name);
     if (!label) {
-      label = labels.size === 0 ? "Account" : `Account ${labels.size + 1}`;
-      labels.set(broker, label);
+      label = next === 0 ? "Account" : `Account ${next + 1}`;
+      next++;
+      labels.set(name, label);
     }
     return label;
   };

@@ -1,6 +1,6 @@
 import type { Db } from "./db.js";
 import {
-  adjustmentRows, canonicalDeal, SWAP_ONLY, closeDealOf, closedTradeRows, fullyClosedPosition, instrumentOf, OUT_LEGS,
+  accountBinds, adjustmentRows, canonicalDeal, dealOnAccount, SWAP_ONLY, closeDealOf, closedTradeRows, fullyClosedPosition, instrumentOf, OUT_LEGS,
   type DayNet, type DealClosedTrade,
 } from "./analytics.js";
 import { addMoney, instanceMoneyDigits, roundMoney } from "./money.js";
@@ -19,6 +19,30 @@ export interface AccountFilter {
   to?: number;
   /** Only positions fully closed by `to` (requires `to`), as public views need. */
   closedPositionsOnly?: boolean;
+  /** One venue account's closes only; absent, every account on the instance. */
+  account?: AccountScope;
+}
+
+/** One venue account of an instance as the account readers group it: its id (null when none was stated) and its broker labels. */
+export interface AccountScope {
+  identity: string | null;
+  labels: readonly string[];
+}
+
+/**
+ * The close filter of one account: its id, and as a JSON array every broker label it is known under, the labels its
+ * equity reported under and those its deals were booked under. A deal names its account; an engine close names only
+ * the profile in its symbol ("PAPER_A:BTC_USDC_PERPETUAL"), which these labels place.
+ */
+function accountFilter(db: Db, instanceId: string, scope: AccountScope | undefined): { accountId?: string | null; accountLabels?: string | null } {
+  if (!scope) return {};
+  const labels = new Set(scope.labels);
+  if (scope.identity != null) {
+    for (const r of db.prepare("SELECT DISTINCT broker FROM deals WHERE instance_id=? AND account_id=?").all(instanceId, scope.identity) as Array<{ broker: string }>) {
+      labels.add(r.broker);
+    }
+  }
+  return { accountId: scope.identity, accountLabels: JSON.stringify([...labels]) };
 }
 
 export interface AccountClose extends Omit<DealClosedTrade, "entryPrice" | "exitPrice" | "holdMs"> {
@@ -40,8 +64,11 @@ export interface AccountClose extends Omit<DealClosedTrade, "entryPrice" | "exit
 export function accountCloses(db: Db, f: AccountFilter): AccountClose[] {
   if (f.closedPositionsOnly && f.to == null) throw new Error("closedPositionsOnly needs a `to` cutoff");
   const ids = f.strategyIds ? JSON.stringify([...f.strategyIds]) : null;
-  const deals = closedTradeRows(db, { instanceId: f.instanceId, to: f.to, closedPositionsOnly: f.closedPositionsOnly, strategyIds: ids });
-  const dealBacked = new Set(deals.map((d) => d.strategyId));
+  const account = accountFilter(db, f.instanceId, f.account);
+  const deals = closedTradeRows(db, { instanceId: f.instanceId, to: f.to, closedPositionsOnly: f.closedPositionsOnly, strategyIds: ids, ...account });
+  // A strategy with deals on any account never counts its engine closes, whichever account is read.
+  const dealBacked = new Set(account.accountLabels == null ? deals.map((d) => d.strategyId)
+    : (db.prepare("SELECT DISTINCT strategy_id s FROM closed_trades WHERE instance_id=?").all(f.instanceId) as Array<{ s: string | null }>).map((r) => r.s));
 
   const out: AccountClose[] = deals.map((d) => {
     const row = { ...d, instrument: instrumentOf(d.symbol) };
@@ -53,10 +80,11 @@ export function accountCloses(db: Db, f: AccountFilter): AccountClose[] {
     const lc = ["instance_id=@instanceId"];
     if (f.to != null) lc.push("ts<=@to");
     if (ids != null) lc.push("strategy_id IN (SELECT value FROM json_each(@ids))");
+    if (account.accountLabels != null) lc.push("substr(symbol, 1, instr(symbol, ':') - 1) IN (SELECT value FROM json_each(@accountLabels))");
     const ledger = db.prepare(
       `SELECT ts, symbol, side, qty, price, realized, entry_ts entryTs, order_id orderId, strategy_id strategyId
        FROM trade_closes WHERE ${lc.join(" AND ")} ORDER BY ts ASC`,
-    ).all({ instanceId: f.instanceId, to: f.to, ids }) as Array<{
+    ).all({ instanceId: f.instanceId, to: f.to, ids, ...accountBinds(account) }) as Array<{
       ts: number; symbol: string; side: string; qty: number; price: number; realized: number;
       entryTs: number | null; orderId: string | null; strategyId: string | null;
     }>;
@@ -154,7 +182,8 @@ export function accountSummary(db: Db, f: AccountFilter): AccountSummary {
   // Venue adjustments (a stock CFD's dividend, a charge) are the account's money but no close: in the net, its day
   // and its strategy's and instrument's buckets, never in a trade count or a win.
   const ids = f.strategyIds ? JSON.stringify([...f.strategyIds]) : null;
-  for (const a of adjustmentRows(db, { instanceId: f.instanceId, from: f.from, to: f.to, closedPositionsOnly: f.closedPositionsOnly, strategyIds: ids })) {
+  const account = accountFilter(db, f.instanceId, f.account);
+  for (const a of adjustmentRows(db, { instanceId: f.instanceId, from: f.from, to: f.to, closedPositionsOnly: f.closedPositionsOnly, strategyIds: ids, ...account })) {
     totalNet = addMoney(totalNet, a.realized, digits);
     const day = new Date(a.ts).toISOString().slice(0, 10);
     const d = byDay.get(day) ?? { day, net: 0, trades: 0 };
@@ -190,12 +219,14 @@ function accountCosts(db: Db, f: AccountFilter): AccountCosts | null {
   if (f.closedPositionsOnly) cl.push(fullyClosedPosition("d"));
   const ids = f.strategyIds ? JSON.stringify([...f.strategyIds]) : null;
   if (ids != null) cl.push("d.strategy_id IN (SELECT value FROM json_each(@ids))");
+  const account = accountFilter(db, f.instanceId, f.account);
+  if (account.accountLabels != null) cl.push(dealOnAccount("d"));
   const row = db.prepare(
     `SELECT COUNT(*) n, SUM(CASE WHEN d.entry IN ${OUT_LEGS} THEN 1 ELSE 0 END) outs,
             COALESCE(SUM(d.profit),0) grossProfit, COALESCE(SUM(d.commission),0) commission,
             COALESCE(SUM(${SWAP_ONLY("d")}),0) swap, COALESCE(SUM(d.funding),0) funding, COALESCE(SUM(d.fee),0) fee
      FROM deals d WHERE ${cl.join(" AND ")}`,
-  ).get({ instanceId: f.instanceId, from: f.from, to: f.to, ids }) as {
+  ).get({ instanceId: f.instanceId, from: f.from, to: f.to, ids, ...accountBinds(account) }) as {
     n: number; outs: number | null; grossProfit: number; commission: number; swap: number; funding: number; fee: number;
   };
   if (!row.outs) return null;

@@ -231,8 +231,47 @@ export interface ReconciliationView {
   ignored: { ranges: string[]; deals: number; net: number };
   accounts: AccountReconciliation[];
 }
+/** Why a version of a strategy's code shows its text or does not (store strategySources.ts). */
+export type SourceTextState = "stored" | "not-received" | "not-sent";
+
+/** One version of a strategy's code: its sha256 names it; the text is fetched on its own. */
+export interface StrategySourceVersion {
+  sha256: string;
+  path: string | null;
+  dslVersion: number | null;
+  firstSeen: number;
+  lastSeen: number;
+  starts: number;
+  truncated: boolean | null;
+  bytes: number | null;
+  text: SourceTextState;
+}
+
+export interface StrategySourceView {
+  running: string | null;
+  versions: StrategySourceVersion[];
+}
+
+export interface StrategySourceText {
+  sha256: string;
+  text: string;
+  truncated: boolean;
+}
+
+/** One symbol a strategy traded, as its newest deal there states it (store queries.ts StrategyInstrument). */
+export interface StrategyInstrument {
+  symbol: string;
+  broker: string;
+  kind: string;
+  category: string | null;
+  contractSize: number | null;
+  unit: string | null;
+}
+
 export interface StrategyRow {
   strategyId: string;
+  /** What the strategy traded, by venue symbol; absent on shared links. */
+  instruments?: StrategyInstrument[];
   firstSeen: number;
   lastSeen: number;
   startingBalance: number | null;
@@ -465,6 +504,10 @@ export interface LiveAccount {
   accountId?: string;
   connector?: string;
   adapter?: string;
+  /** The account's environment as the venue states it: `demo`, `real`, `contest`. */
+  tradeMode?: string;
+  /** Every broker profile that reported this account; several when one venue account sits behind many profiles. */
+  profiles?: string[];
   lastSeen: number;
   stale: boolean;
 }
@@ -490,6 +533,8 @@ export interface LivePositionRow {
   /** What one unit of `qty` is: lots, shares, coins, contracts, or a unit qkt names. */
   unit?: string;
   contractSize?: number;
+  /** The venue's folder for the instrument (`Stocks` for an MT5 stock CFD), when stated. */
+  category?: string;
 }
 export interface LivePendingOrderRow {
   ticket: string;

@@ -1,22 +1,36 @@
-import { maskLogin } from "../accounts";
+import { accountKey, accountTab, groupAccounts, maskLogin, type AccountGroup } from "../accounts";
 import { chartColors } from "../components/EChart";
 import { useState } from "react";
-import { usePublicPageView } from "../view";
+import { usePublicPageView, useView } from "../view";
 import { useSearchParam } from "../router";
 import { useQueries, useQuery } from "@tanstack/react-query";
-import { get, type AccountEquityPoint, type DrawdownPeriod, type EquityPoint, type PerformanceBundle, type StrategyRow } from "../api";
+import { get, type AccountEquityPoint, type AccountSummary, type DrawdownPeriod, type EquityPoint, type PerformanceBundle, type StrategyRow } from "../api";
+import { AccountTabs, useAccountChoice } from "../components/AccountSwitch";
 import { ComparisonChart, EquityChart, UnderwaterChart, type ComparisonSeries } from "../components/EquityChart";
 import { DataList, Card, Cell, Empty, Field, Loadable, Modal, PageHeader, Panel, Pill, Select } from "../components/ui";
 import { days, duration, fixed, human, pctValue, signedMoney, signedPct, tsDay } from "../format";
+import { useLiveState } from "../useLiveState";
 
 const PALETTE = chartColors.series;
 
 export default function Equity({ instanceId }: { instanceId: string | null }) {
   usePublicPageView("equity");
+  const view = useView();
+  const liveState = useLiveState();
+  const choice = useAccountChoice(groupAccounts((liveState.data?.accounts ?? []).filter((a) => a.instanceId === instanceId)), view.public);
+  const scoped = choice.many && choice.chosen ? choice.chosen : null;
   const strategies = useQuery({
     queryKey: ["strategies", instanceId],
     queryFn: () => get<StrategyRow[]>(`/strategies?instance=${encodeURIComponent(instanceId!)}`),
     enabled: !!instanceId,
+  });
+  // an account's tab compares the strategies that closed on it: the same roll-up Home reads for that tab
+  const accountParam = scoped ? `&account=${encodeURIComponent(accountKey(scoped.account))}` : "";
+  const scopedSummary = useQuery({
+    queryKey: ["accountSummary", instanceId, accountParam],
+    queryFn: () => get<AccountSummary>(`/account/summary?instance=${encodeURIComponent(instanceId!)}${accountParam}`),
+    enabled: !!instanceId && !!scoped,
+    refetchInterval: 60_000,
   });
 
   // Broker account curve, 1-minute rollup — refetch matches the flush cadence.
@@ -27,7 +41,8 @@ export default function Equity({ instanceId }: { instanceId: string | null }) {
     refetchInterval: 60000,
   });
 
-  const ids = (strategies.data ?? []).map((s) => s.strategyId);
+  const traded = scoped ? new Set((scopedSummary.data?.byStrategy ?? []).map((b) => b.key)) : null;
+  const ids = (strategies.data ?? []).map((s) => s.strategyId).filter((id) => !traded || traded.has(id));
   const curves = useQueries({
     queries: ids.map((id) => ({
       queryKey: ["equity", instanceId, id],
@@ -39,7 +54,7 @@ export default function Equity({ instanceId }: { instanceId: string | null }) {
 
   const [ddStrategy, setDdStrategy] = useSearchParam("strategy");
   const [openDd, setOpenDd] = useState<DrawdownPeriod | null>(null);
-  const focusId = ddStrategy || ids[0] || "";
+  const focusId = ids.includes(ddStrategy) ? ddStrategy : ids[0] || "";
   const focusIdx = ids.indexOf(focusId);
   const focusCurve = focusIdx >= 0 ? (curves[focusIdx]?.data ?? []) : [];
 
@@ -58,14 +73,14 @@ export default function Equity({ instanceId }: { instanceId: string | null }) {
       const pts = curves[i]?.data ?? [];
       const base = pts[0]?.equity;
       return {
-        strategyId: id,
+        name: id,
         color: PALETTE[i % PALETTE.length]!,
         points: base ? pts.map((p) => ({ ts: p.ts, pct: (p.equity / base - 1) * 100 })) : [],
       };
     })
     .filter((s) => s.points.length > 0);
 
-  // One chart per venue account: the server stitches the labels one account reported under
+  // One curve per venue account: the server stitches the labels one account reported under
   // (by account id, else labels that take turns). EquityChart wants EquityPoint; realized/unrealized
   // are unused by the chart.
   const accountByBrokerMinute = new Map<string, Map<number, EquityPoint>>();
@@ -85,6 +100,18 @@ export default function Equity({ instanceId }: { instanceId: string | null }) {
       [...byMinute.values()].sort((a, b) => a.ts - b.ts),
     ]),
   );
+  // the curve of a live account: by its key, else by a label folded into it
+  const curveKeyOf = (g: AccountGroup) => [...accountByBroker.keys()].find((k) => k === accountKey(g.account) || g.labels.includes(k) || g.labels.includes(accountLabel.get(k) ?? ""));
+  const nameOf = (key: string) => {
+    const g = choice.accounts.find((a) => curveKeyOf(a) === key);
+    return g ? accountTab(g.account, view.public).name : accountHeading(key, accountLabel.get(key) ?? key);
+  };
+  const shownCurve = scoped ? curveKeyOf(scoped) : null;
+  const accountSeries: ComparisonSeries[] = [...accountByBroker.entries()].map(([key, pts], i) => ({
+    name: nameOf(key),
+    color: PALETTE[i % PALETTE.length]!,
+    points: pts.length > 0 ? pts.map((p) => ({ ts: p.ts, pct: (p.equity / pts[0]!.equity - 1) * 100 })) : [],
+  }));
 
   const periods = performance.data?.drawdownPeriods ?? [];
   const ddSelect = (
@@ -103,27 +130,38 @@ export default function Equity({ instanceId }: { instanceId: string | null }) {
         title="Equity & risk"
         sub={`Broker account equity for ${instanceId}; per-strategy equity below, normalized to % change so different capital sizes compare fairly.`}
       />
-      <Panel className="mt-5" title="Account equity" hint="broker-reported, sampled from the 1-minute rollup">
+      {choice.many && <div className="mt-4"><AccountTabs choice={choice} isPublic={view.public} /></div>}
+      <Panel
+        className="mt-5"
+        title="Account equity"
+        hint={choice.many && !scoped
+          ? "% change from each account's first point, each in its own currency · broker-reported, 1-minute rollup"
+          : "broker-reported, sampled from the 1-minute rollup"}
+      >
         <Loadable loading={account.isPending} error={account.isError} retry={() => account.refetch()} what="the account curve" lines={4}>
           {accountByBroker.size === 0 ? (
             <Empty>No account history yet — waiting for the broker state poller.</Empty>
+          ) : scoped ? (
+            shownCurve ? <div className="p-4"><EquityChart points={accountByBroker.get(shownCurve)!} height={320} /></div>
+              : <Empty>No equity history for {accountTab(scoped.account, view.public).name} yet: it arrives with the account's first minute rollup.</Empty>
+          ) : accountByBroker.size > 1 ? (
+            <div className="p-4">
+              <ComparisonChart series={accountSeries} height={320} label="Account equity, percent change from each account's first point" />
+            </div>
           ) : (
-            [...accountByBroker.entries()].map(([broker, pts]) => (
-              <div key={broker} className="p-4">
-                {accountByBroker.size > 1 && (
-                  <div className="mb-2 text-[11px] font-semibold uppercase tracking-[0.06em] text-muted">{accountHeading(broker, accountLabel.get(broker) ?? broker)}</div>
-                )}
-                <EquityChart points={pts} height={320} />
-              </div>
-            ))
+            [...accountByBroker.values()].map((pts, i) => <div key={i} className="p-4"><EquityChart points={pts} height={320} /></div>)
           )}
         </Loadable>
       </Panel>
 
-      <Panel className="mt-5" title="Strategy equity" hint="broker deals when available, % change from first point">
+      <Panel
+        className="mt-5"
+        title="Strategy equity"
+        hint={`${scoped ? `strategies that traded on ${accountTab(scoped.account, view.public).name} · ` : ""}broker deals when available, % change from first point`}
+      >
         <Loadable
-          loading={strategies.isPending || curves.some((c) => c.isPending)}
-          error={strategies.isError || curves.some((c) => c.isError)}
+          loading={strategies.isPending || (!!scoped && scopedSummary.isPending) || curves.some((c) => c.isPending)}
+          error={strategies.isError || scopedSummary.isError || curves.some((c) => c.isError)}
           retry={() => {
             void strategies.refetch();
             curves.forEach((c) => void c.refetch());

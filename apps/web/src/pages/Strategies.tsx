@@ -1,4 +1,4 @@
-import { accountName, realAccounts } from "../accounts";
+import { accountTitle, realAccounts } from "../accounts";
 import { useQuery } from "@tanstack/react-query";
 import { get, type AccountRiskRow, type AccountSummary, type StrategyRow } from "../api";
 import { useMemo, useState } from "react";
@@ -10,6 +10,7 @@ import { emptyPeriods, floatingByStrategy, riskRowFor, strategyLines, strategyPe
 import { routePath, useRoute, useSearchParam } from "../router";
 import { asksForRetired, matchesStrategy } from "../strategyFilter";
 import { CARD_SORTS, cardGroups, isFolded, mergeCurves, realizedCurves, sortCards, type CardSort } from "../strategyCards";
+import { strategyLegs } from "../instruments";
 import { useLiveState } from "../useLiveState";
 import { portfolioGroupId, strategyCapital, strategyDisplayName as displayName, summarizePortfolio } from "../portfolio";
 import { ShareControl } from "../components/ShareControl";
@@ -140,7 +141,7 @@ export default function Strategies({ instanceId }: { instanceId: string | null }
         {rows.length === 0 && lines.length === 0 ? (
           <Card className="p-8 text-center text-muted">No strategies yet: they appear with the first strategy.started from qkt.</Card>
         ) : (
-          <StrategyCardList lines={lines} closes={closes} now={now} />
+          <StrategyCardList lines={lines} closes={closes} now={now} instanceId={instanceId} />
         )}
       </Loadable>
     </div>
@@ -148,7 +149,8 @@ export default function Strategies({ instanceId }: { instanceId: string | null }
 }
 
 /** Portfolios first (each with its sleeves beneath), then standalone strategies, filtered by the search and in the chosen order. */
-function StrategyCardList({ lines, closes, now }: { lines: StrategyLine[]; closes: AccountSummary["closes"]; now: number }) {
+function StrategyCardList({ lines, closes, now, instanceId }: { lines: StrategyLine[]; closes: AccountSummary["closes"]; now: number; instanceId: string | null }) {
+  const accounts = useLiveState().data?.accounts ?? [];
   const [find] = useSearchParam("find");
   const [sortParam] = useSearchParam("sort", "net");
   const [showAll, setShowAll] = useState(false);
@@ -164,7 +166,8 @@ function StrategyCardList({ lines, closes, now }: { lines: StrategyLine[]; close
     sort,
   ).map((p) => p.group);
   const card = (l: StrategyLine, name?: string) => (
-    <StrategyCard key={l.key ?? "(unattributed)"} line={l} curve={curves.get(l.key) ?? []} name={name} origin="Strategies" />
+    <StrategyCard key={l.key ?? "(unattributed)"} line={l} curve={curves.get(l.key) ?? []} name={name} origin="Strategies"
+      legs={strategyLegs(l.row, accounts, instanceId ?? undefined)} />
   );
 
   return (
@@ -280,7 +283,7 @@ function PortfolioDetail({
           value={money(account?.equity)}
           sub={
             account
-              ? `${accountName(account)} · shared account`
+              ? `${accountTitle(account, view.public)} · shared account`
               : accounts.length > 1
                 ? "multiple broker accounts"
                 : "account state unavailable"

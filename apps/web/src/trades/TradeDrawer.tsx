@@ -1,6 +1,8 @@
 import { useEffect, useRef, useState, type ReactNode } from "react";
 import { createPortal } from "react-dom";
-import { DASH, duration, kindLabel, money, pnl, quantity, signedMoney, sized, toneClass, ts } from "../format";
+import { DASH, duration, money, pnl, quantity, signedMoney, toneClass, ts } from "../format";
+import { CostTerm, TypeBadge } from "../components/InstrumentType";
+import { instrumentType, sizeInWords, type CostKind } from "../instruments";
 import { PAGE_PATHS, useSearchParam } from "../router";
 import { usePositionPath, useTripDetail, type RoundTripDetail, type Slippage, type TimelineStep } from "./data";
 import { latency, legCosts, preciseClock, px, rMultiple, tripInstrument } from "./format";
@@ -140,7 +142,20 @@ function Legs({ legs, digits }: { legs: RoundTripDetail["legs"]; digits: number 
           })}
         </tbody>
       </table>
+      <CostKinds legs={legs} />
     </div>
+  );
+}
+
+/** The cost kinds these deals booked, each explained on hover or tap. */
+function CostKinds({ legs }: { legs: RoundTripDetail["legs"] }) {
+  const booked = (["commission", "swap", "funding", "fee"] as const).filter((k) => legs.some((l) => (l[k] ?? 0) !== 0));
+  if (booked.length === 0) return null;
+  return (
+    <p className="mt-2 flex flex-wrap items-center gap-x-2 gap-y-1 px-1 text-[11px] text-muted">
+      Costs here:
+      {booked.map((k: CostKind, i) => <span key={k}><CostTerm kind={k} />{i < booked.length - 1 ? "," : ""}</span>)}
+    </p>
   );
 }
 
@@ -181,7 +196,7 @@ function Body({ d, instanceId }: { d: RoundTripDetail; instanceId: string | null
       <div className="grid grid-cols-2 gap-x-4 gap-y-3 border-t border-line px-5 py-4 sm:grid-cols-3">
         <Stat label="Entry (UTC)">{t.entryTs != null ? ts(t.entryTs) : DASH}</Stat>
         <Stat label="Entry price">{px(t.entryPrice, t.priceDigits)}</Stat>
-        <Stat label={kindLabel(t.kind) ? `Size · ${kindLabel(t.kind)}` : "Size"}>{sized(t.qty, t.unit, t.contractSize)}</Stat>
+        <Stat label="Size">{sizeInWords(t.qty, t)}</Stat>
         <Stat label="Exit (UTC)">{t.exitTs != null ? ts(t.exitTs) : t.status === "open" ? "still open" : DASH}</Stat>
         <Stat label="Exit price">{px(t.exitPrice, t.priceDigits)}</Stat>
         <Stat label="Held">{t.status === "open" ? DASH : duration(t.holdMs)}</Stat>
@@ -307,6 +322,7 @@ export function TradeDrawer({ instanceId, order = [] }: { instanceId: string | n
             <>
               <div className="mt-2 flex flex-wrap items-center gap-x-3 gap-y-1">
                 <h2 className="text-xl font-headline text-bright">{tripInstrument(t)}</h2>
+                <TypeBadge type={instrumentType(t.kind, t.category)} explain />
                 <SideText side={t.side} />
                 <EndedBadge ended={t.ended} open={t.status === "open"} />
                 <span className="text-sm text-muted">{t.strategyId ?? "unattributed"}</span>

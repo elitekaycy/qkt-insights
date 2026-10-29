@@ -10,6 +10,7 @@
   sortable, exported as CSV, each one opening a drawer with its timeline from signal to close.
 - **Logs** — engine logs shipped from qkt, searched with the same query bar (`level:`, `strategy:`, `logger:`, `time:`,
   free text), and a live tail.
+- **Home** — where each venue account stands now; several accounts get a one-line switcher (All accounts as one table, then one tab per account, held in the URL's `account`), shared with Equity & risk.
 - **Equity** — all strategies on one normalized comparison chart; drawdown periods shaded on the focused curve.
 - **Edge** — when a strategy makes money: day-of-week × hour P&L heatmap (UTC), weekday/hour bars with per-bucket n and ±SE, rolling Sharpe/win-rate stability, strategy-comparison radar. Buckets under 30 trades render greyed — thin slices are noise, and the UI says so.
 - **Single-admin auth** — username + password from env, hashed with argon2 at startup, signed httpOnly session cookie; ingest guarded by a bearer token.
@@ -104,7 +105,7 @@ its way out, what to send instead (`deprecated`). A type without an entry fails 
 
 ```json
 {
-  "contractVersion": "1.1.0",
+  "contractVersion": "1.4.0",
   "majors": [1],
   "types": [{ "type": "balances.updated", "since": "1.0.0" }, "..."],
   "maxBatch": null,
@@ -143,7 +144,10 @@ counts each inference and logs its first use and every thousandth: `venue fact i
 
 | stated fact | where | used for | inferred when absent from |
 |---|---|---|---|
-| `venue{connector,adapter,label}`, `accountId` | every venue envelope | one account per `accountId`, shown under `venue.label` | `login` + `server` (hashed to the opaque `mt5:` id), the label without its `_S<n>` profile suffix |
+| `venue{connector,adapter,label}`, `accountId` | every venue envelope | one account per `accountId`, its card titled by the venue, `venue.tradeMode` and the masked login (web `accounts.ts` `accountTitle`), with every label that reported it counted as its profiles | `login` + `server` (hashed to the opaque `mt5:` id), the label without its `_S<n>` profile suffix |
+| `instrument.category` (1.4.0) | deals, positions, `strategy.started` streams | the type badge, with a stock CFD apart from an FX or metal CFD (`kind: cfd, category: Stocks`); `type:` in the query language; kept as `deals.instrument_category` | no stock CFD: a CFD reads as a CFD |
+| `instrument.root`, `expiry`, `strike`, `optionRight`, `underlying` (1.4.0) | deals, positions, `strategy.started` streams | a strategy's legs in words: "Option · BTC 70000 call, 29 Nov · Deribit" | the venue symbol |
+| `venue.tradeMode` (1.3.0) | every venue envelope | the account's environment in its title: `demo`, `real`, `contest` | not shown |
 | `strategyId` + `attribution` | deals, positions, orders, fills | the strategy of a deal | a `dsl-<strategy>` deal comment |
 | `positionId`, `legEntry`, `nextPositionId` | deals, fills, `trade.closed` | round-trip identity and leg | `positionTicket`, `entry`; the entry order by its broker ticket |
 | `closeReason` | closing deals, fills, `trade.closed` | `ended`: STOP stop, TAKE_PROFIT tp, STOP_OUT/LIQUIDATION/EXPIRY venue, MANUAL manual, SIGNAL/TIMED signal | `[sl` / `[tp` / `[so` deal comments, then `qkt bot close` and close orders near the exit |
@@ -189,6 +193,19 @@ An engine close (`trade.closed`) is a round trip of its own only while neither i
 symbol's `LABEL:` prefix) has stored a venue deal, so an instance that trades an MT5 account and a venue that sends
 no deals shows both.
 
+### Strategy code
+
+`strategy.started` carries the strategy file's text (`sourceText`, 1.2.0) beside `sourcePath` and `sourceSha256`.
+qkt cuts it to 64 KiB (`sourceTruncated`; the sha covers the whole file) and sends it once per qkt process,
+strategy and sha: a later start at that sha says `sourceTextOmitted: true` instead. The collector keeps each
+`(instance, strategy, sha)` once in `strategy_sources` (`packages/store/src/strategySources.ts`): the text the first
+time it arrives, the first and last start, and a count of starts, so a restart over unchanged code moves only
+`last_seen`. The text is never written to `events`, `strategies.metadata` or the live bus, and no `/public` route
+reads the table. A version with no text says why: qkt sent none (`not-sent`, a qkt before 1.2.0's fields), or it
+left the text out after sending it at an earlier start this collector does not hold (`not-received`, e.g. after a
+database reset; the next qkt restart sends it again). `GET /strategy-source` lists the versions without text and
+`GET /strategy-source/text?sha=` answers one, both behind the session.
+
 ## Reads
 
 Every JSON and static response is compressed (brotli, else gzip) when the client accepts it. The heavier reads
@@ -196,7 +213,9 @@ Every JSON and static response is compressed (brotli, else gzip) when the client
 a weak `ETag` derived from a version of the rows they read, with `Cache-Control: private, no-cache`; a browser
 revalidates with `If-None-Match` and gets `304` with no body until those rows change. `/account/equity` returns at
 most 2,000 points by default (the last stored minute of each time bucket), `?points=N` up to 20,000, and
-`?resolution=full` for every minute.
+`?resolution=full` for every minute. `/account/summary?account=` (an account id or broker label) keeps one venue
+account's closes when the instance reports several (404 for an account it does not know), and `/account/risk` counts
+each account's own closes in its realized today.
 
 ### Round trips and the query language
 

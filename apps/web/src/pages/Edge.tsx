@@ -7,6 +7,7 @@ import {
   Empty, Loadable, PageHeader, Panel, RangeSelect, rangeStart, Select, useRangeParam,
 } from "../components/ui";
 import { useSearchParam } from "../router";
+import { edgeDefault } from "../strategyFilter";
 
 /*
  * The Edge page: WHEN is this account good — day-of-week × hour heatmap,
@@ -27,7 +28,8 @@ export function Edge({ instanceId }: { instanceId: string | null }) {
   });
   const list = strategies.data ?? [];
   const [chosen, setChosen] = useSearchParam("strategy");
-  const strategyId = chosen || list[0]?.strategyId || "";
+  const strategyId = chosen || edgeDefault(list) || "";
+  const chosenRow = list.find((s) => s.strategyId === strategyId);
   const [range, setRange] = useRangeParam();
   const [window, setWindow] = useState<(typeof WINDOWS)[number]>(30);
 
@@ -55,7 +57,7 @@ export function Edge({ instanceId }: { instanceId: string | null }) {
   const toolbar = (
     <div className="flex flex-wrap items-center gap-2">
       <Select value={strategyId} onChange={(e) => setChosen(e.target.value)}>
-        {list.map((s) => <option key={s.strategyId} value={s.strategyId}>{s.strategyId}</option>)}
+        {list.map((s) => <option key={s.strategyId} value={s.strategyId}>{s.dealCount > 0 ? s.strategyId : `${s.strategyId} · no closed trades`}</option>)}
       </Select>
       <RangeSelect value={range} onChange={setRange} />
     </div>
@@ -83,7 +85,9 @@ export function Edge({ instanceId }: { instanceId: string | null }) {
                 <div className="min-w-0 sm:min-w-[860px]"><DowHourHeatmap cells={cells} /></div>
               </div>
             )
-            : <Empty>No closed trades in this range — the heatmap needs exact per-trade data (broker deals or trade.closed).</Empty>}
+            : <Empty>{chosenRow && chosenRow.dealCount === 0
+              ? `${strategyId} has no closed trades yet${list.some((s) => s.dealCount > 0) ? ": pick a strategy that has closed trades in the list above." : "."}`
+              : "No closed trades in this range — the heatmap needs exact per-trade data (broker deals or trade.closed)."}</Empty>}
         </Loadable>
       </Panel>
 

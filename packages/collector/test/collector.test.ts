@@ -47,6 +47,23 @@ describe("POST /ingest", () => {
     expect(seen).toHaveLength(1);
   });
 
+  it("keeps a strategy's source text for its versions table only, off the live bus", async () => {
+    const seen: Envelope[] = [];
+    bus.subscribe((e) => seen.push(e));
+    const res = await app.inject({
+      method: "POST", url: "/ingest",
+      headers: { authorization: "Bearer secret" },
+      payload: { instanceId: "qkt-prod", events: [
+        env({ strategyId: "gold", type: "strategy.started", payload: { strategyId: "gold", sourceSha256: "aa", sourceText: "STRATEGY gold VERSION 1", sourceTruncated: false } }),
+      ] },
+    });
+    expect(res.statusCode).toBe(200);
+    expect(seen).toHaveLength(1);
+    expect(seen[0]!.payload).toMatchObject({ sourceSha256: "aa", sourceTruncated: false });
+    expect(seen[0]!.payload).not.toHaveProperty("sourceText");
+    expect(db.prepare("SELECT text FROM strategy_sources").get()).toEqual({ text: "STRATEGY gold VERSION 1" });
+  });
+
   it("accepts the marketdata.stale lifecycle event emitted by qkt", async () => {
     const res = await app.inject({
       method: "POST", url: "/ingest",

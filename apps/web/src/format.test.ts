@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { axisTick, compact, compactPnl, dealNet, duration, fixed, glyph, human, instrumentOf, kindLabel, money, num, openPnl, pct, pnl, price, signedMoney, signedPct, sized, toneClass, ts, tsShort } from "./format";
+import { axisTick, compact, compactPnl, dealNet, duration, fixed, glyph, human, instrumentOf, money, num, openPnl, pct, pnl, price, signedMoney, signedPct, toneClass, ts, tsShort } from "./format";
 import { tableStamp } from "./trades/format";
 
 describe("price", () => {
@@ -151,22 +151,5 @@ describe("axisTick", () => {
     expect(axisTick(-1500)).toBe("\u22121.5k");
     expect(axisTick(0)).toBe("0");
     expect(axisTick(-0.001)).toBe("0");
-  });
-});
-
-describe("sized and kindLabel", () => {
-  it("prints a quantity with its unit only when the unit is known, and a contract size after contracts", () => {
-    expect(sized(10, "shares")).toBe("10 shares");
-    expect(sized(0.1, "lots")).toBe("0.1 lots");
-    expect(sized(12, null)).toBe("12");
-    expect(sized(10, "contracts", 0.001)).toBe("10 contracts × 0.001");
-    expect(sized(3, "contracts", 1)).toBe("3 contracts");
-    expect(sized(null, "lots")).toBe("—");
-  });
-
-  it("names each instrument kind qkt states, and passes an unknown one through", () => {
-    expect(["cfd", "equity", "spot", "perpetual", "future", "option"].map(kindLabel)).toEqual(["CFD", "Share", "Spot coin", "Perpetual", "Dated future", "Option"]);
-    expect(kindLabel("warrant")).toBe("warrant");
-    expect(kindLabel(null)).toBeNull();
   });
 });

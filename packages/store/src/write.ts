@@ -9,6 +9,7 @@ import { isLiveStateType, type Envelope, type QuarantinedEnvelope } from "@qkt-i
 import { strategyFromDealComment, withoutAccountCredentials } from "./inferredVenueFacts.js";
 import { strategyFromOrderComment } from "./retiredStrategies.js";
 import { isIgnoredMagic, recordIgnoredDeal } from "./ignoredMagics.js";
+import { recordStrategySource, withoutSourceText } from "./strategySources.js";
 
 /** A flat position still records one valuation this often so its holding period is visible. */
 /** A flat position is still re-marked this often, so a stored mark proves it was held. */
@@ -272,8 +273,8 @@ export function ingestEnvelopes(db: Db, instanceId: string, events: Envelope[], 
        (id, instance_id, broker, deal_ticket, position_ticket, order_ticket, symbol, side, entry,
         qty, price, profit, commission, swap, fee, magic, comment, strategy_id, ts,
         account_id, close_reason, realized_source, attribution, next_position_ticket, tick_size, value_per_point,
-        instrument_kind, contract_size, quantity_unit, funding)
-     VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)`,
+        instrument_kind, contract_size, quantity_unit, funding, instrument_category)
+     VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)`,
   );
 
   const tx = db.transaction((evs: Envelope[]): IngestOutcome => {
@@ -334,7 +335,7 @@ export function ingestEnvelopes(db: Db, instanceId: string, events: Envelope[], 
           p.accountId ?? null, p.closeReason ?? null, p.realizedSource ?? null, p.attribution ?? null, p.nextPositionId ?? null,
           p.instrument?.tickSize ?? null, p.instrument?.valuePerPoint ?? null,
           p.instrument?.kind?.toLowerCase() ?? null, p.instrument?.contractSize ?? null, p.instrument?.quantityUnit ?? null,
-          costs.funding);
+          costs.funding, p.instrument?.category ?? null);
         if (info.changes === 0) {
           duplicate();
           // Re-ingested deal (the 30d backfill re-runs on every restart). If it
@@ -389,7 +390,9 @@ export function ingestEnvelopes(db: Db, instanceId: string, events: Envelope[], 
         upInstance.run({ id: instanceId, ts: e.ts, seq: e.seq , heardAt });
         continue;
       }
-      const info = insEvent.run(e.id, instanceId, e.type, e.strategyId ?? null, e.seq, e.ts, JSON.stringify(e.payload));
+      // A strategy's source text is kept in strategy_sources only (strategySources.ts).
+      const storedPayload = withoutSourceText(e).payload;
+      const info = insEvent.run(e.id, instanceId, e.type, e.strategyId ?? null, e.seq, e.ts, JSON.stringify(storedPayload));
       if (info.changes === 0) {
         duplicate();
         continue; // duplicate id, skip the rest of the fold
@@ -405,7 +408,8 @@ export function ingestEnvelopes(db: Db, instanceId: string, events: Envelope[], 
       if (e.type === "strategy.started") {
         const strategyId = (e.payload as any).strategyId ?? e.strategyId;
         if (strategyId) {
-          upStrategyMetadata.run({ i: instanceId, s: strategyId, ts: e.ts, metadata: JSON.stringify(e.payload) });
+          upStrategyMetadata.run({ i: instanceId, s: strategyId, ts: e.ts, metadata: JSON.stringify(storedPayload) });
+          recordStrategySource(db, instanceId, strategyId, e);
           // The deploy provenance carries the configured starting balance; anchor the
           // equity curve from it when no snapshot.equity has set one yet.
           const sb = startingBalanceOf(e.payload);

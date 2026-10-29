@@ -3,6 +3,8 @@ import { age, count, DASH, money, pct, ts } from "../format";
 import { haltSummary } from "../halt";
 import { Link } from "../router";
 import { cardFigures, cardName, sparkPath, thinCurve, type CardLine, type PortfolioCard } from "../strategyCards";
+import type { Leg } from "../instruments";
+import { LegList } from "./InstrumentType";
 import { Pnl, Popover, ReturnPct } from "./ui";
 
 /*
@@ -97,7 +99,11 @@ function HaltLabel({ summary }: { summary: string }) {
   );
 }
 
-export function StrategyCard({ line, curve, name, origin }: { line: CardLine; curve: readonly number[]; name?: string; origin: string }) {
+export function StrategyCard({ line, curve, name, origin, legs = [] }: {
+  line: CardLine; curve: readonly number[]; name?: string; origin: string;
+  /** What it trades: type, instrument and venue per leg. */
+  legs?: readonly Leg[];
+}) {
   const f = cardFigures(line);
   const label = name ?? cardName(line);
   const halt = line.row ? haltSummary(line.row) : null;
@@ -117,6 +123,7 @@ export function StrategyCard({ line, curve, name, origin }: { line: CardLine; cu
             {to && <CardArrow />}
           </span>
         </div>
+        {legs.length > 0 && <LegList legs={legs} max={2} explain={false} className="-mt-1.5" />}
         <div className={`flex items-end justify-between gap-3 ${quiet ? "opacity-60 grayscale" : ""}`}>
           <div className="min-w-0">
             <Pnl value={f.net} className="block text-xl font-headline tabular-nums" />

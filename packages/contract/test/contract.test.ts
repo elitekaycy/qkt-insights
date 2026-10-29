@@ -304,4 +304,34 @@ describe("enriched qkt payloads", () => {
     } });
     expect(r.success && r.data.type === "broker.deal" && r.data.payload.instrument).toMatchObject({ kind: "perpetual", contractSize: 0.001, quantityUnit: "contracts" });
   });
+
+  it("reads a strategy.started source text, its cut and its omission on a repeat start", () => {
+    const started = (extra: Record<string, unknown>) => EnvelopeSchema.safeParse({ ...base, strategyId: "gold", type: "strategy.started",
+      payload: { strategyId: "gold", sourcePath: "/srv/qkt/gold.qkt", sourceSha256: "9f2c", ...extra } });
+    const first = started({ sourceText: "STRATEGY gold VERSION 1", sourceTruncated: false });
+    expect(first.success && first.data.type === "strategy.started" && first.data.payload).toMatchObject({ sourceText: "STRATEGY gold VERSION 1", sourceTruncated: false });
+    const repeat = started({ sourceTextOmitted: true });
+    expect(repeat.success && repeat.data.type === "strategy.started" && repeat.data.payload).toMatchObject({ sourceTextOmitted: true });
+    expect(started({ sourceText: 42 }).success).toBe(false);
+  });
+
+  it("reads the account's trade mode on the venue of a venue envelope", () => {
+    const r = EnvelopeSchema.safeParse({ ...base, type: "state.account", payload: {
+      broker: "EXNESS_O12", currency: "USD", balance: 1, equity: 1, accountId: "mt5:0123456789abcdef",
+      venue: { connector: "mt5", adapter: "exness", label: "EXNESS_O12", tradeMode: "demo" },
+    } });
+    expect(r.success && r.data.type === "state.account" && r.data.payload.venue).toMatchObject({ tradeMode: "demo" });
+  });
+
+  it("reads an instrument's venue folder and a derivative's terms", () => {
+    const r = EnvelopeSchema.safeParse({ ...base, type: "broker.deal", payload: {
+      broker: "DERIBIT", dealTicket: "d1", qty: 1, price: 0.05, profit: 0, ts: base.ts,
+      instrument: { symbol: "DERIBIT:BTC-29NOV26-70000-C", kind: "option", root: "DERIBIT:BTC_USDC", expiry: 1796025600000, strike: 70000, optionRight: "call", underlying: "btc_usdc" },
+    } });
+    expect(r.success && r.data.type === "broker.deal" && r.data.payload.instrument).toMatchObject({ strike: 70000, optionRight: "call", expiry: 1796025600000 });
+    const cfd = EnvelopeSchema.safeParse({ ...base, type: "broker.deal", payload: {
+      broker: "EXNESS", dealTicket: "d2", qty: 0.1, price: 230, profit: 0, ts: base.ts, instrument: { kind: "cfd", category: "Stocks" },
+    } });
+    expect(cfd.success && cfd.data.type === "broker.deal" && cfd.data.payload.instrument).toMatchObject({ category: "Stocks" });
+  });
 });

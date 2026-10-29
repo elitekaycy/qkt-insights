@@ -7,6 +7,7 @@ import {
 } from "./accountProjection.js";
 import { refreshProjections } from "./projections.js";
 import { statement } from "./statements.js";
+import { quantityUnitOf } from "./instrumentKind.js";
 import { searchLogs } from "./logSearch.js";
 import { closedTrades, hasClosingDeals, MIN_RATIO_DAYS, SNAPSHOT_EQUITY, SWAP_ONLY, strategyBase, strategyEquityCurve, tradePnls, withAnalyticsScope, type StrategyEquityPoint } from "./analytics.js";
 
@@ -25,7 +26,11 @@ export interface InstanceRow {
   /** The currencies its venue accounts book in (currencies.ts), A to Z; more than one means money is split by currency. */
   currencies: string[];
 }
-export interface StrategyRow { strategyId: string; firstSeen: number; lastSeen: number; startingBalance: number | null; /** Operator-declared capital (STRATEGY_CAPITAL); wins over startingBalance as the strategy's base. */ definedCapital: number | null; metadata: Record<string, unknown> | null; realizedNet: number | null; dealCount: number; active: boolean }
+export interface StrategyRow { strategyId: string; firstSeen: number; lastSeen: number; startingBalance: number | null; /** Operator-declared capital (STRATEGY_CAPITAL); wins over startingBalance as the strategy's base. */ definedCapital: number | null; metadata: Record<string, unknown> | null; realizedNet: number | null; dealCount: number; active: boolean;
+  /** What the strategy has traded, one entry per venue symbol, as its newest deal there states it; admin reads only. */
+  instruments?: StrategyInstrument[] }
+/** One symbol a strategy traded: its broker label, kind, venue folder, contract size and the unit of its quantity (instrumentKind.ts). */
+export interface StrategyInstrument { symbol: string; broker: string; kind: string; category: string | null; contractSize: number | null; unit: string | null }
 export interface TradeRow { id: string; strategyId: string | null; ts: number; payload: unknown }
 export interface SearchHit { id: string; instanceId: string; type: string; ts: number; payload: unknown }
 export interface EquityPoint { ts: number; equity: number; realized: number; unrealized: number }
@@ -63,14 +68,32 @@ export function listStrategies(db: Db, instanceId: string, now = Date.now()): Ar
   for (const t of statement(db, "SELECT strategy_id s, source, closes, net_newest_first net FROM strategy_totals WHERE instance_id=?").all(instanceId) as Array<{ s: string; source: "deal" | "ledger"; closes: number; net: number }>) {
     totals.set(t.s, { ...totals.get(t.s), [t.source]: { closes: t.closes, net: t.net } });
   }
+  const instruments = strategyInstruments(db, instanceId);
   return strategyRosterRows(db, instanceId).map((r) => {
     const t = totals.get(r.strategyId);
     const closes = t?.deal ?? t?.ledger;
     return {
       ...r, realizedNet: closes ? closes.net : null, dealCount: closes?.closes ?? 0,
-      ...strategyHalt(halts, r.strategyId),
+      ...strategyHalt(halts, r.strategyId), instruments: instruments.get(r.strategyId) ?? [],
     };
   });
+}
+
+/** Per strategy, each venue symbol it traded with the instrument facts of its newest deal there that states any. */
+function strategyInstruments(db: Db, instanceId: string): Map<string, StrategyInstrument[]> {
+  // SQLite takes the bare columns from the row holding max(ts) in each group
+  const rows = statement(db,
+    `SELECT strategy_id s, symbol, broker, instrument_kind kind, instrument_category category, contract_size contractSize, quantity_unit stated, max(ts) ts
+       FROM deals WHERE instance_id=? AND strategy_id IS NOT NULL AND symbol IS NOT NULL AND instrument_kind IS NOT NULL
+      GROUP BY strategy_id, symbol ORDER BY strategy_id, symbol`,
+  ).all(instanceId) as Array<{ s: string; symbol: string; broker: string; kind: string; category: string | null; contractSize: number | null; stated: string | null }>;
+  const out = new Map<string, StrategyInstrument[]>();
+  for (const r of rows) {
+    const list = out.get(r.s) ?? [];
+    list.push({ symbol: r.symbol, broker: r.broker, kind: r.kind, category: r.category, contractSize: r.contractSize, unit: quantityUnitOf(r.kind, r.stated) });
+    out.set(r.s, list);
+  }
+  return out;
 }
 
 /** 1 when strategy row `s` is deployed now, else 0: see strategyRosterRows. */

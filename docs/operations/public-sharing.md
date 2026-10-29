@@ -30,15 +30,17 @@ that strategy on.
 |---|---|---|
 | Overview | Overview, Equity, Strategies, Edge, Trades for public strategies; account balance, equity, drawdown | Logs, health, search, private strategies, other instances |
 | Portfolio | The portfolio page and its public children | Account balance and equity, other strategies |
-| Strategy | That strategy's page and tabs | Everything else |
+| Strategy | That strategy's page and tabs, but Code and Logs | Its code, everything else |
 
 Every figure runs `PUBLIC_DELAY_MINUTES` behind (default 15). Strategy cards and pages show
 realized and open P&L as of that delayed moment, and the overview adds how many positions
 are open. Individual positions (symbol, side, size, entry, stops) are never shown. Anyone
 who knows a strategy's symbol can still roughly infer an open position's direction from how
 its delayed open P&L moves. A position counts only once its whole volume has closed; until
-then its trades, deals and any partial close stay out of every figure. Strategy parameters, source files, broker names, account
-numbers, tickets, magic numbers and order comments are never included.
+then its trades, deals and any partial close stay out of every figure. Strategy parameters, source files and their code, broker names, account
+numbers, tickets, magic numbers and order comments are never included. Venue accounts are named
+"Account", "Account 2", ... in the order the instance first reported them, alike on every route, each in
+its own currency; `?account=Account 2` on the overview opens that account's tab.
 Engine risk halts (the halted badge, its reason and scope) are live operator state and are
 never included either.
 

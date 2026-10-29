@@ -16,8 +16,10 @@ export interface AccountState {
   login?: string; server?: string; name?: string;
   /** The opaque venue account id (`mt5:<16 hex>`, `vgp:<16 hex>`): one account however many labels report it. */
   accountId?: string;
-  /** The connector and venue behind the label, as qkt stated them. */
-  connector?: string; adapter?: string;
+  /** The connector and venue behind the label, as qkt stated them, and the account's environment (`demo`, `real`, `contest`). */
+  connector?: string; adapter?: string; tradeMode?: string;
+  /** Every broker profile that reported this account since the collector started, sorted: one venue account can sit behind many. */
+  profiles?: string[];
   lastSeen: number;
 }
 
@@ -38,13 +40,13 @@ export interface LivePosition {
   positionId?: string; attribution?: string;
   /** The entry's initial stop and target, and its money at risk to that stop in account currency, when it had a bracket. */
   initialStop?: number; initialTarget?: number; riskAmount?: number;
-  /** The instrument's kind as qkt states it, the unit of `qty` (instrumentKind.ts) and the contract size, when known. */
-  kind?: string; unit?: string; contractSize?: number;
+  /** The instrument's kind as qkt states it, the unit of `qty` (instrumentKind.ts), the contract size and the venue's folder (`Stocks`), when known. */
+  kind?: string; unit?: string; contractSize?: number; category?: string;
 }
 
 /** A position as `state.positions` reports it: the live fields, and the instrument facts they are read from. */
-type ReportedPosition = Omit<LivePosition, "kind" | "unit" | "contractSize"> & {
-  instrument?: { kind?: string | null; quantityUnit?: string | null; contractSize?: number | null } | null;
+type ReportedPosition = Omit<LivePosition, "kind" | "unit" | "contractSize" | "category"> & {
+  instrument?: { kind?: string | null; quantityUnit?: string | null; contractSize?: number | null; category?: string | null } | null;
 };
 
 /** A resting (pending) order at the broker: limit/stop waiting to trigger. */
@@ -104,12 +106,13 @@ export class LiveStateStore {
       const next: StoredAccountState = { instanceId, broker: prev?.broker ?? labelOf(p), currency: p.currency, balance: p.balance, equity: p.equity,
         margin: p.margin, marginFree: p.marginFree, openProfit: p.openProfit, marginLevel: p.marginLevel,
         login: p.login, server: p.server, name: p.name, accountId,
-        connector: p.venue?.connector ?? undefined, adapter: p.venue?.adapter ?? undefined,
+        connector: p.venue?.connector ?? undefined, adapter: p.venue?.adapter ?? undefined, tradeMode: p.venue?.tradeMode ?? undefined,
+        profiles: [...new Set([...(prev?.profiles ?? []), p.broker])].sort(),
         lastSeen: e.ts };
       this.accounts.set(key, next);
       if (!prev) return true;
-      return (["broker", "currency", "balance", "equity", "margin", "marginFree", "openProfit", "marginLevel", "login", "server", "name", "accountId"] as const)
-        .some((f) => prev[f] !== next[f]);
+      return (["broker", "currency", "balance", "equity", "margin", "marginFree", "openProfit", "marginLevel", "login", "server", "name", "accountId", "tradeMode"] as const)
+        .some((f) => prev[f] !== next[f]) || prev.profiles?.length !== next.profiles?.length;
     }
     if (e.type === "state.positions") {
       const p = e.payload;
@@ -123,7 +126,8 @@ export class LiveStateStore {
         requestedStopLoss: x.requestedStopLoss, requestedTakeProfit: x.requestedTakeProfit,
         magic: x.magic, clientOrderId: x.clientOrderId,
         ...stated({ positionId: x.positionId, attribution: x.attribution, initialStop: x.initialStop, initialTarget: x.initialTarget, riskAmount: x.riskAmount,
-          kind: x.instrument?.kind?.toLowerCase(), unit: quantityUnitOf(x.instrument?.kind, x.instrument?.quantityUnit), contractSize: x.instrument?.contractSize }) }));
+          kind: x.instrument?.kind?.toLowerCase(), unit: quantityUnitOf(x.instrument?.kind, x.instrument?.quantityUnit), contractSize: x.instrument?.contractSize,
+          category: x.instrument?.category }) }));
       this.positions.set(key, { at: e.ts, list, accountId: p.accountId != null ? opaqueAccountId(p.accountId) : undefined });
       return !prev || JSON.stringify(prev.list) !== JSON.stringify(list);
     }

@@ -1,21 +1,23 @@
-import { useMemo, useRef, useState, type ReactNode } from "react";
+import { lazy, Suspense, useMemo, useRef, useState, type ReactNode } from "react";
 import { flushSync } from "react-dom";
 import { useQuery } from "@tanstack/react-query";
 import { parseQuery, TRADE_KEYS } from "@qkt-insights/contract/query";
 import { get, type LogRow, type StrategyRow, type StrategyStats } from "../api";
 import { LogLine } from "../components/LogLine";
 import { ShareControl } from "../components/ShareControl";
-import { Card, LiveDot, Loadable, OriginBack, Pill, Popover, RangeChips, rangeStart, ReturnPct, Segmented, useRangeParam } from "../components/ui";
+import { Card, LiveDot, Loadable, OriginBack, Pill, Popover, RangeChips, rangeStart, ReturnPct, Segmented, Skeleton, useRangeParam } from "../components/ui";
 import { age, DASH, glyph, money, openPnl, signedMoney, toneClass } from "../format";
 import { haltClearing, haltSince, resumeCommand } from "../halt";
 import { strategyCapital, strategyDisplayName } from "../portfolio";
 import { QueryBar, TRADE_PRESETS } from "../query/QueryBar";
-import { Link, PAGE_PATHS, routePath, STRATEGY_TABS, useRoute, useSearchParam, type StrategyTab } from "../router";
+import { Link, PAGE_PATHS, PRIVATE_STRATEGY_TABS, routePath, STRATEGY_TABS, useRoute, useSearchParam, type StrategyTab } from "../router";
 import { useTripAnalytics, type TripAnalytics } from "../trades/analytics";
 import { tripParams, useTripFacets, type RoundTripTotals, type TripScope } from "../trades/data";
 import { RoundTripTable } from "../trades/RoundTripTable";
 import { TripCount, useSortParams } from "../trades/scope";
 import { TradeDrawer, useOpenTrade } from "../trades/TradeDrawer";
+import { LegList } from "../components/InstrumentType";
+import { strategyLegs } from "../instruments";
 import { useLiveState } from "../useLiveState";
 import { usePublicPageView, useView } from "../view";
 import { CalendarSection, DailySection, MonthlySection } from "./Days";
@@ -23,6 +25,9 @@ import { chipOf, toggleToken, without } from "./journal";
 import { OverviewSection } from "./Overview";
 import { TimeRiskSection } from "./TimeRisk";
 import { BigPnl, Icon, ICON, Widget } from "./widgets";
+
+// The highlighter and its grammar load only when the Code section opens.
+const CodeSection = lazy(() => import("./Code"));
 
 /*
  * One strategy in the journal's layout: a header with its net, return on its own base, status and
@@ -33,7 +38,7 @@ import { BigPnl, Icon, ICON, Widget } from "./widgets";
  */
 
 const TAB_LABEL: Record<StrategyTab, string> = {
-  overview: "Overview", calendar: "Calendar", daily: "Daily", monthly: "Monthly", trades: "Trades", time: "Time & risk", logs: "Logs",
+  overview: "Overview", calendar: "Calendar", daily: "Daily", monthly: "Monthly", trades: "Trades", time: "Time & risk", code: "Code", logs: "Logs",
 };
 
 /** One line per section under the tabs, the journal's header hint. */
@@ -44,6 +49,7 @@ const TAB_HINT: Record<StrategyTab, string> = {
   monthly: "Month by month, and the year at a glance",
   trades: "Every round trip, entry to exit",
   time: "When it wins, how trades end, and how much it risks",
+  code: "The source qkt runs, and every version it ran before",
   logs: "What the engine said about this strategy",
 };
 
@@ -94,8 +100,8 @@ export function StrategyDetail({ instanceId, strategyId }: { instanceId: string;
   usePublicPageView("strategy", strategyId);
   const { route, navigate } = useRoute();
   const asked: StrategyTab = route.strategy === strategyId ? (route.tab ?? "overview") : "overview";
-  // shared links carry no logs
-  const tab: StrategyTab = view.public && asked === "logs" ? "overview" : asked;
+  // shared links carry no logs and no code
+  const tab: StrategyTab = view.public && PRIVATE_STRATEGY_TABS.has(asked) ? "overview" : asked;
   const [q, setQ] = useSearchParam("q");
   const [range, setRange] = useRangeParam();
   const [, openTrade] = useOpenTrade();
@@ -112,6 +118,7 @@ export function StrategyDetail({ instanceId, strategyId }: { instanceId: string;
     refetchInterval: 30_000,
   });
   const open = useOpen(instanceId, strategyId);
+  const liveAccounts = useLiveState().data?.accounts;
   const facets = useTripFacets(instanceId, strategyId);
 
   const from = rangeStart(range);
@@ -219,10 +226,11 @@ export function StrategyDetail({ instanceId, strategyId }: { instanceId: string;
             <ShareControl instanceId={instanceId} kind="strategy" subject={strategyId} />
           </div>
         </header>
+        <LegList legs={strategyLegs(row, liveAccounts, instanceId)} className="mt-3" />
       </div>
 
       <nav aria-label="Strategy sections" className="-mx-4 flex gap-1.5 overflow-x-auto px-4 sm:hidden">
-        {STRATEGY_TABS.filter((t) => !(view.public && t === "logs")).map((t) => (
+        {STRATEGY_TABS.filter((t) => !(view.public && PRIVATE_STRATEGY_TABS.has(t))).map((t) => (
           <button
             key={t}
             type="button"
@@ -241,7 +249,7 @@ export function StrategyDetail({ instanceId, strategyId }: { instanceId: string;
           label="Strategy sections"
           value={tab}
           onChange={(t) => switchTab(t)}
-          options={STRATEGY_TABS.filter((t) => !(view.public && t === "logs")).map((t) => ({ key: t, label: TAB_LABEL[t] }))}
+          options={STRATEGY_TABS.filter((t) => !(view.public && PRIVATE_STRATEGY_TABS.has(t))).map((t) => ({ key: t, label: TAB_LABEL[t] }))}
         />
       </nav>
 
@@ -250,7 +258,7 @@ export function StrategyDetail({ instanceId, strategyId }: { instanceId: string;
         <p className="text-sm text-muted">{TAB_HINT[tab]}</p>
       </div>
 
-      {tab !== "logs" && (
+      {tab !== "logs" && tab !== "code" && (
         <div className="grid gap-2 border-b border-line pb-3">
           {/* phones: a search button with the active filter count, the range chips and the count on one row;
               a count too wide for what is left (a long net) wraps under the chips rather than leaving the screen */}
@@ -293,6 +301,10 @@ export function StrategyDetail({ instanceId, strategyId }: { instanceId: string;
 
       {tab === "logs" ? (
         <StrategyLogs instanceId={instanceId} strategyId={strategyId} />
+      ) : tab === "code" ? (
+        <Suspense fallback={<Skeleton lines={10} />}>
+          <CodeSection instanceId={instanceId} strategyId={strategyId} meta={row?.metadata ?? null} />
+        </Suspense>
       ) : tab === "trades" ? (
         <StrategyTrades scope={scope} q={q} exportHref={view.public ? null : `/round-trips/export?${tripParams(scope, q, "entry", "desc")}`} />
       ) : (

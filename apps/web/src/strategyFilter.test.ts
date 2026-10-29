@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 import type { StrategyRow } from "./api";
-import { asksForRetired, matchesStrategy } from "./strategyFilter";
+import { asksForRetired, edgeDefault, matchesStrategy } from "./strategyFilter";
 
 const row = (strategyId: string, extra: Partial<StrategyRow> = {}): StrategyRow =>
   ({ strategyId, metadata: { symbols: ["ICMARKETS:XAUUSD"] }, active: true, halted: false, ...extra }) as StrategyRow;
@@ -28,5 +28,14 @@ describe("matchesStrategy", () => {
   it("knows when the query asks for retired rows", () => {
     expect(asksForRetired("gold status:retired")).toBe(true);
     expect(asksForRetired("gold")).toBe(false);
+  });
+});
+
+describe("edgeDefault", () => {
+  it("opens on the strategy with the most closed trades, never one without any", () => {
+    const list = [row("a_idle", { dealCount: 0, lastSeen: 9 }), row("b_gold", { dealCount: 12, lastSeen: 1 }), row("c_fx", { dealCount: 4, lastSeen: 5 })];
+    expect(edgeDefault(list)).toBe("b_gold");
+    expect(edgeDefault([row("x", { dealCount: 3, lastSeen: 1 }), row("y", { dealCount: 3, lastSeen: 2 })])).toBe("y");
+    expect(edgeDefault([])).toBeUndefined();
   });
 });

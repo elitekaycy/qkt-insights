@@ -1,6 +1,8 @@
 import { useQueries } from "@tanstack/react-query";
 import { get, type AccountReconciliation, type ReconciledDay, type ReconciliationView } from "../api";
+import { accountOfLabel, accountTitle } from "../accounts";
 import { useRoute } from "../router";
+import { useLiveState } from "../useLiveState";
 import { count, glyph, signedMoney } from "../format";
 import {
   DAY_REASON, EMPTY_TEXT, ignoredLine, unassignedLabels, unassignedLine, checkedLabel, dayCounts, dayMonth, dayTradesPath, ledgerLine, positionIssues, positionsLine, verdict, type ReconciliationTone,
@@ -111,10 +113,11 @@ function AccountBlock({ a, view, showInstance }: { a: AccountReconciliation; vie
   const external = a.days.filter((d) => d.status === "external");
   const onDay = (d: ReconciledDay) => navigate(dayTradesPath(view.instanceId, d.day), { from: "Health · Reconciliation" });
   const incomplete = a.days.filter((d) => d.status === "incomplete");
+  const live = accountOfLabel(useLiveState().data?.accounts ?? [], view.instanceId, a.label);
   return (
     <li className="min-w-0 px-4 py-3.5">
       <div className="flex min-w-0 flex-wrap items-center gap-x-3 gap-y-1">
-        <span className="min-w-0 truncate font-semibold text-bright">{a.label}</span>
+        <span className="min-w-0 truncate font-semibold text-bright" title={live ? `checked under broker profile ${a.label}` : undefined}>{live ? accountTitle(live) : a.label}</span>
         {showInstance && <span className="truncate font-mono text-[11px] text-faint">{view.instanceId}</span>}
         <StatusWord tone={TONE[v.tone]}>{v.text}</StatusWord>
         <span className="text-xs text-muted">{checkedLabel(a.checkedAt)}</span>

@@ -9,17 +9,24 @@ const object = <T extends z.ZodRawShape>(shape: T) => z.object(shape).passthroug
  * value of an unexpected shape must not cost the envelope, so enums are plain strings.
  */
 const opt = <T extends z.ZodTypeAny>(t: T) => t.nullable().optional();
-/** Which connector, venue and config entry an envelope is about: `{connector: "mt5", adapter: "exness", label: "EXNESS"}`. */
-const venue = object({ connector: opt(z.string()), adapter: opt(z.string()), label: opt(z.string()) });
+/**
+ * Which connector, venue and config entry an envelope is about: `{connector: "mt5", adapter: "exness", label: "EXNESS"}`.
+ * `tradeMode` (1.3.0) is the account's environment as the venue states it: `demo`, `real`, or MT5's `contest`.
+ */
+const venue = object({ connector: opt(z.string()), adapter: opt(z.string()), label: opt(z.string()), tradeMode: opt(z.string()) });
 /**
  * What one instrument is: qkt's symbol, the venue's code, its kind (cfd, equity, spot, perpetual, future, option),
  * contract size, tick, quote currency and account value of a point. `quantityUnit` says what one unit of `qty` is
  * (lots, shares, contracts, or a coin code); qkt does not send it yet, and the collector names a unit from `kind`
- * until it does.
+ * until it does. From 1.4.0: `category`, the venue's folder for the symbol (`Stocks` for an MT5 stock CFD, which is
+ * what tells it from an FX or metal CFD), and a derivative's `root` (`DERIBIT:BTC`), `expiry` (UTC ms; none for a
+ * perpetual), and an option's `strike`, `optionRight` (`call`, `put`) and `underlying` index.
  */
 const instrument = object({
   symbol: opt(z.string()), venueCode: opt(z.string()), kind: opt(z.string()), contractSize: opt(z.number()),
   tickSize: opt(z.number()), quoteCurrency: opt(z.string()), valuePerPoint: opt(z.number()), quantityUnit: opt(z.string()),
+  category: opt(z.string()), root: opt(z.string()), expiry: opt(z.number()), strike: opt(z.number()),
+  optionRight: opt(z.string()), underlying: opt(z.string()),
 });
 /** A typed venue cost; `amount` is positive when paid. */
 const cost = object({ kind: z.string(), amount: z.number(), currency: opt(z.string()) });
@@ -191,12 +198,22 @@ export const payloadByType = {
     halted: z.boolean().optional(), haltReason: z.string().nullable().optional(), haltScope: z.string().nullable().optional(),
     haltPersistent: z.boolean().nullable().optional(), haltedAt: z.number().nullable().optional(),
   }),
+  /*
+   * sourceText (1.2.0) is the strategy file's text, cut to 64 KiB of UTF-8 (sourceTruncated: true when cut);
+   * sourceSha256 always hashes the whole file. qkt sends the text on strategy.started only, and one qkt
+   * process sends it once per strategy and sha: a later start at the same sha carries the sha with
+   * sourceTextOmitted: true instead. The collector stores each (instance, strategy, sha) once and never
+   * keeps the text in events or strategy metadata (store strategySources.ts).
+   */
   "strategy.started": object({
     strategyId: z.string(),
     ts: z.number().optional(),
     deployName: z.string().optional(),
     sourcePath: z.string().optional(),
     sourceSha256: z.string().optional(),
+    sourceText: z.string().optional(),
+    sourceTruncated: z.boolean().optional(),
+    sourceTextOmitted: z.boolean().optional(),
     dslVersion: z.number().optional(),
     runtimeMode: z.string().optional(),
     brokers: z.array(z.string()).optional(),
@@ -299,7 +316,7 @@ export type EventType = keyof typeof payloadByType;
  * The contract this collector speaks, as semver. Minor: a new type or a new optional field. Major: a rename, a
  * removal or a change of meaning, which also takes a new envelope `v` (envelope.ts `SUPPORTED_MAJORS`).
  */
-export const CONTRACT_VERSION = "1.1.0";
+export const CONTRACT_VERSION = "1.4.0";
 
 /** When a type joined the contract and, once it is on its way out, what replaces it. */
 export interface EventTypeMeta {

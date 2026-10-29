@@ -1,7 +1,7 @@
 import { readdirSync, readFileSync } from "node:fs";
 import { fileURLToPath } from "node:url";
 import { describe, expect, it } from "vitest";
-import { movedPath, PAGE_PATHS, parsePath, routePath, withScope, type Route } from "./routes";
+import { movedPath, PAGE_PATHS, parsePath, PRIVATE_STRATEGY_TABS, routePath, STRATEGY_TABS, withScope, type Route } from "./routes";
 
 describe("routes", () => {
   it("round-trips every page and strategy deep link", () => {
@@ -13,6 +13,7 @@ describe("routes", () => {
       { page: "strategies", strategy: "gold", tab: "daily" },
       { page: "strategies", strategy: "gold", tab: "monthly" },
       { page: "strategies", strategy: "gold", tab: "logs" },
+      { page: "strategies", strategy: "gold", tab: "code" },
       { page: "strategies", strategy: "eurusd", tab: "calendar" },
       { page: "strategies", portfolio: "book-1" },
       { page: "trades" },
@@ -25,6 +26,11 @@ describe("routes", () => {
       { page: "settings", section: "viewership" },
     ];
     for (const r of routes) expect(parsePath(routePath(r))).toEqual(r);
+  });
+
+  it("keeps a strategy's code and logs off shared links", () => {
+    expect([...PRIVATE_STRATEGY_TABS].sort()).toEqual(["code", "logs"]);
+    expect(STRATEGY_TABS.filter((t) => !PRIVATE_STRATEGY_TABS.has(t))).not.toContain("code");
   });
 
   it("falls back to Home on an unknown path and to the overview tab on an unknown tab", () => {
@@ -40,6 +46,8 @@ describe("routes", () => {
   it("carries the instance and range to the next page, never page filters", () => {
     expect(withScope("/edge", "?i=qkt-quant-live&range=30d&q=XAUUSD&trade=1")).toBe("/edge?i=qkt-quant-live&range=30d");
     expect(withScope("/t?range=7d", "?i=a&range=30d")).toBe("/t?range=7d&i=a");
+    // the account chosen on Home is the one Equity & risk opens on
+    expect(withScope("/risk", "?i=a&account=vgp%3A7bf764b24864a0b1")).toBe("/risk?i=a&account=vgp%3A7bf764b24864a0b1");
   });
 
   it("carries the search only between the pages with the query bar", () => {

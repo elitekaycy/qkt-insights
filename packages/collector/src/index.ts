@@ -7,7 +7,7 @@ import {
 } from "@qkt-insights/contract";
 import {
   ingestAck, ingestEnvelopes, persistStateEvent, quarantineEnvelopes, touchInstance, upsertRoster,
-  withoutAccountCredentials, withoutIgnoredHoldings, type Db, type IngestStatus, type LiveBus, type LiveStateStore,
+  withoutAccountCredentials, withoutIgnoredHoldings, withoutSourceText, type Db, type IngestStatus, type LiveBus, type LiveStateStore,
 } from "@qkt-insights/store";
 
 export interface CollectorDeps { db: Db; bus: LiveBus; liveState: LiveStateStore; ingestToken: string }
@@ -147,7 +147,7 @@ export function registerCollector(app: FastifyInstance, deps: CollectorDeps): vo
       touchInstance(deps.db, instanceId,
         Math.max(...heartbeats.map((e) => e.ts)),
         Math.max(...heartbeats.map((e) => e.seq)));
-    for (const e of events) deps.bus.publish(e);
+    for (const e of events) deps.bus.publish(withoutSourceText(e));
 
     const restStatus = new Map(rest.map((e, i) => [e, outcome.statuses[i]!]));
     let q = 0;
