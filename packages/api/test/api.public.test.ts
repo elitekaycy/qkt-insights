@@ -439,3 +439,53 @@ describe("account labels on a public overview", () => {
     expect(dd.every((r) => r.broker === "Account" || r.broker === "TOTAL")).toBe(true);
   });
 });
+
+describe("several accounts on a public overview", () => {
+  const PAPER = "vgp:00000000000000aa";
+
+  function paperAccount() {
+    const eq = db.prepare("INSERT INTO account_equity (instance_id, broker, minute_ts, balance, equity, open_profit, account) VALUES ('i1', 'PAPER_A', ?, ?, ?, 0, ?)");
+    // reporting the same minutes as the Exness account: two accounts at once, not one relabelled
+    eq.run(BEFORE, 500, 500, PAPER);
+    eq.run(NOW - 20 * MIN, 507, 507, PAPER);
+    eq.run(AFTER, 507, 507, PAPER);
+    db.prepare("INSERT INTO account_currencies (instance_id, account, label, currency) VALUES ('i1', 'EXNESS_P549', 'EXNESS_P549', 'USD'), ('i1', ?, 'PAPER_A', 'USDC')").run(PAPER);
+    ingestEvents(db, "i1", ["IN", "OUT"].map((entry, k) => ({
+      v: 1, instanceId: "i1", id: `paper-${entry}`, seq: 1, ts: BEFORE + (k + 2) * MIN, type: "broker.deal",
+      payload: { broker: "PAPER_A", dealTicket: `pd-${entry}`, positionTicket: "paper-pos", orderTicket: `po-${entry}`, symbol: "PAPER_A:BTC_USDC_PERPETUAL",
+        side: entry === "IN" ? "BUY" : "SELL", entry, qty: 0.001, price: 80_000, profit: entry === "OUT" ? 7 : 0, ts: BEFORE + (k + 2) * MIN, strategyId: "gold", accountId: PAPER },
+    }) as Envelope));
+  }
+
+  it("names each account alike on every route, in its own currency", async () => {
+    paperAccount();
+    const token = (await share("overview", "", "public")).overview.token!;
+    const state = (await pub(token, "/live/state")).json() as { accounts: Array<{ broker: string; currency: string; balance: number }> };
+    expect(state.accounts.map((a) => a.broker).sort()).toEqual(["Account", "Account 2"]);
+    const paperName = state.accounts.find((a) => a.balance === 507)!.broker;
+    const exnessName = state.accounts.find((a) => a.balance === 10025)!.broker;
+    expect(state.accounts.find((a) => a.broker === paperName)!.currency).toBe("USDC");
+    expect(state.accounts.find((a) => a.broker === exnessName)!.currency).toBe("USD");
+    // the risk row and the equity curve of each account carry the name its live figures carry
+    const risk = (await pub(token, "/account/risk")).json() as Array<{ account: string; label: string; balance: number }>;
+    expect(risk.map((r) => [r.account, r.label, r.balance]).sort()).toEqual([[exnessName, exnessName, 10025], [paperName, paperName, 507]].sort());
+    const curve = (await pub(token, "/account/equity")).json() as Array<{ broker: string; account: string; balance: number }>;
+    expect(new Set(curve.filter((p) => p.balance === 507).map((p) => `${p.broker}/${p.account}`))).toEqual(new Set([`${paperName}/${paperName}`]));
+  });
+
+  it("keeps one account's closes when the link asks for it by its public name", async () => {
+    paperAccount();
+    const token = (await share("overview", "", "public")).overview.token!;
+    const all = (await pub(token, "/account/summary")).json() as { totalNet: number };
+    const state = (await pub(token, "/live/state")).json() as { accounts: Array<{ broker: string; balance: number }> };
+    const paperName = state.accounts.find((a) => a.balance === 507)!.broker;
+    const exnessName = state.accounts.find((a) => a.balance === 10025)!.broker;
+    const paper = (await pub(token, `/account/summary?account=${encodeURIComponent(paperName)}`)).json() as { totalNet: number; trades: number };
+    const exness = (await pub(token, `/account/summary?account=${encodeURIComponent(exnessName)}`)).json() as { totalNet: number };
+    expect(paper).toMatchObject({ totalNet: 7, trades: 1 });
+    expect(exness.totalNet).toBe(25 + 999);
+    expect(exness.totalNet + paper.totalNet).toBe(all.totalNet);
+    expect((await pub(token, "/account/summary?account=Account%209")).statusCode).toBe(404);
+    expect((await pub(token, `/account/summary?account=${encodeURIComponent(PAPER)}`)).statusCode).toBe(404);
+  });
+});

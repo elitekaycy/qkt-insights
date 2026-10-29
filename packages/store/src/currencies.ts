@@ -22,6 +22,17 @@ export function instanceCurrencies(db: Db, instanceId: string): string[] {
     .map((r) => r.currency);
 }
 
+/** The currency of one venue account, by its id or any of its broker labels; null when it never reported one. */
+export function accountCurrency(db: Db, instanceId: string, account: { identity: string | null; key: string; labels: readonly string[] }): string | null {
+  const names = JSON.stringify([account.identity, account.key].filter((n): n is string => n != null));
+  const row = statement(db,
+    `SELECT currency FROM account_currencies WHERE instance_id=@i
+       AND (account IN (SELECT value FROM json_each(@names)) OR label IN (SELECT value FROM json_each(@labels)))
+     ORDER BY account IN (SELECT value FROM json_each(@names)) DESC LIMIT 1`,
+  ).get({ i: instanceId, names, labels: JSON.stringify(account.labels) }) as { currency: string } | undefined;
+  return row?.currency ?? null;
+}
+
 /**
  * SQL: the currency of round trip `t` (a round_trips row): its account's, by the account its deals state,
  * else by the label it trades under; null when no account reported one (an engine-only close, a silent account).

@@ -1,7 +1,7 @@
 import { createHash } from "node:crypto";
 import type { FastifyInstance, FastifyReply, FastifyRequest } from "fastify";
 import {
-  accountDrawdown, accountEquity, accountPerformance, accountRisk, adjustmentRows, closedTrades, fullyClosedPositions, journalStrategies, listDeals, listRoundTrips, listStrategyRoster, listTrades, openPositionsAt, portfolioGroupOf,
+  accountCurrency, accountDrawdown, accountEquity, accountGroups, accountPerformance, accountRisk, accountScope, adjustmentRows, closedTrades, fullyClosedPositions, journalStrategies, listDeals, listRoundTrips, listStrategyRoster, listTrades, openPositionsAt, portfolioGroupOf,
   roundTripAnalytics, roundTripFacets, roundTripTotals, ROUND_TRIP_SORTS, type RoundTripScope, type RoundTripSort,
   resolveVisibility, strategyEquityCurve, strategyStats, type AccountLimits, type Db, type LiveStateStore, type ShareKind, type ShareRow, type Shares, type StrategyRow, type Views,
 } from "@qkt-insights/store";
@@ -514,10 +514,10 @@ export function registerPublic(app: FastifyInstance, deps: PublicDeps): void {
     },
   });
 
-  /** How many distinct broker accounts the instance reports now; labels are collapsed when it is one. */
-  const liveAccountCount = (instanceId: string) => {
-    const keys = new Set(deps.liveState.snapshot(now()).accounts.filter((a) => a.instanceId === instanceId).map((a) => a.accountId ?? a.broker));
-    return keys.size;
+  /** The instance's venue accounts as of the cutoff, and the public name of each ("Account", "Account 2"). */
+  const publicAccounts = (instanceId: string, cutoff: number) => {
+    const groups = accountGroups(deps.db, instanceId, cutoff);
+    return { groups, label: accountLabeller(groups) };
   };
 
   route("/live/state", {
@@ -529,18 +529,21 @@ export function registerPublic(app: FastifyInstance, deps: PublicDeps): void {
       // Open P&L includes swap, as the venue's floating P&L does.
       for (const p of open) openByStrategy[p.strategyId!] = (openByStrategy[p.strategyId!] ?? 0) + (p.profit ?? 0) + (p.swap ?? 0);
       if (!scope.accountLevel) return { accounts: [], positions: [], orders: [], openByStrategy };
-      const liveAccounts = liveAccountCount(scope.instanceId);
-      const currency = deps.liveState.snapshot(now()).accounts.find((a) => a.instanceId === scope.instanceId)?.currency ?? "USD";
+      const { groups, label } = publicAccounts(scope.instanceId, cutoff);
       const latest = new Map<string, { minuteTs: number; balance: number | null; equity: number | null; openProfit: number | null }>();
-      for (const p of accountEquity(deps.db, { instanceId: scope.instanceId, from: cutoff - DAY_MS, to: cutoff })) latest.set(p.broker, p);
-      // Only labels still reporting at the cutoff are accounts now; older labels are the same account's history.
-      const reporting = [...latest.entries()].filter(([, p]) => p.minuteTs >= cutoff - ACCOUNT_REPORTING_MS);
-      const shown = liveAccounts <= 1 ? reporting.sort((a, b) => b[1].minuteTs - a[1].minuteTs).slice(0, 1) : reporting;
-      const label = accountLabeller(shown.length <= 1);
-      const accounts = shown.map(([broker, p]) => ({
-        instanceId: scope.instanceId, broker: label(broker), currency, balance: p.balance ?? 0, equity: p.equity ?? 0,
-        openProfit: p.openProfit ?? 0, lastSeen: p.minuteTs, stale: false,
-      }));
+      for (const p of accountEquity(deps.db, { instanceId: scope.instanceId, from: cutoff - DAY_MS, to: cutoff })) {
+        const prev = latest.get(p.account);
+        if (!prev || p.minuteTs >= prev.minuteTs) latest.set(p.account, p);
+      }
+      // Only accounts still reporting at the cutoff are shown; each in its own currency.
+      const accounts = groups.flatMap((g) => {
+        const p = latest.get(g.key);
+        if (!p || p.minuteTs < cutoff - ACCOUNT_REPORTING_MS) return [];
+        return [{
+          instanceId: scope.instanceId, broker: label(g.key), currency: accountCurrency(deps.db, scope.instanceId, g) ?? "USD",
+          balance: p.balance ?? 0, equity: p.equity ?? 0, openProfit: p.openProfit ?? 0, lastSeen: p.minuteTs, stale: false,
+        }];
+      });
       const unrealized = open.reduce((a, p) => a + (p.profit ?? 0) + (p.swap ?? 0), 0);
       return { accounts, positions: [], orders: [], openPositions: { count: open.length, unrealized: open.length > 0 ? unrealized : null }, openByStrategy };
     },
@@ -549,18 +552,26 @@ export function registerPublic(app: FastifyInstance, deps: PublicDeps): void {
   route("/account/equity", {
     params: (q, scope, cutoff) => (scope.accountLevel ? { range: rangePreset(q.from, cutoff) } : NOT_FOUND),
     compute: (scope, p, cutoff) => {
-      const label = accountLabeller(liveAccountCount(scope.instanceId) <= 1);
-      const accountLabel = accountLabeller(liveAccountCount(scope.instanceId) <= 1);
+      const { label } = publicAccounts(scope.instanceId, cutoff);
       return accountEquity(deps.db, { instanceId: scope.instanceId, from: presetFrom(p.range, cutoff), to: cutoff, points: ACCOUNT_EQUITY_POINTS })
-        .map((row) => ({ ...row, broker: label(row.broker), account: accountLabel(row.account) }));
+        .map((row) => ({ ...row, broker: label(row.account), account: label(row.account) }));
     },
   });
 
-  // The shared overview's account roll-up covers its public strategies, closed by the cutoff.
+  // The shared overview's account roll-up covers its public strategies, closed by the cutoff; `account=` (a public
+  // account name) keeps one account's closes when the instance has several.
   route("/account/summary", {
-    params: (_q, scope) => (scope.accountLevel ? {} : NOT_FOUND),
-    compute: (scope, _p, cutoff) => publicAccountSummary(accountPerformance(deps.db, {
+    params: (q, scope, cutoff) => {
+      if (!scope.accountLevel) return NOT_FOUND;
+      const name = text(q.account);
+      if (name == null) return { account: "" };
+      const { groups, label } = publicAccounts(scope.instanceId, cutoff);
+      const g = groups.find((a) => label(a.key) === name);
+      return g ? { account: g.key } : NOT_FOUND;
+    },
+    compute: (scope, p, cutoff) => publicAccountSummary(accountPerformance(deps.db, {
       instanceId: scope.instanceId, strategyIds: scope.allowed, to: cutoff, closedPositionsOnly: true,
+      account: p.account ? accountScope(deps.db, scope.instanceId, p.account, cutoff) ?? undefined : undefined,
     })),
   });
 
@@ -568,7 +579,7 @@ export function registerPublic(app: FastifyInstance, deps: PublicDeps): void {
   route("/account/risk", {
     params: (_q, scope) => (scope.accountLevel ? {} : NOT_FOUND),
     compute: (scope, _p, cutoff) => {
-      const label = accountLabeller(liveAccountCount(scope.instanceId) <= 1);
+      const { label } = publicAccounts(scope.instanceId, cutoff);
       return accountRisk(deps.db, { instanceId: scope.instanceId, limits: deps.accountLimits, now: cutoff, strategyIds: scope.allowed, closedPositionsOnly: true })
         .map((row) => ({ ...row, account: label(row.account), label: label(row.label) }));
     },
@@ -577,7 +588,7 @@ export function registerPublic(app: FastifyInstance, deps: PublicDeps): void {
   route("/account/drawdown", {
     params: (_q, scope) => (scope.accountLevel ? {} : NOT_FOUND),
     compute: (scope, _p, cutoff) => {
-      const label = accountLabeller(liveAccountCount(scope.instanceId) <= 1);
+      const { label } = publicAccounts(scope.instanceId, cutoff);
       return accountDrawdown(deps.db, { instanceId: scope.instanceId, to: cutoff }).map((row) => ({ ...row, broker: label(row.broker) }));
     },
   });
