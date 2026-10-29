@@ -258,7 +258,8 @@ export function AccountStrip({
 
 /**
  * The account's floating P&L split so it reconciles with the positions listed below it: what the listed positions
- * float, and what floats outside them (another system's positions on the account, positions the venue marks not).
+ * float, and what floats outside them (another system's positions on the account, known or not, and positions the
+ * venue marks not).
  */
 function FloatingLine({ note }: { note: FloatingNote }) {
   const n = (k: number, one: string, many: string) => `${count(k)} ${k === 1 ? one : many}`;
@@ -271,6 +272,9 @@ function FloatingLine({ note }: { note: FloatingNote }) {
         {n(note.outside.count, "position", "positions")} outside this instance (another system trading this account; not listed)
       </>,
     );
+  }
+  if (note.elsewhere != null) {
+    parts.push(<><Pnl value={note.elsewhere} glyphs={false} /> on positions this instance does not list (another system trading this account; qkt reports only its own)</>);
   }
   if (note.unmarked > 0) parts.push(<>{n(note.unmarked, "listed position has", "listed positions have")} no mark from the venue, so {note.unmarked === 1 ? "its" : "their"} floating is in equity only</>);
   return (

@@ -198,8 +198,9 @@ export function openRisk(positions: LivePositionRow[]): OpenRisk {
 
 /**
  * Why an account's floating P&L (equity - balance, the venue's figure) can differ from its listed positions: positions
- * of another system on the same account (a magic range the instance ignores) are counted but not listed, and a
- * venue that marks no position leaves its floating in equity only. Null when neither applies.
+ * of another system on the same account (a magic range the instance ignores) are counted but not listed, a venue
+ * that marks no position leaves its floating in equity only, and positions the instance is never told of (another
+ * system on the account whose positions qkt does not report) float in equity alone. Null when none applies.
  */
 export interface FloatingNote {
   /** The account's floating P&L: equity - balance. */
@@ -212,6 +213,13 @@ export interface FloatingNote {
   unmarked: number;
   /** Positions outside this instance; floating null when one of them has no mark. */
   outside: { count: number; floating: number | null } | null;
+  /** Floating on no listed position and on no position known to be outside: account - listed, when that is material. */
+  elsewhere: number | null;
+}
+
+/** account - listed below this is the gap between two samples of moving prices, not money held elsewhere. */
+function materialGap(account: number, listed: number): boolean {
+  return Math.abs(account - listed) >= Math.max(1, 0.05 * Math.max(Math.abs(account), Math.abs(listed)));
 }
 
 export function floatingNote(
@@ -221,9 +229,11 @@ export function floatingNote(
 ): FloatingNote | null {
   const unmarked = positions.filter((p) => p.profit == null).length;
   const hidden = outside && outside.count > 0 ? outside : null;
-  if (unmarked === 0 && !hidden) return null;
   const listed = positions.reduce((a, p) => (p.profit == null ? a : a + openPnl(p)), 0);
-  return { account: account.equity - account.balance, listed, marked: positions.length - unmarked, unmarked, outside: hidden };
+  const floating = account.equity - account.balance;
+  const elsewhere = unmarked === 0 && !hidden && materialGap(floating, listed) ? floating - listed : null;
+  if (unmarked === 0 && !hidden && elsewhere == null) return null;
+  return { account: floating, listed, marked: positions.length - unmarked, unmarked, outside: hidden, elsewhere };
 }
 
 /** The note in words, e.g. "−597.30 on 1 position outside this instance · 2 listed without a venue mark". */
@@ -235,6 +245,7 @@ export function floatingNoteText(n: FloatingNote): string {
       ? `${signedMoney(n.outside.floating)} on ${plural(n.outside.count, "position")} outside this instance`
       : `${plural(n.outside.count, "position")} outside this instance`);
   }
+  if (n.elsewhere != null) parts.push(`${signedMoney(n.elsewhere)} on positions this instance does not list`);
   if (n.unmarked > 0) parts.push(`${plural(n.unmarked, "listed position")} without a venue mark`);
   return parts.join(" · ");
 }

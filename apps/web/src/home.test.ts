@@ -199,8 +199,18 @@ describe("floatingNote", () => {
     expect(floatingNoteText(floatingNote(account, listed, { count: 1, floating: null })!)).toBe("1 position outside this instance");
   });
 
-  it("has nothing to say when every listed position is marked and none is outside", () => {
-    expect(floatingNote(account, listed, null)).toBeNull();
-    expect(floatingNote(account, listed, { count: 0, floating: 0 })).toBeNull();
+  it("has nothing to say when every listed position is marked and the account floats what they float", () => {
+    const matching = { balance: 4_983_985.86, equity: 4_983_985.86 + 9.21 };
+    expect(floatingNote(matching, listed, null)).toBeNull();
+    expect(floatingNote(matching, listed, { count: 0, floating: 0 })).toBeNull();
+  });
+
+  it("names floating on positions the instance is never told of, as the account minus the listed", () => {
+    // the live soak: qkt reports only its own Exness position (+1.06); the account floats -1,149.76
+    const n = floatingNote({ balance: 4_983_990.48, equity: 4_982_840.72 }, [position({ ticket: "e", profit: 1.06, swap: 0 })], null)!;
+    expect(n.outside).toBeNull();
+    expect(n.elsewhere).toBeCloseTo(-1_150.82, 2);
+    expect(floatingNoteText(n)).toBe("\u22121,150.82 on positions this instance does not list");
+    expect(floatingNote(account, listed, null)!.elsewhere).toBeCloseTo(-593.59, 2);
   });
 });
