@@ -28,6 +28,8 @@ export const ICON = {
   coins: "M8 14a6 6 0 1 0 0-12 6 6 0 0 0 0 12zM18.09 10.37A6 6 0 1 1 10.34 18M7 6h1v4M16.71 13.88l.7.71-2.82 2.82",
   calendar: "M8 2v4M16 2v4M3 10h18M5 4h14a2 2 0 0 1 2 2v14a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V6a2 2 0 0 1 2-2z",
   logs: "M5 4h14M5 9h14M5 14h9M5 19h6",
+  code: "M16 18l6-6-6-6M8 6l-6 6 6 6",
+  layers: "M12 2l10 5-10 5L2 7zM2 17l10 5 10-5M2 12l10 5 10-5",
 } as const;
 
 export function Icon({ d, className = "h-[15px] w-[15px]" }: { d: string; className?: string }) {

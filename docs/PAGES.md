@@ -62,7 +62,7 @@ reason; when none survives it reads "before <the first re-assertion>" (`haltedBe
 restart.
 
 The sections are in the URL (`/s/<id>`, `/s/<id>/calendar`, `daily`, `monthly`, `trades`, `time`,
-`logs`) and all read one scope: the date range chips (Today, 7D, MTD, YTD, All, as `range`) and the
+`code`, `logs`) and all read one scope: the date range chips (Today, 7D, MTD, YTD, All, as `range`) and the
 query bar (`q`), with "Showing k of n round trips" and their net and win rate. The unit is the
 closed round trip.
 
@@ -78,6 +78,13 @@ closed round trip.
 - **Trades**: the round trips of the query, sortable, with CSV export.
 - **Time & risk**: side, how trades ended, hold time, UTC entry weekday and hour (with n; buckets
   under 30 trades are faded), R, streaks and how the next trade went after N losses.
+- **Code**: the strategy's source as qkt runs it, highlighted with qkt's own TextMate grammar
+  (`apps/web/src/strategy/code/qkt.tmLanguage.json`, a copy of qkt's `editor/textmate/qkt.tmLanguage.json`:
+  refresh it by copying that file unchanged), with line numbers, a copy button, the file's path and sha256,
+  and when it first ran. Every earlier version qkt reported is listed by its sha and can be opened, and
+  "Changes since" shows a line diff against the version before. A version without text says why: qkt sent
+  none (a release before qkt reported code), or it sent the text at an earlier start this collector does not
+  hold. The section is admin only; shared links never show it.
 - **Logs**: the latest lines, and a link to Logs filtered with `strategy:<id>`.
 
 Every bar, bucket, row and ring segment narrows the query to the trades behind it (a second click

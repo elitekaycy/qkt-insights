@@ -2,7 +2,7 @@ import { describe, it, expect, beforeEach, afterEach } from "vitest";
 import Fastify, { type FastifyInstance } from "fastify";
 import cookie from "@fastify/cookie";
 import argon2 from "argon2";
-import { openDb, ingestEvents, listDeals, listStrategies, LiveStateStore, Sessions, Shares, type Db } from "@qkt-insights/store";
+import { openDb, ingestEvents, listDeals, listStrategies, LiveStateStore, Sessions, Shares, strategySourceText, type Db } from "@qkt-insights/store";
 import type { Envelope } from "@qkt-insights/contract";
 import { registerAuth } from "../src/auth.js";
 import { registerPublic, registerShares } from "../src/public.js";
@@ -15,7 +15,9 @@ const BEFORE = NOW - 60 * MIN;
 const AFTER = NOW - 5 * MIN;
 
 /** Values that must never reach a public response. */
-const SECRETS = ["EXNESS", "exness_p549", "/strategies/gold.qkt", "deadbeefsha", "stopAtr", "476422618", "Exness-MT5Trial9", "forward-test", "dsl-", "777123", "ticket-before", "pos-before"];
+/** The strategy's code: admin-only, never on a shared link. */
+const SOURCE_MARKER = "ProprietaryEdge_7731";
+const SECRETS = [SOURCE_MARKER, "EXNESS", "exness_p549", "/strategies/gold.qkt", "deadbeefsha", "stopAtr", "476422618", "Exness-MT5Trial9", "forward-test", "dsl-", "777123", "ticket-before", "pos-before"];
 
 let hash: string;
 let app: FastifyInstance;
@@ -42,11 +44,12 @@ function trade(strategyId: string, id: string, ts: number): Envelope {
 async function build(opts: { publicRequestsPerMinute?: number } = {}) {
   db = openDb(":memory:");
   shares = new Shares(db);
-  strategy("gold", {
+  const goldMeta = {
     dslName: "gold_breakout", sourcePath: "/strategies/gold.qkt", sourceSha256: "deadbeefsha",
     brokers: ["exness_p549"], symbols: ["EXNESS_P549:GBPUSD"], params: { stopAtr: 3 },
     risk: { maxDrawdownPct: 0.15, maxDailyDrawdownPct: 0.06, perStrategyMaxDailyLoss: 15000 },
-  });
+  };
+  strategy("gold", goldMeta);
   strategy("book:s0", { dslName: "leg_a", portfolioId: "book", portfolioWeight: 0.5, allocatedCapital: 5000 });
   strategy("book_2:s1", { dslName: "leg_b", portfolioId: "book_2", portfolioWeight: 0.5, allocatedCapital: 5000 });
   strategy("secret", { dslName: "secret_sauce" });
@@ -55,6 +58,8 @@ async function build(opts: { publicRequestsPerMinute?: number } = {}) {
     deal("gold", "g3", "pos-after", "IN", BEFORE + 10 * MIN), deal("gold", "g4", "pos-after", "OUT", AFTER, -40),
     deal("secret", "s1", "pos-secret", "IN", BEFORE - 10 * MIN), deal("secret", "s2", "pos-secret", "OUT", BEFORE, 999),
     trade("gold", "before", BEFORE), trade("gold", "open", BEFORE + 10 * MIN), trade("gold", "after", AFTER), trade("secret", "secret-trade", BEFORE),
+    { v: 1, instanceId: "i1", id: "started-gold", seq: 1, ts: BEFORE - MIN, strategyId: "gold", type: "strategy.started",
+      payload: { strategyId: "gold", ...goldMeta, sourceText: `STRATEGY gold_breakout VERSION 1\n-- ${SOURCE_MARKER}\n`, sourceTruncated: false } } as Envelope,
   ]);
   // Engine orders linked to broker tickets: the close of pos-before, and the entry of pos-after (still open at the cutoff).
   const order = db.prepare("INSERT INTO orders (instance_id, order_id, strategy_id, symbol, side, type, state, qty, cum_qty, created_ts, updated_ts, broker_order_id) VALUES ('i1', ?, 'gold', 'EXNESS_P549:GBPUSD', 'BUY', 'MARKET', 'FILLED', 1, 1, ?, ?, ?)");
@@ -156,6 +161,25 @@ describe("public links", () => {
   it("the leak scan has something to find: the seeded admin data carries every secret", () => {
     const raw = JSON.stringify([listStrategies(db, "i1"), listDeals(db, { instanceId: "i1", limit: 100 })]);
     for (const s of ["EXNESS", "exness_p549", "/strategies/gold.qkt", "deadbeefsha", "stopAtr", "dsl-", "777123", "pos-before"]) expect(raw).toContain(s);
+    expect(strategySourceText(db, "i1", "gold", "deadbeefsha")!.text).toContain(SOURCE_MARKER);
+  });
+
+  it("never shows a strategy's code: no public route serves it and no public response carries it", async () => {
+    const tokens = [
+      (await share("overview", "", "public")).overview.token!,
+      (await share("strategy", "gold", "public")).strategies.find((s) => s.id === "gold")!.token!,
+    ];
+    for (const token of tokens) {
+      for (const path of ["/strategy-source?strategy=gold", "/strategy-source/text?strategy=gold&sha=deadbeefsha"]) {
+        expect((await pub(token, path)).statusCode).toBe(404);
+      }
+      for (const path of ["/meta", "/strategies", "/stats?strategy=gold", "/performance?strategy=gold", "/trades?limit=100", "/deals?limit=100",
+        "/equity?strategy=gold", "/round-trips", "/round-trips/facets", "/round-trips/analytics", "/account/summary", "/live/state"]) {
+        const res = await pub(token, path);
+        expect(res.body, path).not.toContain(SOURCE_MARKER);
+        expect(res.body, path).not.toContain("STRATEGY gold_breakout");
+      }
+    }
   });
 
   it("answers an unknown token and a private subject's token with the same 404", async () => {

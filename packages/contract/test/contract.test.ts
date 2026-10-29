@@ -304,4 +304,14 @@ describe("enriched qkt payloads", () => {
     } });
     expect(r.success && r.data.type === "broker.deal" && r.data.payload.instrument).toMatchObject({ kind: "perpetual", contractSize: 0.001, quantityUnit: "contracts" });
   });
+
+  it("reads a strategy.started source text, its cut and its omission on a repeat start", () => {
+    const started = (extra: Record<string, unknown>) => EnvelopeSchema.safeParse({ ...base, strategyId: "gold", type: "strategy.started",
+      payload: { strategyId: "gold", sourcePath: "/srv/qkt/gold.qkt", sourceSha256: "9f2c", ...extra } });
+    const first = started({ sourceText: "STRATEGY gold VERSION 1", sourceTruncated: false });
+    expect(first.success && first.data.type === "strategy.started" && first.data.payload).toMatchObject({ sourceText: "STRATEGY gold VERSION 1", sourceTruncated: false });
+    const repeat = started({ sourceTextOmitted: true });
+    expect(repeat.success && repeat.data.type === "strategy.started" && repeat.data.payload).toMatchObject({ sourceTextOmitted: true });
+    expect(started({ sourceText: 42 }).success).toBe(false);
+  });
 });

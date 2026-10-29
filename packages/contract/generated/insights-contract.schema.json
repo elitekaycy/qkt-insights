@@ -1,8 +1,8 @@
 {
   "$schema": "https://json-schema.org/draft/2020-12/schema",
-  "$id": "urn:qkt-insights:contract:1.1.0",
-  "title": "qkt-insights envelope contract 1.1.0",
-  "x-contract-version": "1.1.0",
+  "$id": "urn:qkt-insights:contract:1.2.0",
+  "title": "qkt-insights envelope contract 1.2.0",
+  "x-contract-version": "1.2.0",
   "x-envelope-majors": [
     1
   ],
@@ -4163,6 +4163,15 @@
         },
         "sourceSha256": {
           "type": "string"
+        },
+        "sourceText": {
+          "type": "string"
+        },
+        "sourceTruncated": {
+          "type": "boolean"
+        },
+        "sourceTextOmitted": {
+          "type": "boolean"
         },
         "dslVersion": {
           "type": "number"

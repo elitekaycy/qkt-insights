@@ -1,5 +1,5 @@
 import type { FastifyInstance } from "fastify";
-import { listInstances, listStrategies, listTrades, searchEvents, equityCurve, instanceHealth, searchLogs, logPage, strategyStats, listDeals, accountEquity, accountDrawdown, accountPerformance, accountRisk, monitorSummaries, withJournalStrategies, listMonitorEvents, reconciliation, type AccountLimits, type Db, type LiveStateStore, type Monitors } from "@qkt-insights/store";
+import { listInstances, listStrategies, listTrades, searchEvents, equityCurve, instanceHealth, searchLogs, logPage, strategyStats, listDeals, accountEquity, accountDrawdown, accountPerformance, accountRisk, monitorSummaries, withJournalStrategies, listMonitorEvents, reconciliation, strategySources, strategySourceText, type AccountLimits, type Db, type LiveStateStore, type Monitors } from "@qkt-insights/store";
 import { CONTRACT_VERSION, SUPPORTED_MAJORS } from "@qkt-insights/contract";
 import { UNATTRIBUTED_STRATEGY } from "@qkt-insights/contract/query";
 import { requireSession } from "./auth.js";
@@ -53,6 +53,22 @@ export function registerRest(app: FastifyInstance, deps: RestDeps): void {
   app.get<{ Querystring: Record<string, string> }>("/strategies", guard, async (req, reply) => {
     const i = req.query.instance; if (!need(reply, i, "instance")) return;
     return cache.get(req.url, () => listStrategies(deps.db, i));
+  });
+
+  // The strategy's code (store strategySources.ts): its versions, then one version's text on demand.
+  // Never cached: the text is the operator's code and should not linger in process memory.
+  app.get<{ Querystring: Record<string, string> }>("/strategy-source", guard, async (req, reply) => {
+    const q = req.query;
+    if (!need(reply, q.instance, "instance") || !need(reply, q.strategy, "strategy")) return;
+    return strategySources(deps.db, q.instance, q.strategy);
+  });
+  app.get<{ Querystring: Record<string, string> }>("/strategy-source/text", guard, async (req, reply) => {
+    const q = req.query;
+    if (!need(reply, q.instance, "instance") || !need(reply, q.strategy, "strategy") || !need(reply, q.sha, "sha")) return;
+    const source = strategySourceText(deps.db, q.instance, q.strategy, q.sha);
+    if (!source) return reply.code(404).send({ error: "no source stored for this version" });
+    reply.header("cache-control", "private, no-store");
+    return source;
   });
 
   // Also the one WS reconciliation misses: a fill lands on the wire the instant it
