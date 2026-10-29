@@ -1,6 +1,6 @@
 import { describe, it, expect } from "vitest";
 import type { PositionPath } from "./data";
-import { bucketLabel, labelPlacements, levels, markerIndex, priceAxisDigits, priceTick, shadedSpans, timeTick, moments, pathOption, pathSummary, pathTip, pnlLine, priceRange } from "./positionMap";
+import { bucketLabel, labelPlacements, levels, markerIndex, priceAxisDigits, priceTick, shadedSpans, timeTick, moments, pathOption, pathTip, pnlLine, priceRange } from "./positionMap";
 
 const M = 60_000;
 const T0 = Date.UTC(2026, 9, 20, 8);
@@ -45,23 +45,6 @@ describe("position map moments", () => {
   });
 });
 
-describe("position map summary", () => {
-  it("measures held, time to the best, since the best, the give-back, and floating incl. swap", () => {
-    expect(pathSummary(path(), null)).toEqual({ heldMs: 18 * M, toBestMs: 16 * M, sinceBestMs: 2 * M, offBest: 100, keptPct: null, floating: 147.5 });
-  });
-
-  it("states what a closed trip kept of its best, against the realized net", () => {
-    const s = pathSummary(path({ status: "closed", exit: { ts: T0 + 20 * M, price: 1.0986 } }), 125);
-    expect(s.keptPct).toBeCloseTo(50, 9);
-    expect(s.heldMs).toBe(20 * M);
-    expect(s.offBest).toBeNull();
-    // a best that never went above zero has nothing to keep
-    expect(pathSummary(path({ status: "closed", best: { ts: T0, price: 1.1, pnl: -3 } }), -50).keptPct).toBeNull();
-    // a best that turned into a loss kept nothing, not a negative share
-    expect(pathSummary(path({ status: "closed", exit: { ts: T0 + 20 * M, price: 1.102 } }), -200).keptPct).toBe(0);
-  });
-});
-
 describe("position map levels", () => {
   it("draws a stop near the path and lists a far target as off the chart", () => {
     expect(levels(path())).toEqual([{ key: "stop", price: 1.103, inView: true }, { key: "target", price: 1.05, inView: false }]);
@@ -87,7 +70,7 @@ describe("position map P&L line", () => {
 describe("position map option", () => {
   const input = (view: "price" | "pnl", over: Partial<PositionPath> = {}) => {
     const p = path(over);
-    return { path: p, moments: moments(p, null), view, digits: 5, narrow: false, reduceMotion: true };
+    return { path: p, moments: moments(p, null), view, digits: 5, narrow: false };
   };
   type S = { type: string; data: unknown[]; markLine?: { data: Array<{ name?: string; yAxis: number }> }; markArea?: { data: unknown[] } };
 
@@ -118,10 +101,9 @@ describe("position map option", () => {
     expect(markerIndex(moments(p, null), "pnl").get("worst")).toBe(1);
   });
 
-  it("pulses the latest mark of an open position unless motion is reduced", () => {
+  it("marks the latest price of an open position with a still marker, never a pulse", () => {
     const types = (o: ReturnType<typeof pathOption>) => (o.series as S[]).map((s) => s.type);
     expect(types(pathOption(input("price")))).toEqual(["candlestick", "scatter"]);
-    expect(types(pathOption({ ...input("price"), reduceMotion: false }))).toEqual(["candlestick", "scatter", "effectScatter"]);
   });
 
   it("tooltips the candle under the pointer and the moments inside it", () => {

@@ -2,6 +2,7 @@ import { useSearchParam } from "../router";
 import { count, pnl, toneClass, winPct } from "../format";
 import { currencyName, splitNets } from "../currencies";
 import type { RoundTripTotals, SortKey } from "./data";
+import { Spinner } from "../components/ui";
 
 const SORTS: ReadonlySet<string> = new Set<SortKey>(["entry", "exit", "pnl", "r", "held", "size", "strategy", "symbol", "side", "entryPrice", "exitPrice", "ended", "ticket"]);
 
@@ -22,7 +23,7 @@ export function TripCount({ totals, loading, unit = "round trips", compactOnPhon
   /** Phones keep the counts and the net, stacked on two short lines beside the range chips. */
   compactOnPhone?: boolean;
 }) {
-  if (!totals) return <span className="text-sm text-muted">{loading ? "Loading…" : ""}</span>;
+  if (!totals) return loading ? <Spinner label="Loading the count" /> : null;
   const split = splitNets(totals.currencies);
   const wide = compactOnPhone ? "max-sm:hidden" : "";
   const phone = compactOnPhone ? "sm:hidden" : "hidden";

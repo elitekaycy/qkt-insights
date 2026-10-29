@@ -3,6 +3,7 @@ import { get, type AccountSummary } from "../api";
 import { CalendarView } from "../components/Calendar";
 import { Card, Loadable, PageHeader } from "../components/ui";
 import { usePublicPageView, useView } from "../view";
+import { useInstanceCurrencyMix } from "../currencies";
 
 /** The account's P&L calendar: every close on the account by UTC day, with monthly returns. */
 export default function CalendarPage({ instanceId }: { instanceId: string | null }) {
@@ -15,6 +16,7 @@ export default function CalendarPage({ instanceId }: { instanceId: string | null
     enabled: !!instanceId,
     refetchInterval: 60_000,
   });
+  const mix = useInstanceCurrencyMix(instanceId);
   if (!instanceId) return <Card className="p-8 text-center text-muted">No instance selected.</Card>;
   const bases = new Map((summary.data?.monthBases ?? []).map((b) => [b.period, b]));
   const baseLabel = summary.data?.monthBases.some((b) => b.source === "account equity") ? "account equity at month start" : "account start balance";
@@ -22,11 +24,11 @@ export default function CalendarPage({ instanceId }: { instanceId: string | null
     <div>
       <PageHeader
         title="Calendar"
-        sub={`Every day's realized P&L on ${instanceId}, week by week${view.public ? `, ${view.meta.delayMinutes} minutes behind` : ""}. Retired strategies and unattributed deals included.`}
+        sub={view.public ? `${view.meta.delayMinutes} minutes behind` : undefined}
       />
       <div className="mt-5">
-        <Loadable loading={summary.isPending} error={summary.isError} retry={() => summary.refetch()} what="the calendar" lines={8}>
-          {summary.data && <CalendarView days={summary.data.dailyNets} returnBase={(month) => bases.get(month)?.base ?? null} baseLabel={baseLabel} drill={{ instanceId }} />}
+        <Loadable loading={summary.isPending} error={summary.isError} retry={() => summary.refetch()} what="the calendar" shape="chart">
+          {summary.data && <CalendarView days={summary.data.dailyNets} returnBase={(month) => bases.get(month)?.base ?? null} baseLabel={baseLabel} drill={{ instanceId }} mix={mix} />}
         </Loadable>
       </div>
     </div>

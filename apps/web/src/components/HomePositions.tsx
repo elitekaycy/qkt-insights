@@ -4,7 +4,7 @@ import { DASH, duration, human, instrumentOf, openPnl, price, quantity } from ".
 import { positionRisks } from "../home";
 import { instrumentType, sizeInWords, TYPE_LABEL, type InstrumentType } from "../instruments";
 import { TypeBadge } from "./InstrumentType";
-import { Link, useRoute } from "../router";
+import { Link, useRoute, useSearchParam } from "../router";
 import { Card, Cell, FlashValue, Freshness, Pill, Pnl, RowChevron, SideTag } from "./ui";
 
 /*
@@ -13,8 +13,20 @@ import { Card, Cell, FlashValue, Freshness, Pill, Pnl, RowChevron, SideTag } fro
  * the ticket opens the position in the trades drawer.
  */
 
-const NO_MARK = "the venue sends no mark for this position: no price now and no floating P&L; its floating is only in the account's equity";
-const HEAD = ["Instrument", "Side", "Size", "Entry", "Current", "SL", "TP", "To stop", "Floating", "Held", "Strategy"];
+const NO_MARK = "The venue sent no price for this contract: floating unknown, counted as —. Its floating is only in the account's equity.";
+/** Each column, with what it means on hover where the header alone does not say it. */
+const HEAD: ReadonlyArray<{ label: string; right?: boolean; title?: string }> = [
+  { label: "Instrument" },
+  { label: "Side" },
+  { label: "Size", right: true },
+  { label: "Entry", right: true },
+  { label: "Current", right: true, title: "The venue's mark now" },
+  { label: "SL / TP", right: true, title: "Stop loss and take profit levels" },
+  { label: "To stop", right: true, title: "Money from the price now to the stop, if it filled there" },
+  { label: "Floating", right: true, title: "Open P&L as the venue marks it, swap included" },
+  { label: "Held", right: true },
+  { label: "Strategy" },
+];
 
 export function OpenPositions({ positions, strategyName, now, freshness }: {
   positions: LivePositionRow[];
@@ -40,9 +52,6 @@ export function OpenPositions({ positions, strategyName, now, freshness }: {
     ) : (
       <Pill>unattributed</Pill>
     );
-  const ticket = (p: LivePositionRow) => (
-    <span className="font-mono text-[11px] text-faint">#{p.ticket}</span>
-  );
   const held = (p: LivePositionRow) => (p.openedAt
     ? <span title={`opened ${human(p.openedAt)}`}>{duration(now - p.openedAt)}</span>
     : <span className="text-faint" title="the venue reports no open time for this position">{DASH}</span>);
@@ -53,18 +62,25 @@ export function OpenPositions({ positions, strategyName, now, freshness }: {
     : <span className="text-xs font-normal text-faint" title={NO_MARK}>no mark</span>);
   const typeOf = (p: LivePositionRow) => instrumentType(p.kind, p.category);
   const [picked, setPicked] = useState<InstrumentType | null>(null);
-  const shown = picked ? positions.filter((p) => typeOf(p) === picked) : positions;
+  // "?pos=nostop" (Home's attention line links it) lists only the positions without a stop
+  const [only, setOnly] = useSearchParam("pos");
+  const noStop = only === "nostop";
+  const shown = positions.filter((p) => (!picked || typeOf(p) === picked) && (!noStop || risks.get(p.ticket)!.noStop));
 
   return (
-    <Card className="overflow-hidden">
-      <div className="flex flex-wrap items-baseline gap-x-2.5 gap-y-0.5 border-b border-line px-4 py-3">
+    <Card className="scroll-mt-4 overflow-hidden">
+      <div id="home-positions" className="flex flex-wrap items-baseline gap-x-2.5 gap-y-0.5 border-b border-line px-4 py-3">
         <h2 className="text-sm font-medium text-body">Open positions</h2>
-        <span className="text-xs text-muted">venue-marked · to stop = money from the price now to the stop · floating incl. swap</span>
-        {freshness && <Freshness at={freshness.at} stale={freshness.stale} className="ml-auto" />}
+        {noStop && (
+          <button type="button" onClick={() => setOnly("")} className="inline-flex items-center gap-1 rounded-full border border-warn/45 px-2 text-xs font-medium text-warn hover:bg-hover" title="Show every position">
+            without a stop ×
+          </button>
+        )}
+        {freshness && <Freshness at={freshness.at} stale={freshness.stale} quiet className="ml-auto" />}
       </div>
       <TypeFilter types={positions.map(typeOf)} picked={picked} onPick={setPicked} />
       {positions.length === 0 ? (
-        <div className="px-4 py-6 text-center text-sm text-muted">Flat: no open positions.</div>
+        <div className="px-4 py-6 text-center text-sm text-muted">No open trades.</div>
       ) : (
         <div className="@container">
           <div className="hidden @3xl:block">
@@ -72,7 +88,7 @@ export function OpenPositions({ positions, strategyName, now, freshness }: {
               <thead>
                 <tr className="border-b border-line text-left">
                   {HEAD.map((h) => (
-                    <th key={h} className={`eyebrow whitespace-nowrap px-3 py-2 ${h === "Instrument" || h === "Side" || h === "Strategy" ? "" : "text-right"}`}>{h}</th>
+                    <th key={h.label} title={h.title} className={`eyebrow whitespace-nowrap px-3 py-2 ${h.right ? "text-right" : ""} ${h.title ? "cursor-help underline decoration-dotted underline-offset-4" : ""}`}>{h.label}</th>
                   ))}
                   <th className="w-8" aria-label="Open" />
                 </tr>
@@ -89,21 +105,19 @@ export function OpenPositions({ positions, strategyName, now, freshness }: {
                   >
                     <Cell>
                       <div className="flex items-center gap-1.5 font-semibold">{instrumentOf(p.symbol)}<TypeBadge type={typeOf(p)} short /></div>
-                      {ticket(p)}
                     </Cell>
                     <Cell><SideTag side={p.side} /></Cell>
-                    <Cell className="text-right">
+                    <Cell className="text-right font-mono">
                       <span title={sizeInWords(p.qty, p)}>{quantity(p.qty)}</span>
                       {p.unit && <div className="text-[10px] text-muted">{p.unit}</div>}
                     </Cell>
-                    <Cell className="text-right text-muted">{price(p.entryPrice)}</Cell>
-                    <Cell className="text-right">{current(p)}</Cell>
-                    <Cell className="text-right text-muted">{level(p.stopLoss)}</Cell>
-                    <Cell className="text-right text-muted">{level(p.takeProfit)}</Cell>
-                    <Cell className="text-right">{toStop(p)}</Cell>
-                    <Cell className="text-right font-semibold">{floating(p)}</Cell>
-                    <Cell className="whitespace-nowrap text-right text-muted">{held(p)}</Cell>
-                    <Cell>{strategy(p)}</Cell>
+                    <Cell className="text-right font-mono text-muted">{price(p.entryPrice)}</Cell>
+                    <Cell className="text-right font-mono">{current(p)}</Cell>
+                    <Cell className="whitespace-nowrap text-right font-mono text-muted">{level(p.stopLoss)} / {level(p.takeProfit)}</Cell>
+                    <Cell className="text-right font-mono">{toStop(p)}</Cell>
+                    <Cell className="text-right font-mono font-semibold">{floating(p)}</Cell>
+                    <Cell className="whitespace-nowrap text-right font-mono text-muted">{held(p)}</Cell>
+                    <Cell className="break-words">{strategy(p)}</Cell>
                     <td className="pr-2"><RowChevron /></td>
                   </tr>
                 ))}
@@ -135,10 +149,7 @@ export function OpenPositions({ positions, strategyName, now, freshness }: {
                   <Pair k="TP" v={level(p.takeProfit)} />
                   <Pair k="To stop" v={toStop(p)} />
                 </div>
-                <div className="mt-1.5 flex items-center justify-between gap-2 text-xs">
-                  <span className="min-w-0 truncate">{strategy(p)}</span>
-                  {ticket(p)}
-                </div>
+                <div className="mt-1.5 break-words text-xs">{strategy(p)}</div>
               </li>
             ))}
           </ul>

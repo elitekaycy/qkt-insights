@@ -81,9 +81,11 @@
   --color-s4: #c98500;
   --color-s5: #d55181;
 
-  /* the insights logo keeps its own colours in both themes */
+  /* the insights logo keeps its own colours; the tittle (the dot of the i, and the wordmark's ·) is lime on dark
+     and ink on light, exactly as public/favicon.svg draws it */
   --color-brand: #c8f74a;
   --color-brand-violet: #a78bfa;
+  --color-tittle: #c8f74a;
 
   /* radii 6 / 8 / 12 */
   --radius-sm: 6px;
@@ -110,7 +112,7 @@
   --color-bright: #14151a;
   --color-body: #4a4d58;
   --color-muted: #5f6270;
-  --color-faint: #7f8290;
+  --color-faint: #6b6e7a;
   --color-accent: #2a6fd0;
   --color-accent-hi: #1f5fbb;
   --color-accent-ink: #1f5fbb;
@@ -136,6 +138,7 @@
   --color-s5: #e87ba4;
   --shadow-pop: 0 12px 32px rgba(15, 23, 42, 0.16), 0 0 0 1px var(--color-line-strong);
   --shadow-card-lift: 0 8px 22px -14px rgba(15, 23, 42, 0.35);
+  --color-tittle: #0d1117;
 }
 
 /*
@@ -313,12 +316,10 @@ th,
   letter-spacing: -0.025em;
 }
 
-/* eyebrow label: table headers, small section labels */
+/* small label: table headers and section labels, sentence case at 12px in the muted ink */
 .eyebrow {
-  font-size: 11px;
-  font-weight: 600;
-  text-transform: uppercase;
-  letter-spacing: 0.06em;
+  font-size: 12px;
+  font-weight: 500;
   color: var(--color-muted);
 }
 
@@ -387,17 +388,64 @@ th,
   animation: pop-in 0.2s var(--ease-out) both;
 }
 
-@keyframes pulse-dot {
-  0%,
-  100% {
-    box-shadow: 0 0 0 0 color-mix(in srgb, var(--color-ok) 50%, transparent);
-  }
-  50% {
-    box-shadow: 0 0 0 5px transparent;
+/* the one spinner: a ring whose quarter arc turns; its label is for screen readers unless motion is reduced */
+@keyframes spin {
+  to {
+    transform: rotate(360deg);
   }
 }
-.live-dot {
-  animation: pulse-dot 2s ease-out infinite;
+.spinner {
+  animation: spin 0.8s linear infinite;
+  transform-origin: center;
+}
+.spinner-label {
+  position: absolute;
+  width: 1px;
+  height: 1px;
+  overflow: hidden;
+  clip-path: inset(50%);
+  white-space: nowrap;
+}
+
+/* a panel's data arriving after its placeholder: one fade, nothing that moves */
+@keyframes arrive {
+  from {
+    opacity: 0;
+  }
+}
+.arrive {
+  animation: arrive 0.2s ease-out both;
+}
+
+/* a page change in flight: a 2px bar under the top edge of the canvas while the old page stays on screen */
+@keyframes nav-progress {
+  from {
+    transform: translateX(-100%);
+  }
+  to {
+    transform: translateX(250%);
+  }
+}
+.nav-progress {
+  position: absolute;
+  inset: 0 0 auto 0;
+  z-index: 40;
+  height: 2px;
+  overflow: hidden;
+  pointer-events: none;
+}
+.nav-progress::after {
+  content: "";
+  display: block;
+  width: 40%;
+  height: 100%;
+  background: var(--color-accent-hi);
+  animation: nav-progress 1s var(--ease-out) infinite;
+}
+
+/* the splash lockup: one fade in, the mark itself never animates */
+.lockup-in {
+  animation: arrive 0.4s ease-out both;
 }
 
 @media (prefers-reduced-motion: reduce) {
@@ -406,6 +454,22 @@ th,
   *::after {
     animation-duration: 0.001ms !important;
     transition-duration: 0.001ms !important;
+  }
+  /* still things: the ring stands, its label is printed, the progress bar is a plain bar */
+  .spinner,
+  .nav-progress::after {
+    animation: none;
+  }
+  .nav-progress::after {
+    width: 100%;
+    opacity: 0.5;
+  }
+  .spinner-label {
+    position: static;
+    width: auto;
+    height: auto;
+    overflow: visible;
+    clip-path: none;
   }
 }
 @media (forced-colors: active) {

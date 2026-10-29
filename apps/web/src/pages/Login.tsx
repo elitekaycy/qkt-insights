@@ -40,7 +40,7 @@ export default function Login({ onLoggedIn }: { onLoggedIn: () => void }) {
       />
       <form onSubmit={submit} className="relative w-[22rem] rounded-card border border-line bg-panel p-7">
         <div className="wordmark text-xl text-bright">
-          qkt<span className="text-brand">·</span>insights
+          qkt<span className="text-tittle">·</span>insights
         </div>
         <p className="mt-1 text-sm text-muted">
           {brand ? (

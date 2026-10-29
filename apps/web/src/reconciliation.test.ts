@@ -41,7 +41,7 @@ describe("reconciliation wording", () => {
   it("puts the positions and ledger results on one line each", () => {
     expect(positionsLine(positions())).toEqual({ tone: "ok", text: "Open positions ✓ 2 at the venue match insights" });
     expect(positionsLine(positions({ venueCount: 0, insightsCount: 0 })).text).toBe("Open positions ✓ none at the venue, none in insights");
-    expect(positionsLine(positions({ status: "stale", venueAt: null })).text).toBe("Open positions: not compared, no venue positions report in the 5 minutes before the check");
+    expect(positionsLine(positions({ status: "stale", venueAt: null })).text).toBe("Open positions: not compared (no recent venue report)");
     const diff = positions({
       status: "diff",
       missing: [{ ticket: "901", symbol: "XAUUSD", side: "BUY", qty: 0.1 }],
@@ -71,10 +71,10 @@ describe("reconciliation wording", () => {
 
   it("says how many deals an ignored magic range kept out, and their net", () => {
     expect(ignoredLine({ ranges: [], deals: 0, net: 0 })).toBeNull();
-    expect(ignoredLine({ ranges: ["31000-31199"], deals: 0, net: 0 })).toBe("0 deals from magics 31000-31199 ignored");
-    expect(ignoredLine({ ranges: ["31000-31199"], deals: 1204, net: -3.2 })).toBe("1,204 deals from magics 31000-31199 ignored (net −3.20)");
-    expect(ignoredLine({ ranges: ["40000"], deals: 1, net: 5 })).toBe("1 deal from magic 40000 ignored (net +5.00)");
-    expect(ignoredLine({ ranges: [], deals: 2, net: 1 })).toBe("2 deals from magic ranges no longer configured ignored (net +1.00)");
+    expect(ignoredLine({ ranges: ["31000-31199"], deals: 0, net: 0 })).toEqual({ text: "0 deals from another system are left out of strategy totals; the balance check counts them.", title: "Deals from magics 31000-31199" });
+    expect(ignoredLine({ ranges: ["31000-31199"], deals: 1204, net: -3.2 })!.text).toBe("1,204 deals from another system (net −3.20) are left out of strategy totals; the balance check counts them.");
+    expect(ignoredLine({ ranges: ["40000"], deals: 1, net: 5 })).toEqual({ text: "1 deal from another system (net +5.00) is left out of strategy totals; the balance check counts them.", title: "Deals from magic 40000" });
+    expect(ignoredLine({ ranges: [], deals: 2, net: 1 })!.title).toBe("Deals from magic ranges no longer configured");
   });
 
   it("says why the card is empty", () => {

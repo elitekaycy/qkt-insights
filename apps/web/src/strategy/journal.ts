@@ -1,5 +1,6 @@
 import { parseQuery, withoutKeys, withTokens, type QueryKey } from "@qkt-insights/contract/query";
-import type { TripDay } from "../trades/analytics";
+import type { TripBucket, TripDay } from "../trades/analytics";
+import { signedMoney } from "../format";
 
 /*
  * The strategy page's click-to-filter rules and window sums, as pure functions: a figure on screen
@@ -91,4 +92,28 @@ export function nearestByTime<T extends { exitTs: number }>(rows: readonly T[], 
   let best: T | null = null;
   for (const r of rows) if (best == null || Math.abs(r.exitTs - ts) < Math.abs(best.exitTs - ts)) best = r;
   return best;
+}
+
+/**
+ * Today's story on a strategy's Overview, as short parts: "8 trades", "1 won", "5 stopped (−6.00)", "open +0.75",
+ * "6 lost in a row". The stop count and its money come from today's "ended" buckets; parts with nothing to say are
+ * left out. An empty list means nothing happened today.
+ */
+export function todayParts(today: { closed: number; wins: number; ended: readonly Pick<TripBucket, "key" | "n" | "pnl">[] } | null, open: number | null, streak: number): string[] {
+  const parts: string[] = [];
+  if (today && today.closed > 0) {
+    parts.push(`${today.closed} ${today.closed === 1 ? "trade" : "trades"}`);
+    parts.push(`${today.wins} won`);
+    const stops = today.ended.find((b) => b.key === "stop");
+    if (stops && stops.n > 0) parts.push(`${stops.n} stopped (${signedMoney(stops.pnl)})`);
+  }
+  if (open != null && open !== 0) parts.push(`open ${signedMoney(open)}`);
+  if (parts.length > 0 && Math.abs(streak) >= 3) parts.push(`${Math.abs(streak)} ${streak > 0 ? "won" : "lost"} in a row`);
+  return parts;
+}
+
+/** A line that tells the strategy's story: a warning or error, or an order, fill, trade, stop or rejection. */
+export function importantLog(l: { level: string; message: string; logger: string }): boolean {
+  if (l.level === "ERROR" || l.level === "WARN") return !/StateFileWriter|scheduled break/iu.test(`${l.logger} ${l.message}`);
+  return /\b(order|fill(ed)?|trade|position|stop|target|reject(ed)?|entry|exit)\b/iu.test(l.message);
 }

@@ -1,6 +1,6 @@
 import { useEffect, useRef, useState } from "react";
 import * as echarts from "echarts/core";
-import { BarChart, CandlestickChart, CustomChart, EffectScatterChart, HeatmapChart, LineChart, ScatterChart } from "echarts/charts";
+import { BarChart, CandlestickChart, CustomChart, HeatmapChart, LineChart, ScatterChart } from "echarts/charts";
 import {
   DataZoomComponent,
   GridComponent,
@@ -20,7 +20,6 @@ echarts.use([
   BarChart,
   CandlestickChart,
   ScatterChart,
-  EffectScatterChart,
   HeatmapChart,
   CustomChart,
   GridComponent,
@@ -83,7 +82,7 @@ function withAlpha(color: string, alpha: number): string {
 }
 
 /** Deep copy of an option with every token string replaced by the active theme's colour. */
-export function resolveTokens<T>(value: T, read: (name: string) => string): T {
+function resolveTokens<T>(value: T, read: (name: string) => string): T {
   const cache = new Map<string, string>();
   const walk = (v: unknown): unknown => {
     if (typeof v === "string") {
@@ -214,13 +213,11 @@ export function tipHtml(
   return `<div style="min-width:170px"><div style="color:var(--color-muted);font-size:11px">${esc(title)}</div>${head}${body}${foot}</div>`;
 }
 
-/** Charts with at least this many points get the zoom slider under the plot. */
-export const SLIDER_MIN_POINTS = 40;
 const INSIDE_ID = "qkt-inside-zoom";
 
 type AxisLike = { type?: string } | undefined;
 const ORDERED = new Set(["line", "bar", "candlestick"]);
-const MARKERS = new Set(["scatter", "effectScatter"]);
+const MARKERS = new Set(["scatter"]);
 
 function zoomablePoints(option: QktChartOption): number {
   const x = (Array.isArray(option.xAxis) ? option.xAxis[0] : option.xAxis) as AxisLike;
@@ -234,40 +231,12 @@ function zoomablePoints(option: QktChartOption): number {
 }
 
 /**
- * Adds the journal's zoom to a chart with an x axis: drag to pan, wheel to zoom (the host gates the
- * wheel), and a slider under the plot once there are enough points to need it.
+ * Adds the journal's zoom to a chart with an x axis: drag to pan, wheel or pinch to zoom (the host gates the wheel).
+ * No slider under the plot: the chart stays a chart, and a reset button appears while zoomed.
  */
 function withZoom(option: QktChartOption, points: number): QktChartOption {
   if (option.dataZoom !== undefined || points < 2) return option;
-  const inside = { id: INSIDE_ID, type: "inside", xAxisIndex: 0, filterMode: "none", zoomOnMouseWheel: true, moveOnMouseMove: true, moveOnMouseWheel: false, preventDefaultMouseMove: false, throttle: 40 };
-  if (points < SLIDER_MIN_POINTS) return { ...option, dataZoom: [inside] };
-  const grid = (option.grid ?? qktChartGrid) as Record<string, unknown>;
-  const bottom = typeof grid.bottom === "number" ? grid.bottom : 24;
-  return {
-    ...option,
-    grid: { ...grid, bottom: bottom + 30 },
-    dataZoom: [
-      inside,
-      {
-        type: "slider",
-        xAxisIndex: 0,
-        filterMode: "none",
-        height: 18,
-        bottom: Math.max(4, bottom - 18),
-        borderColor: "transparent",
-        backgroundColor: tok("raised"),
-        fillerColor: tok("accent-soft"),
-        handleSize: "110%",
-        handleStyle: { color: tok("well"), borderColor: tok("ctl") },
-        moveHandleStyle: { color: tok("ctl") },
-        dataBackground: { lineStyle: { color: tok("axis") }, areaStyle: { color: tok("grid") } },
-        selectedDataBackground: { lineStyle: { color: tok("accent-hi") }, areaStyle: { color: tok("accent-soft") } },
-        textStyle: { color: tok("muted"), fontSize: 10 },
-        brushSelect: false,
-        labelFormatter: "",
-      },
-    ],
-  };
+  return { ...option, dataZoom: [{ id: INSIDE_ID, type: "inside", xAxisIndex: 0, filterMode: "none", zoomOnMouseWheel: true, moveOnMouseMove: true, moveOnMouseWheel: false, preventDefaultMouseMove: false, throttle: 40 }] };
 }
 
 /** Value axes print compact numbers with a true minus unless the chart chose its own labels. */

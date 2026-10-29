@@ -218,7 +218,7 @@ export default function CodeSection({ instanceId, strategyId, meta }: {
   const counts = diff ? diffCounts(diff) : null;
 
   return (
-    <Loadable loading={sources.isPending} error={sources.isError} retry={() => sources.refetch()} what="the strategy's code" lines={10}>
+    <Loadable loading={sources.isPending} error={sources.isError} retry={() => sources.refetch()} what="the strategy's code" shape="lines" lines={10}>
       {versions.length === 0 || !version ? (
         <Widget icon={ICON.code} title="Source">
           {metaString(meta, "sourceSha256") || metaString(meta, "sourcePath") ? (
@@ -264,7 +264,7 @@ export default function CodeSection({ instanceId, strategyId, meta }: {
               {version.text === "not-sent" && <Missing>{NOT_SENT}</Missing>}
               {version.text === "not-received" && <Missing>{NOT_RECEIVED}</Missing>}
               {version.text === "stored" && (
-                <Loadable loading={text.isPending} error={text.isError} retry={() => text.refetch()} what="this version's code" lines={12}>
+                <Loadable loading={text.isPending} error={text.isError} retry={() => text.refetch()} what="this version's code" shape="lines" lines={12}>
                   {compare && diff ? <DiffBlock diff={diff} wrap={wrap} /> : compare && before.data && !diff ? (
                     <Missing>These two versions are too long to compare here.</Missing>
                   ) : text.data ? <CodeBlock text={text.data.text} wrap={wrap} /> : null}

@@ -1,14 +1,14 @@
-import { lazy, Suspense, useCallback, useState } from "react";
+import { lazy, Suspense, useCallback, useEffect, useState } from "react";
 import { useIsFetching, useQuery, useQueryClient } from "@tanstack/react-query";
 import { get, Unauthorized, type InstanceRow } from "./api";
 import { ICONS, MAIN_NAV, NavIcon, SETTINGS_NAV, Shell, Wordmark } from "./components/chrome";
-import { LiveDot, PageFallback, Select } from "./components/ui";
+import { PageFallback, Select, Spinner, StatusDot, useNow } from "./components/ui";
 import Login from "./pages/Login";
 import { useBrand } from "./useBrand";
-import { mixedCurrencyNote } from "./currencies";
 import { usePullToRefresh } from "./hooks/usePullToRefresh";
 import { useResumeRefresh } from "./hooks/useResumeRefresh";
-import { useRoute, useSearchParam, type PageKey } from "./router";
+import { useNavigationPending, useRoute, useSearchParam, type PageKey } from "./router";
+import { instanceState } from "./instance";
 
 // one chunk per page: the shell paints first, and a page's charts load only when it opens
 const Overview = lazy(() => import("./pages/Overview"));
@@ -23,15 +23,35 @@ const Settings = lazy(() => import("./pages/Settings"));
 
 const PHONE_TABS: PageKey[] = ["home", "strategies", "trades", "calendar"];
 
-/** Full-screen state before the app has anything to render: connecting, or unreachable. */
+/** After this long on the splash, it says it is still waiting and offers a retry. */
+const SPLASH_PATIENCE_MS = 8000;
+
+/**
+ * Full-screen state before the app has anything to render: the locked mark and wordmark, then the spinner and
+ * "Connecting to soak…" (still waiting after 8 s, with a retry), or "can't reach the collector". Nothing on it
+ * claims a state the app does not know yet: no status dot.
+ */
 function Splash({ brand, status, busy, onRetry }: { brand: string | null; status: "loading" | "offline"; busy?: boolean; onRetry?: () => void }) {
+  const [patient, setPatient] = useState(false);
+  useEffect(() => {
+    if (status !== "loading") return;
+    const id = window.setTimeout(() => setPatient(true), SPLASH_PATIENCE_MS);
+    return () => window.clearTimeout(id);
+  }, [status]);
   return (
-    <div className="pad-safe-top pad-safe-bottom flex h-dvh flex-col items-center justify-center gap-5 bg-ink px-6 text-center" role="status" aria-live="polite">
-      <Wordmark brand={brand} />
+    <div className="pad-safe-top pad-safe-bottom flex h-dvh flex-col items-center justify-center gap-6 bg-ink px-6 text-center" aria-live="polite">
+      <div className="lockup-in">
+        <Wordmark brand={brand} stacked />
+      </div>
       {status === "loading" ? (
-        <div className="flex items-center gap-2.5 text-sm text-muted">
-          <span className="live-dot inline-block h-2 w-2 rounded-full bg-ok" />
-          {brand ? `Loading ${brand}…` : "Connecting to the collector…"}
+        <div className="flex flex-col items-center gap-3">
+          <Spinner label={`Connecting to ${brand ?? "the collector"}…`} show />
+          {patient && (
+            <div className="flex items-center gap-2 text-sm text-muted">
+              Still waiting for the collector.
+              {onRetry && <button type="button" onClick={onRetry} className="font-medium text-accent-ink hover:underline">Retry</button>}
+            </div>
+          )}
         </div>
       ) : (
         <>
@@ -50,9 +70,24 @@ function Splash({ brand, status, busy, onRetry }: { brand: string | null; status
   );
 }
 
+/** Nothing while the instance reports on time; an amber "stale · 45s" or a red "down · 12m" when it does not. */
+function InstanceStatus({ lastSeen, compact = false }: { lastSeen: number | null | undefined; compact?: boolean }) {
+  const now = useNow(5000);
+  const s = instanceState(lastSeen, now);
+  if (!s) return null;
+  const words = `${s.state} · ${s.age}`;
+  return (
+    <span className={`inline-flex items-center gap-1.5 text-xs font-medium ${s.state === "down" ? "text-loss" : "text-warn"}`} title={`last report ${s.age} ago`} role="status">
+      <StatusDot state={s.state} />
+      {compact ? <span className="sr-only">{words}</span> : words}
+    </span>
+  );
+}
+
 export default function App() {
   const queryClient = useQueryClient();
   const { route } = useRoute();
+  const navigating = useNavigationPending();
   const [instance, setInstance] = useSearchParam("i");
   // "signed out" is a decision, not a server round-trip: the sign-in screen shows at
   // once, and a logout that could not be sent is retried when the link returns
@@ -81,7 +116,7 @@ export default function App() {
   }
   // First load (and the reload right after signing in) has no data to show yet;
   // a bare dark screen on a phone reads as "the app is broken".
-  if (instances.isPending) return <Splash brand={brand} status="loading" />;
+  if (instances.isPending) return <Splash brand={brand} status="loading" onRetry={() => void instances.refetch()} />;
   if (instances.isError && instances.data == null) {
     return <Splash brand={brand} status="offline" busy={instances.isFetching} onRetry={() => void instances.refetch()} />;
   }
@@ -89,19 +124,17 @@ export default function App() {
   const list = instances.data ?? [];
   const selected = (instance && list.some((i) => i.id === instance) ? instance : list[0]?.id) ?? null;
   const selectedRow = list.find((i) => i.id === selected);
-  const live = selectedRow != null && Date.now() - selectedRow.lastSeen < 30_000;
-  const mixedNote = selectedRow ? mixedCurrencyNote(selectedRow.id, selectedRow.currencies) : null;
 
   const scope = (iconsOnly: boolean) =>
     iconsOnly ? (
       <div className="flex justify-center py-2" title={selected ?? "no instance"}>
-        <LiveDot on={live} />
+        <InstanceStatus lastSeen={selectedRow?.lastSeen} compact />
       </div>
     ) : (
       <label className="block">
-        <span className="eyebrow flex items-center justify-between px-1 pb-1.5">
+        <span className="flex items-center justify-between gap-2 px-1 pb-1.5 text-xs text-muted">
           Instance
-          <LiveDot on={live} />
+          <InstanceStatus lastSeen={selectedRow?.lastSeen} />
         </span>
         <Select className="w-full" value={selected ?? ""} onChange={(e) => setInstance(e.target.value, { push: true })} aria-label="Instance">
           {list.length === 0 && <option value="">no instances yet</option>}
@@ -166,10 +199,11 @@ export default function App() {
       mobileTitleRight={
         <span className="flex min-w-0 items-center gap-2">
           <span className="max-w-[8rem] truncate text-xs text-muted">{selectedRow?.name ?? selected ?? "no instance"}</span>
-          <LiveDot on={live} />
+          <InstanceStatus lastSeen={selectedRow?.lastSeen} compact />
         </span>
       }
     >
+      {navigating && <div className="nav-progress" role="progressbar" aria-label="Opening the page" />}
       <main ref={pull.ref} className="h-full overflow-auto overscroll-contain pb-[calc(4.5rem+env(safe-area-inset-bottom))] lg:pb-0">
         {/* pull-to-refresh well: grows with the drag, holds while refetching */}
         <div
@@ -182,10 +216,7 @@ export default function App() {
           )}
         </div>
         <div className="mx-auto max-w-[1500px] px-4 py-5 sm:px-6 lg:px-8 lg:py-6">
-          {mixedNote && (
-            <p role="note" className="mb-4 rounded-lg border border-warn/40 bg-warn/10 px-3 py-2 text-xs text-body">{mixedNote}</p>
-          )}
-          <Suspense fallback={<PageFallback />}>{page}</Suspense>
+          <Suspense fallback={<PageFallback title={[...MAIN_NAV, SETTINGS_NAV].find((n) => n.key === route.page)?.label} />}>{page}</Suspense>
         </div>
       </main>
     </Shell>

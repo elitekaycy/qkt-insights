@@ -1,4 +1,5 @@
-import { useCallback, useMemo, useState } from "react";
+import { useCallback, useMemo, useRef, useState } from "react";
+import { flushSync } from "react-dom";
 import { TRADE_KEYS } from "@qkt-insights/contract/query";
 import { Card, PageHeader, RangeChips, rangeStart, useRangeParam } from "../components/ui";
 import { useSearchParam } from "../router";
@@ -7,6 +8,9 @@ import { tripParams, useTripFacets, type RoundTripTotals, type TripScope } from 
 import { RoundTripTable } from "../trades/RoundTripTable";
 import { TripCount, useSortParams } from "../trades/scope";
 import { usePublicPageView, useView } from "../view";
+
+/** The ticket is in each trade's drawer; the list gives its width to the symbol. */
+const TRADES_HIDDEN = ["id"];
 
 export default function Trades({ instanceId }: { instanceId: string | null }) {
   usePublicPageView("trades");
@@ -19,6 +23,14 @@ export default function Trades({ instanceId }: { instanceId: string | null }) {
   const onTotals = useCallback((t: RoundTripTotals | null, query: { errors: string[] } | null, loading: boolean) => {
     setTotals((cur) => ({ t: t ?? cur.t, errors: query?.errors ?? cur.errors, loading }));
   }, []);
+  // phones: one row of a search button, the range and the count; the search box opens on tap
+  const [searchOpen, setSearchOpen] = useState(false);
+  const searchBox = useRef<HTMLDivElement>(null);
+  const openSearch = () => {
+    if (searchOpen) return setSearchOpen(false);
+    flushSync(() => setSearchOpen(true));
+    searchBox.current?.querySelector("input")?.focus();
+  };
   const from = rangeStart(range);
   const scope: TripScope | null = useMemo(() => (instanceId ? { instanceId, from: from > 0 ? Math.floor(from / 60_000) * 60_000 : undefined } : null), [instanceId, from]);
   const data = useMemo(
@@ -39,9 +51,11 @@ export default function Trades({ instanceId }: { instanceId: string | null }) {
     <div>
       <PageHeader
         title="Trades"
-        sub={`Every round trip on ${instanceId}, entry to exit: one row per position, P&L after costs, times UTC${view.public ? `, ${view.meta.delayMinutes} minutes behind` : ""}.`}
+        sub={view.public ? `${view.meta.delayMinutes} minutes behind` : undefined}
         right={
           !view.public && (
+            <span className="flex items-center gap-2">
+            <span className="hidden h-8 w-8 cursor-help items-center justify-center rounded-lg border border-line text-sm text-muted [@media(pointer:fine)]:inline-flex" title="Keys: / search · j and k move · Enter opens a trade" aria-label="Keyboard shortcuts: / search, j and k move, Enter opens a trade">?</span>
             <a
               href={exportHref}
               download
@@ -53,10 +67,25 @@ export default function Trades({ instanceId }: { instanceId: string | null }) {
               </svg>
               Export CSV
             </a>
+            </span>
           )
         }
         scope={
-          <>
+          <div className="grid w-full gap-2">
+            <div className="flex flex-wrap items-center gap-1.5 sm:hidden">
+              <button
+                type="button"
+                aria-label="Search trades"
+                aria-expanded={searchOpen}
+                onClick={openSearch}
+                className={`inline-flex h-8 w-8 shrink-0 items-center justify-center rounded-lg border transition ${searchOpen || q ? "border-accent-hi bg-accent-soft text-bright" : "border-ctl bg-raised text-body"}`}
+              >
+                <svg viewBox="0 0 24 24" className="h-4 w-4" fill="none" stroke="currentColor" strokeWidth="1.75" strokeLinecap="round" aria-hidden><path d="M11 19a8 8 0 1 0 0-16 8 8 0 0 0 0 16zM21 21l-4.35-4.35" /></svg>
+              </button>
+              <RangeChips value={range} onChange={setRange} dense />
+              <TripCount totals={totals.t} loading={totals.loading} compactOnPhone />
+            </div>
+            <div ref={searchBox} className={searchOpen ? "" : "hidden sm:block"}>
             <QueryBar
               value={q}
               onChange={(v) => setQ(v)}
@@ -65,26 +94,20 @@ export default function Trades({ instanceId }: { instanceId: string | null }) {
               page="Trades"
               presets={TRADE_PRESETS}
               errors={totals.errors}
-              placeholder="Search or filter: gold, win, side:short, pnl:<0, held:<1h, ended:stop, exit:2026-10, #ticket…"
+              placeholder="Search trades"
               trailing={
-                <>
+                <span className="hidden sm:contents">
                   <RangeChips value={range} onChange={setRange} />
                   <TripCount totals={totals.t} loading={totals.loading} />
-                </>
+                </span>
               }
             />
-          </>
+            </div>
+          </div>
         }
       />
       <Card className="mt-5 overflow-hidden">
-        <div className="flex items-baseline gap-2 border-b border-line px-4 py-3">
-          <h3 className="text-sm font-medium text-body">Round trips</h3>
-          <span className="hidden text-xs text-muted sm:inline">one row per entry-to-exit · {view.public ? "closed positions only" : "P&L after costs"}</span>
-          <span className="ml-auto hidden text-xs text-faint lg:inline">
-            <kbd className="font-mono">/</kbd> search · <kbd className="font-mono">j</kbd>/<kbd className="font-mono">k</kbd> move · <kbd className="font-mono">Enter</kbd> open
-          </span>
-        </div>
-        <RoundTripTable scope={scope} q={q} sort={sort} dir={dir} onSort={setSort} onTotals={onTotals} height="calc(100dvh - 19rem)" />
+        <RoundTripTable scope={scope} q={q} sort={sort} dir={dir} onSort={setSort} onTotals={onTotals} hide={TRADES_HIDDEN} height="calc(100dvh - 19rem)" />
       </Card>
     </div>
   );

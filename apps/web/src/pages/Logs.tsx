@@ -2,8 +2,9 @@ import { useEffect, useMemo, useRef } from "react";
 import { keepPreviousData, useInfiniteQuery, useQuery } from "@tanstack/react-query";
 import { LOG_KEYS, parseQuery, UNATTRIBUTED_STRATEGY } from "@qkt-insights/contract/query";
 import { get, type LogRow, type StrategyRow } from "../api";
-import { Card, Empty, Loadable, PageHeader, Panel, RangeChips, rangeStart, useRangeParam } from "../components/ui";
+import { Card, Empty, Loadable, PageHeader, Panel, RangeChips, rangeStart, Spinner, useRangeParam } from "../components/ui";
 import { useSearchParam } from "../router";
+import { useStrategyNames } from "../hooks/useStrategyNames";
 import { LogLine } from "../components/LogLine";
 import { useLiveStream } from "../useLiveStream";
 import { count } from "../format";
@@ -34,6 +35,7 @@ export default function Logs({ instanceId }: { instanceId: string | null }) {
     enabled: !!instanceId,
   });
   const names = useMemo(() => (strategies.data ?? []).map((s) => s.strategyId), [strategies.data]);
+  const strategyName = useStrategyNames(instanceId);
   const parsed = useMemo(() => parseQuery(q, { strategies: names }), [q, names]);
   const f = parsed.filter;
   const rangeFrom = rangeStart(range);
@@ -94,7 +96,6 @@ export default function Logs({ instanceId }: { instanceId: string | null }) {
     <div>
       <PageHeader
         title="Logs"
-        sub={`Engine logs shipped from ${instanceId}; live tail on top, history below. Times UTC.`}
         scope={
           <>
             <QueryBar
@@ -104,13 +105,13 @@ export default function Logs({ instanceId }: { instanceId: string | null }) {
               data={{ strategies: names }}
               page="Logs"
               presets={LOG_PRESETS}
-              placeholder="Search log text or filter: level:error, strategy:, logger:MT5Broker, time:1h…"
+              placeholder="Search logs"
               trailing={
                 <>
               <RangeChips value={range} onChange={setRange} />
               <span className={`text-sm text-muted ${logs.isFetching ? "opacity-60" : ""}`} aria-live="polite">
                 {logs.data == null ? (
-                  "Loading…"
+                  <Spinner label="Loading…" show />
                 ) : (
                   <>
                     Showing <b className="font-semibold text-bright">{count(rows.length)}</b> of {count(total ?? rows.length)} matching lines
@@ -125,7 +126,7 @@ export default function Logs({ instanceId }: { instanceId: string | null }) {
       />
 
       {liveLogs.length > 0 && (
-        <Panel className="mt-5 border-gain-fill/30" title="Live" right={<PulseDot />} scroll="max-h-[20rem]">
+        <Panel className="mt-5" title="Live" right={<span className="text-xs text-muted">newest {new Date(liveLogs[0]!.ts).toISOString().slice(11, 19)} UTC</span>} scroll="max-h-[20rem]">
           <div className="p-2">
             {liveLogs.slice(0, 20).map((e) => (
               <LogLine
@@ -138,6 +139,7 @@ export default function Logs({ instanceId }: { instanceId: string | null }) {
                   message: String(e.payload.message ?? ""),
                   ts: e.ts,
                 }}
+                strategyName={strategyName}
               />
             ))}
           </div>
@@ -145,10 +147,10 @@ export default function Logs({ instanceId }: { instanceId: string | null }) {
       )}
 
       <Panel className="mt-5" title="History" hint="newest first" scroll="max-h-[calc(100dvh-20rem)]">
-        <Loadable loading={logs.isPending} error={logs.isError} retry={() => logs.refetch()} what="log history">
+        <Loadable loading={logs.isPending} error={logs.isError} retry={() => logs.refetch()} what="log history" shape="lines" lines={8}>
           <div className={`p-2 ${logs.isPlaceholderData ? "opacity-60" : ""}`}>
             {rows.map((l) => (
-              <LogLine key={l.id} log={l} />
+              <LogLine key={l.id} log={l} strategyName={strategyName} />
             ))}
             {rows.length === 0 && (
               <Empty>
@@ -159,7 +161,7 @@ export default function Logs({ instanceId }: { instanceId: string | null }) {
           {hasNextPage && (
             <div ref={sentinel} className="flex items-center justify-center gap-3 border-t border-line p-3 text-xs text-muted">
               {isFetchingNextPage ? (
-                <span>Loading older lines…</span>
+                <Spinner label="Loading older lines…" show />
               ) : (
                 <button
                   type="button"
@@ -177,6 +179,3 @@ export default function Logs({ instanceId }: { instanceId: string | null }) {
   );
 }
 
-function PulseDot() {
-  return <span className="live-dot inline-block h-2 w-2 rounded-full bg-gain-fill" />;
-}

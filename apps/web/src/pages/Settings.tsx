@@ -91,7 +91,7 @@ function Sharing({ instanceId }: { instanceId: string | null }) {
 function Appearance() {
   return (
     <Card className="max-w-md overflow-hidden">
-      <Row title="Theme" sub="dark is the default; the choice is remembered on this device">
+      <Row title="Theme" sub="Remembered on this device.">
         <div className="w-44">
           <ThemeToggle />
         </div>

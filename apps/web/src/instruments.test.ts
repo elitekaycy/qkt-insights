@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 import type { LiveAccount } from "./api";
-import { distinctLegs, GLOSSARY, INSTRUMENT_TYPE_KEYS, legLabel, sizeInWords, strategyLegs, TYPE_LABEL, type InstrumentType } from "./instruments";
+import { distinctLegs, GLOSSARY, INSTRUMENT_TYPE_KEYS, legLabel, optionFromSymbol, optionLine, sizeInWords, strategyCurrencies, strategyEnvironment, strategyLegs, TYPE_LABEL, type InstrumentType } from "./instruments";
 
 const NOW = Date.UTC(2026, 9, 29);
 
@@ -86,5 +86,54 @@ describe("glossary", () => {
       expect(GLOSSARY[t].text.length).toBeGreaterThan(40);
     }
     expect(GLOSSARY.funding.text).toMatch(/longs/);
+  });
+});
+
+describe("strategyCurrencies", () => {
+  const account = (broker: string, currency: string, profiles: string[] = []): LiveAccount =>
+    ({ instanceId: "soak", broker, currency, balance: 0, equity: 0, lastSeen: 0, stale: false, profiles }) as LiveAccount;
+  const accounts = [account("EXNESS_O10", "USD", ["EXNESS_H01", "EXNESS_O10"]), account("PAPER_H", "USDC")];
+
+  it("names the currency of each account a strategy's streams trade on", () => {
+    const row = { metadata: { streams: [{ broker: "EXNESS_H01", symbol: "XAUUSD" }, { broker: "PAPER_H", symbol: "BTC_USDC_PERPETUAL" }] } };
+    expect(strategyCurrencies(row, accounts, "soak")).toEqual(["USD", "USDC"]);
+    expect(strategyCurrencies({ metadata: { streams: [{ broker: "exness_o10" }] } }, accounts, "soak")).toEqual(["USD"]);
+  });
+
+  it("skips labels no live account reports, and has nothing without streams", () => {
+    expect(strategyCurrencies({ metadata: { streams: [{ broker: "GONE" }] } }, accounts, "soak")).toEqual([]);
+    expect(strategyCurrencies({ metadata: null }, accounts, "soak")).toEqual([]);
+    expect(strategyCurrencies(null, accounts, "soak")).toEqual([]);
+  });
+});
+
+describe("strategyEnvironment", () => {
+  const stream = (venue: Record<string, unknown> | null) => ({ broker: "X", symbol: "Y", venue });
+  it("says paper, demo or live from each stream's venue facts", () => {
+    const row = { metadata: { streams: [stream({ connector: "mt5", adapter: "exness", tradeMode: "demo" }), stream({ connector: "vgp", adapter: "paper", tradeMode: "demo" })] } };
+    expect(strategyEnvironment(row).map((e) => e.label)).toEqual(["Demo", "Paper"]);
+    expect(strategyEnvironment({ metadata: { streams: [stream({ connector: "mt5", adapter: "icmarkets", tradeMode: "real" })] } }).map((e) => e.label)).toEqual(["Live"]);
+    expect(strategyEnvironment({ metadata: { streams: [stream({ connector: "paper" })] } }).map((e) => e.label)).toEqual(["Paper"]);
+  });
+
+  it("shows nothing when qkt states no venue", () => {
+    expect(strategyEnvironment({ metadata: { streams: [stream(null)] } })).toEqual([]);
+    expect(strategyEnvironment({ metadata: null })).toEqual([]);
+    expect(strategyEnvironment(null)).toEqual([]);
+  });
+});
+
+describe("optionFromSymbol", () => {
+  it("reads a Deribit option symbol, with the premium in the settlement currency or the coin", () => {
+    expect(optionFromSymbol("PAPER_DERIBIT_B:BTC_USDC_29OCT26_80500_C")).toEqual({ base: "BTC", premium: "USDC", expiry: Date.UTC(2026, 9, 29), strike: 80500, right: "call" });
+    expect(optionFromSymbol("BTC-29NOV26-70000-P")).toEqual({ base: "BTC", premium: "BTC", expiry: Date.UTC(2026, 10, 29), strike: 70000, right: "put" });
+    expect(optionLine("BTC_USDC_29OCT26_80500_C", NOW)).toBe("Call 80,500 · exp 29 Oct");
+  });
+
+  it("is null for anything else", () => {
+    expect(optionFromSymbol("BTC_USDC_PERPETUAL")).toBeNull();
+    expect(optionFromSymbol("BTC_USDC_30OCT26")).toBeNull();
+    expect(optionFromSymbol("EURUSD")).toBeNull();
+    expect(optionLine("XAUUSD")).toBeNull();
   });
 });

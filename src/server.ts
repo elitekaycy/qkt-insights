@@ -229,8 +229,9 @@ export async function buildServer(mode: Mode) {
     const shares = new Shares(db);
     const views = new Views(db);
     const publicCache = new TtlCache(60_000, 1000);
-    registerShares(app, { db, shares, cache: publicCache, views });
-    registerPublic(app, { db, liveState, shares, cache: publicCache, delayMs: publicDelayMinutes(process.env.PUBLIC_DELAY_MINUTES) * 60_000, views, accountLimits });
+    const publicDelayMs = publicDelayMinutes(process.env.PUBLIC_DELAY_MINUTES) * 60_000;
+    registerShares(app, { db, shares, cache: publicCache, views, delayMs: publicDelayMs });
+    registerPublic(app, { db, liveState, shares, cache: publicCache, delayMs: publicDelayMs, views, accountLimits });
     registerViews(app, { views });
     // Links whose subject stopped being public without an admin change (deploy metadata moved a
     // strategy, a strategy was pruned) are replaced within a minute.

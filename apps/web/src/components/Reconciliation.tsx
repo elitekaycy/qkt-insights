@@ -11,7 +11,8 @@ import { Cell, DataList, InfoIcon, Panel, Pnl, Popover, Skeleton, StatusWord, ty
 
 const TONE: Record<ReconciliationTone, Tone> = { ok: "ok", bad: "bad", neutral: "neutral" };
 
-const HINT = "every night at 02:00 UTC, from what qkt sends · each UTC day's balance change against the account's deals (a move with no deal is a deposit, withdrawal or credit, not a failure), open positions against the venue, round trips against their deals · tap a day for its trades";
+const HINT = "Nightly at 02:00 UTC against venue deals";
+const HINT_TITLE = "Each UTC day's balance change against the account's deals (a move with no deal is a deposit, withdrawal or credit, not a failure), open positions against the venue, and trades against their deals. Tap a day for its trades.";
 
 /** What no stored deal explains: a signed amount with its glyph, never coloured as P&L. */
 function Unexplained({ value, digits }: { value: number | null; digits: number }) {
@@ -48,7 +49,7 @@ function DayList({ kind, days, digits, onDay }: { kind: "diff" | "external"; day
   const external = kind === "external";
   return (
     <div className="mt-2.5 min-w-0">
-      <div className={`mb-1 flex items-center gap-1.5 text-[11px] font-medium uppercase tracking-[0.06em] ${external ? "text-warn" : "text-loss"}`}>
+      <div className={`mb-1 flex items-center gap-1.5 text-[11px] font-medium ${external ? "text-warn" : "text-loss"}`}>
         <span className={`inline-block h-1.5 w-1.5 rounded-full ${external ? "bg-warn" : "bg-danger"}`} aria-hidden />
         {external ? "Balance moves without a deal" : "Days that differ"}
       </div>
@@ -82,15 +83,15 @@ function DayList({ kind, days, digits, onDay }: { kind: "diff" | "external"; day
             </div>
             {!external && <div className="mt-1.5 grid grid-cols-3 gap-2 text-xs">
               <div className="min-w-0">
-                <div className="text-[11px] uppercase tracking-[0.06em] text-faint">balance</div>
+                <div className="text-xs text-muted">balance</div>
                 <Pnl value={d.balanceChange} />
               </div>
               <div className="min-w-0">
-                <div className="text-[11px] uppercase tracking-[0.06em] text-faint">deals sum</div>
+                <div className="text-xs text-muted">deals sum</div>
                 <Pnl value={d.dealNet} />
               </div>
               <div className="min-w-0">
-                <div className="text-[11px] uppercase tracking-[0.06em] text-faint">deals</div>
+                <div className="text-xs text-muted">deals</div>
                 <span className="text-bright">{count(d.deals)}</span>
               </div>
             </div>}
@@ -114,41 +115,43 @@ function AccountBlock({ a, view, showInstance }: { a: AccountReconciliation; vie
   const onDay = (d: ReconciledDay) => navigate(dayTradesPath(view.instanceId, d.day), { from: "Health · Reconciliation" });
   const incomplete = a.days.filter((d) => d.status === "incomplete");
   const live = accountOfLabel(useLiveState().data?.accounts ?? [], view.instanceId, a.label);
+  // what checks out is one quiet line; anything that does not gets its own line and details
+  const okChecks = [positions.tone === "ok" ? "Positions ✓" : null, ledger.tone === "ok" ? "Ledger ✓" : null].filter(Boolean).join(" · ");
   return (
     <li className="min-w-0 px-4 py-3.5">
       <div className="flex min-w-0 flex-wrap items-center gap-x-3 gap-y-1">
         <span className="min-w-0 truncate font-semibold text-bright" title={live ? `checked under broker profile ${a.label}` : undefined}>{live ? accountName(live) : a.label}</span>
-        {showInstance && <span className="truncate font-mono text-[11px] text-faint">{view.instanceId}</span>}
-        <StatusWord tone={TONE[v.tone]}>{v.text}</StatusWord>
-        <span className="text-xs text-muted">{checkedLabel(a.checkedAt)}</span>
-      </div>
-      <div className="mt-1 flex flex-wrap items-center gap-x-2 text-xs text-muted">
-        <span>{dayCounts(a)}</span>
-        {a.firstDay && <span className="text-faint">since {dayMonth(a.firstDay)} {a.firstDay.slice(0, 4)}</span>}
+        {showInstance && <span className="truncate font-mono text-xs text-muted">{view.instanceId}</span>}
+        <span title={`${dayCounts(a)}${a.firstDay ? ` since ${dayMonth(a.firstDay)} ${a.firstDay.slice(0, 4)}` : ""} · ${checkedLabel(a.checkedAt)}`}>
+          <StatusWord tone={TONE[v.tone]}>{v.text}</StatusWord>
+        </span>
+        {okChecks && <span className="text-xs text-muted" title={[positions.tone === "ok" ? positions.text : null, ledger.tone === "ok" ? ledger.text : null].filter(Boolean).join(" · ")}>{okChecks}</span>}
         <Details label="Incomplete days" lines={incomplete.map((d) => `${d.day}: ${d.reason ? DAY_REASON[d.reason] : "incomplete"}`)} />
       </div>
       {diffs.length > 0 && <DayList kind="diff" days={diffs} digits={view.digits} onDay={onDay} />}
       {external.length > 0 && <DayList kind="external" days={external} digits={view.digits} onDay={onDay} />}
-      <ul className="mt-2.5 space-y-1.5">
-        <li className="flex min-w-0 flex-wrap items-center gap-x-2 gap-y-1">
-          <StatusWord tone={TONE[positions.tone]} wrap>
-            {positions.text}
-          </StatusWord>
-          <Details label="Positions that differ" lines={positionIssues(a.positions)} />
-        </li>
-        <li className="flex min-w-0 flex-wrap items-center gap-x-2 gap-y-1">
-          <StatusWord tone={TONE[ledger.tone]} wrap>
-            {ledger.text}
-          </StatusWord>
-          <Details label="Round trips that differ from their deals" lines={a.ledger.mismatched.map((t) => `#${t.ticket}: trip ${signedMoney(t.realized, view.digits)}, deals ${signedMoney(t.dealsNet, view.digits)}`)} />
-        </li>
-      </ul>
+      {(positions.tone !== "ok" || ledger.tone !== "ok") && (
+        <ul className="mt-2.5 space-y-1.5">
+          {positions.tone !== "ok" && (
+            <li className="flex min-w-0 flex-wrap items-center gap-x-2 gap-y-1">
+              <StatusWord tone={TONE[positions.tone]} wrap>{positions.text}</StatusWord>
+              <Details label="Positions that differ" lines={positionIssues(a.positions)} />
+            </li>
+          )}
+          {ledger.tone !== "ok" && (
+            <li className="flex min-w-0 flex-wrap items-center gap-x-2 gap-y-1">
+              <StatusWord tone={TONE[ledger.tone]} wrap>{ledger.text}</StatusWord>
+              <Details label="Trades that differ from their deals" lines={a.ledger.mismatched.map((t) => `#${t.ticket}: trip ${signedMoney(t.realized, view.digits)}, deals ${signedMoney(t.dealsNet, view.digits)}`)} />
+            </li>
+          )}
+        </ul>
+      )}
     </li>
   );
 }
 
 /** The Health page's Reconciliation card: every venue account of every reporting instance. */
-export function ReconciliationCard({ instances }: { instances: string[] }) {
+export function ReconciliationCard({ instances, pending = false }: { instances: string[]; /** The instance list is still loading. */ pending?: boolean }) {
   const results = useQueries({
     queries: instances.map((i) => ({
       queryKey: ["reconciliation", i],
@@ -157,12 +160,12 @@ export function ReconciliationCard({ instances }: { instances: string[] }) {
     })),
   });
   const views = results.flatMap((r) => (r.data ? [r.data] : []));
-  const loading = results.some((r) => r.isLoading);
+  const loading = pending || results.some((r) => r.isLoading);
   const failed = results.some((r) => r.isError && !r.data);
   const accounts = views.flatMap((view) => view.accounts.map((a) => ({ view, a })));
   const unassigned = views.filter((v) => v.unassigned.deals > 0);
   return (
-    <Panel className="mt-6" title="Reconciliation" hint={HINT}>
+    <Panel className="mt-6" title="Reconciliation" hint={HINT} hintTitle={HINT_TITLE}>
       {loading && accounts.length === 0 && <Skeleton lines={3} className="p-4" />}
       {failed && <div className="px-4 py-3 text-sm text-loss">Could not load a reconciliation from the collector. Retrying.</div>}
       {unassigned.map((v) => (
@@ -178,10 +181,12 @@ export function ReconciliationCard({ instances }: { instances: string[] }) {
         const line = ignoredLine(v.ignored, v.digits);
         return line && (
           <div key={`ignored:${v.instanceId}`} className="flex min-w-0 flex-wrap items-center gap-x-2 gap-y-1 border-b border-line/60 px-4 py-2.5">
-            <StatusWord tone="neutral" wrap>
-              {line}
-              {instances.length > 1 ? ` on ${v.instanceId}` : ""}: another system's trades on this account, in no strategy, trade or total; the balance check still counts them
-            </StatusWord>
+            <span title={line.title}>
+              <StatusWord tone="neutral" wrap>
+                {line.text}
+                {instances.length > 1 ? ` (${v.instanceId})` : ""}
+              </StatusWord>
+            </span>
           </div>
         );
       })}

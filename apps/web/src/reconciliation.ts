@@ -34,7 +34,7 @@ export function verdict(a: AccountReconciliation): { tone: ReconciliationTone; t
 }
 
 /** "2 balance moves without a deal": deposits, withdrawals or credits, which are not failures. */
-export function externalCount(n: number): string {
+function externalCount(n: number): string {
   return `${count(n)} balance ${n === 1 ? "move" : "moves"} without a deal`;
 }
 
@@ -57,7 +57,7 @@ export const DAY_REASON: Record<ReconciledDayReason, string> = {
 
 /** The open-positions result on one line. */
 export function positionsLine(p: ReconciledPositions): { tone: ReconciliationTone; text: string } {
-  if (p.status === "stale") return { tone: "neutral", text: "Open positions: not compared, no venue positions report in the 5 minutes before the check" };
+  if (p.status === "stale") return { tone: "neutral", text: "Open positions: not compared (no recent venue report)" };
   if (p.status === "ok") {
     return { tone: "ok", text: p.venueCount === 0 ? "Open positions ✓ none at the venue, none in insights" : `Open positions ✓ ${count(p.venueCount)} at the venue match insights` };
   }
@@ -99,15 +99,18 @@ export function unassignedLabels(labels: ReadonlyArray<{ broker: string; deals: 
  * "12 deals from magics 31000-31199 ignored (net −3.20)": another system's deals on a shared account
  * that INSIGHTS_IGNORE_MAGICS keeps out of every view; null when the instance ignores no range.
  */
-export function ignoredLine(ignored: { ranges: string[]; deals: number; net: number }, digits = 2): string | null {
+export function ignoredLine(ignored: { ranges: string[]; deals: number; net: number }, digits = 2): { text: string; title: string } | null {
   if (ignored.ranges.length === 0 && ignored.deals === 0) return null;
   const magics = ignored.ranges.length === 0 ? "magic ranges no longer configured" : `${ignored.ranges.length === 1 && !ignored.ranges[0]!.includes("-") ? "magic" : "magics"} ${ignored.ranges.join(", ")}`;
   const net = ignored.deals > 0 ? ` (net ${signedMoney(ignored.net, digits)})` : "";
-  return `${count(ignored.deals)} ${ignored.deals === 1 ? "deal" : "deals"} from ${magics} ignored${net}`;
+  return {
+    text: `${count(ignored.deals)} ${ignored.deals === 1 ? "deal" : "deals"} from another system${net} ${ignored.deals === 1 ? "is" : "are"} left out of strategy totals; the balance check counts them.`,
+    title: `Deals from ${magics}`,
+  };
 }
 
 /** What an empty card says, and why: no run stores an account before qkt has sent its balance. */
-export const EMPTY_TEXT = "No venue account reconciled yet. The check runs a couple of minutes after the collector starts and every night at 02:00 UTC, for each account qkt has sent a balance for.";
+export const EMPTY_TEXT = "Nothing checked yet. The first check runs a few minutes after start, then nightly at 02:00 UTC for each account with a balance.";
 
 /** Where a differing day drills to: Trades on the instance, all time, filtered to the round trips closed that UTC day. */
 export function dayTradesPath(instanceId: string, day: string): string {

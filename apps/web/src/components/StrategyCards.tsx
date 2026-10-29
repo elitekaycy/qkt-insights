@@ -1,24 +1,24 @@
 import { useId, type ReactNode } from "react";
-import { age, count, DASH, money, pct, ts } from "../format";
-import { haltSummary } from "../halt";
+import { age, count, DASH, money, ts } from "../format";
+import { haltClearing, haltReasonText, haltSummary } from "../halt";
 import { Link } from "../router";
 import { cardFigures, cardName, sparkPath, thinCurve, type CardLine, type PortfolioCard } from "../strategyCards";
 import type { Leg } from "../instruments";
-import { LegList } from "./InstrumentType";
-import { Pnl, Popover, ReturnPct } from "./ui";
+import { LegLine } from "./InstrumentType";
+import { CurrencyMix, Pnl, ReturnPct } from "./ui";
 
 /*
- * The Strategies page's cards: one per strategy (name, net with its return on its own base, a
- * sparkline of cumulative realized P&L, today, trades, win rate, max drawdown, last close), and a
- * group card per portfolio with its sleeves beneath. The whole card is the link; status stays
- * quiet: nothing while running, a muted card with "Halted" (reason on hover or tap) otherwise.
+ * The Strategies page's cards: one per strategy (name, what it trades on one line, net incl. open with its return on
+ * its own base on hover, a sparkline of cumulative realized P&L once there are five closes, then today, open, trades
+ * and last close), and a group card per portfolio with its sleeves beneath. The whole card is the link. A halted
+ * strategy stays at full ink with its reason in amber under the name; a retired one is muted.
  */
 
 const SPARK_W = 120;
 const SPARK_H = 36;
 
 /** Cumulative realized P&L, one stable series colour with a faint fade; a dashed zero when the curve crosses it. */
-export function Sparkline({ points, className = "" }: { points: readonly number[]; className?: string }) {
+function Sparkline({ points, className = "" }: { points: readonly number[]; className?: string }) {
   const id = useId().replace(/:/g, "");
   const path = sparkPath(thinCurve(points), SPARK_W, SPARK_H);
   if (!path) return <div className={className} aria-hidden />;
@@ -36,15 +36,6 @@ export function Sparkline({ points, className = "" }: { points: readonly number[
       <path d={path.area} fill={`url(#${id})`} />
       <path d={path.line} fill="none" stroke="var(--color-s1)" strokeWidth="1.5" strokeLinejoin="round" strokeLinecap="round" vectorEffect="non-scaling-stroke" />
     </svg>
-  );
-}
-
-/** The faint arrow at a card's top-right, shown on hover or keyboard focus. */
-function CardArrow() {
-  return (
-    <span aria-hidden className="shrink-0 text-sm leading-none text-faint opacity-0 transition-opacity duration-150 group-hover:opacity-100 group-focus-within:opacity-100 [@media(hover:none)]:opacity-50">
-      →
-    </span>
   );
 }
 
@@ -73,75 +64,63 @@ function Fig({ k, title, children }: { k: string; title?: string; children: Reac
   );
 }
 
-const BASE_WORD: Record<string, string> = { defined: "capital", "portfolio allocation": "allocated", "starting balance": "start balance" };
+const BASE_WORD: Record<string, string> = { defined: "defined capital", "portfolio allocation": "portfolio allocation", "starting balance": "starting balance" };
 
-/**
- * "on 1,000,000 capital": the base the strategy page measures its return on (strategyCapital), named
- * by its source; the full source on hover.
- */
-function BaseLabel({ base, source }: { base: number | null; source: string | null }) {
-  if (base == null) return <span className="text-xs text-faint">no capital known</span>;
+/** A halted strategy's reason under its name, in amber at full ink: it needs action, it is not retired. */
+function HaltLine({ row }: { row: NonNullable<CardLine["row"]> }) {
+  const summary = haltSummary(row) ?? "";
   return (
-    <span className="text-xs text-faint" title={`return on ${money(base, 0)} ${source === "defined" ? "defined capital" : source ?? "capital"}`}>
-      on {money(base, 0)} {BASE_WORD[source ?? ""] ?? ""}
-    </span>
+    <p className="mt-0.5 text-xs font-medium text-warn" title={summary}>
+      Halted · {haltReasonText(row.haltReason)} · {haltClearing(row)}
+    </p>
   );
 }
 
-/** A halted strategy's quiet label; the reason, how it ends and the resume command on hover or tap. */
-function HaltLabel({ summary }: { summary: string }) {
-  return (
-    <span className="pointer-events-auto relative z-10 shrink-0" title={summary}>
-      <Popover label="Why this strategy is halted" align="right" trigger={<span className="text-xs text-muted hover:text-body">Halted</span>}>
-        {summary}
-      </Popover>
-    </span>
-  );
-}
+/** At least this many closes before a curve is drawn: two points make a diagonal, not a shape. */
+const SPARK_MIN_CLOSES = 5;
 
-export function StrategyCard({ line, curve, name, origin, legs = [] }: {
+export function StrategyCard({ line, curve, name, origin, legs = [], mix = null }: {
   line: CardLine; curve: readonly number[]; name?: string; origin: string;
   /** What it trades: type, instrument and venue per leg. */
   legs?: readonly Leg[];
+  /** Set when the strategy trades accounts in different currencies: its figures carry "USD+USDC". */
+  mix?: { label: string; title: string } | null;
 }) {
   const f = cardFigures(line);
   const label = name ?? cardName(line);
-  const halt = line.row ? haltSummary(line.row) : null;
   const retired = line.row != null && !line.row.active;
-  const quiet = halt != null || retired || line.key == null;
+  const halted = line.row != null && !retired && line.row.halted === true;
   const to = line.key ? `/s/${encodeURIComponent(line.key)}` : null;
+  const baseWords = f.base == null ? "no capital known" : `Return on the strategy's ${BASE_WORD[f.baseSource ?? ""] ?? "base"} of ${money(f.base, 0)}`;
   return (
     <LinkCard to={to} origin={origin} label={label} className="h-full">
-      <div className="flex h-full flex-col gap-3 p-4">
-        <div className="flex items-center gap-2">
-          <span className={`min-w-0 truncate text-sm font-medium ${quiet ? "text-muted" : "text-bright"}`} title={line.key ?? "closes and positions no strategy claimed"}>
-            {label}
-          </span>
-          <span className="ml-auto flex shrink-0 items-center gap-2">
-            {halt && <HaltLabel summary={halt} />}
-            {!halt && retired && <span className="text-xs text-faint">Retired</span>}
-            {to && <CardArrow />}
-          </span>
-        </div>
-        {legs.length > 0 && <LegList legs={legs} max={2} explain={false} className="-mt-1.5" />}
-        <div className={`flex items-end justify-between gap-3 ${quiet ? "opacity-60 grayscale" : ""}`}>
-          <div className="min-w-0">
-            <Pnl value={f.net} className="block text-xl font-headline tabular-nums" />
-            <div className="mt-0.5 flex flex-wrap items-baseline gap-x-1.5">
-              <ReturnPct net={f.net} base={f.base} />
-              {line.row && <BaseLabel base={f.base} source={f.baseSource} />}
-            </div>
+      <div className={`flex h-full flex-col gap-3 p-4 ${retired ? "opacity-60" : ""}`}>
+        <div className="min-w-0">
+          <div className="flex items-start gap-2">
+            <span className="min-w-0 break-words text-sm font-medium text-bright" title={line.key ?? undefined}>{label}</span>
+            {retired && <span className="ml-auto shrink-0 text-xs text-faint">Retired</span>}
           </div>
-          <span title={`cumulative realized P&L over ${count(f.trades)} close${f.trades === 1 ? "" : "s"}`} className="shrink-0">
-            <Sparkline points={curve} className="h-9 w-28" />
-          </span>
+          {halted && <HaltLine row={line.row!} />}
+          {legs.length > 0 && <LegLine legs={legs} className="mt-1" />}
         </div>
-        <div className={`mt-auto grid grid-cols-4 gap-2 border-t border-line pt-3 ${quiet ? "opacity-60 grayscale" : ""}`}>
+        <div className="flex items-end justify-between gap-3">
+          <div className="min-w-0">
+            <div className="text-xs text-muted">Net incl. open</div>
+            <span className="block whitespace-nowrap"><Pnl value={f.net} className="text-xl font-headline tabular-nums" /><CurrencyMix mix={mix} /></span>
+            <span title={baseWords}><ReturnPct net={f.net} base={f.base} /></span>
+          </div>
+          {f.trades >= SPARK_MIN_CLOSES ? (
+            <span title={`cumulative realized P&L over ${count(f.trades)} closes`} className="shrink-0">
+              <Sparkline points={curve} className="h-9 w-28" />
+            </span>
+          ) : (
+            <span className="shrink-0 text-xs text-muted">{f.trades === 0 ? "no closes" : `${count(f.trades)} ${f.trades === 1 ? "close" : "closes"}`}</span>
+          )}
+        </div>
+        <div className="mt-auto grid grid-cols-4 gap-2 border-t border-line pt-3">
+          <Fig k="Today" title="realized since the account's trading day began"><Pnl value={f.today} glyphs={false} /></Fig>
+          <Fig k="Open" title="floating on its open positions now"><Pnl value={f.floating} glyphs={false} /></Fig>
           <Fig k="Trades">{count(f.trades)}</Fig>
-          <Fig k="Win rate" title="wins over decided closes; breakeven excluded">{pct(f.winRate)}</Fig>
-          <Fig k="Max DD" title="deepest fall of cumulative realized P&L from its peak">
-            {f.maxDd > 0 ? <span className="text-loss">{money(-f.maxDd)}</span> : money(0)}
-          </Fig>
           <Fig k="Last close" title={f.lastTs == null ? undefined : `${ts(f.lastTs)} UTC`}>{f.lastTs == null ? DASH : age(f.lastTs)}</Fig>
         </div>
       </div>
@@ -168,10 +147,7 @@ export function PortfolioGroup<T extends CardLine>({
       <LinkCard to={to} origin={origin} label={`portfolio ${group.id}`} bare className="rounded-b-none border-b border-line">
         <div className="flex flex-wrap items-center gap-x-6 gap-y-2 px-4 py-3.5">
           <div className="min-w-0">
-            <div className="flex items-center gap-2">
-              <h2 className="min-w-0 truncate text-[15px] font-headline text-bright">{group.id}</h2>
-              <CardArrow />
-            </div>
+            <h2 className="min-w-0 break-words text-[15px] font-headline text-bright">{group.id}</h2>
             <div className="text-xs text-faint">
               portfolio · {group.children.length} strateg{group.children.length === 1 ? "y" : "ies"} · {count(group.trades)} trades
               {group.lastTs != null && ` · last close ${age(group.lastTs)}`}

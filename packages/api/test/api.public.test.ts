@@ -91,7 +91,7 @@ async function build(opts: { publicRequestsPerMinute?: number } = {}) {
   hash ??= await argon2.hash("admin-password-long");
   registerAuth(app, { username: "admin", passwordHash: hash, sessions: new Sessions(db) });
   const cache = new TtlCache(30_000, 500, () => NOW);
-  registerShares(app, { db, shares, cache });
+  registerShares(app, { db, shares, cache, delayMs: DELAY });
   registerPublic(app, { db, liveState, shares, cache, delayMs: DELAY, now: () => NOW, requestsPerMinute: opts.publicRequestsPerMinute });
   await app.ready();
   const login = await app.inject({ method: "POST", url: "/auth/login", payload: { username: "admin", password: "admin-password-long" } });
@@ -109,7 +109,7 @@ async function share(kind: "overview" | "portfolio" | "strategy", subject: strin
 }
 
 interface ShareState { visibility: "public" | "private" | null; effective: boolean; token: string | null }
-interface SharesView { overview: ShareState; portfolios: Array<ShareState & { id: string }>; strategies: Array<ShareState & { id: string }> }
+interface SharesView { delayMinutes?: number; overview: ShareState; portfolios: Array<ShareState & { id: string }>; strategies: Array<ShareState & { id: string }> }
 
 function pub(token: string, path: string) {
   return app.inject({ method: "GET", url: `/public/${token}${path}` });
@@ -137,6 +137,8 @@ describe("share management", () => {
     const view = (await admin("GET", "/shares?instance=i1")).json() as SharesView;
     expect(view.overview).toEqual({ visibility: null, effective: false, token: null, views: 0 });
     expect(view.strategies.every((s) => !s.effective && s.token == null)).toBe(true);
+    // the share control states the delay before anything goes public
+    expect(view.delayMinutes).toBe(Math.round(DELAY / 60_000));
   });
 
   it("a public overview makes strategies public unless set otherwise, and hands out their tokens", async () => {

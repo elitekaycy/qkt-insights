@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 import { rangeStart } from "../components/ui";
-import { chipOf, emptyHint, exitSpan, nearestByTime, pickedSpan, profitFactorText, toggleToken, windowTotals, withCumulative, without } from "./journal";
+import { chipOf, emptyHint, exitSpan, nearestByTime, pickedSpan, importantLog, profitFactorText, todayParts, toggleToken, windowTotals, withCumulative, without } from "./journal";
 
 const day = (d: string, n: number, wins: number, losses: number, pnl: number) => ({ day: d, n, wins, losses, pnl });
 
@@ -63,5 +63,29 @@ describe("empty selection", () => {
     expect(emptyHint("", 0)).toBe("This strategy has not closed a trade yet.");
     expect(emptyHint("", Date.UTC(2026, 9, 1))).toBe("Widen the range: none closed in it.");
     expect(emptyHint("side:BUY", undefined)).toBe("Loosen the search above or widen the range.");
+  });
+});
+
+describe("todayParts", () => {
+  const ended = [{ key: "stop", n: 5, pnl: -6 }, { key: "signal", n: 3, pnl: 0.43 }];
+  it("tells the day: trades, wins, stops with their money, what is open, and a run of losses", () => {
+    expect(todayParts({ closed: 8, wins: 1, ended }, 0.75, -6)).toEqual(["8 trades", "1 won", "5 stopped (\u22126.00)", "open +0.75", "6 lost in a row"]);
+  });
+  it("leaves out what it has nothing to say about", () => {
+    expect(todayParts({ closed: 1, wins: 0, ended: [] }, 0, -1)).toEqual(["1 trade", "0 won"]);
+    expect(todayParts(null, 1.5, 4)).toEqual(["open +1.50", "4 won in a row"]);
+    expect(todayParts({ closed: 0, wins: 0, ended: [] }, null, -6)).toEqual([]);
+  });
+});
+
+describe("importantLog", () => {
+  const line = (level: string, message: string, logger = "Engine") => ({ level, message, logger });
+  it("keeps orders, fills, trades and real warnings, and drops routine noise", () => {
+    expect(importantLog(line("INFO", "order ORD-12 filled at 1.11879"))).toBe(true);
+    expect(importantLog(line("INFO", "Stop moved to 1.11759"))).toBe(true);
+    expect(importantLog(line("ERROR", "broker refused the request"))).toBe(true);
+    expect(importantLog(line("INFO", "market data EURUSD PAUSED: scheduled break"))).toBe(false);
+    expect(importantLog(line("WARN", "StateFileWriter.write slow (812 ms)", "StateFileWriter"))).toBe(false);
+    expect(importantLog(line("INFO", "bar closed 5m"))).toBe(false);
   });
 });

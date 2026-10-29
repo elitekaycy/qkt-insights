@@ -47,16 +47,17 @@ export function OriginBack({ className = "", iconOnly = false }: { className?: s
   );
 }
 
-export function PageHeader({ title, sub, right, scope }: { title: string; sub?: string; right?: ReactNode; scope?: ReactNode }) {
+export function PageHeader({ title, sub, right, scope }: { title: string; sub?: ReactNode; right?: ReactNode; scope?: ReactNode }) {
   return (
     <header>
       <div className="flex flex-wrap items-center justify-between gap-3">
         <div className="min-w-0">
           <div className="flex min-w-0 items-center gap-2.5">
             <OriginBack />
-            <h1 className="min-w-0 truncate text-xl font-headline text-bright">{title}</h1>
+            {/* phones name the page in the top bar */}
+            <h1 className="min-w-0 truncate text-xl font-headline text-bright max-lg:sr-only">{title}</h1>
           </div>
-          {sub && <p className="mt-0.5 text-sm text-muted">{sub}</p>}
+          {sub && <div className="mt-0.5 text-sm text-muted">{sub}</div>}
         </div>
         {right}
       </div>
@@ -160,6 +161,7 @@ function SheetHeader({ onClose, children }: { onClose: () => void; children: Rea
 export function Panel({
   title,
   hint,
+  hintTitle,
   toolbar,
   right,
   children,
@@ -168,6 +170,8 @@ export function Panel({
 }: {
   title: string;
   hint?: string;
+  /** The longer explanation behind the hint, on hover. */
+  hintTitle?: string;
   toolbar?: ReactNode;
   right?: ReactNode;
   children: ReactNode;
@@ -184,7 +188,7 @@ export function Panel({
         <div className="flex flex-wrap items-center gap-2 border-b border-line px-4 py-3">
           <div className="flex min-w-0 flex-1 basis-[60%] flex-col items-start gap-0.5 @3xl:basis-0 @3xl:flex-row @3xl:items-baseline @3xl:gap-2.5">
             <h3 className="shrink-0 text-sm font-medium text-body">{title}</h3>
-            {hint && <span className="text-xs text-muted">{hint}</span>}
+            {hint && <span className={`text-xs text-muted ${hintTitle ? "cursor-help underline decoration-dotted underline-offset-4" : ""}`} title={hintTitle}>{hint}</span>}
           </div>
           {(toolbar || right) && (
             <div className="order-3 flex w-full min-w-0 flex-wrap items-center gap-2 @3xl:order-none @3xl:w-auto @3xl:shrink-0 @3xl:justify-end">
@@ -237,7 +241,8 @@ const TONE_TEXT: Record<Tone, string> = {
   accent: "text-accent-ink",
 };
 
-const STATUS_DOT: Partial<Record<Tone, string>> = { ok: "bg-ok", bad: "bg-danger", warn: "bg-warn" };
+/** Status dots only for what needs a look: a healthy (ok) status shows none. */
+const STATUS_DOT: Partial<Record<Tone, string>> = { bad: "bg-danger", warn: "bg-warn" };
 
 const TONE_PILL: Record<Tone, string> = {
   neutral: "border-line bg-raised text-body",
@@ -279,7 +284,7 @@ export function Stat({
           </div>
         ) : (
           // status tones read as a dot beside a plain figure, never as a coloured number that could pass for P&L
-          <div className={`mt-1.5 flex items-center gap-2 truncate text-xl font-headline ${STATUS_DOT[tone] ? "text-bright" : TONE_TEXT[tone]}`}>
+          <div className={`mt-1.5 flex items-center gap-2 truncate text-xl font-headline ${tone === "ok" || STATUS_DOT[tone] ? "text-bright" : TONE_TEXT[tone]}`}>
             {STATUS_DOT[tone] && <span className={`inline-block h-2 w-2 shrink-0 rounded-full ${STATUS_DOT[tone]}`} aria-hidden />}
             {value}
           </div>
@@ -310,7 +315,7 @@ export function FlashValue({ value, children, className = "" }: { value: unknown
 }
 
 /** Always-visible "what does this mean" control in a card corner; opens on click or tap. */
-export function ExplainButton({ label, onClick }: { label: string; onClick: () => void }) {
+function ExplainButton({ label, onClick }: { label: string; onClick: () => void }) {
   return (
     <button
       type="button"
@@ -484,19 +489,9 @@ export function Segmented<T extends string>({
 export function Pill({ tone = "neutral", children }: { tone?: Tone; children: ReactNode }) {
   return (
     <span
-      className={`inline-flex h-5 items-center gap-1 whitespace-nowrap rounded-full border px-2 text-[11px] font-medium ${TONE_PILL[tone]}`}
+      className={`inline-flex h-5 items-center gap-1 whitespace-nowrap rounded-full border px-2 font-sans text-[11px] font-medium ${TONE_PILL[tone]}`}
     >
       {children}
-    </span>
-  );
-}
-
-/** A fractional change as "▲ +1.25%"; colour pairs with the glyph and the sign. */
-export function Delta({ value }: { value: number | null | undefined }) {
-  if (value == null) return <span className="text-faint">{DASH}</span>;
-  return (
-    <span className={`text-sm font-semibold ${toneClass(value * 100)}`}>
-      {glyph(value * 100)} {signedPct(value * 100)}
     </span>
   );
 }
@@ -511,6 +506,12 @@ export function Pnl({ value, dim, className = "", glyphs = true }: { value: numb
       {glyphs ? pnl(value) : signedMoney(value)}
     </span>
   );
+}
+
+/** The grey "USD+USDC" after a total that adds currencies 1:1; what that means on hover or focus. */
+export function CurrencyMix({ mix }: { mix: { label: string; title: string } | null }) {
+  if (!mix) return null;
+  return <span className="ml-1.5 whitespace-nowrap font-sans text-xs font-normal text-muted" title={mix.title} tabIndex={0}>{mix.label}</span>;
 }
 
 /**
@@ -540,21 +541,28 @@ export const LEVEL_TONE: Record<string, Tone> = {
   DEBUG: "neutral",
 };
 
-export const STATE_TONE: Record<string, Tone> = {
-  FILLED: "up",
-  WORKING: "info",
-  SUBMITTED: "info",
-  PARTIALLY_FILLED: "warn",
-  CANCELLED: "neutral",
-  REJECTED: "down",
-};
+/**
+ * A static status dot for what needs a look: amber for stale, red for down. Healthy shows no dot at all (the data's
+ * age says it), and a dot always sits beside words that say the same, so colour is never the only channel.
+ */
+export function StatusDot({ state }: { state: "stale" | "down" }) {
+  return <span aria-hidden className={`inline-block h-1.5 w-1.5 shrink-0 rounded-full ${state === "down" ? "bg-danger" : "bg-warn"}`} />;
+}
 
-export function LiveDot({ on, down = false }: { on: boolean; down?: boolean }) {
+/**
+ * The one loading mark: a 2px ring with a quarter arc that turns (0.8s, linear). Under reduced motion it stands
+ * still and the label is printed. `label` names what is loading for screen readers; `show` prints it beside the ring.
+ */
+export function Spinner({ size = "sm", label = "Loading", show = false, className = "" }: { size?: "sm" | "md"; label?: string; show?: boolean; className?: string }) {
+  const px = size === "md" ? 20 : 16;
   return (
-    <span
-      className={`inline-block h-2 w-2 shrink-0 rounded-full ${on ? "live-dot bg-ok" : down ? "bg-danger" : "bg-faint"}`}
-      title={on ? "live" : down ? "down" : "idle"}
-    />
+    <span role="status" aria-label={label} className={`inline-flex items-center gap-2 text-muted ${className}`}>
+      <svg viewBox="0 0 16 16" width={px} height={px} className="spinner shrink-0" aria-hidden>
+        <circle cx="8" cy="8" r="7" fill="none" stroke="currentColor" strokeOpacity="0.2" strokeWidth="2" />
+        <path d="M8 1a7 7 0 0 1 7 7" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" />
+      </svg>
+      {show ? <span className="text-sm">{label}</span> : <span className="spinner-label text-sm">{label}</span>}
+    </span>
   );
 }
 
@@ -695,7 +703,7 @@ export function LoadMore({ shown, total, onMore }: { shown: number; total: numbe
 const DAY_MS = 86_400_000;
 
 /** Date ranges: rolling windows (24h, 30D), and calendar spans that begin at a UTC midnight (Today, 7D, MTD, YTD). */
-export const RANGES = [
+const RANGES = [
   { key: "today", label: "Today (UTC)", short: "Today" },
   { key: "24h", label: "Last 24h", short: "24h" },
   { key: "7d", label: "Last 7 UTC days (incl. today)", short: "7D" },
@@ -840,23 +848,81 @@ export function Field({ label, children, wide }: { label: string; children: Reac
   );
 }
 
-/** Pulsing placeholder bars shown where content will land once its query resolves. */
-export function Skeleton({ lines = 3, className = "" }: { lines?: number; className?: string }) {
+/** What a panel will hold, so its placeholder takes the same shape: rows of a table, an axis frame, figures, text. */
+export type PlaceholderShape = "table" | "chart" | "kpis" | "lines";
+
+/** A spinner that appears only after `afterMs`, so a fast load never flashes one. */
+function LateSpinner({ afterMs = 1000, label }: { afterMs?: number; label: string }) {
+  const [late, setLate] = useState(false);
+  useEffect(() => {
+    const id = window.setTimeout(() => setLate(true), afterMs);
+    return () => window.clearTimeout(id);
+  }, [afterMs]);
+  return late ? <Spinner label={label} className="absolute right-4 top-3" /> : null;
+}
+
+/**
+ * A static placeholder shaped like what will land: table rows at their 44px pitch with column bars, a chart's axis
+ * frame with no line, KPI figures as bars of the figure's height, or text lines. No shimmer and no pulse; after a
+ * second of waiting a spinner shows at its top-right.
+ */
+export function Skeleton({ lines = 4, shape = "table", what = "content", className = "" }: { lines?: number; shape?: PlaceholderShape; what?: string; className?: string }) {
+  const bar = "rounded bg-raised";
+  const body = (() => {
+    switch (shape) {
+      case "chart":
+        return (
+          <div className="relative h-48 border-b border-l border-line">
+            {[0, 1, 2, 3].map((i) => <div key={i} className="absolute inset-x-0 border-t border-line" style={{ top: `${i * 25}%` }} />)}
+          </div>
+        );
+      case "kpis":
+        return (
+          <div className="grid grid-cols-2 gap-3 sm:grid-cols-3 xl:grid-cols-6">
+            {Array.from({ length: Math.max(2, lines) }, (_, i) => (
+              <div key={i} className="rounded-card border border-line p-4">
+                <div className={`h-3.5 w-20 ${bar}`} />
+                <div className={`mt-3 h-6 w-28 max-w-full ${bar}`} />
+                <div className={`mt-2 h-3 w-16 ${bar}`} />
+              </div>
+            ))}
+          </div>
+        );
+      case "lines":
+        return (
+          <div className="space-y-3">
+            {Array.from({ length: lines }, (_, i) => <div key={i} className={`h-3.5 ${bar}`} style={{ width: `${100 - (i % 3) * 18}%` }} />)}
+          </div>
+        );
+      default:
+        return (
+          <div>
+            {Array.from({ length: lines }, (_, i) => (
+              <div key={i} className="flex h-11 items-center gap-6 border-b border-line last:border-b-0">
+                <div className={`h-3.5 w-40 ${bar}`} />
+                <div className={`ml-auto h-3.5 w-16 ${bar}`} />
+                <div className={`hidden h-3.5 w-16 sm:block ${bar}`} />
+                <div className={`hidden h-3.5 w-20 md:block ${bar}`} />
+              </div>
+            ))}
+          </div>
+        );
+    }
+  })();
   return (
-    <div className={`animate-pulse space-y-3 p-4 ${className}`}>
-      {Array.from({ length: lines }, (_, i) => (
-        <div key={i} className="h-4 rounded bg-raised" style={{ width: `${100 - (i % 3) * 18}%` }} />
-      ))}
+    <div className={`relative p-4 ${className}`} aria-busy="true">
+      <LateSpinner label={`Loading ${what}`} />
+      {body}
     </div>
   );
 }
 
 /**
- * Per-panel gate around one query: skeleton while the first load is in
- * flight, an inline error with a Retry button if the fetch failed, otherwise
- * the content. Wrapping each panel separately keeps one broken endpoint from
- * blanking the whole page.
- * e.g. `<Loadable loading={q.isPending} error={q.isError} retry={q.refetch}>…</Loadable>`
+ * Per-panel gate around one query: a static placeholder shaped like the panel while the first load is in flight,
+ * an inline error with a Retry button if the fetch failed, otherwise the content, which fades in once on arrival.
+ * A refetch of data already on screen keeps it (no placeholder, no spinner). Wrapping each panel separately keeps
+ * one broken endpoint from blanking the whole page.
+ * e.g. `<Loadable loading={q.isPending} error={q.isError} retry={q.refetch} shape="chart">…</Loadable>`
  */
 export function Loadable({
   loading,
@@ -864,6 +930,7 @@ export function Loadable({
   retry,
   what = "this panel",
   lines,
+  shape,
   children,
 }: {
   loading: boolean;
@@ -871,8 +938,11 @@ export function Loadable({
   retry: () => void;
   what?: string;
   lines?: number;
+  shape?: PlaceholderShape;
   children: ReactNode;
 }) {
+  const waited = useRef(false);
+  if (loading) waited.current = true;
   if (error)
     return (
       <div className="m-4 flex items-center justify-between gap-3 rounded-lg border border-danger/45 bg-danger/10 px-3 py-2 text-sm text-loss">
@@ -880,20 +950,28 @@ export function Loadable({
         <Button onClick={() => retry()}>Retry</Button>
       </div>
     );
-  if (loading) return <Skeleton lines={lines} />;
-  return <>{children}</>;
+  if (loading) return <Skeleton lines={lines} shape={shape} what={what} />;
+  return waited.current ? <div className="arrive">{children}</div> : <>{children}</>;
 }
 
-/** Placeholder while a page's code chunk loads: sized like a page header and a card row. */
-export function PageFallback() {
+/**
+ * A page whose code is still loading on a cold visit: its real title and static panel frames, with the spinner
+ * beside the title. Route changes keep the previous page on screen instead (the router's transition).
+ */
+export function PageFallback({ title }: { title?: string }) {
   return (
-    <div className="animate-pulse" role="status" aria-label="Loading">
-      <div className="h-6 w-40 rounded bg-raised" />
-      <div className="mt-2 h-4 w-72 max-w-full rounded bg-raised" />
-      <div className="mt-6 grid grid-cols-2 gap-3 lg:grid-cols-4">
-        {Array.from({ length: 4 }, (_, i) => (
-          <div key={i} className="h-24 rounded-card border border-line bg-panel" />
-        ))}
+    <div aria-busy="true">
+      {title ? (
+        <div className="flex items-center gap-2.5">
+          <h1 className="text-xl font-headline text-bright">{title}</h1>
+          <Spinner label={`Loading ${title}`} />
+        </div>
+      ) : (
+        <Spinner label="Loading" show />
+      )}
+      <div className="mt-6 grid gap-4">
+        <div className="h-28 rounded-card border border-line bg-panel" />
+        <div className="h-64 rounded-card border border-line bg-panel" />
       </div>
     </div>
   );
@@ -917,7 +995,7 @@ export function RowChevron({ className = "" }: { className?: string }) {
   );
 }
 
-/** The clock, re-read every `everyMs` so "updated 4s ago" keeps ticking. */
+/** The clock, re-read every `everyMs` so an age ("stale · 4m") keeps up. */
 export function useNow(everyMs = 1000): number {
   const [now, setNow] = useState(() => Date.now());
   useEffect(() => {
@@ -928,26 +1006,22 @@ export function useNow(everyMs = 1000): number {
 }
 
 /**
- * Whether broker state is live, said outright: a pulsing dot and a ticking "updated 4s ago", or an
- * amber "stale · last update 12m ago" badge. Values stay readable either way.
+ * How old broker state is, said only when it matters: nothing beyond a static "as of 21:09:35 UTC" while it is
+ * fresh (or nothing at all with `quiet`), an amber dot and "stale · 12m" once it is stale. No pulse: the age is the
+ * information.
  */
-export function Freshness({ at, stale, className = "" }: { at: number; stale: boolean; className?: string }) {
-  const now = useNow();
-  const ago = ageSince(at, now);
+export function Freshness({ at, stale, quiet = false, className = "" }: { at: number; stale: boolean; quiet?: boolean; className?: string }) {
+  const now = useNow(stale ? 1000 : 60_000);
   if (stale) {
     return (
-      <span className={`inline-flex items-center gap-1.5 rounded-full border border-warn/45 bg-warn/10 px-2 py-0.5 text-[11px] font-medium text-warn ${className}`} role="status">
-        <span className="inline-block h-1.5 w-1.5 rounded-full bg-warn" aria-hidden />
-        stale · last update {ago}
+      <span className={`inline-flex items-center gap-1.5 text-xs font-medium text-warn ${className}`} role="status" title={`last broker update ${new Date(at).toISOString().slice(11, 19)} UTC`}>
+        <StatusDot state="stale" />
+        stale · {ageSince(at, now).replace(/ ago$/, "")}
       </span>
     );
   }
-  return (
-    <span className={`inline-flex items-center gap-1.5 text-[11px] text-muted ${className}`} title={`last broker update ${new Date(at).toISOString().slice(11, 19)} UTC`}>
-      <LiveDot on />
-      updated {ago}
-    </span>
-  );
+  if (quiet) return null;
+  return <span className={`text-xs text-muted ${className}`}>as of {new Date(at).toISOString().slice(11, 19)} UTC</span>;
 }
 
 function ageSince(at: number, now: number): string {
@@ -959,13 +1033,14 @@ function ageSince(at: number, now: number): string {
 }
 
 /**
- * A status as a coloured dot and a plain word ("● up"): never a coloured figure that reads as P&L.
- * `wrap` lets a sentence-long status wrap under its dot instead of running past a narrow screen.
+ * A status as a plain word with a static dot when it needs a look ("● down", amber or red): never a coloured
+ * figure that reads as P&L. A healthy status keeps the dot's space but draws nothing, so a list of mixed states
+ * stays aligned. `wrap` lets a sentence-long status wrap under its dot instead of running past a narrow screen.
  */
 export function StatusWord({ tone, children, wrap = false }: { tone: Tone; children: ReactNode; wrap?: boolean }) {
   return (
     <span className={`${wrap ? "flex min-w-0 items-start" : "inline-flex items-center whitespace-nowrap"} gap-1.5 text-xs font-medium text-body`}>
-      <span className={`inline-block h-1.5 w-1.5 shrink-0 rounded-full ${wrap ? "mt-[0.4em]" : ""} ${STATUS_DOT[tone] ?? "bg-faint"}`} aria-hidden />
+      <span className={`inline-block h-1.5 w-1.5 shrink-0 rounded-full ${wrap ? "mt-[0.4em]" : ""} ${tone === "ok" ? "" : (STATUS_DOT[tone] ?? "bg-faint")}`} aria-hidden />
       {wrap ? <span className="min-w-0">{children}</span> : children}
     </span>
   );

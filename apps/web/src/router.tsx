@@ -1,4 +1,4 @@
-import { createContext, useCallback, useContext, useEffect, useMemo, useState, type AnchorHTMLAttributes, type MouseEvent, type ReactNode } from "react";
+import { createContext, useCallback, useContext, useEffect, useMemo, useRef, useState, useTransition, type AnchorHTMLAttributes, type MouseEvent, type ReactNode } from "react";
 import { movedPath, parsePath, withScope, type Route } from "./routes";
 
 export * from "./routes";
@@ -39,6 +39,8 @@ interface RouterState {
   search: string;
   origin: Origin | null;
   navigate: (to: string, opts?: NavigateOptions) => void;
+  /** A move to another path is rendering in the background while the current page stays on screen. */
+  pending: boolean;
 }
 
 /** The scrolling page body; its offset is what a return restores. */
@@ -72,6 +74,8 @@ function readLocation(base: string): { path: string; search: string; origin: Ori
 }
 
 export function RouterProvider({ base = "", children }: { base?: string; children: ReactNode }) {
+  // the path on screen, for telling a page move from a query change (the URL has already moved by then)
+  const readCurrentPath = useRef("");
   const [loc, setLoc] = useState(() => {
     const at = readLocation(base);
     const moved = movedPath(at.path);
@@ -80,15 +84,24 @@ export function RouterProvider({ base = "", children }: { base?: string; childre
     window.history.replaceState(window.history.state, "", `${base}${moved}${at.search}`);
     return { path: moved, search: at.search, origin: at.origin };
   });
+  // A new path renders as a transition: React keeps the current page on screen while the next one's code and
+  // first render are prepared, instead of swapping in a fallback. A change of query only (a filter, a typed search)
+  // stays urgent, so a controlled input never lags behind its URL.
+  const [pending, startPathTransition] = useTransition();
+  const apply = useCallback((next: ReturnType<typeof readLocation>, pathChanged: boolean) => {
+    if (pathChanged) startPathTransition(() => setLoc(next));
+    else setLoc(next);
+  }, []);
   useEffect(() => {
     const onPop = () => {
-      setLoc(readLocation(base));
+      const next = readLocation(base);
+      apply(next, next.path !== readCurrentPath.current);
       const top = historyState().scroll;
       if (top != null) restoreScroll(top);
     };
     window.addEventListener("popstate", onPop);
     return () => window.removeEventListener("popstate", onPop);
-  }, [base]);
+  }, [base, apply]);
   const navigate = useCallback(
     (to: string, opts: NavigateOptions = {}) => {
       const target = opts.keepScope === false ? to : withScope(to, window.location.search);
@@ -105,12 +118,14 @@ export function RouterProvider({ base = "", children }: { base?: string; childre
       } else {
         window.history.pushState(samePage && here.from ? { from: { ...here.from, hops: here.from.hops + 1 } } : null, "", url);
       }
-      setLoc(readLocation(base));
+      const next = readLocation(base);
+      apply(next, next.path !== readCurrentPath.current);
       if (!samePage) scroller()?.scrollTo({ top: 0 });
     },
-    [base],
+    [base, apply],
   );
-  const value = useMemo(() => ({ base, path: loc.path, search: loc.search, origin: loc.origin, navigate }), [base, loc, navigate]);
+  readCurrentPath.current = loc.path;
+  const value = useMemo(() => ({ base, path: loc.path, search: loc.search, origin: loc.origin, navigate, pending }), [base, loc, navigate, pending]);
   return <RouterContext.Provider value={value}>{children}</RouterContext.Provider>;
 }
 
@@ -165,6 +180,11 @@ export function Link({ to, replace, from, children, onClick, ...rest }: { to: st
       {children}
     </a>
   );
+}
+
+/** True while a move to another page renders in the background (the shell shows a thin progress bar). */
+export function useNavigationPending(): boolean {
+  return useRouter().pending;
 }
 
 /** The drill-down origin of the current entry and the step back to it; null on a direct visit. */

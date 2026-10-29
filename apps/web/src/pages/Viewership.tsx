@@ -116,7 +116,7 @@ export default function Viewership({ instanceId }: { instanceId: string | null }
     <div>
       <PageHeader
         title="Viewership"
-        sub="Who opens your shared links. No cookies and no stored IP addresses; a visitor is counted once per UTC day."
+        sub="Who opens your shared links"
         right={
           <div className="flex flex-wrap items-center gap-2">
             <Select
@@ -144,10 +144,15 @@ export default function Viewership({ instanceId }: { instanceId: string | null }
         }
       />
 
-      <Loadable loading={summary.isPending} error={summary.isError} retry={() => summary.refetch()} what="viewership" lines={3}>
+      <Loadable loading={summary.isPending} error={summary.isError} retry={() => summary.refetch()} what="viewership" shape="kpis" lines={4}>
+        {total === 0 ? (
+          <p className="mt-6 rounded-card border border-line bg-panel px-4 py-6 text-center text-sm text-muted">
+            No one has opened a shared link in this period. Views show up here once someone does.
+          </p>
+        ) : <>
         <div className="mt-6 grid grid-cols-2 gap-3 md:grid-cols-4">
-          <Stat label="Views" value={String(total)} sub="repeats within 30 min count once" />
-          <Stat label="Unique visitors" value={String(s?.visitors ?? 0)} sub="summed per UTC day" />
+          <Stat label="Views" value={String(total)} />
+          <Stat label="Unique visitors" value={String(s?.visitors ?? 0)} />
           <Stat label="Links viewed" value={String(s?.links.length ?? 0)} />
           <Stat label="Countries" value={String((s?.countries ?? []).filter((c) => c.key != null).length)} sub="needs Cloudflare in front" />
         </div>
@@ -183,8 +188,10 @@ export default function Viewership({ instanceId }: { instanceId: string | null }
           <BreakdownPanel title="Referrers" hint="the site a visitor came from" rows={s?.referrers ?? []} total={total} empty="No views." label={(k) => k ?? "direct or hidden"} />
           <BreakdownPanel title="Languages" hint="browser language" rows={s?.languages ?? []} total={total} empty="No views." />
         </div>
+        </>}
       </Loadable>
 
+      {(total > 0 || q) && (
       <Panel
         className="mt-6"
         title="Recent views"
@@ -236,6 +243,7 @@ export default function Viewership({ instanceId }: { instanceId: string | null }
           <LoadMore shown={Math.min(cap, rows.length)} total={rows.length} onMore={() => setCap((c) => c + 30)} />
         </Loadable>
       </Panel>
+      )}
     </div>
   );
 }

@@ -1,7 +1,7 @@
 import type { AccountRiskRow } from "../api";
 import { accountByKey, accountKey, accountTab, switcherOrder, type AccountGroup } from "../accounts";
 import { clock, count, DASH, money, pctValue, signedMoney } from "../format";
-import { accountToday, floatingNoteText, limitUse, type FloatingNote, type OpenRisk } from "../home";
+import { floatingNoteText, limitUse, todaySplit, type FloatingNote, type OpenRisk, type TodaySplit } from "../home";
 import { useSearchParam } from "../router";
 import { DataList, Cell, Freshness, Pnl, Segmented } from "./ui";
 
@@ -50,9 +50,9 @@ export function AccountTabs({ choice, isPublic }: { choice: AccountChoice; isPub
           : g.account.stale ? `${tab.title} · stale, no update since ${clock(g.account.lastSeen)} UTC` : tab.title,
         label: (
           <span className={`inline-flex items-center gap-1.5 ${g.account.stopped ? "opacity-70" : ""}`}>
-            {g.account.stale && <span className={`inline-block h-1.5 w-1.5 shrink-0 rounded-full ${g.account.stopped ? "bg-faint" : "bg-warn"}`} aria-label={g.account.stopped ? "stopped reporting" : "stale"} />}
             <span>{tab.name}</span>
-            {tab.hint && <span className="text-xs font-normal text-faint">{tab.hint}</span>}
+            {tab.hint && <span className="text-xs font-normal text-muted">{tab.hint}</span>}
+            {g.account.stale && <span className={`text-xs font-normal ${g.account.stopped ? "text-muted" : "text-warn"}`}>{g.account.stopped ? "stopped" : "stale"}</span>}
           </span>
         ),
       };
@@ -80,24 +80,28 @@ export interface AccountLine {
   open: OpenRisk | null;
   /** Why the account's floating differs from its listed positions (Home floatingNote); null when it does not. */
   note?: FloatingNote | null;
+  /** The account's risk rows are still loading: Today and drawdown are not known yet, never shown as missing. */
+  pending?: boolean;
 }
 
-const HEAD = ["Account", "Balance", "Equity", "Today", "Open risk", "Drawdown", "Updated"];
+const HEAD = ["Account", "Balance", "Equity", "Today", "Open risk", "Drawdown"];
 
 /**
  * All accounts at a glance: one row per account, every figure in the account's own currency (never added across
  * accounts). A row opens that account's tab.
  */
 export function AccountsTable({ lines, choice, isPublic }: { lines: AccountLine[]; choice: AccountChoice; isPublic: boolean }) {
+  // the status column appears only while an account is stale or stopped; healthy rows need none
+  const quiet = lines.some((l) => l.group.account.stale);
   return (
     <section aria-label="All accounts" className="overflow-hidden rounded-card border border-line bg-panel">
       <DataList
-        head={HEAD}
+        head={quiet ? [...HEAD, "Status"] : HEAD}
         rows={lines}
         keyOf={(l) => accountKey(l.group.account)}
         onRow={(l) => choice.choose(l.group)}
         empty="No account has reported yet."
-        cells={(l) => <AccountCells line={l} isPublic={isPublic} />}
+        cells={(l) => <AccountCells line={l} isPublic={isPublic} status={quiet} />}
         card={(l) => <AccountCard line={l} isPublic={isPublic} />}
       />
     </section>
@@ -106,71 +110,107 @@ export function AccountsTable({ lines, choice, isPublic }: { lines: AccountLine[
 
 function figures(l: AccountLine) {
   const a = l.group.account;
-  const today = l.realizedToday == null ? null : accountToday(a, l.realizedToday);
+  const today = l.realizedToday == null ? null : todaySplit(a, l.realizedToday, l.note);
   const use = l.risk ? limitUse(l.risk, a.equity) : null;
   const dd = use ? (use.drawdown.usedPct ?? (use.drawdown.used === 0 ? 0 : null)) : null;
-  return { a, today, dd };
+  return { a, today, dd, ddUse: use?.drawdown.pct ?? null };
 }
 
+/** The account's name, never cut, with its environment and currency on a second line. */
 function Name({ line, isPublic }: { line: AccountLine; isPublic: boolean }) {
   const tab = accountTab(line.group.account, isPublic);
   return (
-    <span className="flex min-w-0 items-baseline gap-2" title={tab.title}>
-      <span className="truncate font-medium text-bright">{tab.name}</span>
-      <span className="shrink-0 text-xs text-faint">{tab.hint}</span>
+    <span className="block leading-tight" title={tab.title}>
+      <span className="block font-medium text-bright">{tab.name}</span>
+      {tab.hint && <span className="block text-xs text-muted">{tab.hint}</span>}
     </span>
   );
 }
 
+/**
+ * Money at risk to the stops, in ink: it is not a loss, so it takes no P&L colour. Positions without a stop are
+ * counted in words beside it (they feed Home's attention line).
+ */
 function OpenRiskCell({ open }: { open: OpenRisk | null }) {
   if (!open) return <span className="text-faint">{DASH}</span>;
   const n = open.priced + open.noStop + open.unpriced;
-  if (n === 0) return <span className="text-faint">flat</span>;
+  if (n === 0) return <span className="font-sans text-faint">flat</span>;
   return (
-    <span className="whitespace-nowrap">
-      {open.priced > 0 && <Pnl value={open.toStops} glyphs={false} />}
-      {open.noStop > 0 && <span className={`${open.priced > 0 ? "ml-1.5 " : ""}text-xs font-medium text-warn`}>{count(open.noStop)} without a stop</span>}
-      {open.priced === 0 && open.noStop === 0 && <span className="text-faint">{count(open.unpriced)} not priced</span>}
+    <span className="inline-flex flex-col items-start leading-tight">
+      {open.priced > 0 && <span className="text-bright">{signedMoney(open.toStops)}</span>}
+      {open.noStop > 0 && <span className="font-sans text-xs font-medium text-warn">{count(open.noStop)} without a stop</span>}
+      {open.priced === 0 && open.noStop === 0 && <span className="font-sans text-faint">{count(open.unpriced)} not priced</span>}
     </span>
   );
+}
+
+/** A drawdown in ink, coloured only by how much of a set limit it uses: amber from 55%, red from 80%. */
+function ddTone(use: number | null): string {
+  if (use == null) return "";
+  return use >= 80 ? "text-loss" : use >= 55 ? "text-warn" : "";
 }
 
 function Updated({ line, isPublic }: { line: AccountLine; isPublic: boolean }) {
   const a = line.group.account;
   if (a.stopped) return <span className="text-xs text-muted" title={`no report since ${clock(a.lastSeen)} UTC; the figures are its last stored minute`}>stopped · {clock(a.lastSeen)} UTC</span>;
-  return isPublic ? <span className="text-xs text-muted">as of {clock(a.lastSeen)} UTC</span> : <Freshness at={a.lastSeen} stale={a.stale} />;
+  return isPublic ? <span className="text-xs text-muted">as of {clock(a.lastSeen)} UTC</span> : <Freshness at={a.lastSeen} stale={a.stale} quiet />;
 }
 
-function AccountCells({ line, isPublic }: { line: AccountLine; isPublic: boolean }) {
-  const { a, today, dd } = figures(line);
+function AccountCells({ line, isPublic, status }: { line: AccountLine; isPublic: boolean; status: boolean }) {
+  const { a, today, dd, ddUse } = figures(line);
   return (
     <>
-      <Cell className="max-w-[18rem]"><Name line={line} isPublic={isPublic} /></Cell>
+      <Cell><Name line={line} isPublic={isPublic} /></Cell>
       <Cell className="font-mono tabular-nums">{money(a.balance)}</Cell>
       <Cell className="font-mono tabular-nums">{money(a.equity)}</Cell>
       <Cell className="font-mono tabular-nums">
-        {today ? <span title={`${money(today.realized)} closed, ${money(today.floating)} open${line.note ? `, of which ${floatingNoteText(line.note)}` : ""}`}><Pnl value={today.total} />{line.note?.outside?.floating != null && <span className="block text-[11px] text-muted">{signedMoney(line.note.outside.floating)} outside this instance</span>}{line.note?.elsewhere != null && <span className="block text-[11px] text-muted">{signedMoney(line.note.elsewhere)} not on listed positions</span>}</span> : <span className="text-faint">{DASH}</span>}
+        {line.pending ? <Pending /> : today ? <TodayFigure split={today} note={line.note ?? null} realized={line.realizedToday!} /> : <span className="text-faint">{DASH}</span>}
       </Cell>
       <Cell className="font-mono tabular-nums"><OpenRiskCell open={line.open} /></Cell>
-      <Cell className={`font-mono tabular-nums ${dd != null && dd > 0 ? "text-loss" : ""}`}>{dd == null ? <span className="text-faint">{DASH}</span> : pctValue(dd, 2)}</Cell>
-      <Cell className="whitespace-nowrap"><Updated line={line} isPublic={isPublic} /></Cell>
+      <Cell className={`font-mono tabular-nums ${ddTone(ddUse)}`}>{line.pending ? <Pending /> : dd == null ? <span className="text-faint">{DASH}</span> : pctValue(dd, 2)}</Cell>
+      {status && <Cell className="whitespace-nowrap"><Updated line={line} isPublic={isPublic} /></Cell>}
     </>
   );
 }
 
 function AccountCard({ line, isPublic }: { line: AccountLine; isPublic: boolean }) {
-  const { a, today, dd } = figures(line);
+  const { a, today, dd, ddUse } = figures(line);
   return (
     <>
       <div className="flex items-baseline gap-2">
         <Name line={line} isPublic={isPublic} />
-        <span className="ml-auto shrink-0 font-mono text-sm tabular-nums">{today ? <Pnl value={today.total} /> : <span className="text-faint">{DASH}</span>}</span>
+        <span className="ml-auto shrink-0 text-right font-mono text-sm tabular-nums">{line.pending ? <Pending /> : today ? <TodayFigure split={today} note={line.note ?? null} realized={line.realizedToday!} /> : <span className="text-faint">{DASH}</span>}</span>
       </div>
       <div className="mt-1 flex flex-wrap items-center gap-x-3 gap-y-1 text-xs text-muted">
         <span>equity <span className="font-mono text-body tabular-nums">{money(a.equity)}</span></span>
-        <span>DD <span className={`font-mono tabular-nums ${dd != null && dd > 0 ? "text-loss" : "text-body"}`}>{dd == null ? DASH : pctValue(dd, 2)}</span></span>
+        <span>DD <span className={`font-mono tabular-nums ${ddTone(ddUse) || "text-body"}`}>{line.pending ? "…" : dd == null ? DASH : pctValue(dd, 2)}</span></span>
         <span className="ml-auto"><Updated line={line} isPublic={isPublic} /></span>
       </div>
     </>
+  );
+}
+
+/** A figure still loading: a flat bar the height of the figure, never a dash that reads as "none". */
+function Pending() {
+  return <span className="inline-block h-3.5 w-16 rounded bg-raised align-middle" role="status" aria-label="loading" />;
+}
+
+/**
+ * An account's Today on one right edge: what qkt made (closes since the day began and its listed positions'
+ * floating) on line 1, what another system on the same login floats on line 2. The account's own total, and any
+ * part neither explains, on hover. Without another system the line is the account's Today alone.
+ */
+function TodayFigure({ split, note, realized }: { split: TodaySplit; note: FloatingNote | null; realized: number }) {
+  const parts = [`Account today ${signedMoney(split.total)}`, `${signedMoney(realized)} closed`, `${signedMoney(split.qkt - realized)} open on qkt's positions`];
+  if (split.other != null) parts.push(`${signedMoney(split.other)} on positions of another system on this login`);
+  if (split.unassigned !== 0 && note) parts.push(`${signedMoney(split.unassigned)} on trades not listed here (${floatingNoteText(note)})`);
+  const title = parts.join(" · ");
+  if (split.other == null && split.unassigned === 0) return <span title={title}><Pnl value={split.total} /></span>;
+  return (
+    <span className="inline-flex flex-col items-end leading-tight" title={title}>
+      <span className="whitespace-nowrap"><Pnl value={split.qkt} /> <span className="font-sans text-xs text-muted">qkt</span></span>
+      {split.other != null && <span className="whitespace-nowrap text-xs text-muted">{signedMoney(split.other)} <span className="font-sans">other system</span></span>}
+      {split.unassigned !== 0 && <span className="whitespace-nowrap text-xs text-muted">{signedMoney(split.unassigned)} <span className="font-sans">unlisted</span></span>}
+    </span>
   );
 }

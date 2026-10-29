@@ -1,7 +1,7 @@
 import { useEffect, useMemo, useState } from "react";
 import type { DayNet } from "../api";
-import { compact, compactPnl, count, DASH, day as utcDay, human, monthName, pct, pnl, shortDay, signedMoney, signedPct } from "../format";
-import { Card, Cell, Empty, Field, IconButton, Modal, Pnl, Row, Table } from "./ui";
+import { compact, compactPnl, count, DASH, day as utcDay, human, monthName, pct, pnl, returnPct, shortDay, signedMoney } from "../format";
+import { Card, Cell, CurrencyMix, Empty, Field, IconButton, Modal, Pnl, Row, Table } from "./ui";
 import { Link, PAGE_PATHS, routePath, useSearchParam } from "../router";
 import { RoundTripTable } from "../trades/RoundTripTable";
 
@@ -46,6 +46,7 @@ export function CalendarView({
   selectedDay = null,
   month: wantedMonth = null,
   monthlyTable = true,
+  mix = null,
 }: {
   days: DayNet[];
   /** Capital a month's (and its days') return is measured against; null hides the return. */
@@ -56,6 +57,8 @@ export function CalendarView({
   drill?: { instanceId: string; strategy?: string };
   /** A day click goes here instead of opening the day dialog (a page that filters by the day). */
   onDay?: (day: string) => void;
+  /** Set when the days add accounts in different currencies: totals carry "USD+USDC". */
+  mix?: { label: string; title: string } | null;
   /** The picked day, ringed; and the month to show (follows the prop when it changes). */
   selectedDay?: string | null;
   month?: string | null;
@@ -130,7 +133,7 @@ export function CalendarView({
   const year = month.slice(0, 4);
   const pctOf = (net: number, m: string) => {
     const base = returnBase(m);
-    return base ? signedPct((net / base) * 100) : DASH;
+    return base ? returnPct((net / base) * 100) : DASH;
   };
   const hasBase = monthly.some(([k]) => returnBase(k) != null);
   const ytd = monthly.filter(([k]) => k.startsWith(year)).reduce((a, [, v]) => a + v.net, 0);
@@ -147,7 +150,7 @@ export function CalendarView({
       <Card className="p-4">
         <div className="flex flex-wrap items-center gap-2 text-sm">
           <span className="font-medium text-body">P&L calendar</span>
-          <span className="ml-auto text-xs text-muted">by close day</span>
+          <span className="ml-auto text-xs text-muted" title="Each trade counts on the UTC day it closed; retired strategies and unattributed deals included">UTC close days</span>
         </div>
         <div className="mt-3 flex flex-wrap items-center gap-x-3 gap-y-2">
           <IconButton label="Previous month" disabled={idx <= 0} onClick={() => idx > 0 && setMonth(months[idx - 1]!)} d="M15 18l-6-6 6-6" />
@@ -159,18 +162,18 @@ export function CalendarView({
             d="M9 6l6 6-6 6"
           />
           <span className="flex-1" />
-          <Pnl value={monthNet} className="font-headline" />
+          <span><Pnl value={monthNet} className="font-headline" /><CurrencyMix mix={mix} /></span>
           <span className="text-muted">
             {count(monthTrades)} trades · {monthDays.length ? pct(greenDays / monthDays.length, 0) : DASH} green days
           </span>
           {best && best.net > 0 && (
             <span className="hidden text-muted @2xl:inline">
-              best <b className="font-semibold text-gain">{signedMoney(best.net, 0)}</b>
+              best <b className="font-semibold text-gain">{signedMoney(best.net)}</b>
             </span>
           )}
           {worst && worst.net < 0 && (
             <span className="hidden text-muted @2xl:inline">
-              worst <b className="font-semibold text-loss">{signedMoney(worst.net, 0)}</b>
+              worst <b className="font-semibold text-loss">{signedMoney(worst.net)}</b>
             </span>
           )}
         </div>
@@ -237,7 +240,7 @@ export function CalendarView({
                 })}
                 <div role="gridcell" className="hidden flex-col justify-center gap-0.5 rounded-lg border border-dashed border-line-strong px-2 py-1.5 text-[11px] text-muted @xl:flex">
                   <span>Week {wi + 1}</span>
-                  <b className={`text-sm font-semibold ${wTrades ? (wNet >= 0 ? "text-gain" : "text-loss") : "text-muted"}`}>{wTrades ? signedMoney(wNet, 0) : DASH}</b>
+                  <b className={`text-sm font-semibold ${wTrades ? (wNet >= 0 ? "text-gain" : "text-loss") : "text-muted"}`} title={wTrades ? mix?.title : undefined}>{wTrades ? signedMoney(wNet) : DASH}</b>
                   <span>{wTrades} trades</span>
                 </div>
               </div>
@@ -260,9 +263,8 @@ export function CalendarView({
       {monthlyTable && <Card className="overflow-hidden">
         <div className="flex flex-wrap items-baseline gap-x-3 gap-y-1 border-b border-line px-4 py-3">
           <h3 className="text-sm font-medium text-body">Monthly returns</h3>
-          <span className="text-xs text-muted">
+          <span className="text-xs text-muted" title={hasBase ? `Return on ${baseLabel}` : undefined}>
             YTD {pnl(ytd)}
-            {hasBase ? ` · return on ${baseLabel}` : ""}
           </span>
         </div>
         <div className="max-h-[30rem] overflow-auto">

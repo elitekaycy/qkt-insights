@@ -5,23 +5,23 @@ import { parseQuery, TRADE_KEYS } from "@qkt-insights/contract/query";
 import { get, type LogRow, type StrategyRow, type StrategyStats } from "../api";
 import { LogLine } from "../components/LogLine";
 import { ShareControl } from "../components/ShareControl";
-import { Card, LiveDot, Loadable, OriginBack, Pill, Popover, RangeChips, rangeStart, ReturnPct, Segmented, Skeleton, useRangeParam } from "../components/ui";
+import { Card, Loadable, OriginBack, Pill, Popover, RangeChips, rangeStart, ReturnPct, Segmented, Skeleton, useRangeParam } from "../components/ui";
 import { age, DASH, glyph, money, openPnl, signedMoney, toneClass } from "../format";
-import { haltClearing, haltSince, resumeCommand } from "../halt";
+import { haltClearing, haltReasonText, haltSince, resumeCommand } from "../halt";
 import { strategyCapital, strategyDisplayName } from "../portfolio";
 import { QueryBar, TRADE_PRESETS } from "../query/QueryBar";
-import { Link, PAGE_PATHS, PRIVATE_STRATEGY_TABS, routePath, STRATEGY_TABS, useRoute, useSearchParam, type StrategyTab } from "../router";
+import { Link, PAGE_PATHS, PERIOD_VIEWS, PRIVATE_STRATEGY_TABS, routePath, STRATEGY_TABS, useRoute, useSearchParam, type PeriodView, type StrategyTab } from "../router";
 import { useTripAnalytics, type TripAnalytics } from "../trades/analytics";
 import { tripParams, useTripFacets, type RoundTripTotals, type TripScope } from "../trades/data";
 import { RoundTripTable } from "../trades/RoundTripTable";
 import { TripCount, useSortParams } from "../trades/scope";
 import { TradeDrawer, useOpenTrade } from "../trades/TradeDrawer";
-import { LegList } from "../components/InstrumentType";
-import { strategyLegs } from "../instruments";
+import { LegSummary } from "../components/InstrumentType";
+import { strategyEnvironment, strategyLegs } from "../instruments";
 import { useLiveState } from "../useLiveState";
 import { usePublicPageView, useView } from "../view";
 import { CalendarSection, DailySection, MonthlySection } from "./Days";
-import { chipOf, toggleToken, without } from "./journal";
+import { chipOf, importantLog, toggleToken, without } from "./journal";
 import { OverviewSection } from "./Overview";
 import { TimeRiskSection } from "./TimeRisk";
 import { BigPnl, Icon, ICON, Widget } from "./widgets";
@@ -38,23 +38,13 @@ const CodeSection = lazy(() => import("./Code"));
  */
 
 const TAB_LABEL: Record<StrategyTab, string> = {
-  overview: "Overview", calendar: "Calendar", daily: "Daily", monthly: "Monthly", trades: "Trades", time: "Time & risk", code: "Code", logs: "Logs",
+  overview: "Overview", periods: "Periods", trades: "Trades", time: "Time & risk", code: "Code", logs: "Logs",
 };
 
-/** One line per section under the tabs, the journal's header hint. */
-const TAB_HINT: Record<StrategyTab, string> = {
-  overview: "The headline numbers and how the P&L got there",
-  calendar: "Every day's P&L, week by week",
-  daily: "Day by day, with the running total",
-  monthly: "Month by month, and the year at a glance",
-  trades: "Every round trip, entry to exit",
-  time: "When it wins, how trades end, and how much it risks",
-  code: "The source qkt runs, and every version it ran before",
-  logs: "What the engine said about this strategy",
-};
+const PERIOD_LABEL: Record<PeriodView, string> = { calendar: "Calendar", days: "Days", months: "Months" };
 
 /** A strategy page leaves its own name out of each row. */
-const STRATEGY_HIDDEN = ["strategy"];
+const STRATEGY_HIDDEN = ["strategy", "id"];
 const RECENT_LOGS = 50;
 
 function metaString(meta: Record<string, unknown> | null | undefined, key: string): string | null {
@@ -91,8 +81,10 @@ export interface SectionProps {
   base: TripAnalytics | undefined;
   busy: boolean;
   capital: { amount: number | null; label: string };
+  /** What the strategy's open positions are worth now; null without live state. */
+  open: number | null;
   openTrade: ((id: string) => void) | null;
-  goTab: (tab: StrategyTab, q?: string) => void;
+  goTab: (tab: StrategyTab, q?: string, period?: PeriodView) => void;
 }
 
 export function StrategyDetail({ instanceId, strategyId }: { instanceId: string; strategyId: string }) {
@@ -102,6 +94,7 @@ export function StrategyDetail({ instanceId, strategyId }: { instanceId: string;
   const asked: StrategyTab = route.strategy === strategyId ? (route.tab ?? "overview") : "overview";
   // shared links carry no logs and no code
   const tab: StrategyTab = view.public && PRIVATE_STRATEGY_TABS.has(asked) ? "overview" : asked;
+  const period: PeriodView = route.period ?? "calendar";
   const [q, setQ] = useSearchParam("q");
   const [range, setRange] = useRangeParam();
   const [, openTrade] = useOpenTrade();
@@ -127,21 +120,23 @@ export function StrategyDetail({ instanceId, strategyId }: { instanceId: string;
   const analytics = useTripAnalytics(scope, q);
   // Calendar, Daily and Monthly keep their whole period on screen while a day or month is picked
   const baseQ = without(q, ["exit"]);
-  const daySections = tab === "calendar" || tab === "daily" || tab === "monthly";
+  const daySections = tab === "periods";
   const base = useTripAnalytics(daySections ? scope : null, baseQ);
 
   const row = (strategies.data ?? []).find((r) => r.strategyId === strategyId) ?? null;
   const capital = row ? strategyCapital(row) : { amount: stats.data?.startingBalance ?? null, source: null };
   const capitalLabel = capital.amount == null ? "no capital known" : `on ${money(capital.amount, 0)} ${capital.source === "defined" ? "defined capital" : capital.source ?? "capital"}`;
+  const env = strategyEnvironment(row);
   const realized = stats.data?.realizedPnl ?? row?.realizedNet ?? null;
   const net = realized == null && open.pnl == null ? null : (realized ?? 0) + (open.pnl ?? 0);
 
-  const goTab = (t: StrategyTab, nextQ?: string) => {
-    const path = routePath({ page: "strategies", strategy: strategyId, tab: t });
+  const goTab = (t: StrategyTab, nextQ?: string, view?: PeriodView) => {
+    const path = routePath({ page: "strategies", strategy: strategyId, tab: t, period: view });
     // a figure that opens another section is a drill-down: its way back is this section
     navigate(nextQ === undefined ? path : `${path}${nextQ ? `?q=${encodeURIComponent(nextQ)}` : ""}`, { from: TAB_LABEL[tab] });
   };
   const switchTab = (t: StrategyTab) => navigate(routePath({ page: "strategies", strategy: strategyId, tab: t }));
+  const switchPeriod = (v: PeriodView) => navigate(routePath({ page: "strategies", strategy: strategyId, tab: "periods", period: v }), { replace: true });
   const toggle = (token: string) => setQ(toggleToken(q, token), { push: true });
   const a = analytics.data;
   const totals: RoundTripTotals | null = a
@@ -155,6 +150,8 @@ export function StrategyDetail({ instanceId, strategyId }: { instanceId: string;
     }),
     [facets.data],
   );
+  // the count line repeats the cards unless a search or a range narrows what they cover
+  const narrowed = q.trim() !== "" || range !== "all";
   const filterCount = useMemo(() => parseQuery(q, { instruments: suggestData.instruments }).chips.length, [q, suggestData.instruments]);
   // phones: the header folds to one line and the query bar to a search button until tapped
   const [details, setDetails] = useState(false);
@@ -169,7 +166,7 @@ export function StrategyDetail({ instanceId, strategyId }: { instanceId: string;
 
   const props: SectionProps = {
     instanceId, strategyId, scope, q, toggle, a, base: base.data ?? (baseQ === q ? a : undefined),
-    busy: analytics.isFetching && analytics.isPlaceholderData, capital: { amount: capital.amount, label: capitalLabel },
+    busy: analytics.isFetching && analytics.isPlaceholderData, capital: { amount: capital.amount, label: capitalLabel }, open: open.pnl,
     openTrade: view.public ? null : openTrade, goTab,
   };
   const loading = analytics.isPending;
@@ -200,33 +197,32 @@ export function StrategyDetail({ instanceId, strategyId }: { instanceId: string;
             <div className="flex flex-wrap items-center gap-2">
               {/* phones show the name, status and net in the one-line header above */}
               <OriginBack className="max-sm:hidden" />
-              <h1 className="min-w-0 truncate text-xl font-headline text-bright max-sm:hidden" title={strategyId}>{row ? strategyDisplayName(row) : strategyId}</h1>
+              <h1 className="min-w-0 break-words text-xl font-headline text-bright max-sm:hidden">{row ? strategyDisplayName(row) : strategyId}</h1>
+              {row && strategyDisplayName(row) !== strategyId && <span className="font-mono text-xs text-muted max-sm:hidden">{strategyId}</span>}
               <span className="contents max-sm:hidden"><Status row={row} isPublic={view.public} /></span>
-              {metaString(row?.metadata, "portfolioId") ? (
+              {env.map((e) => <span key={e.label} title={e.title}><Pill>{e.label}</Pill></span>)}
+              {metaString(row?.metadata, "portfolioId") && (
                 <Link to={routePath({ page: "strategies", portfolio: metaString(row?.metadata, "portfolioId")!.replace(/_\d+$/u, "") })} from={strategyId} className="hover:opacity-80">
-                  <Pill tone="info">in {metaString(row?.metadata, "portfolioName") ?? metaString(row?.metadata, "portfolioId")}</Pill>
+                  <Pill tone="info">in {metaString(row?.metadata, "portfolioName") ?? metaString(row?.metadata, "portfolioId")} ›</Pill>
                 </Link>
-              ) : (
-                row && <Pill>standalone</Pill>
               )}
             </div>
-            <div className="mt-2 flex flex-wrap items-baseline gap-x-3 gap-y-1">
+            <div className="mt-2 text-xs text-muted">Net incl. open</div>
+            <div className="flex flex-wrap items-baseline gap-x-3 gap-y-1">
               <BigPnl value={net} className="max-sm:hidden" />
-              <ReturnPct net={net} base={capital.amount} />
-              <span className="text-sm text-muted">{capitalLabel}</span>
+              <span title={capital.amount == null ? "no capital known" : `Return ${capitalLabel}`}><ReturnPct net={net} base={capital.amount} /></span>
             </div>
             <div className="mt-1 text-xs text-muted">
-              Net since the first trade: realized {signedMoney(realized)} + open {open.pnl == null ? DASH : signedMoney(open.pnl)}
+              realized <span className="font-mono">{signedMoney(realized)}</span> · open <span className="font-mono">{open.pnl == null ? DASH : signedMoney(open.pnl)}</span>
               {open.positions > 0 && ` on ${open.positions} position${open.positions === 1 ? "" : "s"}`}
               {open.stale && <span className="ml-1.5 font-medium text-warn">· open P&L from stale broker state</span>}
             </div>
           </div>
           <div className="flex flex-wrap items-center gap-2">
-            {row?.metadata && !view.public && <Runtime meta={row.metadata} />}
             <ShareControl instanceId={instanceId} kind="strategy" subject={strategyId} />
           </div>
         </header>
-        <LegList legs={strategyLegs(row, liveAccounts, instanceId)} className="mt-3" />
+        <LegSummary legs={strategyLegs(row, liveAccounts, instanceId)} className="mt-3" />
       </div>
 
       <nav aria-label="Strategy sections" className="-mx-4 flex gap-1.5 overflow-x-auto px-4 sm:hidden">
@@ -253,10 +249,11 @@ export function StrategyDetail({ instanceId, strategyId }: { instanceId: string;
         />
       </nav>
 
-      <div className="hidden sm:block">
-        <h2 className="text-[15px] font-headline text-bright">{TAB_LABEL[tab]}</h2>
-        <p className="text-sm text-muted">{TAB_HINT[tab]}</p>
-      </div>
+      {tab === "periods" && (
+        <div>
+          <Segmented label="Periods" value={period} onChange={switchPeriod} options={PERIOD_VIEWS.map((v) => ({ key: v, label: PERIOD_LABEL[v] }))} />
+        </div>
+      )}
 
       {tab !== "logs" && tab !== "code" && (
         <div className="grid gap-2 border-b border-line pb-3">
@@ -276,7 +273,7 @@ export function StrategyDetail({ instanceId, strategyId }: { instanceId: string;
               )}
             </button>
             <RangeChips value={range} onChange={setRange} dense />
-            <TripCount totals={totals} loading={analytics.isFetching} compactOnPhone />
+            {narrowed && <TripCount totals={totals} loading={analytics.isFetching} compactOnPhone />}
           </div>
           <div ref={searchBox} className={searchOpen ? "" : "hidden sm:block"}>
             <QueryBar
@@ -287,11 +284,11 @@ export function StrategyDetail({ instanceId, strategyId }: { instanceId: string;
               page="this strategy"
               presets={TRADE_PRESETS}
               errors={a?.query.errors ?? []}
-              placeholder="Search or filter: win, side:short, pnl:<0, held:<1h, ended:stop, weekday:mon, exit:2026-10…"
+              placeholder="Search trades"
               trailing={
                 <span className="hidden sm:contents">
                   <RangeChips value={range} onChange={setRange} />
-                  <TripCount totals={totals} loading={analytics.isFetching} />
+                  {narrowed && <TripCount totals={totals} loading={analytics.isFetching} />}
                 </span>
               }
             />
@@ -302,17 +299,18 @@ export function StrategyDetail({ instanceId, strategyId }: { instanceId: string;
       {tab === "logs" ? (
         <StrategyLogs instanceId={instanceId} strategyId={strategyId} />
       ) : tab === "code" ? (
-        <Suspense fallback={<Skeleton lines={10} />}>
+        <Suspense fallback={<Skeleton shape="lines" lines={10} what="this section" />}>
+          {row?.metadata && <div className="mb-3 flex justify-end"><Runtime meta={row.metadata} /></div>}
           <CodeSection instanceId={instanceId} strategyId={strategyId} meta={row?.metadata ?? null} />
         </Suspense>
       ) : tab === "trades" ? (
         <StrategyTrades scope={scope} q={q} exportHref={view.public ? null : `/round-trips/export?${tripParams(scope, q, "entry", "desc")}`} />
       ) : (
-        <Loadable loading={loading} error={analytics.isError && !a} retry={() => analytics.refetch()} what="the strategy's trades" lines={8}>
+        <Loadable loading={loading} error={analytics.isError && !a} retry={() => analytics.refetch()} what="the strategy's trades" shape="kpis" lines={6}>
           {tab === "overview" && <OverviewSection {...props} range={range} />}
-          {tab === "calendar" && <CalendarSection {...props} />}
-          {tab === "daily" && <DailySection {...props} />}
-          {tab === "monthly" && <MonthlySection {...props} />}
+          {tab === "periods" && period === "calendar" && <CalendarSection {...props} />}
+          {tab === "periods" && period === "days" && <DailySection {...props} />}
+          {tab === "periods" && period === "months" && <MonthlySection {...props} />}
           {tab === "time" && <TimeRiskSection {...props} />}
         </Loadable>
       )}
@@ -329,9 +327,7 @@ function Status({ row, isPublic, compact = false }: { row: StrategyRow | null; i
   if (row.halted) return <Pill tone="warn">halted</Pill>;
   if (!row.active) return <Pill>retired</Pill>;
   if (isPublic) return null;
-  return compact
-    ? <span className="inline-flex shrink-0" title="running"><LiveDot on /><span className="sr-only">running</span></span>
-    : <span className="inline-flex items-center gap-1.5 text-xs text-muted"><LiveDot on /> running</span>;
+  return compact ? <span className="sr-only">running</span> : <span className="text-xs text-muted">running</span>;
 }
 
 /** The halt, at the top of the page where it cannot be missed: why, since when, how it ends. */
@@ -344,8 +340,8 @@ function HaltBanner({ row }: { row: StrategyRow }) {
         Halted by the engine
       </span>
       <span className="min-w-0 text-body">
-        {row.haltReason ?? "no reason given"}
-        {row.haltedAt != null && <span className="text-muted" title={row.haltedBefore ? "re-asserted at a restart; its start is not stored" : undefined}> · {haltSince(row)} ({row.haltedBefore ? "at least " : ""}{age(row.haltedAt)})</span>}
+        <span title={row.haltReason ?? undefined}>{haltReasonText(row.haltReason)}</span>
+        {row.haltedAt != null && <span className="text-muted" title={row.haltedBefore ? "re-asserted at a restart; its start is not stored" : undefined}> {haltSince(row)} ({row.haltedBefore ? "at least " : ""}{age(row.haltedAt)})</span>}
         <span className="text-muted"> · {haltClearing(row)}</span>
       </span>
       {command && <code className="rounded bg-raised px-1.5 py-0.5 font-mono text-xs text-bright">{command}</code>}
@@ -372,7 +368,7 @@ function Runtime({ meta }: { meta: Record<string, unknown> }) {
       trigger={
         <span className="inline-flex h-9 items-center gap-1.5 rounded-lg border border-ctl bg-raised px-2.5 text-xs font-semibold text-bright transition hover:bg-well">
           <Icon d="M4 17l6-6-6-6M12 19h8" className="h-3.5 w-3.5" />
-          Runtime
+          Runtime details
         </span>
       }
     >
@@ -395,8 +391,7 @@ function StrategyTrades({ scope, q, exportHref }: { scope: TripScope; q: string;
   return (
     <Card className="overflow-hidden">
       <div className="flex items-baseline gap-2 border-b border-line px-4 py-3">
-        <h3 className="text-sm font-medium text-body">Round trips</h3>
-        <span className="hidden text-xs text-muted sm:inline">one row per entry-to-exit</span>
+        <h3 className="text-sm font-medium text-body">Trades</h3>
         {exportHref && (
           <a
             href={exportHref}
@@ -408,7 +403,7 @@ function StrategyTrades({ scope, q, exportHref }: { scope: TripScope; q: string;
           </a>
         )}
       </div>
-      <RoundTripTable scope={scope} q={q} sort={sort} dir={dir} onSort={setSort} hide={STRATEGY_HIDDEN} height="calc(100dvh - 22rem)" />
+      <RoundTripTable scope={scope} q={q} sort={sort} dir={dir} onSort={setSort} hide={STRATEGY_HIDDEN} height="calc(100dvh - 22rem)" fit />
     </Card>
   );
 }
@@ -420,7 +415,9 @@ function StrategyLogs({ instanceId, strategyId }: { instanceId: string; strategy
     queryFn: () => get<LogRow[]>(`/logs?instance=${encodeURIComponent(instanceId)}&strategy=${encodeURIComponent(strategyId)}&limit=${RECENT_LOGS}`),
     refetchInterval: 30_000,
   });
-  const rows = logs.data ?? [];
+  const [all, setAll] = useState(false);
+  // the strategy's story first: orders, fills, trades and anything that went wrong; every line is one click away
+  const rows = (logs.data ?? []).filter((l) => all || importantLog(l));
   return (
     <Widget
       icon={ICON.logs}
@@ -432,10 +429,13 @@ function StrategyLogs({ instanceId, strategyId }: { instanceId: string; strategy
         </Link>
       }
     >
-      <Loadable loading={logs.isPending} error={logs.isError} retry={() => logs.refetch()} what="logs">
+      <Loadable loading={logs.isPending} error={logs.isError} retry={() => logs.refetch()} what="logs" shape="lines" lines={8}>
+        <div className="px-4 pb-2">
+          <Segmented label="Which lines" value={all ? "all" : "orders"} onChange={(v) => setAll(v === "all")} options={[{ key: "orders", label: "Orders & errors" }, { key: "all", label: "All lines" }]} />
+        </div>
         <div className="px-2 pb-2">
           {rows.map((l) => <LogLine key={l.id} log={l} showStrategy={false} />)}
-          {rows.length === 0 && <div className="px-4 py-8 text-center text-sm text-muted">No log lines from this strategy yet.</div>}
+          {rows.length === 0 && <div className="px-4 py-8 text-center text-sm text-muted">{all ? "No log lines yet." : "No orders or errors in the latest lines."}</div>}
         </div>
         <div className="border-t border-line px-4 py-2 text-[11px] text-muted sm:hidden">
           <Link to={`${PAGE_PATHS.logs}?q=${encodeURIComponent(`strategy:${strategyId}`)}`} from={`${strategyId} · Logs`} className="font-medium text-accent-ink">Full history on Logs →</Link>

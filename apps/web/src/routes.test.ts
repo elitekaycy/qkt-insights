@@ -10,11 +10,11 @@ describe("routes", () => {
       { page: "strategies" },
       { page: "strategies", strategy: "gold_rsi_fade_v2", tab: "overview" },
       { page: "strategies", strategy: "gold rsi/fade", tab: "time" },
-      { page: "strategies", strategy: "gold", tab: "daily" },
-      { page: "strategies", strategy: "gold", tab: "monthly" },
+      { page: "strategies", strategy: "gold", tab: "periods", period: "calendar" },
+      { page: "strategies", strategy: "gold", tab: "periods", period: "days" },
+      { page: "strategies", strategy: "gold", tab: "periods", period: "months" },
       { page: "strategies", strategy: "gold", tab: "logs" },
       { page: "strategies", strategy: "gold", tab: "code" },
-      { page: "strategies", strategy: "eurusd", tab: "calendar" },
       { page: "strategies", portfolio: "book-1" },
       { page: "trades" },
       { page: "calendar" },
@@ -41,6 +41,15 @@ describe("routes", () => {
     expect(parsePath("/find")).toEqual({ page: "logs" });
     expect(movedPath("/find")).toBe("/log");
     expect(movedPath("/log")).toBeNull();
+  });
+
+  it("sends the retired Calendar, Daily and Monthly sections to their Periods view", () => {
+    expect(parsePath("/s/gold/calendar")).toEqual({ page: "strategies", strategy: "gold", tab: "periods", period: "calendar" });
+    expect(movedPath("/s/gold/calendar")).toBe("/s/gold/periods");
+    expect(movedPath("/s/gold/daily")).toBe("/s/gold/periods/days");
+    expect(movedPath("/s/gold/monthly")).toBe("/s/gold/periods/months");
+    expect(movedPath("/s/gold/periods/days")).toBeNull();
+    expect(parsePath("/s/gold/periods/nope")).toEqual({ page: "strategies", strategy: "gold", tab: "periods", period: "calendar" });
   });
 
   it("carries the instance and range to the next page, never page filters", () => {

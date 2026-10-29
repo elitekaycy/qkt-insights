@@ -113,7 +113,8 @@ export function DowHourHeatmap({ cells, height = 320 }: { cells: DowHourCell[]; 
  */
 export function HonestBucketBars({ rows, height = 260 }: { rows: BreakdownRow[]; height?: number }) {
   const option: QktChartOption = {
-    grid: qktChartGrid,
+    // room for the two-line axis label: the bucket and its n
+    grid: { ...qktChartGrid, bottom: 40 },
     tooltip: {
       ...qktChartTooltip(),
       trigger: "axis",
@@ -127,7 +128,8 @@ export function HonestBucketBars({ rows, height = 260 }: { rows: BreakdownRow[];
         return `${r.key} (UTC)<br/>n ${r.trades} · win ${pct(r.wins / r.trades, 0)}<br/>net ${signedMoney(r.net)}<br/>mean ${signedMoney(mean)}${se}${warn}`;
       },
     },
-    xAxis: { type: "category", data: rows.map((r) => r.key), ...qktXAxis },
+    // n sits under each bucket's name on the axis, clear of the bar and its whisker
+    xAxis: { type: "category", data: rows.map((r) => `${r.key}\nn${r.trades}`), ...qktXAxis },
     yAxis: { type: "value", ...qktChartAxis },
     series: [
       {
@@ -138,13 +140,6 @@ export function HonestBucketBars({ rows, height = 260 }: { rows: BreakdownRow[];
           itemStyle: {
             color: r.net >= 0 ? UP : DOWN,
             opacity: r.trades < MIN_N ? 0.3 : 0.95,
-          },
-          label: {
-            show: true,
-            position: r.net >= 0 ? "top" : "bottom",
-              fontSize: 9,
-            color: r.trades < MIN_N ? MUTED : tok("bright"),
-            formatter: () => `n${r.trades}`,
           },
         })),
       },

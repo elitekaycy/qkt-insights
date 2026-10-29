@@ -2,6 +2,7 @@ import { accountKey, accountName, accountTab, groupAccounts, type AccountGroup }
 import { chartColors } from "../components/EChart";
 import { useState } from "react";
 import { usePublicPageView, useView } from "../view";
+import { useStrategyNames } from "../hooks/useStrategyNames";
 import { useSearchParam } from "../router";
 import { useQueries, useQuery } from "@tanstack/react-query";
 import { get, type AccountEquityPoint, type AccountSummary, type DrawdownPeriod, type EquityPoint, type PerformanceBundle, type StrategyRow } from "../api";
@@ -10,8 +11,11 @@ import { ComparisonChart, EquityChart, UnderwaterChart, type ComparisonSeries } 
 import { DataList, Card, Cell, Empty, Field, Loadable, Modal, PageHeader, Panel, Pill, Select } from "../components/ui";
 import { days, duration, fixed, human, pctValue, signedMoney, signedPct, tsDay } from "../format";
 import { useLiveState } from "../useLiveState";
+import { biggestMovers, deepestId } from "../equity";
 
 const PALETTE = chartColors.series;
+/** The drawdown table opens on the deepest few; every period is one click away. */
+const PERIODS_SHOWN = 8;
 
 export default function Equity({ instanceId }: { instanceId: string | null }) {
   usePublicPageView("equity");
@@ -54,7 +58,11 @@ export default function Equity({ instanceId }: { instanceId: string | null }) {
 
   const [ddStrategy, setDdStrategy] = useSearchParam("strategy");
   const [openDd, setOpenDd] = useState<DrawdownPeriod | null>(null);
-  const focusId = ids.includes(ddStrategy) ? ddStrategy : ids[0] || "";
+  const [allPeriods, setAllPeriods] = useState(false);
+  // the comparison shows the four lines that moved most until the viewer picks; underwater opens on the deepest fall
+  const [picked, setPicked] = useState<string[] | null>(null);
+  const curveList = ids.map((id, i) => ({ id, points: curves[i]?.data ?? [] }));
+  const focusId = ids.includes(ddStrategy) ? ddStrategy : deepestId(curveList) ?? ids[0] ?? "";
   const focusIdx = ids.indexOf(focusId);
   const focusCurve = focusIdx >= 0 ? (curves[focusIdx]?.data ?? []) : [];
 
@@ -66,19 +74,25 @@ export default function Equity({ instanceId }: { instanceId: string | null }) {
     refetchInterval: 30_000,
   });
 
+  const strategyName = useStrategyNames(instanceId);
   if (!instanceId) return <Card className="p-8 text-center text-faint">No instance selected.</Card>;
 
-  const series: ComparisonSeries[] = ids
+  const shownIds = picked ?? biggestMovers(curveList);
+  const series: ComparisonSeries[] = shownIds
     .map((id, i) => {
-      const pts = curves[i]?.data ?? [];
+      const pts = curves[ids.indexOf(id)]?.data ?? [];
       const base = pts[0]?.equity;
       return {
-        name: id,
+        name: strategyName(id),
         color: PALETTE[i % PALETTE.length]!,
         points: base ? pts.map((p) => ({ ts: p.ts, pct: (p.equity / base - 1) * 100 })) : [],
       };
     })
     .filter((s) => s.points.length > 0);
+  const togglePick = (id: string) => setPicked((cur) => {
+    const now = cur ?? shownIds;
+    return now.includes(id) ? now.filter((x) => x !== id) : now.length >= PALETTE.length ? now : [...now, id];
+  });
 
   // One curve per venue account: the server stitches the labels one account reported under
   // (by account id, else labels that take turns). EquityChart wants EquityPoint; realized/unrealized
@@ -107,9 +121,15 @@ export default function Equity({ instanceId }: { instanceId: string | null }) {
     return accountName(g ? g.account : { broker: accountLabel.get(key) ?? key }, view.public);
   };
   const shownCurve = scoped ? curveKeyOf(scoped) : null;
-  const accountSeries: ComparisonSeries[] = [...accountByBroker.entries()].map(([key, pts], i) => ({
+  // one hue rule: real venue accounts take the series colours, paper accounts stay grey
+  const isPaperKey = (key: string) => {
+    const g = choice.accounts.find((a) => curveKeyOf(a) === key);
+    return g != null && (g.account.connector === "paper" || g.account.adapter === "paper");
+  };
+  let venueIdx = 0;
+  const accountSeries: ComparisonSeries[] = [...accountByBroker.entries()].map(([key, pts]) => ({
     name: nameOf(key),
-    color: PALETTE[i % PALETTE.length]!,
+    color: isPaperKey(key) ? chartColors.muted : PALETTE[venueIdx++ % PALETTE.length]!,
     points: pts.length > 0 ? pts.map((p) => ({ ts: p.ts, pct: (p.equity / pts[0]!.equity - 1) * 100 })) : [],
   }));
 
@@ -118,7 +138,7 @@ export default function Equity({ instanceId }: { instanceId: string | null }) {
     <Select value={focusId} onChange={(e) => setDdStrategy(e.target.value)}>
       {ids.map((id) => (
         <option key={id} value={id}>
-          {id}
+          {strategyName(id)}
         </option>
       ))}
     </Select>
@@ -126,24 +146,19 @@ export default function Equity({ instanceId }: { instanceId: string | null }) {
 
   return (
     <div>
-      <PageHeader
-        title="Equity & risk"
-        sub={`Broker account equity for ${instanceId}; per-strategy equity below, normalized to % change so different capital sizes compare fairly.`}
-      />
+      <PageHeader title="Equity & risk" />
       {choice.many && <div className="mt-4"><AccountTabs choice={choice} isPublic={view.public} /></div>}
       <Panel
         className="mt-5"
         title="Account equity"
-        hint={choice.many && !scoped
-          ? "% change from each account's first point, each in its own currency · broker-reported, 1-minute rollup"
-          : "broker-reported, sampled from the 1-minute rollup"}
+        hint={choice.many && !scoped ? "% change" : undefined}
       >
-        <Loadable loading={account.isPending} error={account.isError} retry={() => account.refetch()} what="the account curve" lines={4}>
+        <Loadable loading={account.isPending} error={account.isError} retry={() => account.refetch()} what="the account curve" shape="chart">
           {accountByBroker.size === 0 ? (
-            <Empty>No account history yet — waiting for the broker state poller.</Empty>
+            <Empty>No equity history yet. It shows up after the first account update.</Empty>
           ) : scoped ? (
             shownCurve ? <div className="p-4"><EquityChart points={accountByBroker.get(shownCurve)!} height={320} /></div>
-              : <Empty>No equity history for {accountTab(scoped.account, view.public).name} yet: it arrives with the account's first minute rollup.</Empty>
+              : <Empty>No equity history for {accountTab(scoped.account, view.public).name} yet.</Empty>
           ) : accountByBroker.size > 1 ? (
             <div className="p-4">
               <ComparisonChart series={accountSeries} height={320} label="Account equity, percent change from each account's first point" />
@@ -157,7 +172,7 @@ export default function Equity({ instanceId }: { instanceId: string | null }) {
       <Panel
         className="mt-5"
         title="Strategy equity"
-        hint={`${scoped ? `strategies that traded on ${accountTab(scoped.account, view.public).name} · ` : ""}broker deals when available, % change from first point`}
+        hint={`% change · ${series.length} of ${ids.length}`}
       >
         <Loadable
           loading={strategies.isPending || (!!scoped && scopedSummary.isPending) || curves.some((c) => c.isPending)}
@@ -171,18 +186,31 @@ export default function Equity({ instanceId }: { instanceId: string | null }) {
         >
           <div className="p-4">
             <ComparisonChart series={series} height={360} />
+            {ids.length > series.length || picked != null ? (
+              <div className="mt-3 flex flex-wrap gap-1.5" role="group" aria-label="Strategies to compare">
+                {ids.map((id) => {
+                  const on = shownIds.includes(id);
+                  return (
+                    <button key={id} type="button" aria-pressed={on} onClick={() => togglePick(id)}
+                      className={`h-7 rounded-full border px-2.5 text-xs font-medium transition ${on ? "border-accent-hi/50 bg-accent-soft text-bright" : "border-line bg-raised text-muted hover:text-body"}`}>
+                      {strategyName(id)}
+                    </button>
+                  );
+                })}
+              </div>
+            ) : null}
           </div>
         </Loadable>
       </Panel>
 
       <div className="mt-5 grid grid-cols-1 items-start gap-5 2xl:grid-cols-2">
-        <Panel title="Underwater" hint="5 deepest drawdowns shaded on the curve, depth below" toolbar={ddSelect}>
+        <Panel title="Underwater" hint="5 deepest shaded" toolbar={ddSelect}>
           <Loadable
             loading={strategies.isPending || (focusIdx >= 0 && (curves[focusIdx]?.isPending ?? false))}
             error={focusIdx >= 0 && (curves[focusIdx]?.isError ?? false)}
             retry={() => void curves[focusIdx]?.refetch()}
             what="the underwater curve"
-            lines={4}
+            shape="chart"
           >
             <div className="grid gap-2 p-4">
               <EquityChart
@@ -195,19 +223,19 @@ export default function Equity({ instanceId }: { instanceId: string | null }) {
           </Loadable>
         </Panel>
 
-        <Panel title="Drawdown periods" hint={focusId}>
+        <Panel title="Drawdown periods" hint={focusId ? strategyName(focusId) : undefined}>
           <Loadable
-            loading={!!focusId && performance.isPending}
+            loading={strategies.isPending || (!!focusId && performance.isPending)}
             error={performance.isError}
             retry={() => performance.refetch()}
             what="drawdown periods"
           >
           <DataList
             head={["Peak (UTC)", "Trough (UTC)", "Depth", "Length", "Recovery"]}
-            rows={periods}
+            rows={allPeriods ? periods : [...periods].sort((a, b) => b.depth - a.depth).slice(0, PERIODS_SHOWN)}
             keyOf={(p) => String(p.peakTs)}
             onRow={(p) => setOpenDd(p)}
-            empty="No drawdowns recorded — flat or rising equity."
+            empty="No drawdowns yet."
             cells={(p) => (
               <>
                 <Cell className="whitespace-nowrap text-muted">{tsDay(p.peakTs).slice(0, 14)}</Cell>
@@ -247,6 +275,11 @@ export default function Equity({ instanceId }: { instanceId: string | null }) {
               </>
             )}
           />
+          {!allPeriods && periods.length > PERIODS_SHOWN && (
+            <button type="button" onClick={() => setAllPeriods(true)} className="w-full border-t border-line px-4 py-2 text-left text-xs font-medium text-accent-ink hover:underline">
+              Show all {periods.length}, by date
+            </button>
+          )}
           </Loadable>
         </Panel>
       </div>

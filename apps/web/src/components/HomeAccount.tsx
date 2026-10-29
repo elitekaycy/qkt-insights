@@ -1,7 +1,7 @@
 import type { ReactNode } from "react";
 import type { AccountRiskRow, LiveAccount } from "../api";
-import { clock, count, money, pctValue, signedMoney, signedPct } from "../format";
-import { accountToday, dailyMeasured, floatingNoteText, type FloatingNote, dailyReferenceLabel, dayBasisLabel, limitLine, drawdownMeasured, limitUse, type LimitUse, type OpenRisk } from "../home";
+import { clock, count, money, pctValue, signedMoney, signedPct, toneClass } from "../format";
+import { dailyMeasured, floatingNoteText, type FloatingNote, dailyReferenceLabel, dayBasisLabel, limitLine, drawdownMeasured, limitUse, todaySplit, type AttentionItem, type LimitUse, type OpenRisk, type TodayPart } from "../home";
 import { accountHint, accountName, accountProfiles, accountTitle } from "../accounts";
 import { Card, FlashValue, Freshness, InfoIcon, Pill, Pnl, Popover } from "./ui";
 
@@ -10,34 +10,17 @@ import { Card, FlashValue, Freshness, InfoIcon, Pill, Pnl, Popover } from "./ui"
  * far each loss limit is. One row per venue account; every figure says its basis.
  */
 
-const ICON = {
-  wallet: "M3 7h18v12H3zM3 7l3-3h12l3 3M16 13h2",
-  pulse: "M3 12h4l3-8 4 16 3-8h4",
-  sun: "M12 4V2M12 22v-2M4 12H2M22 12h-2M5.6 5.6 4.2 4.2M19.8 19.8l-1.4-1.4M5.6 18.4l-1.4 1.4M19.8 4.2l-1.4 1.4M12 8a4 4 0 1 0 0 8 4 4 0 0 0 0-8z",
-  shield: "M12 3l8 3v6c0 4.5-3.4 8.3-8 9-4.6-.7-8-4.5-8-9V6z",
-  gauge: "M12 14l4-4M4 18a9 9 0 1 1 16 0",
-};
-
-function Glyph({ d }: { d: string }) {
-  return (
-    <svg viewBox="0 0 24 24" className="h-4 w-4 shrink-0" fill="none" stroke="currentColor" strokeWidth="1.75" strokeLinecap="round" strokeLinejoin="round" aria-hidden>
-      <path d={d} />
-    </svg>
-  );
-}
-
 /**
- * A journal KPI card: icon and label, one headline figure, one quiet line under it. What the figure
+ * A KPI card: a label, one headline figure, one quiet line under it. What the figure
  * means and how it is measured lives behind the info icon (hover, or tap on touch), so every card in
  * the row keeps the same height.
  */
-export function Kpi({ icon, label, children, sub, info, className = "" }: {
-  icon: string; label: string; children: ReactNode; sub?: ReactNode; info?: ReactNode; className?: string;
+function Kpi({ label, children, sub, info, className = "" }: {
+  label: string; children: ReactNode; sub?: ReactNode; info?: ReactNode; className?: string;
 }) {
   return (
     <Card className={`min-w-0 p-4 ${className}`}>
       <div className="flex items-center gap-2 text-sm font-medium text-muted">
-        <Glyph d={icon} />
         <span className="truncate">{label}</span>
         {info && (
           <span className="ml-auto">
@@ -84,7 +67,6 @@ function LimitGauge({ label, use, value, measured, basis, help }: {
   const tone = use.pct != null && use.pct >= 80 ? "text-loss" : use.pct != null && use.pct >= 55 ? "text-warn" : "";
   return (
     <Kpi
-      icon={ICON.gauge}
       label={label}
       info={
         <>
@@ -94,30 +76,13 @@ function LimitGauge({ label, use, value, measured, basis, help }: {
           <p className="text-muted">{help}</p>
         </>
       }
-      sub={line ? <span className={line.over ? "font-medium text-loss" : ""}>{line.left}</span> : <span className="text-faint">no limit set</span>}
+      sub={line ? <span className={line.over ? "font-medium text-loss" : ""}>{line.left}</span> : <span className="text-muted">no limit</span>}
     >
       <div className="flex items-end gap-2 sm:gap-2.5">
         {line && <Arc pct={use.pct} />}
         <span className={tone}>{value}</span>
       </div>
     </Kpi>
-  );
-}
-
-/** "via 41 profiles": one venue account reached through several qkt broker profiles; the names on hover or tap. */
-function ProfileCount({ profiles }: { profiles: string[] }) {
-  const shown = profiles.slice(0, 12);
-  return (
-    <Popover
-      hover
-      label={`The ${profiles.length} broker profiles of this account`}
-      trigger={<span className="cursor-default text-xs text-muted underline decoration-dotted underline-offset-2">via {profiles.length} profiles</span>}
-    >
-      <p className="text-bright">One venue account, reached through {profiles.length} qkt broker profiles. Its balance and equity are counted once.</p>
-      <p className="mt-1.5 break-words font-mono text-[11px] text-muted">
-        {shown.join(", ")}{profiles.length > shown.length ? `, and ${profiles.length - shown.length} more` : ""}
-      </p>
-    </Popover>
   );
 }
 
@@ -131,6 +96,7 @@ export function AccountStrip({
   dayLabel,
   open,
   note = null,
+  riskPending = false,
   isPublic,
 }: {
   account: LiveAccount;
@@ -145,9 +111,12 @@ export function AccountStrip({
   open: OpenRisk | null;
   /** Why the account's floating differs from its listed positions; null when it does not. */
   note?: FloatingNote | null;
+  /** The risk rows are still loading: the loss limits are not known yet, so nothing claims there are none. */
+  riskPending?: boolean;
   isPublic: boolean;
 }) {
-  const today = accountToday(account, realizedToday);
+  const today = todaySplit(account, realizedToday, note);
+  const split = today.other != null || today.unassigned !== 0;
   const use = risk ? limitUse(risk, account.equity) : null;
   const openCount = open ? open.priced + open.noStop + open.unpriced : 0;
   const title = accountName(account, isPublic);
@@ -156,68 +125,61 @@ export function AccountStrip({
   return (
     <section className={account.stale ? "opacity-90" : ""} aria-label={`Account ${title}`}>
       <div className="flex flex-wrap items-center gap-x-2.5 gap-y-1 text-sm">
-        <span className="font-semibold text-bright" title={isPublic ? accountTitle(account, isPublic) : `${accountTitle(account)} · last reported by broker profile ${account.broker}; the login shows its last four characters`}>{title}</span>
-        {hint && <span className="text-xs text-faint">{hint}</span>}
+        <span className="font-semibold text-bright" title={isPublic ? accountTitle(account, isPublic) : [accountTitle(account), account.server, profiles.length > 1 ? `via ${profiles.length} broker profiles: ${profiles.join(", ")}` : null].filter(Boolean).join(" · ")}>{title}</span>
+        {hint && <span className="text-xs text-muted">{hint}</span>}
         {account.stopped && <Pill tone="warn">stopped reporting</Pill>}
-        {!isPublic && account.server && <span className="text-xs text-faint">{account.server}</span>}
-        {profiles.length > 1 && <ProfileCount profiles={profiles} />}
         <span className="ml-auto">
-          {isPublic ? <span className="text-xs text-muted">as of {clock(account.lastSeen)} UTC</span> : <Freshness at={account.lastSeen} stale={account.stale} />}
+          {isPublic ? <span className="text-xs text-muted">as of {clock(account.lastSeen)} UTC</span> : <Freshness at={account.lastSeen} stale={account.stale} quiet />}
         </span>
       </div>
       <div className={`mt-3 grid grid-cols-2 gap-3 sm:grid-cols-3 ${open ? "xl:grid-cols-6" : "xl:grid-cols-5"}`}>
-        <Kpi icon={ICON.wallet} label="Balance" sub="closed trades only" info={<p>The venue's balance in {account.currency}: closed trades only. Open P&L is in Equity.</p>}>
+        <Kpi label="Balance" info={<p>Cash after closed trades, in {account.currency}. Open trades are in Equity.</p>}>
           <FlashValue value={account.balance}><span className="text-bright">{money(account.balance)}</span></FlashValue>
         </Kpi>
         <Kpi
-          icon={ICON.pulse}
           label="Equity"
-          sub={<>floating <Pnl value={account.equity - account.balance} glyphs={false} /></>}
+          sub={<>open <Pnl value={account.equity - account.balance} glyphs={false} /></>}
           info={
             <>
-              <p>Balance plus the open positions' floating P&L, as the venue marks them.</p>
-              {note && (
-                <p className="text-warn">
-                  {signedMoney(note.account)} floating on the account, of which {floatingNoteText(note)}.
-                  {note.outside && " Another system trades this account; its positions move equity but are not listed here."}
-                  {note.unmarked > 0 && " The venue sends no mark for those positions, so their floating is only in equity."}
-                </p>
-              )}
+              <p>Balance plus what open trades are worth now.</p>
+              {note && <p className="text-muted">Of the {signedMoney(note.account)} open: {floatingNoteText(note)}.</p>}
             </>
           }
         >
           <FlashValue value={account.equity}><span className="text-bright">{money(account.equity)}</span></FlashValue>
         </Kpi>
         <Kpi
-          icon={ICON.sun}
           label="Today"
-          sub={`${signedMoney(today.realized)} closed`}
+          sub={
+            split
+              ? <>{today.other != null && <><span className="font-mono">{signedMoney(today.other)}</span> other system</>}{today.other != null && today.unassigned !== 0 && " · "}{today.unassigned !== 0 && <><span className="font-mono">{signedMoney(today.unassigned)}</span> unlisted</>}</>
+              : `${signedMoney(realizedToday)} closed`
+          }
           info={
             <>
-              <p>{signedMoney(today.realized)} from trades closed since the day began, {signedMoney(today.floating)} open now. The day runs from {dayLabel.replace(/^day from /, "")}.</p>
-              {note && <p className="text-warn">Open now includes {floatingNoteText(note)}.</p>}
+              <p>qkt today: {signedMoney(realizedToday)} closed, {signedMoney(today.qkt - realizedToday)} still open. The day starts {dayLabel.replace(/^day from /, "")}.</p>
+              {split && <p className="text-muted">The whole account is {signedMoney(today.total)} today{today.other != null ? `; ${signedMoney(today.other)} of it is open on another system's trades on this login` : ""}{today.unassigned !== 0 ? `; ${signedMoney(today.unassigned)} is on trades not listed here` : ""}.</p>}
             </>
           }
         >
-          <FlashValue value={today.total}><Pnl value={today.total} /></FlashValue>
+          <FlashValue value={today.qkt}><Pnl value={today.qkt} />{split && <span className="ml-1.5 font-sans text-sm text-muted">qkt</span>}</FlashValue>
         </Kpi>
         {open && (
           <Kpi
-            icon={ICON.shield}
-            label="Open risk"
+            label="Risk to stops"
             sub={
               open.noStop > 0 ? <span className="font-medium text-warn">{count(open.noStop)} without a stop</span>
-                : openCount === 0 ? "flat" : `${count(openCount)} ${openCount === 1 ? "position" : "positions"}`
+                : openCount === 0 ? "no open trades" : `${count(openCount)} open ${openCount === 1 ? "trade" : "trades"}`
             }
             info={
               <>
-                <p>Open risk to stops: what the open positions would lose if every stop filled at its price now.</p>
-                {open.noStop > 0 && <p className="text-warn">{count(open.noStop)} without a stop: their loss is not bounded.</p>}
+                <p>What open trades would lose if every stop were hit now.</p>
+                {open.noStop > 0 && <p>{count(open.noStop)} without a stop: no limit on their loss.</p>}
                 {open.unpriced > 0 && <p className="text-muted">{count(open.unpriced)} not priced yet.</p>}
               </>
             }
           >
-            {openCount === 0 ? <span className="text-faint">{money(0)}</span> : <FlashValue value={open.toStops}><Pnl value={open.toStops} /></FlashValue>}
+            {openCount === 0 ? <span className="text-faint">{money(0)}</span> : <FlashValue value={open.toStops}><span className="text-bright">{signedMoney(open.toStops)}</span></FlashValue>}
           </Kpi>
         )}
         {risk && use ? (
@@ -237,7 +199,7 @@ export function AccountStrip({
             <LimitGauge
               label="Drawdown"
               use={use.drawdown}
-              value={<span className={use.drawdown.used != null && use.drawdown.used > 0 ? "text-loss" : "text-bright"}>{pctValue(use.drawdown.usedPct ?? (use.drawdown.used === 0 ? 0 : null), 2)}</span>}
+              value={<span className="text-bright">{pctValue(use.drawdown.usedPct ?? (use.drawdown.used === 0 ? 0 : null), 2)}</span>}
               measured={drawdownMeasured(risk, use.drawdown)}
               basis={risk.basis === "static" ? null : `from peak equity ${money(risk.peakEquity == null ? null : Math.max(risk.peakEquity, account.equity))}`}
               help={
@@ -247,44 +209,75 @@ export function AccountStrip({
               }
             />
           </>
+        ) : riskPending ? (
+          <Card className="col-span-2 p-4">
+            <div className="h-4 w-24 rounded bg-raised" />
+            <div className="mt-3 h-7 w-32 rounded bg-raised" />
+          </Card>
         ) : (
-          <Card className="col-span-2 flex items-center p-4 text-sm text-muted">Loss limits appear with the account's first equity rollup.</Card>
+          <Card className="col-span-2 flex items-center p-4 text-sm text-muted">No loss limits yet.</Card>
         )}
       </div>
-      {note && <FloatingLine note={note} />}
     </section>
-  );
-}
-
-/**
- * The account's floating P&L split so it reconciles with the positions listed below it: what the listed positions
- * float, and what floats outside them (another system's positions on the account, known or not, and positions the
- * venue marks not).
- */
-function FloatingLine({ note }: { note: FloatingNote }) {
-  const n = (k: number, one: string, many: string) => `${count(k)} ${k === 1 ? one : many}`;
-  const parts: ReactNode[] = [];
-  if (note.marked > 0) parts.push(<><Pnl value={note.listed} glyphs={false} /> on the {n(note.marked, "position", "positions")} listed below</>);
-  if (note.outside) {
-    parts.push(
-      <>
-        {note.outside.floating != null && <><Pnl value={note.outside.floating} glyphs={false} /> on </>}
-        {n(note.outside.count, "position", "positions")} outside this instance (another system trading this account; not listed)
-      </>,
-    );
-  }
-  if (note.elsewhere != null) {
-    parts.push(<><Pnl value={note.elsewhere} glyphs={false} /> on positions this instance does not list (another system trading this account; qkt reports only its own)</>);
-  }
-  if (note.unmarked > 0) parts.push(<>{n(note.unmarked, "listed position has", "listed positions have")} no mark from the venue, so {note.unmarked === 1 ? "its" : "their"} floating is in equity only</>);
-  return (
-    <p className="mt-2 text-xs text-muted">
-      Equity floats <Pnl value={note.account} glyphs={false} />:{" "}
-      {parts.map((part, i) => <span key={i}>{i > 0 && "; "}{part}</span>)}.
-    </p>
   );
 }
 
 function limitSource(risk: AccountRiskRow): string {
   return risk.source == null ? `No limits configured. ${NO_LIMIT_HINT}` : `Limits from ${risk.source}.`;
+}
+
+/**
+ * Home's answer in one line: "Today +18.35 USD qkt · −767.77 USD other system on Exness •••2618". qkt's part opens the
+ * strategy table, another system's part that account's tab. `missing` counts accounts whose Today is not known yet.
+ */
+export function TodayHeadline({ parts, missing, pending, onQkt, onAccount }: {
+  parts: TodayPart[]; missing: number; pending: boolean;
+  onQkt: () => void; onAccount: (key: string) => void;
+}) {
+  if (pending) return <span className="inline-block h-4 w-72 max-w-full rounded bg-raised align-middle" role="status" aria-label="Loading today's figures" />;
+  if (parts.length === 0) return <span>Today: not known yet, waiting for the accounts' first rollup</span>;
+  const link = "rounded-sm underline decoration-line-strong decoration-dotted underline-offset-4 hover:decoration-current focus-visible:outline-2 focus-visible:outline-accent-hi";
+  return (
+    <span className="flex flex-col items-start gap-x-2 gap-y-0.5 sm:flex-row sm:flex-wrap sm:items-baseline">
+      <span className="font-medium text-body">Today</span>
+      {parts.map((p, i) => (
+        <span key={i} className="inline-flex items-baseline gap-2">
+          {i > 0 && <span aria-hidden className="hidden text-faint sm:inline">·</span>}
+          <button type="button" className={link} onClick={() => (p.kind === "qkt" || !p.account ? onQkt() : onAccount(p.account.key))}
+            title={p.kind === "qkt" ? "qkt's closes since each account's day began plus what its positions float; opens the strategies" : `Floating on positions of another system trading ${p.account?.name}; opens the account`}>
+            <span className={`font-mono font-semibold tabular-nums ${toneClass(p.value)}`}>{signedMoney(p.value)}</span>
+            <span className="ml-1 text-xs text-muted">{p.currency}</span>
+            <span className="ml-1.5">{p.kind === "qkt" ? "qkt" : `other system on ${p.account?.name}`}</span>
+          </button>
+        </span>
+      ))}
+      {missing > 0 && <span className="text-faint"><span aria-hidden className="hidden sm:inline">· </span>{missing} {missing === 1 ? "account" : "accounts"} not known yet</span>}
+    </span>
+  );
+}
+
+/**
+ * The line under Home's headline that answers "does anything need me?": each item links to where it lives (the
+ * halted strategy, Health for a quiet account, the positions without a stop). "Nothing needs you" when empty.
+ */
+export function AttentionLine({ items, onItem }: { items: AttentionItem[]; onItem: (item: AttentionItem) => void }) {
+  if (items.length === 0) return <span className="text-muted">Nothing needs you</span>;
+  const words = (i: AttentionItem): string => {
+    switch (i.kind) {
+      case "halted": return `Halted: ${i.name}`;
+      case "halted-many": return `${count(i.count)} strategies halted`;
+      case "account": return i.state === "stopped" ? `${i.name} stopped · ${clock(i.since)} UTC` : `${i.name} stale`;
+      case "no-stop": return `${count(i.count)} ${i.count === 1 ? "position" : "positions"} without a stop`;
+    }
+  };
+  return (
+    <span className="flex flex-wrap items-center gap-1.5" role="list" aria-label="Needs a look">
+      {items.map((i, n) => (
+        <button key={n} type="button" role="listitem" onClick={() => onItem(i)}
+          className="inline-flex h-6 items-center gap-1.5 rounded-full border border-warn/45 bg-warn/10 px-2.5 text-xs font-medium text-warn transition hover:bg-warn/15 focus-visible:outline-2 focus-visible:outline-accent-hi">
+          {words(i)}
+        </button>
+      ))}
+    </span>
+  );
 }

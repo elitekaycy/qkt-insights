@@ -1,7 +1,7 @@
 import { describe, expect, it } from "vitest";
 import type { StrategyRow } from "./api";
 import { emptyPeriods } from "./home";
-import { cardFigures, isFolded, mergeCurves, realizedCurves, sortCards, sparkPath, thinCurve, type CardLine } from "./strategyCards";
+import { cardFigures, cardsTotal, isFolded, notTradedYet, mergeCurves, realizedCurves, sortCards, sparkPath, thinCurve, type CardLine } from "./strategyCards";
 
 const row = (strategyId: string, extra: Partial<StrategyRow> = {}): StrategyRow =>
   ({ strategyId, metadata: null, active: true, halted: false, definedCapital: null, startingBalance: null, ...extra }) as StrategyRow;
@@ -19,16 +19,32 @@ describe("cardFigures", () => {
 
 describe("sortCards", () => {
   const lines = [
-    line("b", { all: 10, today: 5, lastTs: 3 }),
+    line("b", { all: 10, todayRealized: 5, lastTs: 3 }),
     line(null, { all: 999 }),
-    line("a", { all: 50, floating: -45, today: 1, lastTs: 9 }),
-    line("c", { all: -5, today: 7, lastTs: null }),
+    line("a", { all: 50, floating: -45, todayRealized: 1, lastTs: 9 }),
+    line("c", { all: -5, todayRealized: 7, lastTs: null }),
   ];
   it("orders by net, today, newest close or name, the unattributed bucket last", () => {
     expect(sortCards(lines, "net").map((l) => l.key)).toEqual(["b", "a", "c", null]);
     expect(sortCards(lines, "today").map((l) => l.key)).toEqual(["c", "b", "a", null]);
     expect(sortCards(lines, "last").map((l) => l.key)).toEqual(["a", "b", "c", null]);
     expect(sortCards(lines, "name").map((l) => l.key)).toEqual(["a", "b", "c", null]);
+  });
+
+  it("puts what needs attention first: halted, then a position without a stop, then today's realized", () => {
+    const halted = line("h", { todayRealized: -9 }, row("h", { halted: true }));
+    const retiredHalt = line("r", { todayRealized: -20 }, row("r", { halted: true, active: false }));
+    expect(sortCards([...lines, halted, retiredHalt], "attention", new Set(["a"])).map((l) => l.key)).toEqual(["h", "a", "c", "b", "r", null]);
+  });
+});
+
+describe("notTradedYet", () => {
+  it("is a strategy with no close, nothing open and no halt", () => {
+    expect(notTradedYet(line("a"))).toBe(true);
+    expect(notTradedYet(line("a", { floating: 0.4 }))).toBe(false);
+    expect(notTradedYet(line("a", { trades: 1 }))).toBe(false);
+    expect(notTradedYet(line("a", {}, row("a", { halted: true })))).toBe(false);
+    expect(notTradedYet(line(null))).toBe(false);
   });
 });
 
@@ -70,5 +86,14 @@ describe("curves", () => {
     expect(sparkPath([0], 100, 40)).toBeNull();
     expect(sparkPath([0, 5, 10], 100, 40)!.zeroY).toBeNull();
     expect(sparkPath([0, -10, 10], 100, 40)!.zeroY).toBe(20);
+  });
+});
+
+describe("cardsTotal", () => {
+  it("adds the cards' own figures, so the footer is what the cards on screen add to", () => {
+    const a: CardLine = { key: "a", row: null, periods: { ...emptyPeriods("a"), all: -5.94, floating: 0.75, todayRealized: -4.97 } };
+    const b: CardLine = { key: "b", row: null, periods: { ...emptyPeriods("b"), all: 17.06, floating: 0.1, todayRealized: 0.1 } };
+    expect(cardsTotal([a, b])).toEqual({ net: 11.97, today: -4.87 });
+    expect(cardsTotal([])).toEqual({ net: 0, today: 0 });
   });
 });

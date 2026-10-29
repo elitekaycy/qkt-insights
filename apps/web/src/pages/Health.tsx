@@ -3,8 +3,9 @@ import { Fragment, useRef, useState, type KeyboardEvent, type PointerEvent, type
 import { useQuery } from "@tanstack/react-query";
 import { get, type ContractInfo, type HealthRow, type LiveAccount, type LiveStateSnapshot, type MonitorEventRow, type MonitorSummary, type MonitorsView, type StripBucket } from "../api";
 import { ReconciliationCard } from "../components/Reconciliation";
-import { Cell, DataList, Empty, Freshness, StatusWord, LiveDot, PageHeader, Panel, Pill, Row, Skeleton, Stat, Table, type Tone } from "../components/ui";
+import { Cell, DataList, Empty, Freshness, StatusWord, PageHeader, Panel, Pill, Row, Skeleton, Stat, Table, type Tone } from "../components/ui";
 import { contractLabel, contractTitle } from "../contract";
+import { Link } from "../router";
 import { age, clock, duration, money, pct, signedMoney, tsDay, tsShort } from "../format";
 
 /** Red only for a loss: failed POSTs are retried (from the journal when it is on), so they are not one. */
@@ -114,7 +115,7 @@ function UptimeStrip({ strip, name }: { strip: StripBucket[]; name: string }) {
           />
         ))}
       </div>
-      <div className="mt-1 flex items-baseline justify-between gap-2 text-[11px] text-faint">
+      <div className="mt-1 flex items-baseline justify-between gap-2 text-xs text-muted">
         <span className="shrink-0">24h ago</span>
         <span aria-live="polite" className={`min-w-0 truncate ${picked?.status === "down" ? "text-loss" : "text-muted"}`}>
           {picked ? beatLabel(picked, spanMs) : ""}
@@ -145,7 +146,6 @@ function MonitorRow({ m }: { m: MonitorSummary }) {
   return (
     <li className="px-4 py-3.5 transition-colors hover:bg-raised/40 focus-within:bg-raised/40">
       <div className="flex items-center gap-3">
-        <LiveDot on={m.status === "up"} down={m.status === "down"} />
         <div className="min-w-0 flex-1">
           <div className="flex items-center gap-2">
             <span className="truncate font-semibold text-bright">{m.name}</span>
@@ -159,13 +159,13 @@ function MonitorRow({ m }: { m: MonitorSummary }) {
           <div className={`text-lg font-semibold leading-tight ${uptimeTone(m.uptime24h)}`} title={uncheckedLabel(m.unchecked24h) ?? undefined}>
             {pct(m.uptime24h, 2)}
           </div>
-          <div className="text-[11px] uppercase tracking-[0.06em] text-faint">24h</div>
+          <div className="text-xs text-muted">24h</div>
         </div>
       </div>
-      <div className="mt-2.5 sm:pl-5">
+      <div className="mt-2.5">
         <UptimeStrip strip={m.strip} name={m.name} />
       </div>
-      <div className="mt-1.5 flex flex-wrap gap-x-4 gap-y-1 text-xs text-muted sm:pl-5">
+      <div className="mt-1.5 flex flex-wrap gap-x-4 gap-y-1 text-xs text-muted">
         <span>
           30d <span className={`${uptimeTone(m.uptime30d)}`}>{pct(m.uptime30d, 2)}</span>
           {uncheckedLabel(m.unchecked30d) && <span className="text-faint"> · {uncheckedLabel(m.unchecked30d)}</span>}
@@ -186,19 +186,33 @@ function MonitorRow({ m }: { m: MonitorSummary }) {
   );
 }
 
-/** The glance row: how much of the fleet is alive right now. */
-function FleetStats({ monitors, rows, accounts }: { monitors: MonitorSummary[]; rows: HealthRow[]; accounts: LiveAccount[] }) {
+/** The glance row: what is reporting right now, naming whatever is not. */
+function FleetStats({ monitors, rows, accounts, pending }: { monitors: MonitorSummary[]; rows: HealthRow[]; accounts: LiveAccount[]; pending: boolean }) {
+  if (pending) {
+    return (
+      <div className="mt-6 grid grid-cols-2 gap-3 xl:grid-cols-4" role="status" aria-label="Loading the fleet's status">
+        {["Instances up", "Strategies", "Accounts reporting", "Monitors down"].map((label) => (
+          <Stat key={label} label={label} value={<span className="inline-block h-6 w-16 rounded bg-raised" />} sub=" " />
+        ))}
+      </div>
+    );
+  }
   const daemons = monitors.filter((m) => m.kind === "heartbeat");
   const daemonsUp = daemons.filter((m) => m.status === "up").length;
   const strategies = rows.reduce((n, r) => n + r.strategies, 0);
-  const accountsLive = accounts.filter((a) => !a.stale).length;
+  const quiet = accounts.filter((a) => a.stale);
   const down = monitors.filter((m) => m.status === "down");
   return (
     <div className="mt-6 grid grid-cols-2 gap-3 xl:grid-cols-4">
-      <Stat label="daemons up" value={`${daemonsUp} / ${daemons.length}`} tone={daemons.length > 0 && daemonsUp === daemons.length ? "ok" : daemonsUp < daemons.length ? "bad" : "neutral"} sub="qkt instances with a live heartbeat" />
-      <Stat label="strategies" value={strategies} sub="deployed across all daemons" />
-      <Stat label="broker accounts" value={`${accountsLive} / ${accounts.length}`} tone={accounts.length > 0 && accountsLive === accounts.length ? "ok" : accountsLive < accounts.length ? "bad" : "neutral"} sub="polled within 30s" />
-      <Stat label="monitors down" value={down.length} tone={down.length > 0 ? "bad" : "ok"} sub={down.length > 0 ? down.map((m) => m.name).join(", ") : "everything is answering"} />
+      <Stat label="Instances up" value={`${daemonsUp} / ${daemons.length}`} tone={daemonsUp < daemons.length ? "bad" : "neutral"} />
+      <Stat label="Strategies" value={strategies} />
+      <Stat
+        label="Accounts reporting"
+        value={`${accounts.length - quiet.length} / ${accounts.length}`}
+        tone={quiet.length > 0 ? "warn" : "neutral"}
+        sub={quiet.length > 0 ? quiet.map((a) => `${accountName(a)} ${a.stopped ? "stopped" : `stale ${age(a.lastSeen).replace(/ ago$/, "")}`}`).join(", ") : undefined}
+      />
+      <Stat label="Monitors down" value={down.length} tone={down.length > 0 ? "bad" : "neutral"} sub={down.length > 0 ? down.map((m) => m.name).join(", ") : undefined} />
     </div>
   );
 }
@@ -212,14 +226,15 @@ function Monitors({ view, loading, failed }: { view: MonitorsView | undefined; l
         className="mt-6"
        
         title="Uptime"
-        hint="checked every 30s · a heartbeat is down after 150s of silence, a probe after 3 straight failures · outages the collector slept through are written when it is back · each beat is 30 min, red if any check failed or an outage covers it, grey when nothing was checking · uptime counts unchecked minutes as not up"
+        hint="30-min beats, last 24 h"
+        hintTitle="Checked every 30s. A heartbeat is down after 150s of silence, a probe after 3 straight failures. A beat is red if any check in it failed, grey when nothing was checking. Unchecked minutes count as not up."
       >
         {loading && <Skeleton lines={3} className="p-4" />}
         {failed && !view && <div className="px-4 py-10 text-center text-sm text-loss">Could not load monitors from the collector. Retrying.</div>}
         <ul className="divide-y divide-line/60">
           {!loading && !failed && monitors.length === 0 && (
             <li className="px-4 py-10 text-center text-sm text-faint">
-              No monitors yet. Heartbeats appear once a qkt instance reports; add HTTP probes with INSIGHTS_MONITORS.
+              No monitors yet. They show up once a qkt instance reports.
             </li>
           )}
           {monitors.map((m) => (
@@ -228,12 +243,12 @@ function Monitors({ view, loading, failed }: { view: MonitorsView | undefined; l
         </ul>
       </Panel>
 
-      <Panel className="mt-6" title="Incidents" hint="every up/down transition, newest first · a down lasts until the monitor's next up" scroll="max-h-[24rem]">
-        <DataList
+      <Panel className="mt-6" title="Incidents" scroll="max-h-[24rem]">
+        {!view ? (loading ? <Skeleton lines={3} className="p-4" /> : null) : <DataList
           head={["When (UTC)", "Monitor", "Status", "Lasted", "Reason"]}
           rows={events}
           keyOf={(e) => `${e.monitor}:${e.ts}`}
-          empty="No transitions recorded."
+          empty="No incidents."
           cells={(e) => (
             <>
               <Cell className="whitespace-nowrap text-muted">{tsDay(e.ts)}</Cell>
@@ -255,15 +270,15 @@ function Monitors({ view, loading, failed }: { view: MonitorsView | undefined; l
               {e.status === "down" && <div className="mt-1 text-xs text-muted">lasted {lasted(e, events)}{e.detail ? ` · ${e.detail}` : ""}</div>}
             </>
           )}
-        />
+        />}
       </Panel>
     </>
   );
 }
 
-/** A down transition's length: to the same monitor's next up, "ongoing" without one; blank for an up. */
+/** A down transition's length: to the same monitor's next up, "ongoing" without one; a dash for an up. */
 function lasted(e: MonitorEventRow, events: MonitorEventRow[]): string {
-  if (e.status !== "down") return "";
+  if (e.status !== "down") return "—";
   const up = events.filter((x) => x.monitor === e.monitor && x.status === "up" && x.ts > e.ts).reduce<MonitorEventRow | null>((a, x) => (a == null || x.ts < a.ts ? x : a), null);
   return up ? duration(up.ts - e.ts) : "ongoing";
 }
@@ -276,7 +291,7 @@ function accountSummary(accounts: LiveAccount[]): LiveAccount | null {
 function Fact({ label, children, mono }: { label: string; children: ReactNode; mono?: boolean }) {
   return (
     <div className="min-w-0">
-      <div className="text-[11px] uppercase tracking-[0.06em] text-faint">{label}</div>
+      <div className="text-xs text-muted">{label}</div>
       <div className={`truncate ${mono ? "font-mono" : ""} text-bright`}>{children}</div>
     </div>
   );
@@ -287,7 +302,7 @@ function InstanceDetail({ row, accounts }: { row: HealthRow; accounts: LiveAccou
   return (
     <div className="grid gap-4 xl:grid-cols-[1.2fr_2fr]">
       <div className="rounded-lg border border-line bg-panel p-4">
-        <div className="text-[11px] font-semibold uppercase tracking-[0.06em] text-muted">Collector delivery</div>
+        <div className="text-sm font-medium text-body">Collector delivery</div>
         <div className="mt-3 grid grid-cols-2 gap-3 text-sm">
           <Fact label="sent" mono>
             {row.insightsSent ?? "—"}
@@ -303,7 +318,7 @@ function InstanceDetail({ row, accounts }: { row: HealthRow; accounts: LiveAccou
           </Fact>
         </div>
         <div className="mt-3 text-sm">
-          <div className="text-[11px] uppercase tracking-[0.06em] text-faint">quarantined</div>
+          <div className="text-xs text-muted">quarantined</div>
           {row.quarantined.length === 0 ? (
             <div className="text-muted">none</div>
           ) : (
@@ -353,7 +368,7 @@ function InstanceDetail({ row, accounts }: { row: HealthRow; accounts: LiveAccou
                   {money(a.equity)}
                 </Fact>
                 <div className="min-w-0">
-                  <div className="text-[11px] uppercase tracking-[0.06em] text-faint">open p&l</div>
+                  <div className="text-xs text-muted">open p&l</div>
                   <div className={`truncate ${openTone(a.openProfit)}`}>{signedMoney(a.openProfit)}</div>
                 </div>
               </div>
@@ -400,18 +415,17 @@ export default function Health() {
 
   return (
     <div>
-      <PageHeader title="Health" sub="Uptime, venue reconciliation, runtime status, collector delivery, and broker account truth in one place." />
+      <PageHeader title="Health" />
 
-      <FleetStats monitors={monitors.data?.monitors ?? []} rows={rows} accounts={accounts} />
+      <FleetStats monitors={monitors.data?.monitors ?? []} rows={rows} accounts={accounts} pending={monitors.isPending || health.isPending || liveState.isPending} />
 
       <Monitors view={monitors.data} loading={monitors.isLoading} failed={monitors.isError} />
 
-      <ReconciliationCard instances={rows.map((r) => r.instanceId)} />
+      <ReconciliationCard instances={rows.map((r) => r.instanceId)} pending={health.isPending} />
 
       <Panel
         className="mt-6"
-        title="Runtime health"
-        hint="live = recent qkt envelope or broker account poll within 30s"
+        title="Instances"
         right={
           contract.data && (
             <span className="font-mono text-xs text-faint" title={contractTitle(contract.data)}>
@@ -422,7 +436,8 @@ export default function Health() {
         scroll="max-h-[72vh]"
       >
         <ul className="divide-y divide-line/60 sm:hidden">
-          {rows.length === 0 && (
+          {health.isPending && <li><Skeleton lines={3} /></li>}
+          {health.isSuccess && rows.length === 0 && (
             <li className="px-4 py-10 text-center text-sm text-faint">No instances reporting yet — enable the insights block on a qkt instance.</li>
           )}
           {rows.map((r) => {
@@ -437,10 +452,7 @@ export default function Health() {
                   <Freshness at={Math.max(r.lastSeen, acct?.lastSeen ?? 0)} stale={!fresh} className="ml-auto" />
                 </div>
                 <div className="mt-2 grid grid-cols-2 gap-x-4 gap-y-1.5 text-sm">
-                  <Fact label="broker">{acct ? <span title={accountTitle(acct)}>{accountName(acct)}</span> : "—"}</Fact>
-                  <Fact label="equity" mono>
-                    {acct ? money(acct.equity) : "—"}
-                  </Fact>
+                  <Fact label="accounts"><Link to="/" from="Health" className="hover:underline">{rowAccounts.length}</Link></Fact>
                   <Fact label="seq" mono>
                     {seqLabel(r)}
                   </Fact>
@@ -476,8 +488,9 @@ export default function Health() {
         </ul>
 
         <div className="hidden sm:block">
-        <Table head={["Instance", "Status", "Last event", "Seq", "Strategies", "Broker", "Equity", "Sink", "Journal", ""]}>
-          {rows.length === 0 && <Empty colSpan={10}>No instances reporting yet — enable the insights block on a qkt instance.</Empty>}
+        <Table head={["Instance", "Status", "Last event", "Seq", "Strategies", "Accounts", "Sink", "Journal", ""]}>
+          {health.isPending && <tr><td colSpan={9}><Skeleton lines={3} /></td></tr>}
+          {health.isSuccess && rows.length === 0 && <Empty colSpan={9}>No instances reporting yet — enable the insights block on a qkt instance.</Empty>}
           {rows.map((r) => {
             const rowAccounts = accounts.filter((a) => a.instanceId === r.instanceId);
             const acct = accountSummary(rowAccounts);
@@ -499,8 +512,7 @@ export default function Health() {
                   <Cell className="text-muted">
                     <span title={r.retiredStrategies > 0 ? "retired: rows a newer roster or 30 days of silence left behind, not counted as deployed" : undefined}>{strategiesLabel(r)}</span>
                   </Cell>
-                  <Cell className="text-muted">{acct ? <span title={accountTitle(acct)}>{accountName(acct)}</span> : "—"}</Cell>
-                  <Cell className="text-bright">{acct ? money(acct.equity) : "—"}</Cell>
+                  <Cell className="text-muted"><span onClick={(e) => e.stopPropagation()}><Link to="/" from="Health" className="hover:underline" title="Each account's balance and equity are on Home">{rowAccounts.length} {rowAccounts.length === 1 ? "account" : "accounts"}</Link></span></Cell>
                   <Cell>
                     <span className="flex flex-wrap gap-1.5">
                       <span title={SINK_TITLE}>
@@ -522,7 +534,7 @@ export default function Health() {
                 </Row>
                 {expanded && (
                   <tr key={`${r.instanceId}:details`} className="border-b border-line/60">
-                    <td colSpan={10} className="bg-ink/35 px-4 py-4">
+                    <td colSpan={9} className="bg-ink/35 px-4 py-4">
                       <InstanceDetail row={r} accounts={rowAccounts} />
                     </td>
                   </tr>

@@ -27,6 +27,112 @@ export function accountToday(account: { balance: number; equity: number }, reali
   return { total: realizedToday + floating, realized: realizedToday, floating };
 }
 
+/**
+ * An account's Today split by who made it. qkt: closes since the day began plus what qkt's listed positions float.
+ * Other system: floating on positions this instance does not list (another system on the same login), known or
+ * inferred (FloatingNote outside and elsewhere). `unassigned` is the rest of the account's own figure that neither
+ * part explains (listed positions without a venue mark, an outside position without a mark, the floating of an account
+ * that stopped reporting), so qkt + other + unassigned is always the account's Today. Without a note the whole figure
+ * is qkt's.
+ */
+export interface TodaySplit {
+  /** The account's own Today: realized today plus equity - balance. */
+  total: number;
+  qkt: number;
+  /** Null when no other system floats on the account. */
+  other: number | null;
+  /** What neither part explains; 0 when the parts add up. */
+  unassigned: number;
+}
+
+export function todaySplit(account: { balance: number; equity: number; stopped?: boolean }, realizedToday: number, note: FloatingNote | null | undefined): TodaySplit {
+  const total = roundMoney(accountToday(account, realizedToday).total, 2);
+  if (!note) return { total, qkt: total, other: null, unassigned: 0 };
+  const qkt = roundMoney(realizedToday + note.listed, 2);
+  // an account that stopped reporting lists no positions any more: what it floated is not another system's
+  const parts = [note.outside?.floating, account.stopped ? null : note.elsewhere].filter((v): v is number => v != null);
+  const other = parts.length > 0 ? roundMoney(parts.reduce((a, v) => a + v, 0), 2) : null;
+  return { total, qkt, other, unassigned: roundMoney(total - qkt - (other ?? 0), 2) };
+}
+
+/**
+ * The strategy table's total row: what the rows add to, against the account's own Today when one account is shown.
+ * `rest` is the part of the account figure neither the rows nor the other system hold (an unmarked position, a
+ * close the account's day counts and the rows' day does not), so rows + other + rest is the account figure. Null
+ * account fields on All accounts, where the rows span accounts and their trading days.
+ */
+export interface StrategyTotal {
+  rows: number;
+  other: number | null;
+  account: number | null;
+  /** The account figure minus the rows and the other system; 0 when they add up. */
+  rest: number;
+}
+
+export function strategyTotal(rowsToday: readonly number[], split: TodaySplit | null): StrategyTotal {
+  const rows = roundMoney(rowsToday.reduce((a, v) => a + v, 0), 2);
+  if (!split) return { rows, other: null, account: null, rest: 0 };
+  return { rows, other: split.other, account: split.total, rest: roundMoney(split.total - rows - (split.other ?? 0), 2) };
+}
+
+/** One part of Home's headline: qkt's Today in one currency, or another system's floating on one account. */
+export interface TodayPart {
+  kind: "qkt" | "other";
+  value: number;
+  currency: string;
+  /** The account the part is on (key and name), for "other": where it lives. */
+  account?: { key: string; name: string };
+}
+
+/**
+ * Home's headline, "Today +18.35 USD qkt · −767.77 USD other system on Exness •••2618": qkt's Today summed per
+ * currency (never across currencies), then each account's other-system floating. Zero parts are left out, except a
+ * qkt total of zero when nothing else is to say. Accounts whose Today is not known yet (no risk row) are skipped and
+ * counted in `missing`, so the line never passes a partial sum off as the whole.
+ */
+export function todayHeadline(items: ReadonlyArray<{ key: string; name: string; currency: string; split: TodaySplit | null }>): { parts: TodayPart[]; missing: number } {
+  const qkt = new Map<string, number>();
+  const other: TodayPart[] = [];
+  let missing = 0;
+  for (const it of items) {
+    if (!it.split) { missing++; continue; }
+    qkt.set(it.currency, roundMoney((qkt.get(it.currency) ?? 0) + it.split.qkt, 2));
+    if (it.split.other != null && it.split.other !== 0) other.push({ kind: "other", value: it.split.other, currency: it.currency, account: { key: it.key, name: it.name } });
+  }
+  const own: TodayPart[] = [...qkt].map(([currency, value]) => ({ kind: "qkt", value, currency }));
+  const nonZero = own.filter((p) => p.value !== 0);
+  const parts = [...(nonZero.length > 0 || other.length > 0 ? nonZero : own.slice(0, 1)), ...other];
+  return { parts, missing };
+}
+
+/** One thing on Home that needs the owner, and where it lives. */
+export type AttentionItem =
+  | { kind: "halted"; strategyId: string; name: string }
+  | { kind: "halted-many"; count: number }
+  | { kind: "account"; key: string; name: string; state: "stale" | "stopped"; since: number }
+  | { kind: "no-stop"; count: number };
+
+/**
+ * What needs a look, in the order it matters: halted strategies (named while there are two or fewer), accounts that
+ * are stale or stopped reporting, then positions without a stop. Retired strategies never count. Another system's
+ * floating is not here: Home's headline names it beside qkt's own figure.
+ */
+export function attentionItems(input: {
+  strategies: ReadonlyArray<{ strategyId: string; name: string; active: boolean; halted?: boolean }>;
+  accounts: ReadonlyArray<{ key: string; name: string; stale: boolean; stopped?: boolean; lastSeen: number }>;
+  noStop: number;
+}): AttentionItem[] {
+  const out: AttentionItem[] = [];
+  const halted = input.strategies.filter((s) => s.active && s.halted);
+  if (halted.length > 2) out.push({ kind: "halted-many", count: halted.length });
+  else for (const s of halted) out.push({ kind: "halted", strategyId: s.strategyId, name: s.name });
+  for (const a of input.accounts) {
+    if (a.stale) out.push({ kind: "account", key: a.key, name: a.name, state: a.stopped ? "stopped" : "stale", since: a.lastSeen });
+  }
+  if (input.noStop > 0) out.push({ kind: "no-stop", count: input.noStop });
+  return out;
+}
+
 export interface LimitUse {
   used: number | null;
   cap: number | null;
@@ -66,7 +172,7 @@ export function limitUse(row: AccountRiskRow, liveEquity: number | null): { dail
 }
 
 /** What the trading day is measured from: the day-start balance, or the higher of it and day-start equity. */
-export function dailyReference(row: Pick<AccountRiskRow, "dailyLoss">): number | null {
+function dailyReference(row: Pick<AccountRiskRow, "dailyLoss">): number | null {
   return row.dailyLoss.reference !== undefined ? row.dailyLoss.reference : row.dailyLoss.dayStartBalance;
 }
 
@@ -79,14 +185,14 @@ export function dailyReferenceLabel(row: Pick<AccountRiskRow, "dailyLoss">): str
 }
 
 /** Live account state is kept in memory; an instance silent this long has none to show until it reports. */
-export const SILENT_AFTER_MS = 5 * 60_000;
+const SILENT_AFTER_MS = 5 * 60_000;
 
 /** Home's line when the instance has no live account state: waiting for the first poll, or the instance went quiet. */
 export function noAccountMessage(instanceId: string, lastSeen: number | null | undefined, now: number): string {
   if (lastSeen != null && now - lastSeen > SILENT_AFTER_MS) {
-    return `${instanceId} last reported ${age(lastSeen)} (${ts(lastSeen)} UTC), so there is no live account state. It returns when the instance reports again; its history stays below.`;
+    return `${instanceId} last reported ${age(lastSeen)} (${ts(lastSeen)} UTC). Its history is below.`;
   }
-  return "No account state yet: it arrives with the next state poll from qkt.";
+  return "Waiting for the first account update from qkt.";
 }
 
 /** The daily-loss card's line under the figure: what the figure is, in words. */
@@ -236,17 +342,17 @@ export function floatingNote(
   return { account: floating, listed, marked: positions.length - unmarked, unmarked, outside: hidden, elsewhere };
 }
 
-/** The note in words, e.g. "−597.30 on 1 position outside this instance · 2 listed without a venue mark". */
+/** The note in plain words, e.g. "−597.30 on 1 trade from another system · 2 trades with no price from the venue". */
 export function floatingNoteText(n: FloatingNote): string {
   const plural = (k: number, word: string) => `${k} ${word}${k === 1 ? "" : "s"}`;
   const parts: string[] = [];
   if (n.outside) {
     parts.push(n.outside.floating != null
-      ? `${signedMoney(n.outside.floating)} on ${plural(n.outside.count, "position")} outside this instance`
-      : `${plural(n.outside.count, "position")} outside this instance`);
+      ? `${signedMoney(n.outside.floating)} on ${plural(n.outside.count, "trade")} from another system`
+      : `${plural(n.outside.count, "trade")} from another system`);
   }
-  if (n.elsewhere != null) parts.push(`${signedMoney(n.elsewhere)} on positions this instance does not list`);
-  if (n.unmarked > 0) parts.push(`${plural(n.unmarked, "listed position")} without a venue mark`);
+  if (n.elsewhere != null) parts.push(`${signedMoney(n.elsewhere)} on trades not listed here`);
+  if (n.unmarked > 0) parts.push(`${plural(n.unmarked, "trade")} with no price from the venue`);
   return parts.join(" · ");
 }
 
@@ -273,13 +379,13 @@ export interface StrategyPeriods {
   lastTs: number | null;
 }
 
-export function utcMonthStart(now: number): number {
+function utcMonthStart(now: number): number {
   const d = new Date(now);
   return Date.UTC(d.getUTCFullYear(), d.getUTCMonth(), 1);
 }
 
 /** Where 7D begins: the UTC midnight six days before today's, so 7D is today and the six UTC days before. */
-export function sevenDayStart(now: number): number {
+function sevenDayStart(now: number): number {
   return Math.floor(now / DAY_MS) * DAY_MS - 6 * DAY_MS;
 }
 
