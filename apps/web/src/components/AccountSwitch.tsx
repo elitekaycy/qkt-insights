@@ -84,7 +84,7 @@ export interface AccountLine {
   pending?: boolean;
 }
 
-const HEAD = ["Account", "Balance", "Equity", "Today", "Open risk", "Drawdown", "Updated"];
+const HEAD = ["Account", "Balance", "Equity", "Today", "Open risk", "Drawdown", "Status"];
 
 /**
  * All accounts at a glance: one row per account, every figure in the account's own currency (never added across
@@ -140,7 +140,7 @@ function OpenRiskCell({ open }: { open: OpenRisk | null }) {
 function Updated({ line, isPublic }: { line: AccountLine; isPublic: boolean }) {
   const a = line.group.account;
   if (a.stopped) return <span className="text-xs text-muted" title={`no report since ${clock(a.lastSeen)} UTC; the figures are its last stored minute`}>stopped · {clock(a.lastSeen)} UTC</span>;
-  return isPublic ? <span className="text-xs text-muted">as of {clock(a.lastSeen)} UTC</span> : <Freshness at={a.lastSeen} stale={a.stale} />;
+  return isPublic ? <span className="text-xs text-muted">as of {clock(a.lastSeen)} UTC</span> : <Freshness at={a.lastSeen} stale={a.stale} quiet />;
 }
 
 function AccountCells({ line, isPublic }: { line: AccountLine; isPublic: boolean }) {
@@ -187,7 +187,7 @@ function Pending() {
  * floating) on line 1, what another system on the same login floats on line 2. The account's own total, and any
  * part neither explains, on hover. Without another system the line is the account's Today alone.
  */
-export function TodayFigure({ split, note, realized }: { split: TodaySplit; note: FloatingNote | null; realized: number }) {
+function TodayFigure({ split, note, realized }: { split: TodaySplit; note: FloatingNote | null; realized: number }) {
   const parts = [`Account today ${signedMoney(split.total)}`, `${signedMoney(realized)} closed`, `${signedMoney(split.qkt - realized)} open on qkt's positions`];
   if (split.other != null) parts.push(`${signedMoney(split.other)} on positions of another system on this login`);
   if (split.unassigned !== 0 && note) parts.push(`${signedMoney(split.unassigned)} on trades not listed here (${floatingNoteText(note)})`);

@@ -345,7 +345,7 @@ export function TradeDrawer({ instanceId, order = [] }: { instanceId: string | n
               </div>
             </>
           ) : (
-            <div className="mt-3 h-14 animate-pulse rounded bg-raised" />
+            <div className="mt-3 h-14 rounded bg-raised" />
           )}
         </header>
         <div className="min-h-0 flex-1 overflow-y-auto overscroll-contain pt-4">
@@ -356,7 +356,7 @@ export function TradeDrawer({ instanceId, order = [] }: { instanceId: string | n
           ) : (
             <div className="space-y-3 px-5">
               {Array.from({ length: 6 }, (_, i) => (
-                <div key={i} className="h-5 animate-pulse rounded bg-raised" />
+                <div key={i} className="h-5 rounded bg-raised" />
               ))}
             </div>
           )}

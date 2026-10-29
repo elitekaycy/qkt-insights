@@ -34,7 +34,7 @@ export function verdict(a: AccountReconciliation): { tone: ReconciliationTone; t
 }
 
 /** "2 balance moves without a deal": deposits, withdrawals or credits, which are not failures. */
-export function externalCount(n: number): string {
+function externalCount(n: number): string {
   return `${count(n)} balance ${n === 1 ? "move" : "moves"} without a deal`;
 }
 

@@ -20,9 +20,6 @@ export const ICONS = {
   health: "M22 12h-4l-3 9L9 3l-3 9H2",
   settings:
     "M12 15a3 3 0 1 0 0-6 3 3 0 0 0 0 6zM19.4 15a1.65 1.65 0 0 0 .33 1.82l.06.06a2 2 0 1 1-2.83 2.83l-.06-.06a1.65 1.65 0 0 0-1.82-.33 1.65 1.65 0 0 0-1 1.51V21a2 2 0 1 1-4 0v-.09A1.65 1.65 0 0 0 9 19.4a1.65 1.65 0 0 0-1.82.33l-.06.06a2 2 0 1 1-2.83-2.83l.06-.06A1.65 1.65 0 0 0 4.68 15a1.65 1.65 0 0 0-1.51-1H3a2 2 0 1 1 0-4h.09A1.65 1.65 0 0 0 4.6 9a1.65 1.65 0 0 0-.33-1.82l-.06-.06a2 2 0 1 1 2.83-2.83l.06.06A1.65 1.65 0 0 0 9 4.68a1.65 1.65 0 0 0 1-1.51V3a2 2 0 1 1 4 0v.09a1.65 1.65 0 0 0 1 1.51 1.65 1.65 0 0 0 1.82-.33l.06-.06a2 2 0 1 1 2.83 2.83l-.06.06A1.65 1.65 0 0 0 19.4 9a1.65 1.65 0 0 0 1.51 1H21a2 2 0 1 1 0 4h-.09a1.65 1.65 0 0 0-1.51 1z",
-  search: "M11 19a8 8 0 1 0 0-16 8 8 0 0 0 0 16zM21 21l-4.35-4.35",
-  more: "M5 12h.01M12 12h.01M19 12h.01",
-  menu: "M4 6h16M4 12h16M4 18h16",
   refresh: "M21 12a9 9 0 1 1-2.64-6.36M21 3v6h-6",
   collapse: "M15 18l-6-6 6-6",
   expand: "M9 18l6-6-6-6",
@@ -45,9 +42,9 @@ export function NavIcon({ d, big, className = "" }: { d: string; big?: boolean; 
   );
 }
 
-export function Mark() {
+export function Mark({ className = "h-7 w-7" }: { className?: string }) {
   return (
-    <svg viewBox="0 0 200 200" className="h-7 w-7 shrink-0" aria-hidden>
+    <svg viewBox="0 0 200 200" className={`shrink-0 ${className}`} aria-hidden>
       <g fill="none" strokeWidth="14">
         <g stroke="var(--color-brand-violet)" strokeLinejoin="miter">
           <path d="M56 50H34v100h22" />
@@ -55,20 +52,36 @@ export function Mark() {
         </g>
         <path d="M100 80v70" stroke="var(--color-bright)" strokeLinecap="round" />
       </g>
-      <circle cx="100" cy="62" r="7" fill="var(--color-brand)" />
+      <circle cx="100" cy="62" r="7" fill="var(--color-tittle)" />
     </svg>
   );
 }
 
-/** The "qkt·insights" lockup exactly as the brand draws it, with the deployment name under it. */
-export function Wordmark({ brand, iconsOnly = false }: { brand?: string | null; iconsOnly?: boolean }) {
+/**
+ * The "qkt·insights" lockup exactly as the brand draws it, with the deployment name under it. `stacked` sets the
+ * mark above the words at a larger size (the splash); the mark itself is the same drawing.
+ */
+export function Wordmark({ brand, iconsOnly = false, stacked = false }: { brand?: string | null; iconsOnly?: boolean; stacked?: boolean }) {
+  if (stacked) {
+    return (
+      <div className="flex flex-col items-center gap-3">
+        <Mark className="h-12 w-12" />
+        <div className="text-center">
+          <div className="wordmark text-xl leading-tight text-bright">
+            qkt<span className="text-tittle">·</span>insights
+          </div>
+          {brand && <div className="text-sm font-medium text-muted">{brand}</div>}
+        </div>
+      </div>
+    );
+  }
   return (
     <div className={`flex min-w-0 items-center gap-2.5 ${iconsOnly ? "justify-center" : ""}`}>
       <Mark />
       {!iconsOnly && (
         <div className="min-w-0">
           <div className="wordmark text-[17px] leading-tight text-bright">
-            qkt<span className="text-brand">·</span>insights
+            qkt<span className="text-tittle">·</span>insights
           </div>
           {brand && <div className="truncate text-xs font-medium text-muted">{brand}</div>}
         </div>

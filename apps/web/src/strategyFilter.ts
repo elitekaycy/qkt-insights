@@ -9,7 +9,7 @@ import { strategyDisplayName } from "./portfolio";
 
 export type StrategyStatus = "running" | "halted" | "retired";
 
-export function strategyStatus(row: StrategyRow): StrategyStatus {
+function strategyStatus(row: StrategyRow): StrategyStatus {
   return row.halted ? "halted" : row.active ? "running" : "retired";
 }
 

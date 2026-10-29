@@ -138,7 +138,7 @@ export default function Equity({ instanceId }: { instanceId: string | null }) {
           ? "% change from each account's first point, each in its own currency · broker-reported, 1-minute rollup"
           : "broker-reported, sampled from the 1-minute rollup"}
       >
-        <Loadable loading={account.isPending} error={account.isError} retry={() => account.refetch()} what="the account curve" lines={4}>
+        <Loadable loading={account.isPending} error={account.isError} retry={() => account.refetch()} what="the account curve" shape="chart">
           {accountByBroker.size === 0 ? (
             <Empty>No account history yet — waiting for the broker state poller.</Empty>
           ) : scoped ? (
@@ -182,7 +182,7 @@ export default function Equity({ instanceId }: { instanceId: string | null }) {
             error={focusIdx >= 0 && (curves[focusIdx]?.isError ?? false)}
             retry={() => void curves[focusIdx]?.refetch()}
             what="the underwater curve"
-            lines={4}
+            shape="chart"
           >
             <div className="grid gap-2 p-4">
               <EquityChart

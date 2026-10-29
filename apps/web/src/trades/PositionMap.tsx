@@ -58,9 +58,9 @@ export function PositionMap({ instanceId, ticket, open, digits, realized }: {
       ) : !path ? (
         <div className="space-y-3" aria-busy>
           <div className="grid grid-cols-2 gap-3 sm:grid-cols-4">
-            {Array.from({ length: 4 }, (_, i) => <div key={i} className="h-9 animate-pulse rounded bg-raised" />)}
+            {Array.from({ length: 4 }, (_, i) => <div key={i} className="h-9 rounded bg-raised" />)}
           </div>
-          <div className="h-[240px] animate-pulse rounded-lg bg-raised" />
+          <div className="h-[240px] rounded-lg bg-raised" />
         </div>
       ) : path.marks === 0 ? (
         <NoMarks path={path} />
@@ -224,7 +224,7 @@ function MomentCard({ m, digits, selected, plotted, onHover, onSelect }: {
 }
 
 /** The marker's shape and colour, as the chart draws it. */
-export function MomentGlyph({ k }: { k: MomentKey }) {
+function MomentGlyph({ k }: { k: MomentKey }) {
   const cls = "h-2.5 w-2.5 shrink-0";
   switch (k) {
     case "entry":

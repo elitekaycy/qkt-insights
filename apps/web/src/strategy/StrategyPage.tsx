@@ -5,7 +5,7 @@ import { parseQuery, TRADE_KEYS } from "@qkt-insights/contract/query";
 import { get, type LogRow, type StrategyRow, type StrategyStats } from "../api";
 import { LogLine } from "../components/LogLine";
 import { ShareControl } from "../components/ShareControl";
-import { Card, LiveDot, Loadable, OriginBack, Pill, Popover, RangeChips, rangeStart, ReturnPct, Segmented, Skeleton, useRangeParam } from "../components/ui";
+import { Card, Loadable, OriginBack, Pill, Popover, RangeChips, rangeStart, ReturnPct, Segmented, Skeleton, useRangeParam } from "../components/ui";
 import { age, DASH, glyph, money, openPnl, signedMoney, toneClass } from "../format";
 import { haltClearing, haltReasonText, haltSince, resumeCommand } from "../halt";
 import { strategyCapital, strategyDisplayName } from "../portfolio";
@@ -302,13 +302,13 @@ export function StrategyDetail({ instanceId, strategyId }: { instanceId: string;
       {tab === "logs" ? (
         <StrategyLogs instanceId={instanceId} strategyId={strategyId} />
       ) : tab === "code" ? (
-        <Suspense fallback={<Skeleton lines={10} />}>
+        <Suspense fallback={<Skeleton shape="lines" lines={10} what="this section" />}>
           <CodeSection instanceId={instanceId} strategyId={strategyId} meta={row?.metadata ?? null} />
         </Suspense>
       ) : tab === "trades" ? (
         <StrategyTrades scope={scope} q={q} exportHref={view.public ? null : `/round-trips/export?${tripParams(scope, q, "entry", "desc")}`} />
       ) : (
-        <Loadable loading={loading} error={analytics.isError && !a} retry={() => analytics.refetch()} what="the strategy's trades" lines={8}>
+        <Loadable loading={loading} error={analytics.isError && !a} retry={() => analytics.refetch()} what="the strategy's trades" shape="kpis" lines={6}>
           {tab === "overview" && <OverviewSection {...props} range={range} />}
           {tab === "calendar" && <CalendarSection {...props} />}
           {tab === "daily" && <DailySection {...props} />}
@@ -329,9 +329,7 @@ function Status({ row, isPublic, compact = false }: { row: StrategyRow | null; i
   if (row.halted) return <Pill tone="warn">halted</Pill>;
   if (!row.active) return <Pill>retired</Pill>;
   if (isPublic) return null;
-  return compact
-    ? <span className="inline-flex shrink-0" title="running"><LiveDot on /><span className="sr-only">running</span></span>
-    : <span className="inline-flex items-center gap-1.5 text-xs text-muted"><LiveDot on /> running</span>;
+  return compact ? <span className="sr-only">running</span> : <span className="text-xs text-muted">running</span>;
 }
 
 /** The halt, at the top of the page where it cannot be missed: why, since when, how it ends. */
@@ -432,7 +430,7 @@ function StrategyLogs({ instanceId, strategyId }: { instanceId: string; strategy
         </Link>
       }
     >
-      <Loadable loading={logs.isPending} error={logs.isError} retry={() => logs.refetch()} what="logs">
+      <Loadable loading={logs.isPending} error={logs.isError} retry={() => logs.refetch()} what="logs" shape="lines" lines={8}>
         <div className="px-2 pb-2">
           {rows.map((l) => <LogLine key={l.id} log={l} showStrategy={false} />)}
           {rows.length === 0 && <div className="px-4 py-8 text-center text-sm text-muted">No log lines from this strategy yet.</div>}

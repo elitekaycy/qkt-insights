@@ -3,7 +3,7 @@ import { Fragment, useRef, useState, type KeyboardEvent, type PointerEvent, type
 import { useQuery } from "@tanstack/react-query";
 import { get, type ContractInfo, type HealthRow, type LiveAccount, type LiveStateSnapshot, type MonitorEventRow, type MonitorSummary, type MonitorsView, type StripBucket } from "../api";
 import { ReconciliationCard } from "../components/Reconciliation";
-import { Cell, DataList, Empty, Freshness, StatusWord, LiveDot, PageHeader, Panel, Pill, Row, Skeleton, Stat, Table, type Tone } from "../components/ui";
+import { Cell, DataList, Empty, Freshness, StatusWord, PageHeader, Panel, Pill, Row, Skeleton, Stat, Table, type Tone } from "../components/ui";
 import { contractLabel, contractTitle } from "../contract";
 import { age, clock, duration, money, pct, signedMoney, tsDay, tsShort } from "../format";
 
@@ -145,7 +145,6 @@ function MonitorRow({ m }: { m: MonitorSummary }) {
   return (
     <li className="px-4 py-3.5 transition-colors hover:bg-raised/40 focus-within:bg-raised/40">
       <div className="flex items-center gap-3">
-        <LiveDot on={m.status === "up"} down={m.status === "down"} />
         <div className="min-w-0 flex-1">
           <div className="flex items-center gap-2">
             <span className="truncate font-semibold text-bright">{m.name}</span>
@@ -162,10 +161,10 @@ function MonitorRow({ m }: { m: MonitorSummary }) {
           <div className="text-[11px] uppercase tracking-[0.06em] text-faint">24h</div>
         </div>
       </div>
-      <div className="mt-2.5 sm:pl-5">
+      <div className="mt-2.5">
         <UptimeStrip strip={m.strip} name={m.name} />
       </div>
-      <div className="mt-1.5 flex flex-wrap gap-x-4 gap-y-1 text-xs text-muted sm:pl-5">
+      <div className="mt-1.5 flex flex-wrap gap-x-4 gap-y-1 text-xs text-muted">
         <span>
           30d <span className={`${uptimeTone(m.uptime30d)}`}>{pct(m.uptime30d, 2)}</span>
           {uncheckedLabel(m.unchecked30d) && <span className="text-faint"> · {uncheckedLabel(m.unchecked30d)}</span>}

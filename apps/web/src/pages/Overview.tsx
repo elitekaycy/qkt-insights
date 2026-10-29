@@ -8,7 +8,7 @@ import { OpenPositions, PublicOpenPositions } from "../components/HomePositions"
 import { StrategyTable, type StrategyLine } from "../components/HomeStrategies";
 import { ShareControl } from "../components/ShareControl";
 import { Card, Loadable, PageHeader } from "../components/ui";
-import { day as utcDay } from "../format";
+import { day as utcDay, ts } from "../format";
 import { dayBasisLabel, floatingByStrategy, floatingNote, HOME_RANGES, noAccountMessage, openRisk, riskRowFor, strategyLines, strategyPeriods, todayHeadline, todaySplit, type HomeRange } from "../home";
 import { strategyDisplayName } from "../portfolio";
 import { useSearchParam } from "../router";
@@ -147,12 +147,19 @@ export default function Home({ instanceId }: { instanceId: string | null }) {
             )}
           </>
         }
-        right={<ShareControl instanceId={instanceId} kind="overview" />}
+        right={
+          <div className="flex items-center gap-3">
+            {!view.public && accounts.length > 0 && (
+              <span className="text-xs text-muted" title="when the newest account state arrived from the venue">as of {ts(Math.max(...accounts.map((a) => a.lastSeen))).slice(11)} UTC</span>
+            )}
+            <ShareControl instanceId={instanceId} kind="overview" />
+          </div>
+        }
       />
 
       <AccountTabs choice={choice} isPublic={view.public} />
 
-      <Loadable loading={liveState.isPending} error={liveState.isError} retry={() => liveState.refetch()} what="the account" lines={3}>
+      <Loadable loading={liveState.isPending} error={liveState.isError} retry={() => liveState.refetch()} what="the account" shape="kpis" lines={6}>
         {accounts.length === 0 ? (
           <Card className="p-6 text-center text-sm text-muted">
             {view.public
@@ -193,7 +200,7 @@ export default function Home({ instanceId }: { instanceId: string | null }) {
         error={summary.isError || strategies.isError}
         retry={() => { void summary.refetch(); void strategies.refetch(); }}
         what="the strategies"
-        lines={5}
+        lines={8}
       >
         <div id="home-strategies" className="scroll-mt-4">
           <StrategyTable
@@ -206,7 +213,7 @@ export default function Home({ instanceId }: { instanceId: string | null }) {
         </div>
       </Loadable>
 
-      <Loadable loading={summary.isPending} error={summary.isError} retry={() => summary.refetch()} what="the P&L history" lines={6}>
+      <Loadable loading={summary.isPending} error={summary.isError} retry={() => summary.refetch()} what="the P&L history" shape="chart">
         {summary.data && (
           <div className="grid gap-4 lg:grid-cols-3">
             <div className="min-w-0 lg:col-span-2">

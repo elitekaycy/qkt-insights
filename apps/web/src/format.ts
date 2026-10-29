@@ -153,13 +153,6 @@ export function count(v: number | null | undefined): string {
   return num(v, 0);
 }
 
-/** A ratio such as profit factor: "1.42", "∞" when there were no losses. */
-export function ratio(v: number | null | undefined, digits = 2): string {
-  if (v === Infinity) return "∞";
-  if (missing(v)) return DASH;
-  return fixed(v, digits);
-}
-
 /** A 0-100 win rate as "55%", "—" when no round trip was decided. */
 export function winPct(v: number | null | undefined): string {
   return missing(v) ? DASH : `${v.toFixed(0)}%`;
