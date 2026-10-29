@@ -1,5 +1,6 @@
 export * from "./auth.js";
 export * from "./rest.js";
+export * from "./browser.js";
 export * from "./live.js";
 export * from "./limits.js";
 export * from "./totp.js";
