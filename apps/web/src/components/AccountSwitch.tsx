@@ -149,7 +149,7 @@ function AccountCells({ line, isPublic }: { line: AccountLine; isPublic: boolean
       <Cell className="font-mono tabular-nums">{money(a.balance)}</Cell>
       <Cell className="font-mono tabular-nums">{money(a.equity)}</Cell>
       <Cell className="font-mono tabular-nums">
-        {today ? <span title={`${money(today.realized)} closed, ${money(today.floating)} open${line.note ? `, of which ${floatingNoteText(line.note)}` : ""}`}><Pnl value={today.total} />{line.note?.outside?.floating != null && <span className="block text-[11px] text-muted">{signedMoney(line.note.outside.floating)} outside this instance</span>}</span> : <span className="text-faint">{DASH}</span>}
+        {today ? <span title={`${money(today.realized)} closed, ${money(today.floating)} open${line.note ? `, of which ${floatingNoteText(line.note)}` : ""}`}><Pnl value={today.total} />{line.note?.outside?.floating != null && <span className="block text-[11px] text-muted">{signedMoney(line.note.outside.floating)} outside this instance</span>}{line.note?.elsewhere != null && <span className="block text-[11px] text-muted">{signedMoney(line.note.elsewhere)} not on listed positions</span>}</span> : <span className="text-faint">{DASH}</span>}
       </Cell>
       <Cell className="font-mono tabular-nums"><OpenRiskCell open={line.open} /></Cell>
       <Cell className={`font-mono tabular-nums ${dd != null && dd > 0 ? "text-loss" : ""}`}>{dd == null ? <span className="text-faint">{DASH}</span> : pctValue(dd, 2)}</Cell>
