@@ -44,12 +44,24 @@ describe("accounts that stopped reporting", () => {
     // the collector restarts; only the Exness account reports again
     const after = new LiveStateStore();
     report(db, after, account("EXNESS_O13", EXNESS, "•••2618", { connector: "mt5", adapter: "exness", label: "EXNESS_O13", tradeMode: "demo" }, T0 + 30 * MIN));
-    const snap = withStoppedAccounts(db, after.snapshot(T0 + 30 * MIN), [I]);
+    const snap = withStoppedAccounts(db, after.snapshot(T0 + 30 * MIN), [I], T0 + 30 * MIN);
     expect(snap.accounts.map((a) => [a.broker, a.stale, a.stopped ?? false])).toEqual([["EXNESS_O13", false, false], ["PAPER_F", true, true]]);
     expect(snap.accounts[1]).toMatchObject({ accountId: PAPER_F, currency: "USDC", equity: 9_999.77, balance: 10_000, connector: "vgp", adapter: "paper",
       login: "•••er-f", lastSeen: Math.floor(T0 / MIN) * MIN, profiles: ["PAPER_F"] });
     // the account reporting is never listed twice
-    expect(withStoppedAccounts(db, before.snapshot(T0), [I]).accounts).toHaveLength(2);
+    expect(withStoppedAccounts(db, before.snapshot(T0), [I], T0).accounts).toHaveLength(2);
+  });
+
+  it("calls an account that reported minutes before a collector restart stale, not stopped, until it reports again", () => {
+    const db = openDb(":memory:");
+    report(db, new LiveStateStore(), account("PAPER_F", PAPER_F, "soak-paper-f", { connector: "vgp", adapter: "paper", label: "PAPER_F" }, T0));
+    // the collector restarts a minute later; the account has not pushed yet
+    const restarted = new LiveStateStore();
+    const waiting = withStoppedAccounts(db, restarted.snapshot(T0 + MIN), [I], T0 + MIN).accounts;
+    expect(waiting.map((a) => [a.broker, a.stale, a.stopped ?? false])).toEqual([["PAPER_F", true, false]]);
+    // no report for longer than STOPPED_AFTER_MS: its daemon stopped
+    const quiet = withStoppedAccounts(db, restarted.snapshot(T0 + 6 * MIN), [I], T0 + 6 * MIN).accounts;
+    expect(quiet.map((a) => [a.broker, a.stale, a.stopped ?? false])).toEqual([["PAPER_F", true, true]]);
   });
 });
 
