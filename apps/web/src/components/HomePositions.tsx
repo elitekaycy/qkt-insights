@@ -80,7 +80,7 @@ export function OpenPositions({ positions, strategyName, now, freshness }: {
       </div>
       <TypeFilter types={positions.map(typeOf)} picked={picked} onPick={setPicked} />
       {positions.length === 0 ? (
-        <div className="px-4 py-6 text-center text-sm text-muted">Flat: no open positions.</div>
+        <div className="px-4 py-6 text-center text-sm text-muted">No open trades.</div>
       ) : (
         <div className="@container">
           <div className="hidden @3xl:block">

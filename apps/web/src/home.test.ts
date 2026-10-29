@@ -149,10 +149,10 @@ describe("loss limits without a cap", () => {
 describe("noAccountMessage", () => {
   it("waits for the first poll from a live instance, and names how long a silent one has been quiet", () => {
     const now = Date.now();
-    expect(noAccountMessage("bench", now - 10_000, now)).toBe("No account state yet: it arrives with the next state poll from qkt.");
-    expect(noAccountMessage("bench", null, now)).toBe("No account state yet: it arrives with the next state poll from qkt.");
+    expect(noAccountMessage("bench", now - 10_000, now)).toBe("Waiting for the first account update from qkt.");
+    expect(noAccountMessage("bench", null, now)).toBe("Waiting for the first account update from qkt.");
     const quiet = noAccountMessage("bench", now - 3 * 86_400_000, now);
-    expect(quiet).toMatch(/^bench last reported 3d ago \(\d{4}-\d\d-\d\d \d\d:\d\d:\d\d UTC\), so there is no live account state\./);
+    expect(quiet).toMatch(/^bench last reported 3d ago \(\d{4}-\d\d-\d\d \d\d:\d\d:\d\d UTC\)\. Its history is below\./);
   });
 });
 

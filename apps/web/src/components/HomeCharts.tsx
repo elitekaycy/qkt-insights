@@ -59,8 +59,7 @@ export function PnlChart({ days, range, onRange, now, mix = null }: { days: DayN
   return (
     <ChartCard
       title="Realized P&L"
-      description="Bars: UTC close days. Line: running total over the range."
-      meta={`${count(trades)} closed trades · ${count(rows.length)} trading days`}
+      meta={`${count(trades)} closes · ${count(rows.length)} days · UTC`}
       value={<><Pnl value={total} /><CurrencyMix mix={mix} /></>}
     >
       <div className="flex justify-end px-3 pt-3 sm:px-4">
@@ -153,7 +152,7 @@ export function MonthCalendar({ days, now, mix = null }: { days: DayNet[]; now: 
         })}
       </div>
       <div className="flex items-center justify-between border-t border-line px-4 py-2 text-[11px] text-faint">
-        <span>by close day</span>
+        <span>UTC days</span>
         <Link to="/calendar" className="font-medium text-accent-ink hover:underline">Full calendar</Link>
       </div>
     </Card>

@@ -190,9 +190,9 @@ const SILENT_AFTER_MS = 5 * 60_000;
 /** Home's line when the instance has no live account state: waiting for the first poll, or the instance went quiet. */
 export function noAccountMessage(instanceId: string, lastSeen: number | null | undefined, now: number): string {
   if (lastSeen != null && now - lastSeen > SILENT_AFTER_MS) {
-    return `${instanceId} last reported ${age(lastSeen)} (${ts(lastSeen)} UTC), so there is no live account state. It returns when the instance reports again; its history stays below.`;
+    return `${instanceId} last reported ${age(lastSeen)} (${ts(lastSeen)} UTC). Its history is below.`;
   }
-  return "No account state yet: it arrives with the next state poll from qkt.";
+  return "Waiting for the first account update from qkt.";
 }
 
 /** The daily-loss card's line under the figure: what the figure is, in words. */

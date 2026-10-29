@@ -141,7 +141,7 @@ export function StrategyTable({
       </div>
       {shown.length === 0 ? (
         <div className="px-4 py-6 text-center text-sm text-muted">
-          {find ? `No strategy matches “${find}”.` : "No strategy has traded yet. Rows appear with the first close or open position."}
+          {find ? `No strategy matches “${find}”.` : "No trades yet. Strategies show up here as they trade."}
         </div>
       ) : (
         <div className="@container">

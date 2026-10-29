@@ -153,7 +153,7 @@ export default function Strategies({ instanceId }: { instanceId: string | null }
         lines={6}
       >
         {rows.length === 0 && lines.length === 0 ? (
-          <Card className="p-8 text-center text-muted">No strategies yet: they appear with the first strategy.started from qkt.</Card>
+          <Card className="p-8 text-center text-muted">No strategies yet. They show up here when qkt starts one.</Card>
         ) : (
           <StrategyCardList lines={lines} closes={closes} now={now} instanceId={instanceId} noStop={noStop} mix={scoped ? null : mix} />
         )}
@@ -195,7 +195,7 @@ function StrategyCardList({ lines, closes, now, instanceId, noStop, mix }: {
     <div className="grid grid-cols-1 gap-5">
       {shown.length === 0 && (
         <Card className="p-8 text-center text-sm text-muted">
-          {find ? `No strategy matches “${find}”.` : "No strategy has traded yet. Cards appear with the first close or open position."}
+          {find ? `No strategy matches “${find}”.` : "No trades yet. Strategies show up here as they trade."}
         </Card>
       )}
       {orderedPortfolios.map((g) => (
