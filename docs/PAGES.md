@@ -25,6 +25,13 @@ trades. Each account is titled by the account, not by the qkt broker profile tha
 the venue, its environment and the login's last four characters (`Exness · demo · •••4821`; a
 gateway paper account reads `Paper (Deribit prices) · •••er-b`). One venue account reached
 through several broker profiles is shown once, with "via 41 profiles" naming them on hover or tap.
+With several venue accounts on the instance, a one-line switcher sits under the title: **All accounts**,
+then one tab per account (venue and masked login, its environment and currency muted beside it, a dot when
+it is stale). All accounts is one table, a row per account in its own currency (balance, equity, Today,
+open risk, drawdown, freshness), never added across accounts; a row opens the account's tab. An account's
+tab shows its own cards, positions, strategies (those that traded on it), realized P&L and calendar. The
+choice is the URL's `account` parameter, so a reload, Back and a shared link keep it, and Equity & risk
+opens on the same account.
 Shared links show the same page 15 minutes behind, with open positions as a count and
 total only. Instrument splits, monthly returns and drawdown periods live on Calendar, Equity &
 risk and the strategy pages.
@@ -34,7 +41,9 @@ risk and the strategy pages.
 ## Equity & risk
 
 Broker account equity over time, per-strategy equity normalized to % change,
-underwater curve, and drawdown periods.
+underwater curve, and drawdown periods. With several accounts it has Home's switcher: All accounts
+compares the accounts' equity as % change from each one's first point (each in its own currency), and an
+account's tab shows its equity curve and the strategies that traded on it.
 
 ![Equity](assets/screenshots/equity.png)
 
@@ -108,7 +117,8 @@ round trips that closed on it (each opens the trade drawer, and "Open in Trades"
 ## Edge
 
 When a strategy makes money: day-of-week × hour P&L heatmap, weekday/hour bars with
-per-bucket sample size, and rolling edge stability. Buckets under 30 trades render
+per-bucket sample size, and rolling edge stability. It opens on the strategy with the most closed
+trades; the picker marks strategies that have none. Buckets under 30 trades render
 desaturated — thin slices are noise, and the UI says so.
 
 ![Edge](assets/screenshots/edge.png)

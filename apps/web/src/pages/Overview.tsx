@@ -1,6 +1,7 @@
 import { useQuery } from "@tanstack/react-query";
 import { get, type AccountRiskRow, type AccountSummary, type InstanceRow, type LivePositionRow, type StrategyRow } from "../api";
-import { groupAccounts } from "../accounts";
+import { accountKey, accountProfiles, accountTab, groupAccounts } from "../accounts";
+import { AccountsTable, AccountTabs, useAccountChoice, type AccountLine } from "../components/AccountSwitch";
 import { AccountStrip } from "../components/HomeAccount";
 import { MonthCalendar, PnlChart } from "../components/HomeCharts";
 import { OpenPositions, PublicOpenPositions } from "../components/HomePositions";
@@ -36,11 +37,16 @@ export default function Home({ instanceId }: { instanceId: string | null }) {
   });
   const live = useLiveStream(instanceId, 40, FEED_TYPES);
   const liveState = useLiveState(live);
+  const accountGroups = groupAccounts((liveState.data?.accounts ?? []).filter((a) => a.instanceId === instanceId));
+  const choice = useAccountChoice(accountGroups, view.public);
+  // one account's tab reads that account's closes only; All accounts and a single account read every close
+  const scoped = choice.many && choice.chosen ? choice.chosen : null;
+  const accountParam = scoped ? `&account=${encodeURIComponent(accountKey(scoped.account))}` : "";
   // every close on the account: retired strategies and unattributed deals included
   const summary = useQuery({
-    queryKey: ["accountSummary", instanceId],
-    queryFn: () => get<AccountSummary>(`/account/summary?instance=${enc}`),
-    enabled: !!instanceId,
+    queryKey: ["accountSummary", instanceId, accountParam],
+    queryFn: () => get<AccountSummary>(`/account/summary?instance=${enc}${accountParam}`),
+    enabled: !!instanceId && !(choice.asked && liveState.isPending),
     refetchInterval: 60_000,
   });
   const risk = useQuery({
@@ -69,25 +75,39 @@ export default function Home({ instanceId }: { instanceId: string | null }) {
 
   // a shared link is a still picture at its cutoff, never the live clock
   const now = view.public ? Date.now() - view.meta.delayMinutes * 60_000 : Date.now();
-  const accountGroups = groupAccounts((liveState.data?.accounts ?? []).filter((a) => a.instanceId === instanceId));
   const accounts = accountGroups.map((g) => g.account);
   const groups = (liveState.data?.positions ?? []).filter((g) => g.instanceId === instanceId);
-  const positions: LivePositionRow[] = groups.flatMap((g) => g.list);
+  // an account's positions are those reported by any broker profile of it
+  const positionsOf = (g: { account: (typeof accounts)[number]; labels: string[] }) => {
+    const profiles = accountProfiles(g.account, g.labels);
+    return groups.filter((p) => profiles.includes(p.broker)).flatMap((p) => p.list);
+  };
+  const shownGroups = scoped ? groups.filter((p) => accountProfiles(scoped.account, scoped.labels).includes(p.broker)) : groups;
+  const positions: LivePositionRow[] = shownGroups.flatMap((g) => g.list);
   const rows = strategies.data ?? [];
   const byId = new Map(rows.map((r) => [r.strategyId, r]));
   const riskRows = risk.data ?? [];
 
-  // Strategy Today follows the account's trading day; without a risk row it is the UTC day.
-  const primaryRisk = accounts[0] ? riskRowFor(accounts[0], riskRows) : riskRows[0] ?? null;
+  // Strategy Today follows the shown account's trading day; without a risk row it is the UTC day.
+  const dayAccount = choice.chosen?.account ?? accounts[0];
+  const primaryRisk = dayAccount ? riskRowFor(dayAccount, riskRows) : riskRows[0] ?? null;
   const dayStart = primaryRisk?.dailyLoss.dayStart ?? Math.floor(now / DAY_MS) * DAY_MS;
   const dayLabel = primaryRisk ? dayBasisLabel(primaryRisk) : "day from 00:00 UTC";
   const floating = view.public
     ? new Map<string | null, number>(Object.entries(liveState.data?.openByStrategy ?? {}))
     : floatingByStrategy(positions);
-  const periods = summary.data ? strategyPeriods(summary.data.closes, { now, dayStart, floating }) : null;
-  const lines: StrategyLine[] = periods ? strategyLines(rows, periods) : [];
+  const periods = summary.data ? strategyPeriods(summary.data.closes, { now, dayStart, floating: scoped && view.public ? scopedFloating(floating, summary.data) : floating }) : null;
+  // an account's tab lists the strategies that traded on it (a close, or an open position there)
+  const onAccount = (row: StrategyRow) => !scoped || (periods?.has(row.strategyId) ?? false);
+  const lines: StrategyLine[] = periods ? strategyLines(rows.filter(onAccount), periods) : [];
   // the account's realized today when it has no risk row yet: the strategies' sum over the same day
   const realizedFallback = periods ? [...periods.values()].reduce((a, p) => a + p.todayRealized, 0) : 0;
+  const accountLines: AccountLine[] = choice.accounts.map((g) => {
+    const row = riskRowFor(g.account, riskRows);
+    return { group: g, risk: row, realizedToday: row?.dailyLoss.realizedToday ?? null, open: view.public ? null : openRisk(positionsOf(g)) };
+  });
+  const shown = choice.chosen;
+  const shownName = scoped ? accountTab(scoped.account, view.public).name : null;
 
   return (
     <div className="grid grid-cols-1 gap-4">
@@ -97,6 +117,8 @@ export default function Home({ instanceId }: { instanceId: string | null }) {
         right={<ShareControl instanceId={instanceId} kind="overview" />}
       />
 
+      <AccountTabs choice={choice} isPublic={view.public} />
+
       <Loadable loading={liveState.isPending} error={liveState.isError} retry={() => liveState.refetch()} what="the account" lines={3}>
         {accounts.length === 0 ? (
           <Card className="p-6 text-center text-sm text-muted">
@@ -104,30 +126,31 @@ export default function Home({ instanceId }: { instanceId: string | null }) {
               ? `Account figures appear ${view.meta.delayMinutes} minutes behind; none has reached this shared view yet.`
               : noAccountMessage(instanceId, instances.data?.find((i) => i.id === instanceId)?.lastSeen, now)}
           </Card>
+        ) : shown == null ? (
+          <AccountsTable lines={accountLines} choice={choice} isPublic={view.public} />
         ) : (
-          accountGroups.map(({ account: a, labels }) => {
-            const row = riskRowFor(a, riskRows);
-            const own = groups.filter((g) => labels.includes(g.broker)).flatMap((g) => g.list);
+          (() => {
+            const row = riskRowFor(shown.account, riskRows);
             return (
               <AccountStrip
-                key={a.accountId ?? `${a.broker}:${a.login ?? ""}`}
-                account={a}
-                labels={labels}
+                key={accountKey(shown.account)}
+                account={shown.account}
+                labels={shown.labels}
                 risk={row}
                 realizedToday={row?.dailyLoss.realizedToday ?? realizedFallback}
                 dayLabel={row ? dayBasisLabel(row) : dayLabel}
-                open={view.public ? null : openRisk(accounts.length === 1 ? positions : own)}
+                open={view.public ? null : openRisk(choice.many ? positionsOf(shown) : positions)}
                 isPublic={view.public}
               />
             );
-          })
+          })()
         )}
       </Loadable>
 
       {view.public ? (
-        <PublicOpenPositions summary={liveState.data?.openPositions ?? null} />
+        !scoped && <PublicOpenPositions summary={liveState.data?.openPositions ?? null} />
       ) : (
-        liveState.data && <OpenPositions positions={positions} now={now} freshness={groups.length ? { at: Math.max(...groups.map((g) => g.at)), stale: groups.every((g) => g.stale) } : null} strategyName={(id) => (byId.get(id) ? strategyDisplayName(byId.get(id)!) : id)} />
+        liveState.data && <OpenPositions positions={positions} now={now} freshness={shownGroups.length ? { at: Math.max(...shownGroups.map((g) => g.at)), stale: shownGroups.every((g) => g.stale) } : null} strategyName={(id) => (byId.get(id) ? strategyDisplayName(byId.get(id)!) : id)} />
       )}
 
       <Loadable
@@ -137,7 +160,14 @@ export default function Home({ instanceId }: { instanceId: string | null }) {
         what="the strategies"
         lines={5}
       >
-        <StrategyTable lines={lines} now={now} search origin="Home" hint="Today includes open P&L · other columns are closed trades" />
+        <StrategyTable
+          lines={lines}
+          now={now}
+          search
+          origin="Home"
+          hint={`${shownName ? `on ${shownName} · ` : ""}Today includes open P&L · other columns are closed trades`}
+          footer={scoped ? "the rows add up to this account; unattributed = its deals no strategy claimed" : undefined}
+        />
       </Loadable>
 
       <Loadable loading={summary.isPending} error={summary.isError} retry={() => summary.refetch()} what="the P&L history" lines={6}>
@@ -152,4 +182,10 @@ export default function Home({ instanceId }: { instanceId: string | null }) {
       </Loadable>
     </div>
   );
+}
+
+/** A shared link's open P&L by strategy is the instance's; an account's tab keeps the strategies that closed on it. */
+function scopedFloating(floating: Map<string | null, number>, summary: AccountSummary): Map<string | null, number> {
+  const own = new Set(summary.byStrategy.map((b) => b.key));
+  return new Map([...floating].filter(([k]) => own.has(k)));
 }

@@ -82,8 +82,8 @@ export function routePath(route: Route): string {
   return PAGE_PATHS[route.page];
 }
 
-/** Query keys that describe the viewer's scope and follow them from page to page. */
-const SCOPE_KEYS = ["i", "range"];
+/** Query keys that describe the viewer's scope and follow them from page to page: instance, date range, venue account. */
+const SCOPE_KEYS = ["i", "range", "account"];
 
 /** Pages with the query bar: the search (`q`) follows the viewer between them, and only them. */
 const QUERY_PAGES: ReadonlySet<PageKey> = new Set<PageKey>(["trades", "strategies", "calendar", "logs"]);

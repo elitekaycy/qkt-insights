@@ -46,6 +46,8 @@ describe("routes", () => {
   it("carries the instance and range to the next page, never page filters", () => {
     expect(withScope("/edge", "?i=qkt-quant-live&range=30d&q=XAUUSD&trade=1")).toBe("/edge?i=qkt-quant-live&range=30d");
     expect(withScope("/t?range=7d", "?i=a&range=30d")).toBe("/t?range=7d&i=a");
+    // the account chosen on Home is the one Equity & risk opens on
+    expect(withScope("/risk", "?i=a&account=vgp%3A7bf764b24864a0b1")).toBe("/risk?i=a&account=vgp%3A7bf764b24864a0b1");
   });
 
   it("carries the search only between the pages with the query bar", () => {

@@ -10,6 +10,7 @@
   sortable, exported as CSV, each one opening a drawer with its timeline from signal to close.
 - **Logs** — engine logs shipped from qkt, searched with the same query bar (`level:`, `strategy:`, `logger:`, `time:`,
   free text), and a live tail.
+- **Home** — where each venue account stands now; several accounts get a one-line switcher (All accounts as one table, then one tab per account, held in the URL's `account`), shared with Equity & risk.
 - **Equity** — all strategies on one normalized comparison chart; drawdown periods shaded on the focused curve.
 - **Edge** — when a strategy makes money: day-of-week × hour P&L heatmap (UTC), weekday/hour bars with per-bucket n and ±SE, rolling Sharpe/win-rate stability, strategy-comparison radar. Buckets under 30 trades render greyed — thin slices are noise, and the UI says so.
 - **Single-admin auth** — username + password from env, hashed with argon2 at startup, signed httpOnly session cookie; ingest guarded by a bearer token.
@@ -212,7 +213,9 @@ Every JSON and static response is compressed (brotli, else gzip) when the client
 a weak `ETag` derived from a version of the rows they read, with `Cache-Control: private, no-cache`; a browser
 revalidates with `If-None-Match` and gets `304` with no body until those rows change. `/account/equity` returns at
 most 2,000 points by default (the last stored minute of each time bucket), `?points=N` up to 20,000, and
-`?resolution=full` for every minute.
+`?resolution=full` for every minute. `/account/summary?account=` (an account id or broker label) keeps one venue
+account's closes when the instance reports several (404 for an account it does not know), and `/account/risk` counts
+each account's own closes in its realized today.
 
 ### Round trips and the query language
 

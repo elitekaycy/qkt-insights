@@ -110,3 +110,34 @@ export function accountName(a: Pick<LiveAccount, "broker" | "adapter">): string 
   const venue = a.adapter?.toUpperCase();
   return venue && a.broker.toUpperCase().startsWith(`${venue}_`) ? venue : a.broker;
 }
+
+/** The key an account goes by in the URL (`?account=`) and the API: its venue id, else the label it reports under (on a shared link, "Account 2"). */
+export function accountKey(a: Pick<LiveAccount, "accountId" | "broker">): string {
+  return a.accountId ?? a.broker;
+}
+
+/**
+ * One account in the account switcher: the venue in short and the masked login ("Exness •••2618", "Paper •••er-a"),
+ * a muted hint of its environment and currency ("demo · USD"), and the full account title on hover.
+ */
+export function accountTab(a: LiveAccount, isPublic = false): { name: string; hint: string; title: string } {
+  const paper = a.connector === "paper" || (a.connector === "vgp" && a.adapter === "paper");
+  const venue = a.connector === "vgp" && a.adapter === "paper" ? "Paper" : venueName(a) ?? accountName(a);
+  const name = [venue, !isPublic && a.login ? maskLogin(a.login) : undefined].filter(Boolean).join(" ");
+  const hint = [!paper ? a.tradeMode : undefined, a.currency].filter(Boolean).join(" · ");
+  return { name, hint, title: accountTitle(a, isPublic) };
+}
+
+/** The instance's accounts in the switcher's order: by name, so a tab never moves when another account reports. */
+export function switcherOrder(groups: readonly AccountGroup[], isPublic = false): AccountGroup[] {
+  const name = (g: AccountGroup) => accountTab(g.account, isPublic).name;
+  return [...groups].sort((x, y) => name(x).localeCompare(name(y), "en", { numeric: true }) || accountKey(x.account).localeCompare(accountKey(y.account)));
+}
+
+/** The account `key` names (its key, a label folded into it, or a profile that reported it); null for none, or for "all accounts". */
+export function accountByKey(groups: readonly AccountGroup[], key: string): AccountGroup | null {
+  if (!key) return null;
+  return groups.find((g) => accountKey(g.account) === key)
+    ?? groups.find((g) => g.labels.includes(key) || (g.account.profiles ?? []).includes(key))
+    ?? null;
+}

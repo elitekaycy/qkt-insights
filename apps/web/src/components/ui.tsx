@@ -453,7 +453,8 @@ export function Segmented<T extends string>({
   dense = false,
 }: {
   value: T;
-  options: readonly { key: T; label: string }[];
+  /** `title` is the option's full name on hover, for a label that shortens it. */
+  options: readonly { key: T; label: ReactNode; title?: string }[];
   onChange: (v: T) => void;
   label: string;
   /** Narrower buttons on phones, for a control that shares its row. */
@@ -466,6 +467,7 @@ export function Segmented<T extends string>({
           key={o.key}
           type="button"
           role="tab"
+          title={o.title}
           aria-selected={value === o.key}
           onClick={() => onChange(o.key)}
           className={`h-7 shrink-0 whitespace-nowrap rounded-md font-medium transition ${dense ? "px-1.5 text-xs sm:px-3 sm:text-sm" : "px-3 text-sm"} ${
