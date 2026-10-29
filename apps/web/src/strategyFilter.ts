@@ -35,3 +35,8 @@ export function matchesStrategy(row: StrategyRow | null, query: string): boolean
 export function asksForRetired(query: string): boolean {
   return /(^|\s)status:ret/iu.test(query);
 }
+
+/** The strategy Edge opens on: the one with the most closed trades (a strategy without any has no edge to show), newest on a tie. */
+export function edgeDefault(list: ReadonlyArray<Pick<StrategyRow, "strategyId" | "dealCount" | "lastSeen">>): string | undefined {
+  return [...list].sort((a, b) => b.dealCount - a.dealCount || b.lastSeen - a.lastSeen)[0]?.strategyId;
+}
