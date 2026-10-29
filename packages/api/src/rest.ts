@@ -131,9 +131,13 @@ export function registerRest(app: FastifyInstance, deps: RestDeps): void {
     return versioned.send(req, reply, [{ strategy: f }], () => equityCurve(deps.db, f));
   });
 
-  // An account that stopped reporting stays listed (stopped, with its last stored minute) under the name it had live.
-  app.get("/live/state", guard, async () => withJournalStrategies(deps.db,
-    withStoppedAccounts(deps.db, deps.liveState.snapshot(Date.now()), listInstances(deps.db).map((i) => i.id))));
+  // An account that stopped reporting stays listed (stopped, with its last stored minute) under the name it had live;
+  // one the collector has not heard since it restarted, but that reported in the last minutes, is only stale.
+  app.get("/live/state", guard, async () => {
+    const now = Date.now();
+    return withJournalStrategies(deps.db,
+      withStoppedAccounts(deps.db, deps.liveState.snapshot(now), listInstances(deps.db).map((i) => i.id), now));
+  });
 
   app.get<{ Querystring: Record<string, string> }>("/deals", guard, async (req, reply) => {
     const q = req.query; if (!need(reply, q.instance, "instance")) return;

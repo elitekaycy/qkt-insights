@@ -12,8 +12,17 @@ import { statement } from "./statements.js";
 
 type SnapshotAccount = LiveStateSnapshot["accounts"][number];
 
-/** `snapshot` with every stored account of `instanceIds` that is not in it added as stale and stopped. */
-export function withStoppedAccounts(db: Db, snapshot: LiveStateSnapshot, instanceIds: readonly string[]): LiveStateSnapshot {
+/**
+ * A stored account not in collector memory whose last minute is at most this old is waiting for its next report (the
+ * collector just restarted, its memory empty): stale, not stopped. Older than this, its daemon stopped reporting.
+ */
+export const STOPPED_AFTER_MS = 5 * 60_000;
+
+/**
+ * `snapshot` with every stored account of `instanceIds` that is not in it added as stale; as stopped too when its last
+ * stored minute is older than STOPPED_AFTER_MS at `now`.
+ */
+export function withStoppedAccounts(db: Db, snapshot: LiveStateSnapshot, instanceIds: readonly string[], now = Date.now()): LiveStateSnapshot {
   const added: SnapshotAccount[] = [];
   const last = statement(db,
     `SELECT broker, minute_ts minuteTs, balance, equity, open_profit openProfit FROM account_equity
@@ -42,7 +51,8 @@ export function withStoppedAccounts(db: Db, snapshot: LiveStateSnapshot, instanc
         profiles: [...g.labels].sort(),
         lastSeen: row.minuteTs,
       };
-      added.push({ ...account, instanceId, stale: true, stopped: true });
+      const stopped = now - row.minuteTs > STOPPED_AFTER_MS;
+      added.push({ ...account, instanceId, stale: true, ...(stopped ? { stopped: true } : {}) });
     }
   }
   return added.length === 0 ? snapshot : { ...snapshot, accounts: [...snapshot.accounts, ...added] };
