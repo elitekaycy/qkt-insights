@@ -105,6 +105,34 @@ export function todayHeadline(items: ReadonlyArray<{ key: string; name: string; 
   return { parts, missing };
 }
 
+/** One thing on Home that needs the owner, and where it lives. */
+export type AttentionItem =
+  | { kind: "halted"; strategyId: string; name: string }
+  | { kind: "halted-many"; count: number }
+  | { kind: "account"; key: string; name: string; state: "stale" | "stopped"; since: number }
+  | { kind: "no-stop"; count: number };
+
+/**
+ * What needs a look, in the order it matters: halted strategies (named while there are two or fewer), accounts that
+ * are stale or stopped reporting, then positions without a stop. Retired strategies never count. Another system's
+ * floating is not here: Home's headline names it beside qkt's own figure.
+ */
+export function attentionItems(input: {
+  strategies: ReadonlyArray<{ strategyId: string; name: string; active: boolean; halted?: boolean }>;
+  accounts: ReadonlyArray<{ key: string; name: string; stale: boolean; stopped?: boolean; lastSeen: number }>;
+  noStop: number;
+}): AttentionItem[] {
+  const out: AttentionItem[] = [];
+  const halted = input.strategies.filter((s) => s.active && s.halted);
+  if (halted.length > 2) out.push({ kind: "halted-many", count: halted.length });
+  else for (const s of halted) out.push({ kind: "halted", strategyId: s.strategyId, name: s.name });
+  for (const a of input.accounts) {
+    if (a.stale) out.push({ kind: "account", key: a.key, name: a.name, state: a.stopped ? "stopped" : "stale", since: a.lastSeen });
+  }
+  if (input.noStop > 0) out.push({ kind: "no-stop", count: input.noStop });
+  return out;
+}
+
 export interface LimitUse {
   used: number | null;
   cap: number | null;
@@ -162,9 +190,9 @@ const SILENT_AFTER_MS = 5 * 60_000;
 /** Home's line when the instance has no live account state: waiting for the first poll, or the instance went quiet. */
 export function noAccountMessage(instanceId: string, lastSeen: number | null | undefined, now: number): string {
   if (lastSeen != null && now - lastSeen > SILENT_AFTER_MS) {
-    return `${instanceId} last reported ${age(lastSeen)} (${ts(lastSeen)} UTC), so there is no live account state. It returns when the instance reports again; its history stays below.`;
+    return `${instanceId} last reported ${age(lastSeen)} (${ts(lastSeen)} UTC). Its history is below.`;
   }
-  return "No account state yet: it arrives with the next state poll from qkt.";
+  return "Waiting for the first account update from qkt.";
 }
 
 /** The daily-loss card's line under the figure: what the figure is, in words. */

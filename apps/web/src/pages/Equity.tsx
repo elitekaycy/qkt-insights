@@ -2,6 +2,7 @@ import { accountKey, accountName, accountTab, groupAccounts, type AccountGroup }
 import { chartColors } from "../components/EChart";
 import { useState } from "react";
 import { usePublicPageView, useView } from "../view";
+import { useStrategyNames } from "../hooks/useStrategyNames";
 import { useSearchParam } from "../router";
 import { useQueries, useQuery } from "@tanstack/react-query";
 import { get, type AccountEquityPoint, type AccountSummary, type DrawdownPeriod, type EquityPoint, type PerformanceBundle, type StrategyRow } from "../api";
@@ -66,6 +67,7 @@ export default function Equity({ instanceId }: { instanceId: string | null }) {
     refetchInterval: 30_000,
   });
 
+  const strategyName = useStrategyNames(instanceId);
   if (!instanceId) return <Card className="p-8 text-center text-faint">No instance selected.</Card>;
 
   const series: ComparisonSeries[] = ids
@@ -73,7 +75,7 @@ export default function Equity({ instanceId }: { instanceId: string | null }) {
       const pts = curves[i]?.data ?? [];
       const base = pts[0]?.equity;
       return {
-        name: id,
+        name: strategyName(id),
         color: PALETTE[i % PALETTE.length]!,
         points: base ? pts.map((p) => ({ ts: p.ts, pct: (p.equity / base - 1) * 100 })) : [],
       };
@@ -118,7 +120,7 @@ export default function Equity({ instanceId }: { instanceId: string | null }) {
     <Select value={focusId} onChange={(e) => setDdStrategy(e.target.value)}>
       {ids.map((id) => (
         <option key={id} value={id}>
-          {id}
+          {strategyName(id)}
         </option>
       ))}
     </Select>
@@ -195,7 +197,7 @@ export default function Equity({ instanceId }: { instanceId: string | null }) {
           </Loadable>
         </Panel>
 
-        <Panel title="Drawdown periods" hint={focusId}>
+        <Panel title="Drawdown periods" hint={focusId ? strategyName(focusId) : undefined}>
           <Loadable
             loading={strategies.isPending || (!!focusId && performance.isPending)}
             error={performance.isError}

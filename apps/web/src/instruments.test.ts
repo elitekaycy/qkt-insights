@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 import type { LiveAccount } from "./api";
-import { distinctLegs, GLOSSARY, INSTRUMENT_TYPE_KEYS, legLabel, sizeInWords, strategyLegs, TYPE_LABEL, type InstrumentType } from "./instruments";
+import { distinctLegs, GLOSSARY, INSTRUMENT_TYPE_KEYS, legLabel, sizeInWords, strategyCurrencies, strategyLegs, TYPE_LABEL, type InstrumentType } from "./instruments";
 
 const NOW = Date.UTC(2026, 9, 29);
 
@@ -86,5 +86,23 @@ describe("glossary", () => {
       expect(GLOSSARY[t].text.length).toBeGreaterThan(40);
     }
     expect(GLOSSARY.funding.text).toMatch(/longs/);
+  });
+});
+
+describe("strategyCurrencies", () => {
+  const account = (broker: string, currency: string, profiles: string[] = []): LiveAccount =>
+    ({ instanceId: "soak", broker, currency, balance: 0, equity: 0, lastSeen: 0, stale: false, profiles }) as LiveAccount;
+  const accounts = [account("EXNESS_O10", "USD", ["EXNESS_H01", "EXNESS_O10"]), account("PAPER_H", "USDC")];
+
+  it("names the currency of each account a strategy's streams trade on", () => {
+    const row = { metadata: { streams: [{ broker: "EXNESS_H01", symbol: "XAUUSD" }, { broker: "PAPER_H", symbol: "BTC_USDC_PERPETUAL" }] } };
+    expect(strategyCurrencies(row, accounts, "soak")).toEqual(["USD", "USDC"]);
+    expect(strategyCurrencies({ metadata: { streams: [{ broker: "exness_o10" }] } }, accounts, "soak")).toEqual(["USD"]);
+  });
+
+  it("skips labels no live account reports, and has nothing without streams", () => {
+    expect(strategyCurrencies({ metadata: { streams: [{ broker: "GONE" }] } }, accounts, "soak")).toEqual([]);
+    expect(strategyCurrencies({ metadata: null }, accounts, "soak")).toEqual([]);
+    expect(strategyCurrencies(null, accounts, "soak")).toEqual([]);
   });
 });

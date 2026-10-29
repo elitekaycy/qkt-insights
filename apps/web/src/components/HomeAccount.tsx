@@ -1,7 +1,7 @@
 import type { ReactNode } from "react";
 import type { AccountRiskRow, LiveAccount } from "../api";
 import { clock, count, money, pctValue, signedMoney, signedPct, toneClass } from "../format";
-import { dailyMeasured, floatingNoteText, type FloatingNote, dailyReferenceLabel, dayBasisLabel, limitLine, drawdownMeasured, limitUse, todaySplit, type LimitUse, type OpenRisk, type TodayPart } from "../home";
+import { dailyMeasured, floatingNoteText, type FloatingNote, dailyReferenceLabel, dayBasisLabel, limitLine, drawdownMeasured, limitUse, todaySplit, type AttentionItem, type LimitUse, type OpenRisk, type TodayPart } from "../home";
 import { accountHint, accountName, accountProfiles, accountTitle } from "../accounts";
 import { Card, FlashValue, Freshness, InfoIcon, Pill, Pnl, Popover } from "./ui";
 
@@ -10,34 +10,17 @@ import { Card, FlashValue, Freshness, InfoIcon, Pill, Pnl, Popover } from "./ui"
  * far each loss limit is. One row per venue account; every figure says its basis.
  */
 
-const ICON = {
-  wallet: "M3 7h18v12H3zM3 7l3-3h12l3 3M16 13h2",
-  pulse: "M3 12h4l3-8 4 16 3-8h4",
-  sun: "M12 4V2M12 22v-2M4 12H2M22 12h-2M5.6 5.6 4.2 4.2M19.8 19.8l-1.4-1.4M5.6 18.4l-1.4 1.4M19.8 4.2l-1.4 1.4M12 8a4 4 0 1 0 0 8 4 4 0 0 0 0-8z",
-  shield: "M12 3l8 3v6c0 4.5-3.4 8.3-8 9-4.6-.7-8-4.5-8-9V6z",
-  gauge: "M12 14l4-4M4 18a9 9 0 1 1 16 0",
-};
-
-function Glyph({ d }: { d: string }) {
-  return (
-    <svg viewBox="0 0 24 24" className="h-4 w-4 shrink-0" fill="none" stroke="currentColor" strokeWidth="1.75" strokeLinecap="round" strokeLinejoin="round" aria-hidden>
-      <path d={d} />
-    </svg>
-  );
-}
-
 /**
- * A journal KPI card: icon and label, one headline figure, one quiet line under it. What the figure
+ * A KPI card: a label, one headline figure, one quiet line under it. What the figure
  * means and how it is measured lives behind the info icon (hover, or tap on touch), so every card in
  * the row keeps the same height.
  */
-function Kpi({ icon, label, children, sub, info, className = "" }: {
-  icon: string; label: string; children: ReactNode; sub?: ReactNode; info?: ReactNode; className?: string;
+function Kpi({ label, children, sub, info, className = "" }: {
+  label: string; children: ReactNode; sub?: ReactNode; info?: ReactNode; className?: string;
 }) {
   return (
     <Card className={`min-w-0 p-4 ${className}`}>
       <div className="flex items-center gap-2 text-sm font-medium text-muted">
-        <Glyph d={icon} />
         <span className="truncate">{label}</span>
         {info && (
           <span className="ml-auto">
@@ -84,7 +67,6 @@ function LimitGauge({ label, use, value, measured, basis, help }: {
   const tone = use.pct != null && use.pct >= 80 ? "text-loss" : use.pct != null && use.pct >= 55 ? "text-warn" : "";
   return (
     <Kpi
-      icon={ICON.gauge}
       label={label}
       info={
         <>
@@ -151,11 +133,10 @@ export function AccountStrip({
         </span>
       </div>
       <div className={`mt-3 grid grid-cols-2 gap-3 sm:grid-cols-3 ${open ? "xl:grid-cols-6" : "xl:grid-cols-5"}`}>
-        <Kpi icon={ICON.wallet} label="Balance" info={<p>Cash after closed trades, in {account.currency}. Open trades are in Equity.</p>}>
+        <Kpi label="Balance" info={<p>Cash after closed trades, in {account.currency}. Open trades are in Equity.</p>}>
           <FlashValue value={account.balance}><span className="text-bright">{money(account.balance)}</span></FlashValue>
         </Kpi>
         <Kpi
-          icon={ICON.pulse}
           label="Equity"
           sub={<>open <Pnl value={account.equity - account.balance} glyphs={false} /></>}
           info={
@@ -168,7 +149,6 @@ export function AccountStrip({
           <FlashValue value={account.equity}><span className="text-bright">{money(account.equity)}</span></FlashValue>
         </Kpi>
         <Kpi
-          icon={ICON.sun}
           label="Today"
           sub={
             split
@@ -186,7 +166,6 @@ export function AccountStrip({
         </Kpi>
         {open && (
           <Kpi
-            icon={ICON.shield}
             label="Risk to stops"
             sub={
               open.noStop > 0 ? <span className="font-medium text-warn">{count(open.noStop)} without a stop</span>
@@ -200,7 +179,7 @@ export function AccountStrip({
               </>
             }
           >
-            {openCount === 0 ? <span className="text-faint">{money(0)}</span> : <FlashValue value={open.toStops}><Pnl value={open.toStops} /></FlashValue>}
+            {openCount === 0 ? <span className="text-faint">{money(0)}</span> : <FlashValue value={open.toStops}><span className="text-bright">{signedMoney(open.toStops)}</span></FlashValue>}
           </Kpi>
         )}
         {risk && use ? (
@@ -220,7 +199,7 @@ export function AccountStrip({
             <LimitGauge
               label="Drawdown"
               use={use.drawdown}
-              value={<span className={use.drawdown.used != null && use.drawdown.used > 0 ? "text-loss" : "text-bright"}>{pctValue(use.drawdown.usedPct ?? (use.drawdown.used === 0 ? 0 : null), 2)}</span>}
+              value={<span className="text-bright">{pctValue(use.drawdown.usedPct ?? (use.drawdown.used === 0 ? 0 : null), 2)}</span>}
               measured={drawdownMeasured(risk, use.drawdown)}
               basis={risk.basis === "static" ? null : `from peak equity ${money(risk.peakEquity == null ? null : Math.max(risk.peakEquity, account.equity))}`}
               help={
@@ -273,6 +252,32 @@ export function TodayHeadline({ parts, missing, pending, onQkt, onAccount }: {
         </span>
       ))}
       {missing > 0 && <span className="text-faint"><span aria-hidden className="hidden sm:inline">· </span>{missing} {missing === 1 ? "account" : "accounts"} not known yet</span>}
+    </span>
+  );
+}
+
+/**
+ * The line under Home's headline that answers "does anything need me?": each item links to where it lives (the
+ * halted strategy, Health for a quiet account, the positions without a stop). "Nothing needs you" when empty.
+ */
+export function AttentionLine({ items, onItem }: { items: AttentionItem[]; onItem: (item: AttentionItem) => void }) {
+  if (items.length === 0) return <span className="text-muted">Nothing needs you</span>;
+  const words = (i: AttentionItem): string => {
+    switch (i.kind) {
+      case "halted": return `Halted: ${i.name}`;
+      case "halted-many": return `${count(i.count)} strategies halted`;
+      case "account": return i.state === "stopped" ? `${i.name} stopped · ${clock(i.since)} UTC` : `${i.name} stale`;
+      case "no-stop": return `${count(i.count)} ${i.count === 1 ? "position" : "positions"} without a stop`;
+    }
+  };
+  return (
+    <span className="flex flex-wrap items-center gap-1.5" role="list" aria-label="Needs a look">
+      {items.map((i, n) => (
+        <button key={n} type="button" role="listitem" onClick={() => onItem(i)}
+          className="inline-flex h-6 items-center gap-1.5 rounded-full border border-warn/45 bg-warn/10 px-2.5 text-xs font-medium text-warn transition hover:bg-warn/15 focus-visible:outline-2 focus-visible:outline-accent-hi">
+          {words(i)}
+        </button>
+      ))}
     </span>
   );
 }

@@ -6,7 +6,7 @@ import { strategyTotal, type StrategyPeriods, type TodaySplit } from "../home";
 import { strategyDisplayName } from "../portfolio";
 import { asksForRetired, matchesStrategy } from "../strategyFilter";
 import { Link, useRoute, useSearchParam } from "../router";
-import { Card, Pnl, Popover, RowChevron } from "./ui";
+import { Card, CurrencyMix, Pill, Pnl, Popover, RowChevron } from "./ui";
 
 /*
  * The strategy table: one row per strategy with Today, 7D, MTD and all-time P&L, its deepest
@@ -14,11 +14,12 @@ import { Card, Pnl, Popover, RowChevron } from "./ui";
  * no strategy claimed are their own row so the column sums equal the account.
  */
 
-type SortKey = "name" | "today" | "d7" | "mtd" | "all" | "maxDd" | "trades" | "winRate" | "lastTs";
+type SortKey = "name" | "today" | "open" | "d7" | "mtd" | "all" | "maxDd" | "trades" | "winRate" | "lastTs";
 
 const COLUMNS: ReadonlyArray<{ key: SortKey; label: string; hint?: string }> = [
   { key: "name", label: "Strategy" },
-  { key: "today", label: "Today", hint: "realized on the account's day + floating" },
+  { key: "today", label: "Today", hint: "realized since the account's trading day began" },
+  { key: "open", label: "Open", hint: "floating on its open positions now, swap included" },
   { key: "d7", label: "7D", hint: "realized, today and the 6 UTC days before" },
   { key: "mtd", label: "MTD", hint: "realized since the UTC month began" },
   { key: "all", label: "All-time", hint: "realized, every stored close" },
@@ -37,20 +38,22 @@ export interface StrategyLine {
 function sortValue(l: StrategyLine, key: SortKey): number | string {
   if (key === "name") return l.row ? strategyDisplayName(l.row).toLowerCase() : "~";
   if (key === "maxDd") return -l.periods.maxDd;
+  if (key === "today") return l.periods.todayRealized;
+  if (key === "open") return l.periods.floating;
   const v = l.periods[key];
   return v ?? -Infinity;
 }
 
 /**
- * Status at the row's end, quietly: nothing while running; "Halted" (the reason on hover or tap)
- * or "Retired" in muted text otherwise. The name itself is muted for both.
+ * Status beside the name: nothing while running; an amber "Halted" chip (the reason, when and how it ends on hover
+ * or tap) for a strategy that needs a look, at full ink; a muted "Retired" for one that left the roster.
  */
 function RowState({ row }: { row: StrategyRow | null }) {
   if (!row) return null;
   const halt = haltSummary(row);
   if (halt) {
     return (
-      <Popover label="Why this strategy is halted" align="right" trigger={<span className="inline-flex items-center gap-1.5 text-xs text-muted hover:text-body"><span className="h-1.5 w-1.5 rounded-full bg-warn" aria-hidden />Halted</span>}>
+      <Popover label="Why this strategy is halted" trigger={<Pill tone="warn">Halted</Pill>}>
         {halt}
       </Popover>
     );
@@ -58,7 +61,7 @@ function RowState({ row }: { row: StrategyRow | null }) {
   return row.active ? null : <span className="text-xs text-faint">Retired</span>;
 }
 
-const quiet = (row: StrategyRow | null) => row != null && (!row.active || haltSummary(row) != null);
+const retired = (row: StrategyRow | null) => row != null && !row.active;
 
 
 export function StrategyTable({
@@ -67,6 +70,7 @@ export function StrategyTable({
   hint,
   right,
   account = null,
+  mix = null,
   search = false,
   origin,
 }: {
@@ -77,6 +81,8 @@ export function StrategyTable({
   right?: ReactNode;
   /** The shown account's Today split; the total row then sets the rows against the account's own figure. Null on All accounts. */
   account?: TodaySplit | null;
+  /** Set when the rows add accounts in different currencies: the total carries "USD+USDC". */
+  mix?: { label: string; title: string } | null;
   /** Draws the search box in the header; the search (`find` in the URL) applies either way. */
   search?: boolean;
   /** The page the table is on, for the strategy page's way back. */
@@ -106,7 +112,8 @@ export function StrategyTable({
   const cell = (l: StrategyLine, k: SortKey) => {
     const p = l.periods;
     switch (k) {
-      case "today": return <Pnl value={p.today} glyphs={false} />;
+      case "today": return <Pnl value={p.todayRealized} glyphs={false} />;
+      case "open": return <Pnl value={p.floating} glyphs={false} />;
       case "d7": return <Pnl value={p.d7} glyphs={false} />;
       case "mtd": return <Pnl value={p.mtd} glyphs={false} />;
       case "all": return <Pnl value={p.all} glyphs={false} className="font-semibold" />;
@@ -134,7 +141,7 @@ export function StrategyTable({
       </div>
       {shown.length === 0 ? (
         <div className="px-4 py-6 text-center text-sm text-muted">
-          {find ? `No strategy matches “${find}”.` : "No strategy has traded yet. Rows appear with the first close or open position."}
+          {find ? `No strategy matches “${find}”.` : "No trades yet. Strategies show up here as they trade."}
         </div>
       ) : (
         <div className="@container">
@@ -150,7 +157,7 @@ export function StrategyTable({
                       </button>
                     </th>
                   ))}
-                  <th className="w-24 px-3 py-2" aria-label="Status" />
+                  <th className="w-8" aria-label="Open the strategy" />
                 </tr>
               </thead>
               <tbody>
@@ -163,9 +170,12 @@ export function StrategyTable({
                     aria-label={l.key ? `Open ${name(l)}` : undefined}
                     className={`group border-b border-line last:border-b-0 ${l.key ? "cursor-pointer transition-colors hover:bg-hover focus-visible:bg-hover focus-visible:outline-2 focus-visible:-outline-offset-2 focus-visible:outline-accent-hi" : ""}`}
                   >
-                    <td className="max-w-[22rem] px-3 py-2.5">
-                      <span className={`block truncate font-medium ${l.key == null || quiet(l.row) ? "text-muted" : "text-bright"}`} title={l.key ?? "closes and positions no strategy claimed"}>
-                        {name(l)}
+                    <td className="px-3 py-2.5">
+                      <span className="flex items-center gap-2" onClick={(e) => e.stopPropagation()}>
+                        <span className={`break-words font-medium ${l.key == null ? "italic text-muted" : retired(l.row) ? "text-muted" : "text-bright"}`} title={l.key ?? "closes and positions no strategy claimed"}>
+                          {name(l)}
+                        </span>
+                        <RowState row={l.row} />
                       </span>
                     </td>
                     {COLUMNS.slice(1).map((c) => (
@@ -173,12 +183,7 @@ export function StrategyTable({
                         {cell(l, c.key)}
                       </td>
                     ))}
-                    <td className="px-3 py-2.5" onClick={(e) => e.stopPropagation()}>
-                      <span className="flex items-center justify-end gap-2">
-                        <RowState row={l.row} />
-                        {l.key && <RowChevron />}
-                      </span>
-                    </td>
+                    <td className="w-8 pr-2">{l.key && <RowChevron />}</td>
                   </tr>
                 ))}
               </tbody>
@@ -189,13 +194,14 @@ export function StrategyTable({
               const body = (
                 <>
                   <div className="flex items-center gap-2">
-                    <span className={`min-w-0 truncate font-medium ${l.key == null || quiet(l.row) ? "text-muted" : "text-bright"}`}>{name(l)}</span>
+                    <span className={`min-w-0 break-words font-medium ${l.key == null ? "italic text-muted" : retired(l.row) ? "text-muted" : "text-bright"}`}>{name(l)}</span>
                     <RowState row={l.row} />
                     <span className="ml-auto shrink-0 text-xs text-muted">Today</span>
                     <span className="shrink-0 font-semibold">{cell(l, "today")}</span>
                     {l.key && <RowChevron className="-mr-1" />}
                   </div>
-                  <div className="mt-1.5 grid grid-cols-4 gap-x-2 text-xs tabular-nums">
+                  <div className="mt-1.5 grid grid-cols-5 gap-x-2 text-xs tabular-nums">
+                    <Mini k="Open">{cell(l, "open")}</Mini>
                     <Mini k="7D">{cell(l, "d7")}</Mini>
                     <Mini k="MTD">{cell(l, "mtd")}</Mini>
                     <Mini k="All-time">{cell(l, "all")}</Mini>
@@ -219,7 +225,7 @@ export function StrategyTable({
           </ul>
         </div>
       )}
-      <TotalLine total={strategyTotal(shown.map((l) => l.periods.today), account)} hidden={lines.length - shown.length} />
+      <TotalLine lines={shown} account={account} mix={mix} hidden={lines.length - shown.length} />
     </Card>
   );
 }
@@ -257,18 +263,20 @@ function Mini({ k, children }: { k: string; children: ReactNode }) {
 }
 
 /**
- * The table's total from the rows shown: "Total +18.35"; on one account, set against the account's own Today
- * ("· other system −767.77 · account −749.42"), with whatever else it holds named so the parts add up.
+ * The table's total from the rows shown, today's closes plus what is open: "Total incl. open +18.35"; on one account,
+ * set against the account's own Today ("· other system −767.77 · account −749.42"), with whatever else it holds named
+ * so the parts add up. On All accounts it is marked when it adds currencies.
  */
-function TotalLine({ total, hidden }: { total: ReturnType<typeof strategyTotal>; hidden: number }) {
-  const part = (label: string, v: number) => <span className="whitespace-nowrap">{label} <span className="font-mono tabular-nums text-body">{signedMoney(v)}</span></span>;
-  const parts = [part("Total", total.rows)];
-  if (total.other != null) parts.push(part("other system", total.other));
-  if (total.account != null && total.rest !== 0) parts.push(part(hidden > 0 ? "rows not shown" : "not in a row", total.rest));
-  if (total.account != null) parts.push(part("account", total.account));
+function TotalLine({ lines, account, mix, hidden }: { lines: StrategyLine[]; account: TodaySplit | null; mix: { label: string; title: string } | null; hidden: number }) {
+  const total = strategyTotal(lines.map((l) => l.periods.today), account);
+  const figure = (v: number) => <span className="font-mono tabular-nums text-body">{signedMoney(v)}</span>;
+  const parts: ReactNode[] = [<>Total incl. open {figure(total.rows)}{total.account == null && <CurrencyMix mix={mix} />}</>];
+  if (total.other != null) parts.push(<>other system {figure(total.other)}</>);
+  if (total.account != null && total.rest !== 0) parts.push(<>{hidden > 0 ? "rows not shown" : "not in a row"} {figure(total.rest)}</>);
+  if (total.account != null) parts.push(<>account {figure(total.account)}</>);
   return (
     <div className="flex flex-wrap items-center gap-x-1.5 gap-y-0.5 border-t border-line px-4 py-2 text-xs text-muted">
-      {parts.map((p, i) => <span key={i} className="inline-flex items-center gap-1.5">{i > 0 && <span className="text-faint">·</span>}{p}</span>)}
+      {parts.map((p, i) => <span key={i} className="inline-flex items-center gap-1.5 whitespace-nowrap">{i > 0 && <span className="text-faint">·</span>}<span>{p}</span></span>)}
     </div>
   );
 }

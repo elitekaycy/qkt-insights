@@ -3,6 +3,7 @@ import { DASH, duration, pnl, quantity, toneClass } from "../format";
 import { TypeBadge } from "../components/InstrumentType";
 import { instrumentType, sizeInWords } from "../instruments";
 import { Pill, RowChevron, Skeleton, Spinner } from "../components/ui";
+import { useStrategyNames } from "../hooks/useStrategyNames";
 import { useView } from "../view";
 import { useRoundTrips, type RoundTrip, type RoundTripTotals, type SortKey, type TripScope } from "./data";
 import { minuteStamp, px, rMultiple, tableStamp, tripInstrument } from "./format";
@@ -42,8 +43,8 @@ function tripType(t: RoundTrip) {
   return instrumentType(t.kind, t.category);
 }
 
-function StrategyName({ id }: { id: string | null }) {
-  return id ? <span className="truncate text-bright" title={id}>{id}</span> : <Pill>unattributed</Pill>;
+function StrategyName({ id, name }: { id: string | null; name: (id: string) => string }) {
+  return id ? <span className="truncate text-bright" title={id}>{name(id)}</span> : <Pill>unattributed</Pill>;
 }
 
 function Cell({ children, right, className = "" }: { children: ReactNode; right?: boolean; className?: string }) {
@@ -68,10 +69,10 @@ function TripPnl({ t }: { t: RoundTrip }) {
   );
 }
 
-function cells(t: RoundTrip, hide: ReadonlySet<string>): ReactNode[] {
+function cells(t: RoundTrip, hide: ReadonlySet<string>, strategyName: (id: string) => string): ReactNode[] {
   const all: Record<string, ReactNode> = {
     id: <Cell className="font-mono text-xs text-faint">{t.id}</Cell>,
-    strategy: <Cell><StrategyName id={t.strategyId} /></Cell>,
+    strategy: <Cell><StrategyName id={t.strategyId} name={strategyName} /></Cell>,
     instrument: (
       <Cell className="font-semibold text-bright">
         {t.venue ? (
@@ -147,6 +148,7 @@ export function RoundTripTable({ scope, q, sort, dir, onSort, hide = [], height 
   const template = `${cols.map((c) => c.w).join(" ")} 1.75rem`;
   const minWidth = cols.reduce((a, c) => a + (parseInt(c.w.replace(/^minmax\((\d+)px.*$/, "$1"), 10) || 0), 0);
   const data = useRoundTrips(scope, q, sort, dir);
+  const strategyName = useStrategyNames(scope?.instanceId);
   const rows = useMemo(() => data.data?.pages.flatMap((p) => p.rows) ?? [], [data.data]);
   const first = data.data?.pages[0];
   const matched = first?.totals?.matched ?? rows.length;
@@ -271,7 +273,7 @@ export function RoundTripTable({ scope, q, sort, dir, onSort, hide = [], height 
     if (wide) {
       return (
         <div key={t.id} {...common} className={`group absolute inset-x-0 grid items-center border-b border-line text-sm transition-colors ${clickable ? "cursor-pointer" : ""} ${selected ? "bg-accent-soft shadow-[inset_3px_0_0_var(--color-accent-hi)]" : "hover:bg-hover"}`}>
-          {cells(t, hidden)}
+          {cells(t, hidden, strategyName)}
           <div role="cell" className="flex justify-center">{clickable && <RowChevron className={selected ? "opacity-100" : ""} />}</div>
         </div>
       );

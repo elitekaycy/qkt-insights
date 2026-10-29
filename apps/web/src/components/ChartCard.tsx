@@ -12,7 +12,7 @@ export function ChartCard({
   className = "",
 }: {
   title: string;
-  description: string;
+  description?: string;
   meta?: string;
   value?: ReactNode;
   toolbar?: ReactNode;
@@ -24,7 +24,7 @@ export function ChartCard({
     <div className="flex min-w-0 flex-1 flex-wrap items-start gap-3">
       <div className="min-w-0 flex-1">
         <h3 className="text-[15px] font-semibold text-bright">{title}</h3>
-        <p className="mt-0.5 text-xs leading-relaxed text-muted">{description}</p>
+        {description && <p className="mt-0.5 text-xs leading-relaxed text-muted">{description}</p>}
         {meta && <p className="mt-1 text-[11px] text-faint">{meta}</p>}
       </div>
       {value && <div className="text-xl font-semibold text-bright">{value}</div>}

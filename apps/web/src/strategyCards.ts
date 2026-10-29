@@ -20,6 +20,7 @@ export interface CardFigures {
   net: number;
   realized: number;
   floating: number;
+  /** Realized since the account's trading day began; open P&L is `floating`. */
   today: number;
   /** The return's base and where it comes from; null amount when no capital is known. */
   base: number | null;
@@ -38,7 +39,7 @@ export function cardFigures(line: CardLine, digits = 2): CardFigures {
     net: roundMoney(p.all + p.floating, digits),
     realized: p.all,
     floating: p.floating,
-    today: p.today,
+    today: p.todayRealized,
     base: capital.amount,
     baseSource: capital.source,
     trades: p.trades,
@@ -68,8 +69,9 @@ export function isFolded(line: CardLine): boolean {
   return line.row != null && !line.row.active;
 }
 
-export type CardSort = "net" | "today" | "name" | "last";
+export type CardSort = "attention" | "net" | "today" | "name" | "last";
 export const CARD_SORTS: ReadonlyArray<{ key: CardSort; label: string }> = [
+  { key: "attention", label: "Needs attention" },
   { key: "net", label: "By net P&L" },
   { key: "today", label: "By today" },
   { key: "name", label: "By name" },
@@ -80,26 +82,41 @@ export function cardName(line: CardLine): string {
   return line.row ? strategyDisplayName(line.row) : line.key ?? "Unattributed";
 }
 
-/** Largest first for figures, newest first for the last trade, A to Z for names; the unattributed bucket always last. */
-export function sortCards<T extends CardLine>(lines: readonly T[], by: CardSort): T[] {
+/**
+ * Largest first for figures, newest first for the last trade, A to Z for names; the unattributed bucket always last.
+ * "Needs attention" puts halted strategies first, then those holding a position without a stop (`noStop`), then the
+ * rest by today's realized P&L, largest first. Today is realized only: open P&L has its own figure.
+ */
+export function sortCards<T extends CardLine>(lines: readonly T[], by: CardSort, noStop: ReadonlySet<string> = new Set()): T[] {
+  const rank = (l: T): number => (l.row?.halted && l.row.active ? 0 : l.key != null && noStop.has(l.key) ? 1 : 2);
   const value = (l: T): number | string => {
     if (by === "name") return cardName(l).toLowerCase();
-    if (by === "today") return l.periods.today;
+    if (by === "today" || by === "attention") return l.periods.todayRealized;
     if (by === "last") return l.periods.lastTs ?? -Infinity;
     return l.periods.all + l.periods.floating;
   };
   return [...lines].sort((a, b) => {
     if ((a.key == null) !== (b.key == null)) return a.key == null ? 1 : -1;
+    if (by === "attention" && rank(a) !== rank(b)) return rank(a) - rank(b);
     const x = value(a), y = value(b);
     const c = x < y ? -1 : x > y ? 1 : 0;
     return by === "name" ? c : -c;
   });
 }
 
+/**
+ * A strategy that has done nothing yet: no close, nothing open, not halted. The page lists these in one line
+ * ("Not traded yet (5): …") instead of five cards of zeros.
+ */
+export function notTradedYet(line: CardLine): boolean {
+  return line.key != null && line.periods.trades === 0 && line.periods.floating === 0 && !(line.row?.halted ?? false);
+}
+
 export interface PortfolioCard<T extends CardLine> {
   id: string;
   children: T[];
   net: number;
+  /** Realized since the account's day began. */
   today: number;
   trades: number;
   /** Sum of the children's allocations; null when any child has none. */
@@ -124,7 +141,7 @@ export function cardGroups<T extends CardLine>(lines: readonly T[], digits = 2):
       id,
       children,
       net: sum((p) => p.all + p.floating),
-      today: sum((p) => p.today),
+      today: sum((p) => p.todayRealized),
       trades: children.reduce((a, l) => a + l.periods.trades, 0),
       base: summarizePortfolio(id, rows, new Map(), false).allocatedCapital,
       lastTs: last.length ? Math.max(...last) : null,

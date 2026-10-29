@@ -2,19 +2,20 @@ import { useQuery } from "@tanstack/react-query";
 import { get, type AccountRiskRow, type AccountSummary, type InstanceRow, type LivePositionRow, type StrategyRow } from "../api";
 import { accountKey, accountProfiles, accountTab, groupAccounts } from "../accounts";
 import { AccountsTable, AccountTabs, useAccountChoice, type AccountLine } from "../components/AccountSwitch";
-import { AccountStrip, TodayHeadline } from "../components/HomeAccount";
+import { AccountStrip, AttentionLine, TodayHeadline } from "../components/HomeAccount";
 import { MonthCalendar, PnlChart } from "../components/HomeCharts";
 import { OpenPositions, PublicOpenPositions } from "../components/HomePositions";
 import { StrategyTable, type StrategyLine } from "../components/HomeStrategies";
 import { ShareControl } from "../components/ShareControl";
 import { Card, Loadable, PageHeader } from "../components/ui";
 import { day as utcDay, ts } from "../format";
-import { dayBasisLabel, floatingByStrategy, floatingNote, HOME_RANGES, noAccountMessage, openRisk, riskRowFor, strategyLines, strategyPeriods, todayHeadline, todaySplit, type HomeRange } from "../home";
+import { attentionItems, dayBasisLabel, floatingByStrategy, floatingNote, HOME_RANGES, noAccountMessage, openRisk, riskRowFor, strategyLines, strategyPeriods, todayHeadline, todaySplit, type HomeRange } from "../home";
 import { strategyDisplayName } from "../portfolio";
-import { useSearchParam } from "../router";
+import { useRoute, useSearchParam } from "../router";
 import { useLiveState } from "../useLiveState";
 import { useLiveStream } from "../useLiveStream";
 import { usePublicPageView, useView } from "../view";
+import { useInstanceCurrencyMix } from "../currencies";
 
 // Home needs only broker state pushes for live account and position truth.
 const FEED_TYPES = ["state.account", "state.positions"];
@@ -62,6 +63,9 @@ export default function Home({ instanceId }: { instanceId: string | null }) {
     enabled: !view.public,
     refetchInterval: 30_000,
   });
+  const mix = useInstanceCurrencyMix(instanceId);
+  const { navigate } = useRoute();
+  const [, setPositionsShown] = useSearchParam("pos");
   const [rawRange, setRange] = useSearchParam("range", "all");
   const range = (HOME_RANGES.find((r) => r.key === rawRange)?.key ?? "all") as HomeRange;
 
@@ -128,6 +132,11 @@ export default function Home({ instanceId }: { instanceId: string | null }) {
     : accountLines.map((l) => ({ key: accountKey(l.group.account), name: accountTab(l.group.account, view.public).name, currency: l.group.account.currency,
       split: l.realizedToday == null ? null : todaySplit(l.group.account, l.realizedToday, l.note) })));
   const headlinePending = liveState.isPending || risk.isPending || (shown != null && shownRealized == null && summary.isPending);
+  const attention = attentionItems({
+    strategies: rows.map((r) => ({ strategyId: r.strategyId, name: strategyDisplayName(r), active: r.active, halted: r.halted })),
+    accounts: choice.accounts.map((g) => ({ key: accountKey(g.account), name: accountTab(g.account).name, stale: g.account.stale, stopped: g.account.stopped, lastSeen: g.account.lastSeen })),
+    noStop: openRisk(positions).noStop,
+  });
 
   return (
     <div className="grid grid-cols-1 gap-4">
@@ -144,6 +153,22 @@ export default function Home({ instanceId }: { instanceId: string | null }) {
                 onQkt={() => document.getElementById("home-strategies")?.scrollIntoView({ behavior: "smooth", block: "start" })}
                 onAccount={(key) => choice.choose(choice.accounts.find((g) => accountKey(g.account) === key) ?? null)}
               />
+            )}
+            {!view.public && !liveState.isPending && !strategies.isPending && (
+              <div className="mt-1.5">
+                <AttentionLine
+                  items={attention}
+                  onItem={(item) => {
+                    if (item.kind === "halted") navigate(`/s/${encodeURIComponent(item.strategyId)}`, { from: "Home" });
+                    else if (item.kind === "halted-many") navigate(`/s?find=${encodeURIComponent("status:halted")}`, { from: "Home" });
+                    else if (item.kind === "account") navigate("/status", { from: "Home" });
+                    else {
+                      setPositionsShown("nostop", { push: true });
+                      window.requestAnimationFrame(() => document.getElementById("home-positions")?.scrollIntoView({ behavior: "smooth", block: "start" }));
+                    }
+                  }}
+                />
+              </div>
             )}
           </>
         }
@@ -207,8 +232,9 @@ export default function Home({ instanceId }: { instanceId: string | null }) {
             lines={lines}
             search
             origin="Home"
-            hint={`${shownName ? `on ${shownName} · ` : ""}Today includes open P&L · other columns are closed trades`}
+            hint={shownName ? `on ${shownName}` : undefined}
             account={scoped || !choice.many ? shownSplit : null}
+            mix={scoped ? null : mix}
           />
         </div>
       </Loadable>
@@ -217,9 +243,9 @@ export default function Home({ instanceId }: { instanceId: string | null }) {
         {summary.data && (
           <div className="grid gap-4 lg:grid-cols-3">
             <div className="min-w-0 lg:col-span-2">
-              <PnlChart days={summary.data.dailyNets} range={range} onRange={(r) => setRange(r, { push: true })} now={now} />
+              <PnlChart days={summary.data.dailyNets} range={range} onRange={(r) => setRange(r, { push: true })} now={now} mix={scoped ? null : mix} />
             </div>
-            <MonthCalendar key={utcDay(now).slice(0, 7)} days={summary.data.dailyNets} now={now} />
+            <MonthCalendar key={utcDay(now).slice(0, 7)} days={summary.data.dailyNets} now={now} mix={scoped ? null : mix} />
           </div>
         )}
       </Loadable>
