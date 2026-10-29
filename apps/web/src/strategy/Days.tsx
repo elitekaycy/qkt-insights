@@ -2,7 +2,7 @@ import { useMemo, useState } from "react";
 import { withTokens } from "@qkt-insights/contract/query";
 import { CalendarView } from "../components/Calendar";
 import { chartColors, EChart, qktChartAxis, qktChartGrid, qktChartTooltip, qktXAxis, tipHtml, tok, zeroLine, type QktChartOption } from "../components/EChart";
-import { compact, count, DASH, monthName, pnl, polarity, signedMoney, signedPct, toneClass, winPct } from "../format";
+import { compactPnl, count, DASH, monthName, pnl, polarity, returnPct, signedMoney, toneClass, winPct } from "../format";
 import type { TripDay, TripMonth } from "../trades/analytics";
 import { RoundTripTable } from "../trades/RoundTripTable";
 import { emptyHint, pickedSpan, profitFactorText, windowTotals, withCumulative, without } from "./journal";
@@ -194,7 +194,7 @@ export function MonthlySection({ scope, q, toggle, base, busy, capital, goTab }:
                   <td className="px-4 text-right text-body">{winPct(winRate(m))}</td>
                   <td className="px-4 text-right text-body">{profitFactorText(monthPf(m))}</td>
                   <td className={`whitespace-nowrap px-4 text-right font-semibold ${toneClass(m.pnl)}`}>{pnl(m.pnl)}</td>
-                  {capital.amount ? <td className="px-4 text-right text-body">{signedPct((m.pnl / capital.amount) * 100)}</td> : null}
+                  {capital.amount ? <td className="px-4 text-right text-body">{returnPct((m.pnl / capital.amount) * 100)}</td> : null}
                 </tr>
               ))}
             </tbody>
@@ -242,7 +242,7 @@ function YearHeat({ months, onMonth }: { months: readonly TripDay[]; onMonth: (m
                             className="flex h-8 w-full items-center justify-center rounded-md font-semibold text-bright transition hover:-translate-y-px"
                             style={{ background: shade(m.pnl, maxAbs) }}
                           >
-                            {m.pnl >= 0 ? "▲" : "▼"}{compact(Math.abs(m.pnl))}
+                            {compactPnl(m.pnl)}
                           </button>
                         ) : (
                           <div className="flex h-8 items-center justify-center rounded-md border border-dashed border-line text-faint">{DASH}</div>

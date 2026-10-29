@@ -107,16 +107,16 @@ export function OpenPositions({ positions, strategyName, now, freshness }: {
                       <div className="flex items-center gap-1.5 font-semibold">{instrumentOf(p.symbol)}<TypeBadge type={typeOf(p)} short /></div>
                     </Cell>
                     <Cell><SideTag side={p.side} /></Cell>
-                    <Cell className="text-right">
+                    <Cell className="text-right font-mono">
                       <span title={sizeInWords(p.qty, p)}>{quantity(p.qty)}</span>
                       {p.unit && <div className="text-[10px] text-muted">{p.unit}</div>}
                     </Cell>
-                    <Cell className="text-right text-muted">{price(p.entryPrice)}</Cell>
-                    <Cell className="text-right">{current(p)}</Cell>
-                    <Cell className="whitespace-nowrap text-right text-muted">{level(p.stopLoss)} / {level(p.takeProfit)}</Cell>
-                    <Cell className="text-right">{toStop(p)}</Cell>
-                    <Cell className="text-right font-semibold">{floating(p)}</Cell>
-                    <Cell className="whitespace-nowrap text-right text-muted">{held(p)}</Cell>
+                    <Cell className="text-right font-mono text-muted">{price(p.entryPrice)}</Cell>
+                    <Cell className="text-right font-mono">{current(p)}</Cell>
+                    <Cell className="whitespace-nowrap text-right font-mono text-muted">{level(p.stopLoss)} / {level(p.takeProfit)}</Cell>
+                    <Cell className="text-right font-mono">{toStop(p)}</Cell>
+                    <Cell className="text-right font-mono font-semibold">{floating(p)}</Cell>
+                    <Cell className="whitespace-nowrap text-right font-mono text-muted">{held(p)}</Cell>
                     <Cell className="break-words">{strategy(p)}</Cell>
                     <td className="pr-2"><RowChevron /></td>
                   </tr>

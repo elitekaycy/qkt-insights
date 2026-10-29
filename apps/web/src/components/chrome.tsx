@@ -93,7 +93,7 @@ export function Wordmark({ brand, iconsOnly = false, stacked = false }: { brand?
 const SUN = "M12 3v1.5M12 19.5V21M4.6 4.6l1.1 1.1M18.3 18.3l1.1 1.1M3 12h1.5M19.5 12H21M4.6 19.4l1.1-1.1M18.3 5.7l1.1-1.1M12 16a4 4 0 1 0 0-8 4 4 0 0 0 0 8z";
 const MOON = "M21 12.8A9 9 0 1 1 11.2 3a7 7 0 0 0 9.8 9.8z";
 
-/** Dark/light switch; the choice is remembered per viewer. */
+/** Dark mode on or off, as a toggle that says what it does; the choice is remembered per viewer. */
 export function ThemeToggle({ iconsOnly = false, className = "" }: { iconsOnly?: boolean; className?: string }) {
   const theme = useTheme();
   const next = theme === "dark" ? "light" : "dark";
@@ -101,14 +101,15 @@ export function ThemeToggle({ iconsOnly = false, className = "" }: { iconsOnly?:
     <button
       type="button"
       onClick={() => setTheme(next)}
-      title={`Switch to the ${next} theme`}
-      aria-label={`Switch to the ${next} theme`}
+      aria-pressed={theme === "dark"}
+      title="Dark mode"
+      aria-label="Dark mode"
       className={`flex h-9 w-full items-center gap-3 rounded-lg px-3 text-sm font-medium text-body transition hover:bg-hover hover:text-bright ${
         iconsOnly ? "justify-center px-0" : ""
       } ${className}`}
     >
       <NavIcon d={theme === "dark" ? MOON : SUN} big />
-      {!iconsOnly && (theme === "dark" ? "Dark theme" : "Light theme")}
+      {!iconsOnly && "Dark mode"}
     </button>
   );
 }
@@ -167,7 +168,7 @@ function RailLink({ item, iconsOnly, onNavigate }: { item: NavItem; iconsOnly: b
       aria-current={active ? "page" : undefined}
       className={`relative flex h-9 shrink-0 items-center gap-3 rounded-lg px-3 text-sm font-medium transition ${iconsOnly ? "justify-center px-0" : ""} ${
         active
-          ? "bg-accent-soft text-bright before:absolute before:-left-2 before:bottom-2 before:top-2 before:w-[3px] before:rounded-r before:bg-accent-hi"
+          ? "bg-accent-soft text-bright"
           : "text-body hover:bg-hover hover:text-bright"
       }`}
     >

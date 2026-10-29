@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { axisTick, compact, compactPnl, dealNet, duration, fixed, glyph, human, instrumentOf, money, num, openPnl, pct, pnl, price, signedMoney, signedPct, toneClass, ts, tsShort } from "./format";
+import { axisTick, compact, compactPnl, returnPct, dealNet, duration, fixed, glyph, human, instrumentOf, money, num, openPnl, pct, pnl, price, signedMoney, signedPct, toneClass, ts, tsShort } from "./format";
 import { tableStamp } from "./trades/format";
 
 describe("price", () => {
@@ -96,9 +96,16 @@ describe("compact axis labels", () => {
 
 describe("compact cell money", () => {
   it("keeps the glyph and sign at cell width", () => {
-    expect(compactPnl(1234)).toBe("\u25b2 +1.2k");
+    expect(compactPnl(1234)).toBe("\u25b2 +1.23k");
     expect(compactPnl(-640.4)).toBe("\u25bc \u2212640");
-    expect(compactPnl(0.3)).toBe("0");
+    expect(compactPnl(-5.94)).toBe("\u25bc \u22125.94");
+    expect(compactPnl(14.84)).toBe("\u25b2 +14.8");
+    expect(compactPnl(-0.4)).toBe("\u25bc \u22120.40");
+    expect(compactPnl(0.003)).toBe("0");
+    expect(returnPct(0.0024)).toBe("<0.01%");
+    expect(returnPct(-0.0024)).toBe("\u2212<0.01%");
+    expect(returnPct(-0.06)).toBe("\u22120.06%");
+    expect(returnPct(0)).toBe("0.00%");
   });
 });
 
@@ -142,9 +149,9 @@ describe("tableStamp", () => {
 
 describe("axisTick", () => {
   it("keeps the digits that tell neighbouring ticks apart", () => {
-    expect([4_980_000, 4_990_000, 5_000_000, 5_010_000].map(axisTick)).toEqual(["4.98m", "4.99m", "5m", "5.01m"]);
+    expect([4_980_000, 4_990_000, 5_000_000, 5_010_000].map(axisTick)).toEqual(["4.98M", "4.99M", "5M", "5.01M"]);
     expect([59_500, 60_000, 60_500].map(axisTick)).toEqual(["59.5k", "60k", "60.5k"]);
-    expect(axisTick(4_985_000)).toBe("4.985m");
+    expect(axisTick(4_985_000)).toBe("4.985M");
   });
   it("matches compact for small values and signs", () => {
     expect(axisTick(-0.25)).toBe("\u22120.25");

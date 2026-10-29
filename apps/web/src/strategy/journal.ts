@@ -111,3 +111,9 @@ export function todayParts(today: { closed: number; wins: number; ended: readonl
   if (parts.length > 0 && Math.abs(streak) >= 3) parts.push(`${Math.abs(streak)} ${streak > 0 ? "won" : "lost"} in a row`);
   return parts;
 }
+
+/** A line that tells the strategy's story: a warning or error, or an order, fill, trade, stop or rejection. */
+export function importantLog(l: { level: string; message: string; logger: string }): boolean {
+  if (l.level === "ERROR" || l.level === "WARN") return !/StateFileWriter|scheduled break/iu.test(`${l.logger} ${l.message}`);
+  return /\b(order|fill(ed)?|trade|position|stop|target|reject(ed)?|entry|exit)\b/iu.test(l.message);
+}

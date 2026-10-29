@@ -21,7 +21,7 @@ import { strategyEnvironment, strategyLegs } from "../instruments";
 import { useLiveState } from "../useLiveState";
 import { usePublicPageView, useView } from "../view";
 import { CalendarSection, DailySection, MonthlySection } from "./Days";
-import { chipOf, toggleToken, without } from "./journal";
+import { chipOf, importantLog, toggleToken, without } from "./journal";
 import { OverviewSection } from "./Overview";
 import { TimeRiskSection } from "./TimeRisk";
 import { BigPnl, Icon, ICON, Widget } from "./widgets";
@@ -44,7 +44,7 @@ const TAB_LABEL: Record<StrategyTab, string> = {
 const PERIOD_LABEL: Record<PeriodView, string> = { calendar: "Calendar", days: "Days", months: "Months" };
 
 /** A strategy page leaves its own name out of each row. */
-const STRATEGY_HIDDEN = ["strategy"];
+const STRATEGY_HIDDEN = ["strategy", "id"];
 const RECENT_LOGS = 50;
 
 function metaString(meta: Record<string, unknown> | null | undefined, key: string): string | null {
@@ -415,7 +415,9 @@ function StrategyLogs({ instanceId, strategyId }: { instanceId: string; strategy
     queryFn: () => get<LogRow[]>(`/logs?instance=${encodeURIComponent(instanceId)}&strategy=${encodeURIComponent(strategyId)}&limit=${RECENT_LOGS}`),
     refetchInterval: 30_000,
   });
-  const rows = logs.data ?? [];
+  const [all, setAll] = useState(false);
+  // the strategy's story first: orders, fills, trades and anything that went wrong; every line is one click away
+  const rows = (logs.data ?? []).filter((l) => all || importantLog(l));
   return (
     <Widget
       icon={ICON.logs}
@@ -428,9 +430,12 @@ function StrategyLogs({ instanceId, strategyId }: { instanceId: string; strategy
       }
     >
       <Loadable loading={logs.isPending} error={logs.isError} retry={() => logs.refetch()} what="logs" shape="lines" lines={8}>
+        <div className="px-4 pb-2">
+          <Segmented label="Which lines" value={all ? "all" : "orders"} onChange={(v) => setAll(v === "all")} options={[{ key: "orders", label: "Orders & errors" }, { key: "all", label: "All lines" }]} />
+        </div>
         <div className="px-2 pb-2">
           {rows.map((l) => <LogLine key={l.id} log={l} showStrategy={false} />)}
-          {rows.length === 0 && <div className="px-4 py-8 text-center text-sm text-muted">No log lines from this strategy yet.</div>}
+          {rows.length === 0 && <div className="px-4 py-8 text-center text-sm text-muted">{all ? "No log lines yet." : "No orders or errors in the latest lines."}</div>}
         </div>
         <div className="border-t border-line px-4 py-2 text-[11px] text-muted sm:hidden">
           <Link to={`${PAGE_PATHS.logs}?q=${encodeURIComponent(`strategy:${strategyId}`)}`} from={`${strategyId} · Logs`} className="font-medium text-accent-ink">Full history on Logs →</Link>

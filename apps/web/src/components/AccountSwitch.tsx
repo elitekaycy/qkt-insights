@@ -84,22 +84,24 @@ export interface AccountLine {
   pending?: boolean;
 }
 
-const HEAD = ["Account", "Balance", "Equity", "Today", "Open risk", "Drawdown", "Status"];
+const HEAD = ["Account", "Balance", "Equity", "Today", "Open risk", "Drawdown"];
 
 /**
  * All accounts at a glance: one row per account, every figure in the account's own currency (never added across
  * accounts). A row opens that account's tab.
  */
 export function AccountsTable({ lines, choice, isPublic }: { lines: AccountLine[]; choice: AccountChoice; isPublic: boolean }) {
+  // the status column appears only while an account is stale or stopped; healthy rows need none
+  const quiet = lines.some((l) => l.group.account.stale);
   return (
     <section aria-label="All accounts" className="overflow-hidden rounded-card border border-line bg-panel">
       <DataList
-        head={HEAD}
+        head={quiet ? [...HEAD, "Status"] : HEAD}
         rows={lines}
         keyOf={(l) => accountKey(l.group.account)}
         onRow={(l) => choice.choose(l.group)}
         empty="No account has reported yet."
-        cells={(l) => <AccountCells line={l} isPublic={isPublic} />}
+        cells={(l) => <AccountCells line={l} isPublic={isPublic} status={quiet} />}
         card={(l) => <AccountCard line={l} isPublic={isPublic} />}
       />
     </section>
@@ -154,7 +156,7 @@ function Updated({ line, isPublic }: { line: AccountLine; isPublic: boolean }) {
   return isPublic ? <span className="text-xs text-muted">as of {clock(a.lastSeen)} UTC</span> : <Freshness at={a.lastSeen} stale={a.stale} quiet />;
 }
 
-function AccountCells({ line, isPublic }: { line: AccountLine; isPublic: boolean }) {
+function AccountCells({ line, isPublic, status }: { line: AccountLine; isPublic: boolean; status: boolean }) {
   const { a, today, dd, ddUse } = figures(line);
   return (
     <>
@@ -166,7 +168,7 @@ function AccountCells({ line, isPublic }: { line: AccountLine; isPublic: boolean
       </Cell>
       <Cell className="font-mono tabular-nums"><OpenRiskCell open={line.open} /></Cell>
       <Cell className={`font-mono tabular-nums ${ddTone(ddUse)}`}>{line.pending ? <Pending /> : dd == null ? <span className="text-faint">{DASH}</span> : pctValue(dd, 2)}</Cell>
-      <Cell className="whitespace-nowrap"><Updated line={line} isPublic={isPublic} /></Cell>
+      {status && <Cell className="whitespace-nowrap"><Updated line={line} isPublic={isPublic} /></Cell>}
     </>
   );
 }
