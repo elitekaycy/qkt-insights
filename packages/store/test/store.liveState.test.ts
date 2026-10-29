@@ -25,6 +25,19 @@ const pos = { ticket: "123", symbol: "EXNESS:XAUUSD", side: "BUY", qty: 0.01,
   entryPrice: 2300.5, currentPrice: 2310.2, profit: 9.7, strategyId: "hedge_straddle" };
 
 describe("LiveStateStore", () => {
+  it("keeps one account per account id with every profile that reports it and the trade mode qkt states", () => {
+    const store = new LiveStateStore();
+    const id = mt5AccountId("52144821", "Exness-MT5Trial9");
+    const venue = (label: string) => ({ connector: "mt5", adapter: "exness", label, tradeMode: "demo" });
+    store.upsert("qkt-prod", accountEnv(T0, { broker: "EXNESS_O12", accountId: id, login: "•••4821", venue: venue("EXNESS_O12") }));
+    expect(store.upsert("qkt-prod", accountEnv(T0 + 1, { broker: "EXNESS_P7", accountId: id, login: "•••4821", venue: venue("EXNESS_P7") }))).toBe(true);
+    expect(store.upsert("qkt-prod", accountEnv(T0 + 2, { broker: "EXNESS_O12", accountId: id, login: "•••4821", venue: venue("EXNESS_O12") }))).toBe(false);
+    const [account, ...rest] = store.snapshot(T0 + 1000).accounts;
+    expect(rest).toHaveLength(0);
+    expect(account).toMatchObject({ broker: "EXNESS_O12", connector: "mt5", adapter: "exness", tradeMode: "demo", profiles: ["EXNESS_O12", "EXNESS_P7"] });
+  });
+
+
   it("upserts account state keyed by instance:broker and reports staleness", () => {
     const store = new LiveStateStore();
     expect(store.upsert("qkt-prod", accountEnv(T0))).toBe(true);

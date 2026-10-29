@@ -314,4 +314,12 @@ describe("enriched qkt payloads", () => {
     expect(repeat.success && repeat.data.type === "strategy.started" && repeat.data.payload).toMatchObject({ sourceTextOmitted: true });
     expect(started({ sourceText: 42 }).success).toBe(false);
   });
+
+  it("reads the account's trade mode on the venue of a venue envelope", () => {
+    const r = EnvelopeSchema.safeParse({ ...base, type: "state.account", payload: {
+      broker: "EXNESS_O12", currency: "USD", balance: 1, equity: 1, accountId: "mt5:0123456789abcdef",
+      venue: { connector: "mt5", adapter: "exness", label: "EXNESS_O12", tradeMode: "demo" },
+    } });
+    expect(r.success && r.data.type === "state.account" && r.data.payload.venue).toMatchObject({ tradeMode: "demo" });
+  });
 });

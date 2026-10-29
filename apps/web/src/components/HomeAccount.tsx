@@ -2,7 +2,7 @@ import type { ReactNode } from "react";
 import type { AccountRiskRow, LiveAccount } from "../api";
 import { clock, count, money, pctValue, signedMoney, signedPct } from "../format";
 import { accountToday, dailyMeasured, dailyReferenceLabel, dayBasisLabel, limitLine, drawdownMeasured, limitUse, type LimitUse, type OpenRisk } from "../home";
-import { accountName, maskLogin } from "../accounts";
+import { accountProfiles, accountTitle } from "../accounts";
 import { Card, FlashValue, Freshness, InfoIcon, Pill, Pnl, Popover } from "./ui";
 
 /*
@@ -104,6 +104,23 @@ function LimitGauge({ label, use, value, measured, basis, help }: {
   );
 }
 
+/** "via 41 profiles": one venue account reached through several qkt broker profiles; the names on hover or tap. */
+function ProfileCount({ profiles }: { profiles: string[] }) {
+  const shown = profiles.slice(0, 12);
+  return (
+    <Popover
+      hover
+      label={`The ${profiles.length} broker profiles of this account`}
+      trigger={<span className="cursor-default text-xs text-muted underline decoration-dotted underline-offset-2">via {profiles.length} profiles</span>}
+    >
+      <p className="text-bright">One venue account, reached through {profiles.length} qkt broker profiles. Its balance and equity are counted once.</p>
+      <p className="mt-1.5 break-words font-mono text-[11px] text-muted">
+        {shown.join(", ")}{profiles.length > shown.length ? `, and ${profiles.length - shown.length} more` : ""}
+      </p>
+    </Popover>
+  );
+}
+
 const NO_LIMIT_HINT = "Set INSIGHTS_ACCOUNT_LIMITS on the collector, or the account caps in the strategies' qkt risk config.";
 
 export function AccountStrip({
@@ -130,14 +147,15 @@ export function AccountStrip({
   const today = accountToday(account, realizedToday);
   const use = risk ? limitUse(risk, account.equity) : null;
   const openCount = open ? open.priced + open.noStop + open.unpriced : 0;
+  const title = accountTitle(account, isPublic);
+  const profiles = isPublic ? [] : accountProfiles(account, labels);
   return (
-    <section className={account.stale ? "opacity-90" : ""} aria-label={`Account ${accountName(account)}`}>
+    <section className={account.stale ? "opacity-90" : ""} aria-label={`Account ${title}`}>
       <div className="flex flex-wrap items-center gap-x-2.5 gap-y-1 text-sm">
-        <span className="font-semibold text-bright" title={accountName(account) === account.broker ? undefined : `last reported by profile ${account.broker}`}>{accountName(account)}</span>
+        <span className="font-semibold text-bright" title={isPublic ? undefined : `last reported by broker profile ${account.broker}; the login shows its last four characters`}>{title}</span>
         <Pill>{account.currency}</Pill>
-        {!isPublic && account.login && <span className="font-mono text-xs text-faint" title="login, last four digits">#{maskLogin(account.login)}</span>}
         {!isPublic && account.server && <span className="text-xs text-faint">{account.server}</span>}
-        {labels.length > 1 && <span className="text-xs text-faint" title="earlier broker labels of this account">also reported as {labels.slice(1).join(", ")}</span>}
+        {profiles.length > 1 && <ProfileCount profiles={profiles} />}
         <span className="ml-auto">
           {isPublic ? <span className="text-xs text-muted">as of {clock(account.lastSeen)} UTC</span> : <Freshness at={account.lastSeen} stale={account.stale} />}
         </span>
