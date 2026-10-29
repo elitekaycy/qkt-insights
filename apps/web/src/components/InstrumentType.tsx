@@ -54,19 +54,23 @@ export function LegLine({ legs, className = "" }: { legs: readonly Leg[]; classN
   );
 }
 
-/** A strategy's legs: "Stock CFD · AAPL · Exness" for each, the type explained on hover or tap. */
-export function LegList({ legs, className = "" }: { legs: readonly Leg[]; className?: string }) {
+/**
+ * A strategy's legs as one line for its page: each instrument with its short type ("Perp BTC_USDC_PERPETUAL ·
+ * Option BTC 80500 call, 29 Oct"), then the venues once ("· Paper (Deribit prices)"). Each leg in full on hover.
+ */
+export function LegSummary({ legs, className = "" }: { legs: readonly Leg[]; className?: string }) {
   if (legs.length === 0) return null;
+  const venues = [...new Set(legs.map((l) => l.venue).filter((v): v is string => !!v))];
   return (
-    <ul className={`flex min-w-0 flex-wrap items-center gap-x-3 gap-y-1 text-xs ${className}`} aria-label="What it trades">
-      {legs.map((l) => (
-        <li key={l.symbol} className="flex min-w-0 items-center gap-1.5">
-          <TypeBadge type={l.type} explain />
-          {!l.type && <span className="text-faint" title="qkt has not stated this instrument's type">type not stated ·</span>}
-          <span className="truncate font-medium text-bright" title={l.symbol}>{legInstrument(l)}</span>
-          {l.venue && <span className="shrink-0 text-muted">· {l.venue}</span>}
-        </li>
+    <p className={`text-sm ${className}`} aria-label="What it trades">
+      {legs.map((l, i) => (
+        <span key={l.symbol} title={`${l.type ? TYPE_LABEL[l.type] : "type not stated"} · ${l.symbol}`}>
+          {i > 0 && <span className="text-muted"> · </span>}
+          {l.type && <span className="text-muted">{TYPE_SHORT[l.type]} </span>}
+          <span className="font-medium text-bright">{legInstrument(l)}</span>
+        </span>
       ))}
-    </ul>
+      {venues.length > 0 && <span className="text-muted"> · {venues.join(", ")}</span>}
+    </p>
   );
 }

@@ -201,7 +201,7 @@ export function MonthlySection({ scope, q, toggle, base, busy, capital, goTab }:
           </table>
         </div>
       </Widget>
-      <YearHeat months={months} onMonth={(m) => goTab("calendar", withTokens(without(q, ["exit"]), `exit:${m}`))} />
+      <YearHeat months={months} onMonth={(m) => goTab("periods", withTokens(without(q, ["exit"]), `exit:${m}`), "calendar")} />
       {picked && <PickedTrades scope={scope} q={q} title={`Trades exited in ${monthName(picked)}`} n={months.find((m) => m.day === picked)?.n ?? 0} />}
     </div>
   );

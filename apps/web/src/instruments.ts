@@ -154,6 +154,9 @@ export interface Leg {
 
 /** What the leg is, in words: "BTC 70000 call, 29 Nov" for an option, "BTC, expires 26 Dec" for a dated future, else its name. */
 export function legInstrument(leg: Leg, now = Date.now()): string {
+  // an option qkt states without its terms still names them in its symbol
+  const fromSymbol = leg.type === "option" && (leg.strike == null || !leg.optionRight) ? optionFromSymbol(leg.name) : null;
+  if (fromSymbol) return `${fromSymbol.base} ${quantity(fromSymbol.strike)} ${fromSymbol.right}, ${expiryLabel(fromSymbol.expiry, now)}`;
   if (leg.type === "option" && leg.strike != null && leg.optionRight) {
     const base = baseOf(leg.underlying) ?? baseOf(leg.root) ?? leg.name;
     return `${base} ${quantity(leg.strike)} ${leg.optionRight.toLowerCase()}${leg.expiry != null ? `, ${expiryLabel(leg.expiry, now)}` : ""}`;
@@ -249,4 +252,63 @@ export function strategyCurrencies(row: Pick<StrategyRow, "metadata"> | null, ac
     if (account?.currency) out.add(account.currency);
   }
   return [...out].sort();
+}
+
+/** Where a strategy's money is: simulated (Paper), the venue's demo account (Demo), or real money (Live). */
+export interface Environment { label: "Live" | "Demo" | "Paper"; title: string }
+
+const ENV_ORDER: Environment["label"][] = ["Live", "Demo", "Paper"];
+const ENV_TITLE: Record<Environment["label"], string> = {
+  Live: "Real money at the venue",
+  Demo: "The venue's demo account: real prices, no real money",
+  Paper: "Simulated fills on the venue's prices, no account at the venue",
+};
+
+/**
+ * The environments a strategy's streams run in, from the venue facts qkt states with each stream: a paper connector
+ * or the gateway's paper adapter is Paper, an MT5 or gateway account in demo mode is Demo, and real is Live. A
+ * stream that states nothing adds nothing, so an older engine shows no chip rather than a guess.
+ */
+export function strategyEnvironment(row: Pick<StrategyRow, "metadata"> | null): Environment[] {
+  const streams = Array.isArray(row?.metadata?.streams) ? (row!.metadata!.streams as Facts[]) : [];
+  const found = new Set<Environment["label"]>();
+  for (const s of streams) {
+    const v = (s.venue && typeof s.venue === "object" ? s.venue : null) as Facts | null;
+    if (!v) continue;
+    const connector = str(v.connector), adapter = str(v.adapter), mode = str(v.tradeMode)?.toLowerCase();
+    if (connector === "paper" || adapter === "paper") found.add("Paper");
+    else if (mode === "demo" || mode === "contest") found.add("Demo");
+    else if (mode === "real" || mode === "live") found.add("Live");
+  }
+  return ENV_ORDER.filter((e) => found.has(e)).map((label) => ({ label, title: ENV_TITLE[label] }));
+}
+
+const MONTH_CODES = ["JAN", "FEB", "MAR", "APR", "MAY", "JUN", "JUL", "AUG", "SEP", "OCT", "NOV", "DEC"];
+
+/**
+ * An option read from its venue symbol, Deribit's form with or without a settlement currency:
+ * `BTC_USDC_29OCT26_80500_C` or `BTC-29NOV26-70000-P`. The premium is quoted in the settlement currency when the
+ * symbol names one (USDC), else in the underlying coin (BTC). Null for anything that is not an option symbol.
+ */
+export function optionFromSymbol(symbol: string): { base: string; premium: string; expiry: number; strike: number; right: "call" | "put" } | null {
+  const name = symbol.slice(symbol.lastIndexOf(":") + 1);
+  const m = /^([A-Z0-9]+)(?:[_-]([A-Z]{3,5}))?[_-](\d{1,2})([A-Z]{3})(\d{2})[_-](\d+(?:[.d]\d+)?)[_-]([CP])$/u.exec(name.toUpperCase());
+  if (!m) return null;
+  const [, base, quote, dd, mon, yy, strike, cp] = m;
+  const month = MONTH_CODES.indexOf(mon!);
+  if (month < 0) return null;
+  return {
+    base: base!,
+    premium: quote ?? base!,
+    expiry: Date.UTC(2000 + Number(yy), month, Number(dd)),
+    strike: Number(strike!.replace("d", ".")),
+    right: cp === "C" ? "call" : "put",
+  };
+}
+
+/** "Call 80,500 · exp 29 Oct" for an option symbol; null for any other. */
+export function optionLine(symbol: string, now = Date.now()): string | null {
+  const o = optionFromSymbol(symbol);
+  if (!o) return null;
+  return `${o.right === "call" ? "Call" : "Put"} ${o.strike.toLocaleString("en-US")} · exp ${expiryLabel(o.expiry, now)}`;
 }

@@ -137,33 +137,6 @@ export function Ring({ wins, losses, size = 72, onWins, onLosses, picked }: {
   );
 }
 
-/** Profit factor as a half gauge from 0 to 3, a tick at the 1.0 break-even, green at or above it and red below. */
-export function Gauge({ value }: { value: number | "inf" | null }) {
-  const w = 132, h = 76, r = 54, cx = w / 2, cy = 66;
-  const max = 3;
-  const v = value === "inf" ? max : value == null ? 0 : Math.min(max, Math.max(0, value));
-  const point = (k: number) => {
-    const a = Math.PI * (1 - k);
-    return [cx + r * Math.cos(a), cy - r * Math.sin(a)] as const;
-  };
-  const arc = (k: number) => {
-    const [x, y] = point(k);
-    return `M ${cx - r} ${cy} A ${r} ${r} 0 0 1 ${x} ${y}`;
-  };
-  const [tx1, ty1] = [cx + (r - 9) * Math.cos(Math.PI * (2 / 3)), cy - (r - 9) * Math.sin(Math.PI * (2 / 3))];
-  const [tx2, ty2] = [cx + (r + 7) * Math.cos(Math.PI * (2 / 3)), cy - (r + 7) * Math.sin(Math.PI * (2 / 3))];
-  const good = value === "inf" || (typeof value === "number" && value >= 1);
-  return (
-    <svg width={w} height={h} viewBox={`0 0 ${w} ${h}`} role="img" aria-label={`Profit factor ${value ?? "unknown"}, break-even at 1`}>
-      <path d={arc(1)} fill="none" stroke="var(--color-raised)" strokeWidth={9} strokeLinecap="round" />
-      {value != null && v > 0 && <path d={arc(v / max)} fill="none" stroke={good ? "var(--color-gain-fill)" : "var(--color-loss-fill)"} strokeWidth={9} strokeLinecap="round" />}
-      <line x1={tx1} y1={ty1} x2={tx2} y2={ty2} stroke="var(--color-muted)" strokeWidth={1.5}>
-        <title>break-even (1.0)</title>
-      </line>
-    </svg>
-  );
-}
-
 /** Two rows, average win and average loss, with bars scaled to the larger of the two. */
 export function PayoffBars({ avgWin, avgLoss, onWin, onLoss }: { avgWin: number | null; avgLoss: number | null; onWin?: () => void; onLoss?: () => void }) {
   const max = Math.max(Math.abs(avgWin ?? 0), Math.abs(avgLoss ?? 0)) || 1;
