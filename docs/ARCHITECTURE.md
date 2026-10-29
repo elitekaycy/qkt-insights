@@ -236,7 +236,10 @@ web bar (`@qkt-insights/contract/query`) and compiled to bound SQL; tokens it ca
 | `GET /round-trips/:ticket/path?instance&bucket` | the drawer's position map: the position's venue marks between entry and exit as UTC candles (`bucket` ms, one of 1m 5m 15m 30m 1h 4h 1d; automatic when absent), the P&L line keeping each bucket's first, lowest, highest and last mark, the best, worst and latest marks, and the stretches without marks or without a price change |
 | `GET /public/:token/round-trips`, `…/analytics`, `…/facets` | a shared link's closed round trips and their aggregates, without tickets, profiles or stops |
 
-`/logs` also takes `logger` (part of the name), `from` and `to` (ms); `q` is words, each matched literally through the FTS
+`/logs` takes `level` as one level or several (`level=WARN,ERROR`), and `orLogger` (logger last names, comma-separated)
+to add those loggers' lines at any level beside them: the Logs pages' default, warnings and the order flow, is
+`level=WARN,ERROR&orLogger=OrderManager,TradingPipeline,trade` (contract `LOG_ATTENTION`).
+It also takes `logger` (part of the name), `from` and `to` (ms); `q` is words, each matched literally through the FTS
 index (quoted, so `mt5-gateway`, `ICMARKETS:XAUUSD` or `0.1004` are words, not syntax; a trailing `*` is a prefix).
 `GET /logs/page` takes the same filters plus `cursor` and answers `{rows, nextCursor, total}`: newest first by
 (ts, arrival), keyset pages up to 1000 lines, and on the first page the number of lines the whole query matches.

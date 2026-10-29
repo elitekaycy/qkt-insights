@@ -413,7 +413,7 @@ export function ingestAck(db: Db, instanceId: string): { instanceId: string; las
 
 export interface LogRow { id: string; strategyId: string | null; level: string; logger: string; message: string; ts: number }
 
-export function listLogs(db: Db, f: { instanceId: string; strategyId?: string; level?: string; q?: string; limit: number }): LogRow[] {
+export function listLogs(db: Db, f: { instanceId: string; strategyId?: string; levels?: readonly string[]; q?: string; limit: number }): LogRow[] {
   return searchLogs(db, f);
 }
 

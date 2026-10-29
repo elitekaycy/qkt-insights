@@ -1,5 +1,5 @@
 import { describe, it, expect, beforeEach } from "vitest";
-import { openDb, ingestEvents, listLogs, listTrades, strategyStats, MIN_RATIO_DAYS, type Db } from "../src/index.js";
+import { openDb, ingestEvents, listLogs, listTrades, logPage, strategyStats, MIN_RATIO_DAYS, type Db } from "../src/index.js";
 import type { Envelope } from "@qkt-insights/contract";
 
 function env(p: any): Envelope {
@@ -33,8 +33,28 @@ describe("log ingestion", () => {
   });
 
   it("filters by level and strategy", () => {
-    expect(listLogs(db, { instanceId: "qkt-prod", level: "WARN", limit: 50 })).toHaveLength(1);
+    expect(listLogs(db, { instanceId: "qkt-prod", levels: ["WARN"], limit: 50 })).toHaveLength(1);
     expect(listLogs(db, { instanceId: "qkt-prod", strategyId: "latch", limit: 50 })).toHaveLength(2);
+  });
+
+  it("filters by several levels, with the order flow's loggers at any level beside them", () => {
+    ingestEvents(db, "qkt-prod", [
+      logEnv({ logger: "com.qkt.engine.OrderManager", message: "order filled order_id=o1", strategyId: "latch", ts: 1718000001000 }),
+      logEnv({ logger: "trade", message: "trade BUY XAUUSD qty=0.01", strategyId: "latch", ts: 1718000002000 }),
+      logEnv({ logger: "com.qkt.engine.NotOrderManager", message: "bar closed", ts: 1718000003000 }),
+      logEnv({ level: "DEBUG", message: "tick", ts: 1718000004000 }),
+    ]);
+    const messages = (f: Parameters<typeof logPage>[1]) => logPage(db, f).rows.map((r) => r.message).sort();
+    expect(messages({ instanceId: "qkt-prod", levels: ["WARN", "ERROR"], limit: 50 })).toEqual(["order rejected by venue", "stale symbol XAUUSD detected"]);
+    const attention = { instanceId: "qkt-prod", levels: ["WARN", "ERROR"], orLoggers: ["OrderManager", "trade"], limit: 50 };
+    expect(messages(attention)).toEqual(["order filled order_id=o1", "order rejected by venue", "stale symbol XAUUSD detected", "trade BUY XAUUSD qty=0.01"]);
+    expect(logPage(db, attention).total).toBe(4);
+    // the other filters still narrow: a strategy, then words
+    expect(messages({ ...attention, strategyId: "latch" })).toEqual(["order filled order_id=o1", "stale symbol XAUUSD detected", "trade BUY XAUUSD qty=0.01"]);
+    expect(messages({ ...attention, q: "XAUUSD" })).toEqual(["stale symbol XAUUSD detected", "trade BUY XAUUSD qty=0.01"]);
+    // loggers alone add nothing: they widen a level filter, never stand in for one
+    expect(logPage(db, { instanceId: "qkt-prod", orLoggers: ["trade"], limit: 50 }).total).toBe(7);
+    expect(logPage(db, { instanceId: "qkt-prod", levels: [], limit: 50 }).total).toBe(7);
   });
 
   it("full-text searches log messages", () => {

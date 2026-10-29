@@ -86,6 +86,25 @@ describe("spec2 REST", () => {
     expect(hits).toHaveLength(1);
   });
 
+  it("serves several levels at once, and the order flow's loggers beside them", async () => {
+    ingestEvents(db, "qkt-prod", [
+      env({ strategyId: "latch", type: "log", payload: { level: "WARN", logger: "com.qkt.x", message: "stale symbol XAUUSD" } }),
+      env({ strategyId: "latch", type: "log", payload: { level: "ERROR", logger: "com.qkt.x", message: "broker refused" } }),
+      env({ strategyId: "latch", type: "log", payload: { level: "INFO", logger: "com.qkt.engine.OrderManager", message: "order filled o1" } }),
+      env({ strategyId: "latch", type: "log", payload: { level: "INFO", logger: "trade", message: "trade BUY XAUUSD" } }),
+      env({ strategyId: "latch", type: "log", payload: { level: "INFO", logger: "com.qkt.x", message: "engine started" } }),
+    ]);
+    const messages = (rows: Array<{ message: string }>) => rows.map((r) => r.message).sort();
+    expect(messages((await get("/logs?instance=qkt-prod&level=WARN,ERROR")).json())).toEqual(["broker refused", "stale symbol XAUUSD"]);
+    const attention = "level=WARN,ERROR&orLogger=OrderManager,TradingPipeline,trade";
+    expect(messages((await get(`/logs?instance=qkt-prod&${attention}`)).json())).toEqual(["broker refused", "order filled o1", "stale symbol XAUUSD", "trade BUY XAUUSD"]);
+    const page = (await get(`/logs/page?instance=qkt-prod&${attention}&limit=2`)).json();
+    expect(page.total).toBe(4);
+    expect(page.rows).toHaveLength(2);
+    expect(page.nextCursor).not.toBeNull();
+    expect((await get("/logs/page?instance=qkt-prod&level=INFO")).json().total).toBe(3);
+  });
+
   it("serves strategy stats", async () => {
     const res = await get("/stats?instance=qkt-prod&strategy=latch");
     expect(res.statusCode).toBe(200);
