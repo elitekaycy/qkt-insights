@@ -31,7 +31,7 @@ function Glyph({ d }: { d: string }) {
  * means and how it is measured lives behind the info icon (hover, or tap on touch), so every card in
  * the row keeps the same height.
  */
-export function Kpi({ icon, label, children, sub, info, className = "" }: {
+function Kpi({ icon, label, children, sub, info, className = "" }: {
   icon: string; label: string; children: ReactNode; sub?: ReactNode; info?: ReactNode; className?: string;
 }) {
   return (
@@ -147,7 +147,7 @@ export function AccountStrip({
         {hint && <span className="text-xs text-muted">{hint}</span>}
         {account.stopped && <Pill tone="warn">stopped reporting</Pill>}
         <span className="ml-auto">
-          {isPublic ? <span className="text-xs text-muted">as of {clock(account.lastSeen)} UTC</span> : <Freshness at={account.lastSeen} stale={account.stale} />}
+          {isPublic ? <span className="text-xs text-muted">as of {clock(account.lastSeen)} UTC</span> : <Freshness at={account.lastSeen} stale={account.stale} quiet />}
         </span>
       </div>
       <div className={`mt-3 grid grid-cols-2 gap-3 sm:grid-cols-3 ${open ? "xl:grid-cols-6" : "xl:grid-cols-5"}`}>

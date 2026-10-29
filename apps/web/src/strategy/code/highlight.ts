@@ -23,7 +23,7 @@ export interface CodeToken {
 const role = (name: string) => `var(--code-${name})`;
 
 /** Each grammar scope family to one of a few roles; keyword.other.action (BUY, SELL, CLOSE) stands out from the other keywords. */
-export const QKT_THEME: ThemeRegistration = {
+const QKT_THEME: ThemeRegistration = {
   name: "qkt-insights",
   type: "dark",
   fg: role("text"),

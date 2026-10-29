@@ -16,7 +16,7 @@ export interface AccountGroup {
 }
 
 /** The venue account the collector resolved for the label, else null. */
-export function accountIdentity(a: Pick<LiveAccount, "accountId">): string | null {
+function accountIdentity(a: Pick<LiveAccount, "accountId">): string | null {
   return a.accountId ?? null;
 }
 
@@ -26,7 +26,7 @@ export function maskLogin(login: string): string {
 }
 
 /** How much longer one label has been quiet than another before they read as taking turns. */
-export const TURN_GAP_MS = 90_000;
+const TURN_GAP_MS = 90_000;
 
 /**
  * Groups one instance's live accounts into real accounts. Same identity: one account. A label

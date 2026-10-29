@@ -42,7 +42,7 @@ export function logicalPortfolioId(portfolioId: string): string {
   return portfolioId.replace(/_\d+$/u, "");
 }
 
-export function physicalPortfolioId(row: StrategyRow): string | null {
+function physicalPortfolioId(row: StrategyRow): string | null {
   return metaString(row, "portfolioId");
 }
 

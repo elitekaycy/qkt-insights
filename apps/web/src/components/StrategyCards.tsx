@@ -18,7 +18,7 @@ const SPARK_W = 120;
 const SPARK_H = 36;
 
 /** Cumulative realized P&L, one stable series colour with a faint fade; a dashed zero when the curve crosses it. */
-export function Sparkline({ points, className = "" }: { points: readonly number[]; className?: string }) {
+function Sparkline({ points, className = "" }: { points: readonly number[]; className?: string }) {
   const id = useId().replace(/:/g, "");
   const path = sparkPath(thinCurve(points), SPARK_W, SPARK_H);
   if (!path) return <div className={className} aria-hidden />;

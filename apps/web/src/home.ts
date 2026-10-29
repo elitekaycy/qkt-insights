@@ -144,7 +144,7 @@ export function limitUse(row: AccountRiskRow, liveEquity: number | null): { dail
 }
 
 /** What the trading day is measured from: the day-start balance, or the higher of it and day-start equity. */
-export function dailyReference(row: Pick<AccountRiskRow, "dailyLoss">): number | null {
+function dailyReference(row: Pick<AccountRiskRow, "dailyLoss">): number | null {
   return row.dailyLoss.reference !== undefined ? row.dailyLoss.reference : row.dailyLoss.dayStartBalance;
 }
 
@@ -157,7 +157,7 @@ export function dailyReferenceLabel(row: Pick<AccountRiskRow, "dailyLoss">): str
 }
 
 /** Live account state is kept in memory; an instance silent this long has none to show until it reports. */
-export const SILENT_AFTER_MS = 5 * 60_000;
+const SILENT_AFTER_MS = 5 * 60_000;
 
 /** Home's line when the instance has no live account state: waiting for the first poll, or the instance went quiet. */
 export function noAccountMessage(instanceId: string, lastSeen: number | null | undefined, now: number): string {
@@ -351,13 +351,13 @@ export interface StrategyPeriods {
   lastTs: number | null;
 }
 
-export function utcMonthStart(now: number): number {
+function utcMonthStart(now: number): number {
   const d = new Date(now);
   return Date.UTC(d.getUTCFullYear(), d.getUTCMonth(), 1);
 }
 
 /** Where 7D begins: the UTC midnight six days before today's, so 7D is today and the six UTC days before. */
-export function sevenDayStart(now: number): number {
+function sevenDayStart(now: number): number {
   return Math.floor(now / DAY_MS) * DAY_MS - 6 * DAY_MS;
 }
 

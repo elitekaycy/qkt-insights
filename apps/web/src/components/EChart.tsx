@@ -83,7 +83,7 @@ function withAlpha(color: string, alpha: number): string {
 }
 
 /** Deep copy of an option with every token string replaced by the active theme's colour. */
-export function resolveTokens<T>(value: T, read: (name: string) => string): T {
+function resolveTokens<T>(value: T, read: (name: string) => string): T {
   const cache = new Map<string, string>();
   const walk = (v: unknown): unknown => {
     if (typeof v === "string") {
@@ -215,7 +215,7 @@ export function tipHtml(
 }
 
 /** Charts with at least this many points get the zoom slider under the plot. */
-export const SLIDER_MIN_POINTS = 40;
+const SLIDER_MIN_POINTS = 40;
 const INSIDE_ID = "qkt-inside-zoom";
 
 type AxisLike = { type?: string } | undefined;

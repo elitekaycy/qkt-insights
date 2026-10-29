@@ -41,7 +41,7 @@ export function Icon({ d, className = "h-[15px] w-[15px]" }: { d: string; classN
 }
 
 /** What a metric is and how to read it, opened by click or tap (never hover only). */
-export function Explain({ label, children }: { label: string; children: ReactNode }) {
+function Explain({ label, children }: { label: string; children: ReactNode }) {
   return (
     <Popover label={`What ${label} means`} align="right" trigger={<span className="inline-flex h-6 w-6 items-center justify-center rounded-md text-faint transition hover:bg-hover hover:text-bright"><InfoIcon className="h-[15px] w-[15px]" /></span>}>
       {children}

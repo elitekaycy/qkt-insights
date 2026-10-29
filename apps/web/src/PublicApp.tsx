@@ -2,7 +2,7 @@ import { lazy, Suspense, type ReactNode } from "react";
 import { useQuery } from "@tanstack/react-query";
 import { get, NotFound, type PublicMeta } from "./api";
 import { MAIN_NAV, Mark, Shell, ThemeToggle, Wordmark } from "./components/chrome";
-import { PageFallback } from "./components/ui";
+import { PageFallback, Spinner } from "./components/ui";
 import { tsShort } from "./format";
 import { useRoute, type PageKey } from "./router";
 import { useBrand } from "./useBrand";
@@ -49,11 +49,8 @@ export default function PublicApp() {
   if (meta.isPending) {
     return (
       <Centered>
-        <Mark />
-        <div className="flex items-center gap-2.5 text-sm text-muted">
-          <span className="live-dot inline-block h-2 w-2 rounded-full bg-ok" />
-          Loading…
-        </div>
+        <div className="lockup-in"><Wordmark brand={brand} stacked /></div>
+        <Spinner label="Opening the shared view…" show />
       </Centered>
     );
   }
@@ -146,7 +143,7 @@ function SharedOverview({ meta, brand }: { meta: PublicMeta; brand: string | nul
     >
       <main className="h-full overflow-auto overscroll-contain pb-[calc(4.5rem+env(safe-area-inset-bottom))] lg:pb-0">
         <div className="mx-auto max-w-[1500px] px-4 py-5 sm:px-6 lg:px-8 lg:py-6">
-          <Suspense fallback={<PageFallback />}>{page}</Suspense>
+          <Suspense fallback={<PageFallback title={SHARED_NAV.find((n) => n.key === route.page)?.label ?? "Home"} />}>{page}</Suspense>
         </div>
       </main>
     </Shell>

@@ -60,7 +60,7 @@ export function OpenPositions({ positions, strategyName, now, freshness }: {
       <div className="flex flex-wrap items-baseline gap-x-2.5 gap-y-0.5 border-b border-line px-4 py-3">
         <h2 className="text-sm font-medium text-body">Open positions</h2>
         <span className="text-xs text-muted">venue-marked · to stop = money from the price now to the stop · floating incl. swap</span>
-        {freshness && <Freshness at={freshness.at} stale={freshness.stale} className="ml-auto" />}
+        {freshness && <Freshness at={freshness.at} stale={freshness.stale} quiet className="ml-auto" />}
       </div>
       <TypeFilter types={positions.map(typeOf)} picked={picked} onPick={setPicked} />
       {positions.length === 0 ? (

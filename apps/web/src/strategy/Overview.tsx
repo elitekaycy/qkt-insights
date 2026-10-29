@@ -205,7 +205,7 @@ export function OverviewSection({ instanceId, strategyId, scope, q, toggle, a, b
           explain={`From the strategy's end-of-day equity on its base, annualised over 252 days, for the range (the search does not apply). Sharpe divides the mean daily return by its volatility; Sortino counts only downside volatility; Calmar divides the annual return by the max drawdown. Shown only from ${MIN_RATIO_DAYS} days with closes: fewer is noise.`}
         >
           {perf.isPending ? (
-            <div className="h-12 animate-pulse rounded bg-raised" />
+            <div className="h-12 rounded bg-raised" />
           ) : ratioNote ? (
             <div className="text-sm text-muted">Not enough history: {ratioNote}.</div>
           ) : (
@@ -242,7 +242,7 @@ export function OverviewSection({ instanceId, strategyId, scope, q, toggle, a, b
         )}
         <Widget icon={ICON.shield} title="Drawdown and costs" hint={scopeHint} explain="From the strategy's equity on its base (open positions marked) and the venue's cost columns, for the range. The search does not apply to these.">
           {perf.isPending ? (
-            <div className="h-24 animate-pulse rounded bg-raised" />
+            <div className="h-24 rounded bg-raised" />
           ) : (
             <div className={`grid gap-x-8 ${a.instrument.length > 1 ? "" : "@3xl:grid-cols-2"}`}>
               <StatRow label="Max drawdown on equity">

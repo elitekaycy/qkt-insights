@@ -136,6 +136,7 @@ export default function Strategies({ instanceId }: { instanceId: string | null }
         error={strategies.isError || summary.isError}
         retry={() => { void strategies.refetch(); void summary.refetch(); }}
         what="the strategies"
+        shape="kpis"
         lines={6}
       >
         {rows.length === 0 && lines.length === 0 ? (

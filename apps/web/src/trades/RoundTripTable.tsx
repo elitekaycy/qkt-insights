@@ -2,7 +2,7 @@ import { useEffect, useMemo, useRef, useState, type ReactNode } from "react";
 import { DASH, duration, pnl, quantity, toneClass } from "../format";
 import { TypeBadge } from "../components/InstrumentType";
 import { instrumentType, sizeInWords } from "../instruments";
-import { Pill, RowChevron } from "../components/ui";
+import { Pill, RowChevron, Skeleton, Spinner } from "../components/ui";
 import { useView } from "../view";
 import { useRoundTrips, type RoundTrip, type RoundTripTotals, type SortKey, type TripScope } from "./data";
 import { minuteStamp, px, rMultiple, tableStamp, tripInstrument } from "./format";
@@ -316,19 +316,15 @@ export function RoundTripTable({ scope, q, sort, dir, onSort, hide = [], height 
               </button>
             </div>
           ) : data.isPending ? (
-            <div className="space-y-2 p-4" role="status" aria-label="Loading round trips">
-              {Array.from({ length: 8 }, (_, i) => (
-                <div key={i} className="h-5 animate-pulse rounded bg-raised" />
-              ))}
-            </div>
+            <Skeleton lines={8} what="round trips" />
           ) : rows.length === 0 ? (
             <div className="p-8 text-center text-sm text-muted">{empty ?? <><b className="font-semibold text-body">No round trips match.</b> Loosen the query above.</>}</div>
           ) : (
             <div className={`relative ${data.isPlaceholderData ? "opacity-60 transition-opacity" : ""}`} style={{ height: rows.length * rowH + (loadingMore ? rowH : 0) }}>
               {visible}
               {loadingMore && (
-                <div className="absolute inset-x-0 flex items-center justify-center text-xs text-muted" style={{ top: rows.length * rowH, height: rowH }}>
-                  Loading more…
+                <div className="absolute inset-x-0 flex items-center justify-center" style={{ top: rows.length * rowH, height: rowH }}>
+                  <Spinner label="Loading more…" show />
                 </div>
               )}
             </div>

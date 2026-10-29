@@ -11,7 +11,7 @@ function systemTheme(): Theme {
 }
 
 /** The saved choice, or null when the viewer never picked one (or storage is unavailable). */
-export function savedTheme(): Theme | null {
+function savedTheme(): Theme | null {
   try {
     const v = localStorage.getItem(KEY);
     return v === "light" || v === "dark" ? v : null;
@@ -20,7 +20,7 @@ export function savedTheme(): Theme | null {
   }
 }
 
-export function currentTheme(): Theme {
+function currentTheme(): Theme {
   const attr = typeof document === "undefined" ? null : document.documentElement.getAttribute("data-theme");
   return attr === "light" || attr === "dark" ? attr : (savedTheme() ?? systemTheme());
 }

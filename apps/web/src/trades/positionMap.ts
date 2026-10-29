@@ -105,7 +105,7 @@ export function priceRange(path: PositionPath): { min: number; max: number } | n
 }
 
 /** The P&L axis range: the line and the moments, padded so their labels fit; null without marks. */
-export function pnlRange(path: PositionPath, realized: number | null): { min: number; max: number } | null {
+function pnlRange(path: PositionPath, realized: number | null): { min: number; max: number } | null {
   const values = [0, ...path.pnl.map((p) => p.pnl)];
   if (path.pnl.length === 0) return null;
   if (realized != null && path.status === "closed") values.push(realized);
@@ -127,7 +127,7 @@ export function levels(path: PositionPath): Level[] {
 }
 
 /** The marker of each moment: a shape as well as a colour, so neither carries the meaning alone. */
-export const MOMENT_STYLE: Record<MomentKey, { symbol: string; rotate: number; color: string; size: number }> = {
+const MOMENT_STYLE: Record<MomentKey, { symbol: string; rotate: number; color: string; size: number }> = {
   entry: { symbol: "circle", rotate: 0, color: tok("accent-hi"), size: 11 },
   best: { symbol: "triangle", rotate: 0, color: tok("gain-fill"), size: 13 },
   worst: { symbol: "triangle", rotate: 180, color: tok("loss-fill"), size: 13 },
@@ -423,7 +423,7 @@ export function pathTip(params: unknown, ctx: { path: PositionPath; moments: Mom
 }
 
 /** One moment's tooltip: its time, its P&L (or the entry price), its price and how long after the entry. */
-export function momentTip(m: Moment, digits: number): string {
+function momentTip(m: Moment, digits: number): string {
   const headline = m.pnl == null ? { text: px(m.price, digits) } : { text: signedMoney(m.pnl), tone: m.pnl > 0 ? ("gain" as const) : m.pnl < 0 ? ("loss" as const) : ("flat" as const) };
   const rows: Array<[string, string]> = [];
   if (m.pnl != null) rows.push(["Price", px(m.price, digits)]);

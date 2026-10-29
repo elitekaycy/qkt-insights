@@ -32,7 +32,7 @@ export const STRATEGY_TABS: readonly StrategyTab[] = ["overview", "calendar", "d
 export const PRIVATE_STRATEGY_TABS: ReadonlySet<StrategyTab> = new Set<StrategyTab>(["code", "logs"]);
 
 export type SettingsSection = "sharing" | "viewership" | "appearance" | "account";
-export const SETTINGS_SECTIONS: readonly SettingsSection[] = ["sharing", "viewership", "appearance", "account"];
+const SETTINGS_SECTIONS: readonly SettingsSection[] = ["sharing", "viewership", "appearance", "account"];
 
 export interface Route {
   page: PageKey;

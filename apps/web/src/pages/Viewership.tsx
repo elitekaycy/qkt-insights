@@ -144,7 +144,7 @@ export default function Viewership({ instanceId }: { instanceId: string | null }
         }
       />
 
-      <Loadable loading={summary.isPending} error={summary.isError} retry={() => summary.refetch()} what="viewership" lines={3}>
+      <Loadable loading={summary.isPending} error={summary.isError} retry={() => summary.refetch()} what="viewership" shape="kpis" lines={4}>
         <div className="mt-6 grid grid-cols-2 gap-3 md:grid-cols-4">
           <Stat label="Views" value={String(total)} sub="repeats within 30 min count once" />
           <Stat label="Unique visitors" value={String(s?.visitors ?? 0)} sub="summed per UTC day" />

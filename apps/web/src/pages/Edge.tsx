@@ -77,7 +77,7 @@ export function Edge({ instanceId }: { instanceId: string | null }) {
        
         className="min-w-0"
       >
-        <Loadable loading={perf.isPending} error={perf.isError} retry={() => perf.refetch()} what="the day × hour matrix" lines={6}>
+        <Loadable loading={perf.isPending} error={perf.isError} retry={() => perf.refetch()} what="the day × hour matrix" shape="chart">
           {cells && cells.length > 0
             ? (
               <div className="overflow-x-auto p-3">
@@ -93,12 +93,12 @@ export function Edge({ instanceId }: { instanceId: string | null }) {
 
       <div className="grid gap-5 xl:grid-cols-2">
         <Panel title="Weekday P&L" hint="net bar · n label · whisker = per-trade mean ± SE">
-          <Loadable loading={perf.isPending} error={perf.isError} retry={() => perf.refetch()} what="weekday buckets" lines={4}>
+          <Loadable loading={perf.isPending} error={perf.isError} retry={() => perf.refetch()} what="weekday buckets" shape="chart">
             {byDow.length > 0 ? <div className="p-3"><HonestBucketBars rows={byDow} /></div> : <Empty>No per-trade rows yet.</Empty>}
           </Loadable>
         </Panel>
         <Panel title="Hour-of-day P&L" hint="close hour, UTC — mind the n labels before believing a spike">
-          <Loadable loading={perf.isPending} error={perf.isError} retry={() => perf.refetch()} what="hour buckets" lines={4}>
+          <Loadable loading={perf.isPending} error={perf.isError} retry={() => perf.refetch()} what="hour buckets" shape="chart">
             {byHour.length > 0 ? <div className="p-3"><HonestBucketBars rows={byHour} /></div> : <Empty>No per-trade rows yet.</Empty>}
           </Loadable>
         </Panel>
@@ -114,7 +114,7 @@ export function Edge({ instanceId }: { instanceId: string | null }) {
           </Select>
         }
       >
-        <Loadable loading={perf.isPending} error={perf.isError} retry={() => perf.refetch()} what="rolling stats" lines={4}>
+        <Loadable loading={perf.isPending} error={perf.isError} retry={() => perf.refetch()} what="rolling stats" shape="chart">
           {b?.rolling && b.rolling.length > 1
             ? <div className="p-3"><RollingChart points={b.rolling} window={window} /></div>
             : <Empty>Not enough daily history for a rolling view yet.</Empty>}
