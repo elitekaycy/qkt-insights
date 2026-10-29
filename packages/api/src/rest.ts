@@ -1,5 +1,5 @@
 import type { FastifyInstance } from "fastify";
-import { listInstances, listStrategies, listTrades, searchEvents, equityCurve, instanceHealth, searchLogs, logPage, strategyStats, listDeals, accountEquity, accountDrawdown, accountPerformance, accountRisk, monitorSummaries, withJournalStrategies, listMonitorEvents, reconciliation, strategySources, strategySourceText, type AccountLimits, type Db, type LiveStateStore, type Monitors } from "@qkt-insights/store";
+import { listInstances, listStrategies, listTrades, searchEvents, equityCurve, instanceHealth, searchLogs, logPage, strategyStats, listDeals, accountEquity, accountDrawdown, accountPerformance, accountRisk, accountScope, monitorSummaries, withJournalStrategies, listMonitorEvents, reconciliation, strategySources, strategySourceText, type AccountLimits, type Db, type LiveStateStore, type Monitors } from "@qkt-insights/store";
 import { CONTRACT_VERSION, SUPPORTED_MAJORS } from "@qkt-insights/contract";
 import { UNATTRIBUTED_STRATEGY } from "@qkt-insights/contract/query";
 import { requireSession } from "./auth.js";
@@ -152,11 +152,14 @@ export function registerRest(app: FastifyInstance, deps: RestDeps): void {
     return versioned.send(req, reply, [{ account: i }], () => accountDrawdown(deps.db, { instanceId: i }));
   });
 
-  // Every close on the account: retired strategies and unattributed deals included.
+  // Every close on the account: retired strategies and unattributed deals included. `account=` (an account id or
+  // broker label) keeps one venue account's closes when the instance reports several.
   app.get<{ Querystring: Record<string, string> }>("/account/summary", guard, async (req, reply) => {
     const q = req.query; const i = q.instance; if (!need(reply, i, "instance")) return;
+    const account = typeof q.account === "string" && q.account ? accountScope(deps.db, i, q.account) : undefined;
+    if (account === null) return reply.code(404).send({ error: `no account ${q.account} on ${i}` });
     return versioned.send(req, reply, [{ instance: i }, { account: i }], () => accountPerformance(deps.db, { instanceId: i,
-      from: q.from ? Number(q.from) : undefined, to: q.to ? Number(q.to) : undefined }));
+      from: q.from ? Number(q.from) : undefined, to: q.to ? Number(q.to) : undefined, account }));
   });
 
   // Drawdown and daily loss against each account's own limits.

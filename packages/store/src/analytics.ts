@@ -44,9 +44,12 @@ export function withAnalyticsScope<T>(db: Db, fn: () => T): T {
 }
 
 /** The memoized value of a primitive inside a scope; callers must treat it as read-only. */
-function memo<T>(db: Db, name: string, f: { instanceId: string; strategyId?: string; from?: number; to?: number; closedPositionsOnly?: boolean }, compute: () => T): T {
+function memo<T>(db: Db, name: string, f: {
+  instanceId: string; strategyId?: string; from?: number; to?: number; closedPositionsOnly?: boolean;
+  strategyIds?: string | null; accountId?: string | null; accountLabels?: string | null;
+}, compute: () => T): T {
   if (activeScope == null || activeScope.db !== db) return compute();
-  const key = `${name}\u0000${f.instanceId}\u0000${f.strategyId ?? ""}\u0000${f.from ?? ""}\u0000${f.to ?? ""}\u0000${f.closedPositionsOnly ? 1 : 0}`;
+  const key = [name, f.instanceId, f.strategyId ?? "", f.from ?? "", f.to ?? "", f.closedPositionsOnly ? 1 : 0, f.strategyIds ?? "", f.accountId ?? "", f.accountLabels ?? ""].join("\u0000");
   if (activeScope.values.has(key)) return activeScope.values.get(key) as T;
   const value = compute();
   activeScope.values.set(key, value);
@@ -227,6 +230,14 @@ export function fullyClosedPosition(alias: string): string {
       AND pc.from_ts<=@to AND (pc.until_ts IS NULL OR pc.until_ts>@to))`;
 }
 
+/**
+ * `alias` (a deals row) was booked on one venue account: its stated account id, or, for a deal stored without one,
+ * one of the account's broker labels (@accountLabels, a JSON array). Binds @accountId and @accountLabels.
+ */
+export function dealOnAccount(alias: string): string {
+  return `(${alias}.account_id=@accountId OR (${alias}.account_id IS NULL AND ${alias}.broker IN (SELECT value FROM json_each(@accountLabels))))`;
+}
+
 function requireCutoff(f: { to?: number; closedPositionsOnly?: boolean }): void {
   if (f.closedPositionsOnly && f.to == null) throw new Error("closedPositionsOnly needs a `to` cutoff");
 }
@@ -288,6 +299,11 @@ function dealClosedTradeRows(db: Db, f: AnalyticsFilter): DealClosedTrade[] {
 /** The closing deal behind each row the close readers return, for joins on the projection. */
 const closeDealRowid = new WeakMap<object, number>();
 
+/** The bindings dealOnAccount reads; none without an account scope. */
+export function accountBinds(f: { accountId?: string | null; accountLabels?: string | null }): { accountId?: string | null; accountLabels?: string } {
+  return f.accountLabels != null ? { accountId: f.accountId ?? null, accountLabels: f.accountLabels } : {};
+}
+
 /** The closed_trades rowid (closing deal) behind a row closedTradeRows or dealClosedTrades returned. */
 export function closeDealOf(row: object): number | undefined {
   return closeDealRowid.get(row);
@@ -298,6 +314,9 @@ export interface CloseRowFilter {
   strategyId?: string;
   /** JSON array of strategy ids the closes must belong to. */
   strategyIds?: string | null;
+  /** One venue account's closes only (dealOnAccount): its id, and its broker labels as a JSON array. */
+  accountId?: string | null;
+  accountLabels?: string | null;
   from?: number;
   to?: number;
   closedPositionsOnly?: boolean;
@@ -318,6 +337,7 @@ export function closedTradeRows(db: Db, f: CloseRowFilter): Array<DealClosedTrad
   if (f.to != null) cl.push("ct.ts<=@to");
   if (f.closedPositionsOnly) cl.push(fullyClosedPosition("ct"));
   if (f.strategyIds != null) cl.push("ct.strategy_id IN (SELECT value FROM json_each(@ids))");
+  if (f.accountLabels != null) cl.push(`EXISTS (SELECT 1 FROM deals d WHERE d.rowid=ct.deal_rowid AND ${dealOnAccount("d")})`);
   const rows = statement(db,
     `SELECT ct.deal_rowid dealRowid, ct.position_ticket orderId, ct.symbol, ct.out_side outSide, ct.in_side inSide, ct.qty,
             ct.strategy_id owner, ct.entry_price entryPrice, ct.exit_price exitPrice, ct.entry_ts entryTs, ct.ts, ct.realized,
@@ -330,7 +350,7 @@ export function closedTradeRows(db: Db, f: CloseRowFilter): Array<DealClosedTrad
      FROM closed_trades ct
      WHERE ${cl.join(" AND ")}
      ORDER BY ct.ts ASC, ct.deal_rowid ASC`,
-  ).all({ instanceId: f.instanceId, strategyId: f.strategyId, from: f.from, to: f.to, ids: f.strategyIds ?? null }) as any[];
+  ).all({ instanceId: f.instanceId, strategyId: f.strategyId, from: f.from, to: f.to, ids: f.strategyIds ?? null, ...accountBinds(f) }) as any[];
   return rows.map((r) => {
     const row = {
       orderId: r.orderId,
@@ -369,6 +389,7 @@ export function adjustmentRows(db: Db, f: CloseRowFilter): AdjustmentRow[] {
     const cl = ["d.instance_id=@instanceId", "d.entry='ADJUSTMENT'", canonicalDeal("d")];
     if (f.strategyId != null) cl.push("d.strategy_id=@strategyId");
     if (f.strategyIds != null) cl.push("d.strategy_id IN (SELECT value FROM json_each(@ids))");
+    if (f.accountLabels != null) cl.push(dealOnAccount("d"));
     if (f.from != null) cl.push("d.ts>=@from");
     if (f.to != null) cl.push("d.ts<=@to");
     if (f.closedPositionsOnly) cl.push("d.position_ticket IS NOT NULL", fullyClosedPosition("d"));
@@ -377,7 +398,7 @@ export function adjustmentRows(db: Db, f: CloseRowFilter): AdjustmentRow[] {
       `SELECT d.ts, d.profit + COALESCE(d.commission,0) + COALESCE(d.swap,0) + COALESCE(d.fee,0) realized, d.symbol,
               d.strategy_id strategyId
        FROM deals d WHERE ${cl.join(" AND ")} ORDER BY d.ts ASC, d.rowid ASC`,
-    ).all({ instanceId: f.instanceId, strategyId: f.strategyId, from: f.from, to: f.to, ids: f.strategyIds }) as AdjustmentRow[])
+    ).all({ instanceId: f.instanceId, strategyId: f.strategyId, from: f.from, to: f.to, ids: f.strategyIds, ...accountBinds(f) }) as AdjustmentRow[])
       .map((r) => ({ ...r, realized: roundMoney(r.realized, digits) }));
   });
 }
