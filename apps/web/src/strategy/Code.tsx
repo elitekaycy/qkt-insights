@@ -80,21 +80,33 @@ function Tokens({ tokens }: { tokens: CodeToken[] }) {
   );
 }
 
-/** The code with a line-number gutter; long lines scroll inside the block, never the page. */
-function CodeBlock({ text }: { text: string }) {
+/**
+ * The code block's classes: ligatures off, so `!=` and `>=` read as typed, not as `≠` and `≥`. Wrapped, a long
+ * line continues under itself with a hanging indent; unwrapped it scrolls inside the block, never the page.
+ */
+function codeClasses(wrap: boolean) {
+  return {
+    pre: `${wrap ? "" : "min-w-max "}py-2 font-mono text-[12px] leading-5 [font-variant-ligatures:none]`,
+    code: wrap ? "min-w-0 whitespace-pre-wrap break-words pl-[8ch] pr-4 -indent-[8ch]" : "pr-4",
+  };
+}
+
+/** The code with a line-number gutter; long lines wrap under themselves or scroll inside the block ([codeClasses]). */
+function CodeBlock({ text, wrap }: { text: string; wrap: boolean }) {
   const highlighted = useHighlighted(text);
   const plain = useMemo(() => text.split("\n"), [text]);
   const all = highlighted ?? plain.map((l) => [{ content: l }]);
   // the newline that ends the file opens no line of its own
   const lines = text.endsWith("\n") ? all.slice(0, -1) : all;
   const width = String(lines.length).length;
+  const css = codeClasses(wrap);
   return (
     <div className="overflow-x-auto rounded-lg border border-line bg-ink">
-      <pre className="min-w-max py-2 font-mono text-[12px] leading-5" style={{ color: "var(--code-text)" }}>
+      <pre className={css.pre} style={{ color: "var(--code-text)" }}>
         {lines.map((tokens, i) => (
           <div key={i} className="flex">
             <span className="sticky left-0 box-content shrink-0 select-none bg-ink pl-3 pr-4 text-right text-faint" style={{ width: `${width}ch` }} aria-hidden>{i + 1}</span>
-            <code className="pr-4"><Tokens tokens={tokens} /></code>
+            <code className={css.code}><Tokens tokens={tokens} /></code>
           </div>
         ))}
       </pre>
@@ -103,10 +115,11 @@ function CodeBlock({ text }: { text: string }) {
 }
 
 /** One version against the version before it: removed lines on red with "−", added on green with "+". */
-function DiffBlock({ diff }: { diff: DiffLine[] }) {
+function DiffBlock({ diff, wrap }: { diff: DiffLine[]; wrap: boolean }) {
+  const css = codeClasses(wrap);
   return (
     <div className="overflow-x-auto rounded-lg border border-line bg-ink">
-      <pre className="min-w-max py-2 font-mono text-[12px] leading-5" style={{ color: "var(--code-text)" }}>
+      <pre className={css.pre} style={{ color: "var(--code-text)" }}>
         {diff.map((d, i) => (
           <div key={i} className="flex" style={{ background: d.kind === "add" ? "var(--code-add)" : d.kind === "del" ? "var(--code-del)" : undefined }}>
             <span className="w-10 shrink-0 select-none pr-1 text-right text-faint" aria-hidden>{d.oldNo ?? ""}</span>
@@ -114,7 +127,7 @@ function DiffBlock({ diff }: { diff: DiffLine[] }) {
             <span className={`w-4 shrink-0 select-none ${d.kind === "add" ? "text-gain" : d.kind === "del" ? "text-loss" : "text-faint"}`}>
               {d.kind === "add" ? "+" : d.kind === "del" ? "−" : " "}
             </span>
-            <code className="pr-4">{d.text}</code>
+            <code className={css.code}>{d.text}</code>
           </div>
         ))}
       </pre>
@@ -190,6 +203,7 @@ export default function CodeSection({ instanceId, strategyId, meta }: {
   });
   const [asked, setAsked] = useSearchParam("v");
   const [compare, setCompare] = useState(false);
+  const [wrap, setWrap] = useState(true);
   const versions = sources.data?.versions ?? [];
   const running = sources.data?.running ?? null;
   const index = Math.max(0, versions.findIndex((v) => v.sha256 === asked));
@@ -240,6 +254,10 @@ export default function CodeSection({ instanceId, strategyId, meta }: {
                       {counts && <span className="font-mono text-[11px]"><span className="text-gain">+{counts.added}</span> <span className="text-loss">−{counts.removed}</span></span>}
                     </label>
                   )}
+                  <label className="inline-flex cursor-pointer items-center gap-2 text-xs text-body">
+                    <input type="checkbox" checked={wrap} onChange={(e) => setWrap(e.target.checked)} className="accent-[var(--color-accent)]" />
+                    Wrap lines
+                  </label>
                   <span className="ml-auto">{text.data && <CopyButton text={text.data.text} />}</span>
                 </div>
               )}
@@ -247,9 +265,9 @@ export default function CodeSection({ instanceId, strategyId, meta }: {
               {version.text === "not-received" && <Missing>{NOT_RECEIVED}</Missing>}
               {version.text === "stored" && (
                 <Loadable loading={text.isPending} error={text.isError} retry={() => text.refetch()} what="this version's code" lines={12}>
-                  {compare && diff ? <DiffBlock diff={diff} /> : compare && before.data && !diff ? (
+                  {compare && diff ? <DiffBlock diff={diff} wrap={wrap} /> : compare && before.data && !diff ? (
                     <Missing>These two versions are too long to compare here.</Missing>
-                  ) : text.data ? <CodeBlock text={text.data.text} /> : null}
+                  ) : text.data ? <CodeBlock text={text.data.text} wrap={wrap} /> : null}
                 </Loadable>
               )}
             </div>
