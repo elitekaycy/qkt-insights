@@ -54,7 +54,8 @@ export function PageHeader({ title, sub, right, scope }: { title: string; sub?: 
         <div className="min-w-0">
           <div className="flex min-w-0 items-center gap-2.5">
             <OriginBack />
-            <h1 className="min-w-0 truncate text-xl font-headline text-bright">{title}</h1>
+            {/* phones name the page in the top bar */}
+            <h1 className="min-w-0 truncate text-xl font-headline text-bright max-lg:sr-only">{title}</h1>
           </div>
           {sub && <div className="mt-0.5 text-sm text-muted">{sub}</div>}
         </div>
@@ -160,6 +161,7 @@ function SheetHeader({ onClose, children }: { onClose: () => void; children: Rea
 export function Panel({
   title,
   hint,
+  hintTitle,
   toolbar,
   right,
   children,
@@ -168,6 +170,8 @@ export function Panel({
 }: {
   title: string;
   hint?: string;
+  /** The longer explanation behind the hint, on hover. */
+  hintTitle?: string;
   toolbar?: ReactNode;
   right?: ReactNode;
   children: ReactNode;
@@ -184,7 +188,7 @@ export function Panel({
         <div className="flex flex-wrap items-center gap-2 border-b border-line px-4 py-3">
           <div className="flex min-w-0 flex-1 basis-[60%] flex-col items-start gap-0.5 @3xl:basis-0 @3xl:flex-row @3xl:items-baseline @3xl:gap-2.5">
             <h3 className="shrink-0 text-sm font-medium text-body">{title}</h3>
-            {hint && <span className="text-xs text-muted">{hint}</span>}
+            {hint && <span className={`text-xs text-muted ${hintTitle ? "cursor-help underline decoration-dotted underline-offset-4" : ""}`} title={hintTitle}>{hint}</span>}
           </div>
           {(toolbar || right) && (
             <div className="order-3 flex w-full min-w-0 flex-wrap items-center gap-2 @3xl:order-none @3xl:w-auto @3xl:shrink-0 @3xl:justify-end">
@@ -485,7 +489,7 @@ export function Segmented<T extends string>({
 export function Pill({ tone = "neutral", children }: { tone?: Tone; children: ReactNode }) {
   return (
     <span
-      className={`inline-flex h-5 items-center gap-1 whitespace-nowrap rounded-full border px-2 text-[11px] font-medium ${TONE_PILL[tone]}`}
+      className={`inline-flex h-5 items-center gap-1 whitespace-nowrap rounded-full border px-2 font-sans text-[11px] font-medium ${TONE_PILL[tone]}`}
     >
       {children}
     </span>

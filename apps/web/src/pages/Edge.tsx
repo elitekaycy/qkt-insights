@@ -5,7 +5,7 @@ import { useQuery } from "@tanstack/react-query";
 import { get, type PerformanceBundle, type StrategyRow } from "../api";
 import { DowHourHeatmap, HonestBucketBars, MIN_N, RollingChart } from "../components/EdgeCharts";
 import {
-  Empty, Loadable, PageHeader, Panel, RangeSelect, rangeStart, Select, useRangeParam,
+  Card, Empty, Loadable, PageHeader, Panel, Pnl, RangeSelect, rangeStart, Select, useRangeParam,
 } from "../components/ui";
 import { useSearchParam } from "../router";
 import { edgeDefault } from "../strategyFilter";
@@ -33,6 +33,8 @@ export function Edge({ instanceId }: { instanceId: string | null }) {
   const chosenRow = list.find((s) => s.strategyId === strategyId);
   const [range, setRange] = useRangeParam();
   const [window, setWindow] = useState<(typeof WINDOWS)[number]>(30);
+  // under MIN_N closed trades the page shows the counts first; the charts are one click away
+  const [anyway, setAnyway] = useState(false);
 
   const qs = instanceId && strategyId
     ? `instance=${encodeURIComponent(instanceId)}&strategy=${encodeURIComponent(strategyId)}`
@@ -66,16 +68,27 @@ export function Edge({ instanceId }: { instanceId: string | null }) {
 
   return (
     <div className="grid grid-cols-1 gap-5">
-      <PageHeader
-        title="Edge"
-        sub="when this strategy makes money — all buckets UTC, grey means not enough data"
-        right={toolbar}
-      />
+      <PageHeader title="Edge" sub="By hour and weekday, UTC" right={toolbar} />
 
+      {perf.isSuccess && totalTrades > 0 && totalTrades < MIN_N && !anyway && (
+        <Card className="p-5">
+          <p className="text-sm text-bright">Edge needs {MIN_N} closed trades; {chosenRow ? strategyDisplayName(chosenRow) : strategyId} has {totalTrades}.</p>
+          <table className="mt-3 w-full max-w-md text-sm tabular-nums">
+            <thead><tr><th className="eyebrow pb-1.5 text-left">Weekday</th><th className="eyebrow pb-1.5 text-right">Trades</th><th className="eyebrow pb-1.5 text-right">Net</th></tr></thead>
+            <tbody>
+              {byDow.filter((r) => r.trades > 0).map((r) => (
+                <tr key={r.key} className="border-t border-line"><td className="py-1.5">{r.key}</td><td className="py-1.5 text-right">{r.trades}</td><td className="py-1.5 text-right"><Pnl value={r.net} glyphs={false} /></td></tr>
+              ))}
+            </tbody>
+          </table>
+          <button type="button" onClick={() => setAnyway(true)} className="mt-3 text-sm font-medium text-accent-ink hover:underline">Show the charts anyway</button>
+        </Card>
+      )}
+
+      {(!perf.isSuccess || totalTrades === 0 || totalTrades >= MIN_N || anyway) && <>
       <Panel
         title="Day × hour P&L"
-        hint={`close-time buckets, UTC${perf.isSuccess ? ` · ${totalTrades} closed trades` : ""} · cells under n=${MIN_N} desaturated`}
-       
+        hint={`${perf.isSuccess ? `${totalTrades} trades · ` : ""}faded under ${MIN_N}`}
         className="min-w-0"
       >
         <Loadable loading={perf.isPending} error={perf.isError} retry={() => perf.refetch()} what="the day × hour matrix" shape="chart">
@@ -87,28 +100,28 @@ export function Edge({ instanceId }: { instanceId: string | null }) {
               </div>
             )
             : <Empty>{chosenRow && chosenRow.dealCount === 0
-              ? `${strategyId} has no closed trades yet${list.some((s) => s.dealCount > 0) ? ": pick a strategy that has closed trades in the list above." : "."}`
-              : "No closed trades in this range — the heatmap needs exact per-trade data (broker deals or trade.closed)."}</Empty>}
+              ? `No closed trades yet${list.some((s) => s.dealCount > 0) ? ". Pick a strategy that has some above." : ". The charts fill in as trades close."}`
+              : "No closed trades in this range."}</Empty>}
         </Loadable>
       </Panel>
 
       <div className="grid gap-5 xl:grid-cols-2">
-        <Panel title="Weekday P&L" hint="net bar · n label · whisker = per-trade mean ± SE">
+        <Panel title="Weekday P&L" hint={`faded under ${MIN_N} trades`} hintTitle="Bar: net. Whisker: per-trade mean ± standard error. n under each day.">
           <Loadable loading={perf.isPending} error={perf.isError} retry={() => perf.refetch()} what="weekday buckets" shape="chart">
-            {byDow.length > 0 ? <div className="p-3"><HonestBucketBars rows={byDow} /></div> : <Empty>No per-trade rows yet.</Empty>}
+            {byDow.length > 0 ? <div className="p-3"><HonestBucketBars rows={byDow} /></div> : <Empty>No closed trades yet.</Empty>}
           </Loadable>
         </Panel>
-        <Panel title="Hour-of-day P&L" hint="close hour, UTC — mind the n labels before believing a spike">
+        <Panel title="Hour-of-day P&L" hint={`close hour, UTC · faded under ${MIN_N} trades`}>
           <Loadable loading={perf.isPending} error={perf.isError} retry={() => perf.refetch()} what="hour buckets" shape="chart">
-            {byHour.length > 0 ? <div className="p-3"><HonestBucketBars rows={byHour} /></div> : <Empty>No per-trade rows yet.</Empty>}
+            {byHour.length > 0 ? <div className="p-3"><HonestBucketBars rows={byHour} /></div> : <Empty>No closed trades yet.</Empty>}
           </Loadable>
         </Panel>
       </div>
 
       <Panel
         title="Edge stability"
-        hint={`rolling over the last ${window} daily observations — gaps are warmup, not zero`}
-       
+        hint={`rolling ${window} days`}
+        hintTitle="Gaps are the warm-up of the window, not zero."
         toolbar={
           <Select value={String(window)} onChange={(e) => setWindow(Number(e.target.value) as (typeof WINDOWS)[number])}>
             {WINDOWS.map((w) => <option key={w} value={w}>{w}d window</option>)}
@@ -116,11 +129,12 @@ export function Edge({ instanceId }: { instanceId: string | null }) {
         }
       >
         <Loadable loading={perf.isPending} error={perf.isError} retry={() => perf.refetch()} what="rolling stats" shape="chart">
-          {b?.rolling && b.rolling.length > 1
+          {b?.rolling && b.rolling.length >= window
             ? <div className="p-3"><RollingChart points={b.rolling} window={window} /></div>
-            : <Empty>Not enough daily history for a rolling view yet.</Empty>}
+            : <Empty>Needs {window} trading days of history{b?.rolling ? ` (has ${b.rolling.length})` : ""}.</Empty>}
         </Loadable>
       </Panel>
+      </>}
 
     </div>
   );

@@ -92,10 +92,11 @@ export function TimeRiskSection({ q, toggle, a, busy, openTrade }: SectionProps)
       </Widget>
       <Widget icon={ICON.hourglass} title="Held for" busy={busy}>
         <SignedBars rows={bucketRows(a.hold, q, "held", toggle)} />
-        <p className="mt-2 text-[11px] text-muted">Buckets include their lower bound: 1–4h holds 1h but not 4h.</p>
       </Widget>
       <Widget icon={ICON.clock} title="By entry weekday (UTC)" hint={thin} busy={busy}>
-        <SignedBars rows={bucketRows(a.weekday, q, "weekday", toggle, true)} />
+        {/* with few trades, empty weekdays are noise: list the days that traded and say the rest had none */}
+        <SignedBars rows={bucketRows(a.closed < MIN_SAMPLE ? a.weekday.filter((b) => b.n > 0) : a.weekday, q, "weekday", toggle, true)} />
+        {a.closed < MIN_SAMPLE && a.weekday.some((b) => b.n === 0) && <p className="mt-2 text-xs text-muted">Other days: no trades.</p>}
       </Widget>
       <Widget icon={ICON.clock} title="By entry hour (UTC)" hint={thin} className="md:col-span-2" busy={busy}>
         <EChart option={hourOption} height={220} zoom={false} label="Realized P&L by UTC entry hour" onAxisClick={(x) => { const b = hours[Math.round(x)]; if (b && b.n > 0) toggle(b.filter); }} />

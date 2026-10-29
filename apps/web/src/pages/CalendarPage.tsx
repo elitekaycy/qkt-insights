@@ -24,7 +24,7 @@ export default function CalendarPage({ instanceId }: { instanceId: string | null
     <div>
       <PageHeader
         title="Calendar"
-        sub={`Every day's realized P&L on ${instanceId}, week by week${view.public ? `, ${view.meta.delayMinutes} minutes behind` : ""}. Retired strategies and unattributed deals included.`}
+        sub={view.public ? `${view.meta.delayMinutes} minutes behind` : undefined}
       />
       <div className="mt-5">
         <Loadable loading={summary.isPending} error={summary.isError} retry={() => summary.refetch()} what="the calendar" shape="chart">

@@ -1,6 +1,6 @@
 import { useEffect, useMemo, useState } from "react";
 import type { DayNet } from "../api";
-import { compact, compactPnl, count, DASH, day as utcDay, human, monthName, pct, pnl, shortDay, signedMoney, signedPct } from "../format";
+import { compact, compactPnl, count, DASH, day as utcDay, human, monthName, pct, pnl, returnPct, shortDay, signedMoney } from "../format";
 import { Card, Cell, CurrencyMix, Empty, Field, IconButton, Modal, Pnl, Row, Table } from "./ui";
 import { Link, PAGE_PATHS, routePath, useSearchParam } from "../router";
 import { RoundTripTable } from "../trades/RoundTripTable";
@@ -133,7 +133,7 @@ export function CalendarView({
   const year = month.slice(0, 4);
   const pctOf = (net: number, m: string) => {
     const base = returnBase(m);
-    return base ? signedPct((net / base) * 100) : DASH;
+    return base ? returnPct((net / base) * 100) : DASH;
   };
   const hasBase = monthly.some(([k]) => returnBase(k) != null);
   const ytd = monthly.filter(([k]) => k.startsWith(year)).reduce((a, [, v]) => a + v.net, 0);
@@ -150,7 +150,7 @@ export function CalendarView({
       <Card className="p-4">
         <div className="flex flex-wrap items-center gap-2 text-sm">
           <span className="font-medium text-body">P&L calendar</span>
-          <span className="ml-auto text-xs text-muted">by close day</span>
+          <span className="ml-auto text-xs text-muted" title="Each trade counts on the UTC day it closed; retired strategies and unattributed deals included">UTC close days</span>
         </div>
         <div className="mt-3 flex flex-wrap items-center gap-x-3 gap-y-2">
           <IconButton label="Previous month" disabled={idx <= 0} onClick={() => idx > 0 && setMonth(months[idx - 1]!)} d="M15 18l-6-6 6-6" />
@@ -263,9 +263,8 @@ export function CalendarView({
       {monthlyTable && <Card className="overflow-hidden">
         <div className="flex flex-wrap items-baseline gap-x-3 gap-y-1 border-b border-line px-4 py-3">
           <h3 className="text-sm font-medium text-body">Monthly returns</h3>
-          <span className="text-xs text-muted">
+          <span className="text-xs text-muted" title={hasBase ? `Return on ${baseLabel}` : undefined}>
             YTD {pnl(ytd)}
-            {hasBase ? ` · return on ${baseLabel}` : ""}
           </span>
         </div>
         <div className="max-h-[30rem] overflow-auto">

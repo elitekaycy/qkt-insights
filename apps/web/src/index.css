@@ -112,7 +112,7 @@
   --color-bright: #14151a;
   --color-body: #4a4d58;
   --color-muted: #5f6270;
-  --color-faint: #7f8290;
+  --color-faint: #6b6e7a;
   --color-accent: #2a6fd0;
   --color-accent-hi: #1f5fbb;
   --color-accent-ink: #1f5fbb;
@@ -316,12 +316,10 @@ th,
   letter-spacing: -0.025em;
 }
 
-/* eyebrow label: table headers, small section labels */
+/* small label: table headers and section labels, sentence case at 12px in the muted ink */
 .eyebrow {
-  font-size: 11px;
-  font-weight: 600;
-  text-transform: uppercase;
-  letter-spacing: 0.06em;
+  font-size: 12px;
+  font-weight: 500;
   color: var(--color-muted);
 }
 

@@ -87,8 +87,8 @@ export function quantity(v: number | null | undefined): string {
 export function compact(v: number): string {
   const abs = Math.abs(v);
   const sign = v < 0 && abs >= 0.005 ? MINUS : "";
-  if (abs >= 1_000_000_000) return `${sign}${(abs / 1_000_000_000).toFixed(abs >= 10_000_000_000 ? 0 : 1)}b`;
-  if (abs >= 1_000_000) return `${sign}${(abs / 1_000_000).toFixed(abs >= 10_000_000 ? 0 : 1)}m`;
+  if (abs >= 1_000_000_000) return `${sign}${(abs / 1_000_000_000).toFixed(abs >= 10_000_000_000 ? 0 : 1)}B`;
+  if (abs >= 1_000_000) return `${sign}${(abs / 1_000_000).toFixed(abs >= 10_000_000 ? 0 : 1)}M`;
   // keep a decimal through the tens of thousands: an equity axis spanning 59–61k
   // would otherwise print the same rounded label on neighbouring ticks
   if (abs >= 1_000) return `${sign}${(abs / 1_000).toFixed(abs >= 100_000 ? 0 : 1)}k`;
@@ -101,25 +101,40 @@ export function compact(v: number): string {
 /**
  * A value axis tick: compact, keeping the digits the tick carries. Ticks are multiples of their
  * interval, so an equity axis 10k apart around 5m reads 4.98m, 4.99m, 5m rather than 5.0m on
- * every line; tables and tooltips keep full precision.
+ * every line (capital M for millions, so it never reads as minutes); tables and tooltips keep full precision.
  */
 export function axisTick(v: number): string {
   const abs = Math.abs(v);
   const sign = v < 0 && abs >= 0.005 ? MINUS : "";
   const trim = (n: number, digits: number) => n.toFixed(digits).replace(/\.?0+$/, "");
-  if (abs >= 1_000_000_000) return `${sign}${trim(abs / 1_000_000_000, 3)}b`;
-  if (abs >= 1_000_000) return `${sign}${trim(abs / 1_000_000, 3)}m`;
+  if (abs >= 1_000_000_000) return `${sign}${trim(abs / 1_000_000_000, 3)}B`;
+  if (abs >= 1_000_000) return `${sign}${trim(abs / 1_000_000, 3)}M`;
   if (abs >= 1_000) return `${sign}${trim(abs / 1_000, 2)}k`;
   const small = trim(abs, abs >= 100 ? 0 : abs >= 10 ? 1 : 2) || "0";
   return small === "0" ? "0" : `${sign}${small}`;
 }
 
-/** Compact signed money with its glyph for narrow cells: "▲ +1.2k", "▼ −640", "0". */
+/**
+ * Compact signed money with its glyph for narrow cells, about three significant figures so a cell agrees with the
+ * total beside it: "▼ −5.94", "▲ +14.8", "▼ −0.40", "▲ +1.23k", "0". Tooltips keep full precision.
+ */
 export function compactPnl(v: number): string {
   const abs = Math.abs(v);
-  if (Number(abs.toFixed(0)) === 0) return "0";
-  const body = abs >= 10_000 ? `${(abs / 1000).toFixed(0)}k` : abs >= 1000 ? `${(abs / 1000).toFixed(1)}k` : abs.toFixed(0);
-  return `${glyph(v, 0)} ${v > 0 ? "+" : MINUS}${body}`;
+  if (Number(abs.toFixed(2)) === 0) return "0";
+  const body = abs >= 100_000 ? `${(abs / 1000).toFixed(0)}k`
+    : abs >= 10_000 ? `${(abs / 1000).toFixed(1)}k`
+    : abs >= 1000 ? `${(abs / 1000).toFixed(2)}k`
+    : abs >= 100 ? abs.toFixed(0)
+    : abs >= 10 ? abs.toFixed(1)
+    : abs.toFixed(2);
+  return `${glyph(v)} ${v > 0 ? "+" : MINUS}${body}`;
+}
+
+/** A signed return in percent units that never prints a non-zero return as "0.00%": "−0.06%", "<0.01%", "−<0.01%". */
+export function returnPct(v: number | null | undefined): string {
+  if (missing(v)) return DASH;
+  if (v !== 0 && Math.abs(v) < 0.005) return `${v < 0 ? MINUS : ""}<0.01%`;
+  return signedPct(v, 2);
 }
 
 /** A fraction as a percent: 0.0622 → "6.2%". */

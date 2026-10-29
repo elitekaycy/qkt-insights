@@ -5,6 +5,7 @@ import { haltSummary } from "../halt";
 import { strategyTotal, type StrategyPeriods, type TodaySplit } from "../home";
 import { strategyDisplayName } from "../portfolio";
 import { asksForRetired, matchesStrategy } from "../strategyFilter";
+import { notTradedYet } from "../strategyCards";
 import { Link, useRoute, useSearchParam } from "../router";
 import { Card, CurrencyMix, Pill, Pnl, Popover, RowChevron } from "./ui";
 
@@ -99,7 +100,10 @@ export function StrategyTable({
   const hidden = (l: StrategyLine) => l.row != null && !l.row.active;
   const all = showAll || asksForRetired(find);
   const matched = lines.filter((l) => matchesStrategy(l.row, find));
-  const shown = matched.filter((l) => all || !hidden(l)).sort((a, b) => {
+  // strategies yet to trade are one line under the table, not rows of zeros
+  const visible = matched.filter((l) => all || !hidden(l));
+  const idle = visible.filter(notTradedYet);
+  const shown = visible.filter((l) => !notTradedYet(l)).sort((a, b) => {
     const x = sortValue(a, key), y = sortValue(b, key);
     const c = x < y ? -1 : x > y ? 1 : 0;
     // names read A to Z by default, figures largest first
@@ -179,7 +183,7 @@ export function StrategyTable({
                       </span>
                     </td>
                     {COLUMNS.slice(1).map((c) => (
-                      <td key={c.key} className={`whitespace-nowrap px-3 py-2.5 text-right ${c.key === "trades" || c.key === "winRate" || c.key === "lastTs" ? "text-body" : ""}`}>
+                      <td key={c.key} className={`whitespace-nowrap px-3 py-2.5 text-right font-mono ${c.key === "trades" || c.key === "winRate" || c.key === "lastTs" ? "text-body" : ""}`}>
                         {cell(l, c.key)}
                       </td>
                     ))}
@@ -225,7 +229,12 @@ export function StrategyTable({
           </ul>
         </div>
       )}
-      <TotalLine lines={shown} account={account} mix={mix} hidden={lines.length - shown.length} />
+      {idle.length > 0 && (
+        <p className="border-t border-line px-4 py-2 text-xs text-muted">
+          Not traded yet ({idle.length}): {idle.map((l, i) => <span key={l.key}>{i > 0 && ", "}<Link to={`/s/${encodeURIComponent(l.key!)}`} from={origin} className="text-body hover:underline">{name(l)}</Link></span>)}
+        </p>
+      )}
+      <TotalLine lines={shown} account={account} mix={mix} hidden={lines.length - shown.length - idle.length} />
     </Card>
   );
 }

@@ -76,7 +76,7 @@ function OpenPnl({ value }: { value: number | undefined }) {
   return <span className="font-normal italic text-muted" title="Open: what it is worth now, not realized">open {signedMoney(value)}</span>;
 }
 
-function cells(t: RoundTrip, hide: ReadonlySet<string>, strategyName: (id: string) => string, floating: ReadonlyMap<string, number>): ReactNode[] {
+function cells(t: RoundTrip, hide: ReadonlySet<string>, strategyName: (id: string) => string, floating: ReadonlyMap<string, number>, commonUnit: string | null): ReactNode[] {
   const option = optionLine(t.symbol);
   const premium = option ? optionFromSymbol(t.symbol)?.premium : null;
   const all: Record<string, ReactNode> = {
@@ -109,7 +109,7 @@ function cells(t: RoundTrip, hide: ReadonlySet<string>, strategyName: (id: strin
     exitPrice: <Cell right className="text-body">{t.status === "open" ? DASH : px(t.exitPrice, t.priceDigits)}</Cell>,
     size: (
       <Cell right className="text-body">
-        {t.unit ? (
+        {t.unit && t.unit !== commonUnit ? (
           <span title={sizeInWords(t.qty, t)}>
             <span className="block truncate leading-tight">{quantity(t.qty)}</span>
             <span className="block truncate text-[10px] leading-tight text-muted">{t.unit}</span>
@@ -178,6 +178,8 @@ export function RoundTripTable({ scope, q, sort, dir, onSort, hide = [], height 
     return out;
   }, [live.data, scope, view.public]);
   const rows = useMemo(() => data.data?.pages.flatMap((p) => p.rows) ?? [], [data.data]);
+  // a unit every row shares is said once, in the header; mixed units stay on each row
+  const commonUnit = rows.length > 0 && rows.every((r) => r.unit && r.unit === rows[0]!.unit) ? rows[0]!.unit ?? null : null;
   const first = data.data?.pages[0];
   const matched = first?.totals?.matched ?? rows.length;
   const rowH = wide ? ROW : CARD;
@@ -278,6 +280,7 @@ export function RoundTripTable({ scope, q, sort, dir, onSort, hide = [], height 
             className={`eyebrow select-none truncate px-2 py-2.5 ${c.right ? "text-right" : ""} ${c.sort && onSort ? "cursor-pointer hover:text-bright" : ""} ${active ? "!text-bright" : ""}`}
           >
             {c.label}
+            {c.key === "size" && commonUnit ? <span className="font-normal"> ({commonUnit})</span> : null}
             {active ? (dir === "asc" ? " ▲" : " ▼") : ""}
           </div>
         );
@@ -301,7 +304,7 @@ export function RoundTripTable({ scope, q, sort, dir, onSort, hide = [], height 
     if (wide) {
       return (
         <div key={t.id} {...common} className={`group absolute inset-x-0 grid items-center border-b border-line text-sm transition-colors ${clickable ? "cursor-pointer" : ""} ${selected ? "bg-accent-soft shadow-[inset_3px_0_0_var(--color-accent-hi)]" : "hover:bg-hover"}`}>
-          {cells(t, hidden, strategyName, floating)}
+          {cells(t, hidden, strategyName, floating, commonUnit)}
           <div role="cell" className="flex justify-center">{clickable && <RowChevron className={selected ? "opacity-100" : ""} />}</div>
         </div>
       );
