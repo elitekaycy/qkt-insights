@@ -1,3 +1,4 @@
+import { strategyDisplayName } from "../portfolio";
 import { useState } from "react";
 import { usePublicPageView } from "../view";
 import { useQuery } from "@tanstack/react-query";
@@ -57,7 +58,7 @@ export function Edge({ instanceId }: { instanceId: string | null }) {
   const toolbar = (
     <div className="flex flex-wrap items-center gap-2">
       <Select value={strategyId} onChange={(e) => setChosen(e.target.value)}>
-        {list.map((s) => <option key={s.strategyId} value={s.strategyId}>{s.dealCount > 0 ? s.strategyId : `${s.strategyId} · no closed trades`}</option>)}
+        {list.map((s) => <option key={s.strategyId} value={s.strategyId}>{s.dealCount > 0 ? strategyDisplayName(s) : `${strategyDisplayName(s)} · no closed trades`}</option>)}
       </Select>
       <RangeSelect value={range} onChange={setRange} />
     </div>

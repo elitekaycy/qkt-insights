@@ -1,7 +1,7 @@
 import type { ReactNode } from "react";
 import type { AccountRiskRow, LiveAccount } from "../api";
 import { clock, count, money, pctValue, signedMoney, signedPct, toneClass } from "../format";
-import { dailyMeasured, floatingNoteText, type FloatingNote, dailyReferenceLabel, dayBasisLabel, limitLine, drawdownMeasured, limitUse, todaySplit, type LimitUse, type OpenRisk, type TodayPart } from "../home";
+import { dailyMeasured, floatingNoteText, type FloatingNote, dailyReferenceLabel, dayBasisLabel, limitLine, drawdownMeasured, limitUse, todaySplit, type AttentionItem, type LimitUse, type OpenRisk, type TodayPart } from "../home";
 import { accountHint, accountName, accountProfiles, accountTitle } from "../accounts";
 import { Card, FlashValue, Freshness, InfoIcon, Pill, Pnl, Popover } from "./ui";
 
@@ -200,7 +200,7 @@ export function AccountStrip({
               </>
             }
           >
-            {openCount === 0 ? <span className="text-faint">{money(0)}</span> : <FlashValue value={open.toStops}><Pnl value={open.toStops} /></FlashValue>}
+            {openCount === 0 ? <span className="text-faint">{money(0)}</span> : <FlashValue value={open.toStops}><span className="text-bright">{signedMoney(open.toStops)}</span></FlashValue>}
           </Kpi>
         )}
         {risk && use ? (
@@ -220,7 +220,7 @@ export function AccountStrip({
             <LimitGauge
               label="Drawdown"
               use={use.drawdown}
-              value={<span className={use.drawdown.used != null && use.drawdown.used > 0 ? "text-loss" : "text-bright"}>{pctValue(use.drawdown.usedPct ?? (use.drawdown.used === 0 ? 0 : null), 2)}</span>}
+              value={<span className="text-bright">{pctValue(use.drawdown.usedPct ?? (use.drawdown.used === 0 ? 0 : null), 2)}</span>}
               measured={drawdownMeasured(risk, use.drawdown)}
               basis={risk.basis === "static" ? null : `from peak equity ${money(risk.peakEquity == null ? null : Math.max(risk.peakEquity, account.equity))}`}
               help={
@@ -273,6 +273,32 @@ export function TodayHeadline({ parts, missing, pending, onQkt, onAccount }: {
         </span>
       ))}
       {missing > 0 && <span className="text-faint"><span aria-hidden className="hidden sm:inline">· </span>{missing} {missing === 1 ? "account" : "accounts"} not known yet</span>}
+    </span>
+  );
+}
+
+/**
+ * The line under Home's headline that answers "does anything need me?": each item links to where it lives (the
+ * halted strategy, Health for a quiet account, the positions without a stop). "Nothing needs you" when empty.
+ */
+export function AttentionLine({ items, onItem }: { items: AttentionItem[]; onItem: (item: AttentionItem) => void }) {
+  if (items.length === 0) return <span className="text-muted">Nothing needs you</span>;
+  const words = (i: AttentionItem): string => {
+    switch (i.kind) {
+      case "halted": return `Halted: ${i.name}`;
+      case "halted-many": return `${count(i.count)} strategies halted`;
+      case "account": return i.state === "stopped" ? `${i.name} stopped · ${clock(i.since)} UTC` : `${i.name} stale`;
+      case "no-stop": return `${count(i.count)} ${i.count === 1 ? "position" : "positions"} without a stop`;
+    }
+  };
+  return (
+    <span className="flex flex-wrap items-center gap-1.5" role="list" aria-label="Needs a look">
+      {items.map((i, n) => (
+        <button key={n} type="button" role="listitem" onClick={() => onItem(i)}
+          className="inline-flex h-6 items-center gap-1.5 rounded-full border border-warn/45 bg-warn/10 px-2.5 text-xs font-medium text-warn transition hover:bg-warn/15 focus-visible:outline-2 focus-visible:outline-accent-hi">
+          {words(i)}
+        </button>
+      ))}
     </span>
   );
 }

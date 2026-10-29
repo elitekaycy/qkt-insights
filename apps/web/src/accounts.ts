@@ -85,7 +85,8 @@ function isPaper(a: Pick<LiveAccount, "connector" | "adapter">): boolean {
 
 /**
  * THE name of a venue account, the one every page, table, legend, tooltip and drill-down shows: the venue in short
- * and the login masked to its last four characters ("Exness •••2618", "Paper •••er-a", "IC Markets •••0042"). An
+ * and the login masked to its last four characters ("Exness •••2618", "IC Markets •••0042"). A gateway paper
+ * account's login is a label, not a secret: "paper-a" (masked "•••er-a") reads "Paper A". An
  * account whose login was never stated keeps its broker label beside the venue ("Paper PAPER_F"); one whose venue
  * was never stated is named by its label alone. Shared links leave the login out (their labels are "Account 2").
  * Never a broker profile such as EXNESS_O13 when the venue is known: several profiles share one account.
@@ -94,10 +95,18 @@ export function accountName(a: Pick<LiveAccount, "broker" | "connector" | "adapt
   const venue = shortVenue(a);
   if (!venue) return profileName(a);
   if (isPublic) return venue;
+  const paper = a.connector === "vgp" && a.adapter === "paper" ? paperLabel(a.login) : null;
+  if (paper) return `${venue} ${paper}`;
   if (a.login) return `${venue} ${maskLogin(a.login)}`;
   // a gateway label names one account (one gateway per venue account); an MT5 label can be one of many profiles
   const label = a.connector === "vgp" ? a.broker : profileName(a);
   return label.toUpperCase() === venue.toUpperCase().replace(/\s+/gu, "") ? venue : `${venue} ${label}`;
+}
+
+/** The letter or number a gateway paper login ends in ("paper-a", masked "•••er-a" -> "A"); null for any other login. */
+function paperLabel(login: string | null | undefined): string | null {
+  const m = login ? /[-_]([a-z0-9]{1,2})$/iu.exec(login) : null;
+  return m ? m[1]!.toUpperCase() : null;
 }
 
 /** The venue as an account's name starts: venueName, with the gateway's paper adapter as plain "Paper". */

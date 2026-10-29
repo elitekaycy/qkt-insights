@@ -234,3 +234,19 @@ export function distinctLegs(legs: readonly Leg[]): Leg[] {
   // unknown venues fold into the instrument's single known venue
   return out.filter((l) => l.venue != null || out.filter((o) => o.venue != null && same(o, l)).length !== 1);
 }
+
+/**
+ * The currencies of the accounts a strategy trades on, from the broker label of each of its streams: two or more
+ * means its figures add currencies 1:1 (they carry "USD+USDC"). Labels no live account reports are skipped.
+ */
+export function strategyCurrencies(row: Pick<StrategyRow, "metadata"> | null, accounts: readonly LiveAccount[], instanceId: string | undefined): string[] {
+  if (!row || !instanceId) return [];
+  const streams = Array.isArray(row.metadata?.streams) ? (row.metadata!.streams as Facts[]) : [];
+  const out = new Set<string>();
+  for (const s of streams) {
+    const label = str(s.broker);
+    const account = label ? accountOfLabel(accounts, instanceId, label.toUpperCase()) : null;
+    if (account?.currency) out.add(account.currency);
+  }
+  return [...out].sort();
+}

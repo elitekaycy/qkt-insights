@@ -105,6 +105,34 @@ export function todayHeadline(items: ReadonlyArray<{ key: string; name: string; 
   return { parts, missing };
 }
 
+/** One thing on Home that needs the owner, and where it lives. */
+export type AttentionItem =
+  | { kind: "halted"; strategyId: string; name: string }
+  | { kind: "halted-many"; count: number }
+  | { kind: "account"; key: string; name: string; state: "stale" | "stopped"; since: number }
+  | { kind: "no-stop"; count: number };
+
+/**
+ * What needs a look, in the order it matters: halted strategies (named while there are two or fewer), accounts that
+ * are stale or stopped reporting, then positions without a stop. Retired strategies never count. Another system's
+ * floating is not here: Home's headline names it beside qkt's own figure.
+ */
+export function attentionItems(input: {
+  strategies: ReadonlyArray<{ strategyId: string; name: string; active: boolean; halted?: boolean }>;
+  accounts: ReadonlyArray<{ key: string; name: string; stale: boolean; stopped?: boolean; lastSeen: number }>;
+  noStop: number;
+}): AttentionItem[] {
+  const out: AttentionItem[] = [];
+  const halted = input.strategies.filter((s) => s.active && s.halted);
+  if (halted.length > 2) out.push({ kind: "halted-many", count: halted.length });
+  else for (const s of halted) out.push({ kind: "halted", strategyId: s.strategyId, name: s.name });
+  for (const a of input.accounts) {
+    if (a.stale) out.push({ kind: "account", key: a.key, name: a.name, state: a.stopped ? "stopped" : "stale", since: a.lastSeen });
+  }
+  if (input.noStop > 0) out.push({ kind: "no-stop", count: input.noStop });
+  return out;
+}
+
 export interface LimitUse {
   used: number | null;
   cap: number | null;

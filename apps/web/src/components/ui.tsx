@@ -504,6 +504,12 @@ export function Pnl({ value, dim, className = "", glyphs = true }: { value: numb
   );
 }
 
+/** The grey "USD+USDC" after a total that adds currencies 1:1; what that means on hover or focus. */
+export function CurrencyMix({ mix }: { mix: { label: string; title: string } | null }) {
+  if (!mix) return null;
+  return <span className="ml-1.5 whitespace-nowrap font-sans text-xs font-normal text-muted" title={mix.title} tabIndex={0}>{mix.label}</span>;
+}
+
 /**
  * The signed return on base as "▲ +12.3%", paired with a money headline so the percentage is not a
  * second copy of the amount. A null base (no notional) renders a dash.

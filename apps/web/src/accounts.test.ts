@@ -56,7 +56,11 @@ describe("accountName", () => {
   });
 
   it("calls a gateway paper account Paper, and qkt's own paper broker qkt paper", () => {
-    expect(accountName({ broker: "PAPER_DERIBIT_B", connector: "vgp", adapter: "paper", login: "•••er-b" })).toBe("Paper •••er-b");
+    expect(accountName({ broker: "PAPER_DERIBIT_B", connector: "vgp", adapter: "paper", login: "•••er-b" })).toBe("Paper B");
+    expect(accountName({ broker: "PAPER_H", connector: "vgp", adapter: "paper", login: "paper-h" })).toBe("Paper H");
+    // a paper login without a label suffix keeps its mask; a real venue's login is always masked
+    expect(accountName({ broker: "PAPER_X", connector: "vgp", adapter: "paper", login: "•••7781" })).toBe("Paper •••7781");
+    expect(accountName({ broker: "DERIBIT", connector: "vgp", adapter: "deribit", login: "acct-b" })).toBe("Deribit •••ct-b");
     expect(accountName({ broker: "PAPER", connector: "paper", adapter: "paper" })).toBe("qkt paper PAPER");
   });
 
@@ -77,7 +81,7 @@ describe("accountTitle", () => {
     expect(accountTitle({ broker: "EXNESS_O12", connector: "mt5", adapter: "exness", tradeMode: "demo", login: "•••4821", currency: "USD" }))
       .toBe("Exness •••4821 · demo · USD");
     expect(accountTitle({ broker: "PAPER_DERIBIT_B", connector: "vgp", adapter: "paper", tradeMode: "demo", login: "•••er-b", currency: "USDC" }))
-      .toBe("Paper •••er-b · Paper (Deribit prices) · USDC");
+      .toBe("Paper B · Paper (Deribit prices) · USDC");
     expect(accountTitle({ broker: "PAPER_F", connector: "vgp", adapter: "paper", currency: "USDC", stopped: true }))
       .toBe("Paper PAPER_F · Paper (Deribit prices) · USDC · stopped reporting");
   });
@@ -114,14 +118,14 @@ describe("account switcher", () => {
 
   it("names a tab by venue and masked login, with environment and currency as its hint", () => {
     expect(accountTab(exness)).toEqual({ name: "Exness •••2618", hint: "demo · USD", title: "Exness •••2618 · demo · USD" });
-    expect(accountTab(paperA)).toEqual({ name: "Paper •••er-a", hint: "USDC", title: "Paper •••er-a · Paper (Deribit prices) · USDC" });
+    expect(accountTab(paperA)).toEqual({ name: "Paper A", hint: "USDC", title: "Paper A · Paper (Deribit prices) · USDC" });
     // a shared link carries neither login nor venue: the account's public name
     expect(accountTab(acct("Account 2", 1, { currency: "USDC" }), true)).toEqual({ name: "Account 2", hint: "USDC", title: "Account 2 · USDC" });
   });
 
   it("keeps the tabs in one order whichever account reported last", () => {
     const order = (list: LiveAccount[]) => switcherOrder(groupAccounts(list)).map((g) => accountTab(g.account).name);
-    expect(order([paperB, exness, paperA])).toEqual(["Exness •••2618", "Paper •••er-a", "Paper •••er-b"]);
+    expect(order([paperB, exness, paperA])).toEqual(["Exness •••2618", "Paper A", "Paper B"]);
     expect(order([paperA, paperB, exness])).toEqual(order([exness, paperA, paperB]));
   });
 

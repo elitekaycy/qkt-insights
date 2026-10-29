@@ -1,7 +1,7 @@
 import { useEffect, useMemo, useState } from "react";
 import type { DayNet } from "../api";
 import { compact, compactPnl, count, DASH, day as utcDay, human, monthName, pct, pnl, shortDay, signedMoney, signedPct } from "../format";
-import { Card, Cell, Empty, Field, IconButton, Modal, Pnl, Row, Table } from "./ui";
+import { Card, Cell, CurrencyMix, Empty, Field, IconButton, Modal, Pnl, Row, Table } from "./ui";
 import { Link, PAGE_PATHS, routePath, useSearchParam } from "../router";
 import { RoundTripTable } from "../trades/RoundTripTable";
 
@@ -46,6 +46,7 @@ export function CalendarView({
   selectedDay = null,
   month: wantedMonth = null,
   monthlyTable = true,
+  mix = null,
 }: {
   days: DayNet[];
   /** Capital a month's (and its days') return is measured against; null hides the return. */
@@ -56,6 +57,8 @@ export function CalendarView({
   drill?: { instanceId: string; strategy?: string };
   /** A day click goes here instead of opening the day dialog (a page that filters by the day). */
   onDay?: (day: string) => void;
+  /** Set when the days add accounts in different currencies: totals carry "USD+USDC". */
+  mix?: { label: string; title: string } | null;
   /** The picked day, ringed; and the month to show (follows the prop when it changes). */
   selectedDay?: string | null;
   month?: string | null;
@@ -159,7 +162,7 @@ export function CalendarView({
             d="M9 6l6 6-6 6"
           />
           <span className="flex-1" />
-          <Pnl value={monthNet} className="font-headline" />
+          <span><Pnl value={monthNet} className="font-headline" /><CurrencyMix mix={mix} /></span>
           <span className="text-muted">
             {count(monthTrades)} trades · {monthDays.length ? pct(greenDays / monthDays.length, 0) : DASH} green days
           </span>
@@ -237,7 +240,7 @@ export function CalendarView({
                 })}
                 <div role="gridcell" className="hidden flex-col justify-center gap-0.5 rounded-lg border border-dashed border-line-strong px-2 py-1.5 text-[11px] text-muted @xl:flex">
                   <span>Week {wi + 1}</span>
-                  <b className={`text-sm font-semibold ${wTrades ? (wNet >= 0 ? "text-gain" : "text-loss") : "text-muted"}`}>{wTrades ? signedMoney(wNet) : DASH}</b>
+                  <b className={`text-sm font-semibold ${wTrades ? (wNet >= 0 ? "text-gain" : "text-loss") : "text-muted"}`} title={wTrades ? mix?.title : undefined}>{wTrades ? signedMoney(wNet) : DASH}</b>
                   <span>{wTrades} trades</span>
                 </div>
               </div>

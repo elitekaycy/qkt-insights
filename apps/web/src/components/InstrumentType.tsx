@@ -37,21 +37,36 @@ export function CostTerm({ kind, children }: { kind: CostKind; children?: ReactN
   );
 }
 
-/** A strategy's legs: "Stock CFD · AAPL · Exness" for each, the type explained on hover or tap. */
-export function LegList({ legs, max = legs.length, explain = true, className = "" }: { legs: readonly Leg[]; max?: number; explain?: boolean; className?: string }) {
+/**
+ * A strategy's legs on one line for a card: the first leg's instrument and venue ("XAUUSD · Exness"), then "+1 more";
+ * every leg in full (type included, or that qkt did not state it) on hover.
+ */
+export function LegLine({ legs, className = "" }: { legs: readonly Leg[]; className?: string }) {
   if (legs.length === 0) return null;
-  const shown = legs.slice(0, max);
+  const first = legs[0]!;
+  const title = legs.map((l) => `${l.type ? TYPE_LABEL[l.type] : "type not stated"} ${legInstrument(l)}${l.venue ? ` · ${l.venue}` : ""}`).join("\n");
+  return (
+    <div className={`flex min-w-0 items-center gap-1.5 whitespace-nowrap text-xs ${className}`} title={title} aria-label={`What it trades: ${title.replace(/\n/g, "; ")}`}>
+      <span className="shrink-0 font-medium text-bright">{legInstrument(first)}</span>
+      {first.venue && <span className="min-w-0 truncate text-muted">· {first.venue}</span>}
+      {legs.length > 1 && <span className="shrink-0 text-muted">+{legs.length - 1} more</span>}
+    </div>
+  );
+}
+
+/** A strategy's legs: "Stock CFD · AAPL · Exness" for each, the type explained on hover or tap. */
+export function LegList({ legs, className = "" }: { legs: readonly Leg[]; className?: string }) {
+  if (legs.length === 0) return null;
   return (
     <ul className={`flex min-w-0 flex-wrap items-center gap-x-3 gap-y-1 text-xs ${className}`} aria-label="What it trades">
-      {shown.map((l) => (
+      {legs.map((l) => (
         <li key={l.symbol} className="flex min-w-0 items-center gap-1.5">
-          <TypeBadge type={l.type} explain={explain} />
+          <TypeBadge type={l.type} explain />
           {!l.type && <span className="text-faint" title="qkt has not stated this instrument's type">type not stated ·</span>}
           <span className="truncate font-medium text-bright" title={l.symbol}>{legInstrument(l)}</span>
           {l.venue && <span className="shrink-0 text-muted">· {l.venue}</span>}
         </li>
       ))}
-      {legs.length > shown.length && <li className="text-muted">+{legs.length - shown.length} more</li>}
     </ul>
   );
 }

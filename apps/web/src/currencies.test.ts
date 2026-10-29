@@ -1,5 +1,5 @@
 import { describe, it, expect } from "vitest";
-import { currencyName, mixedCurrencyNote, splitNets } from "./currencies";
+import { currencyMix, currencyName, splitNets } from "./currencies";
 
 describe("money in more than one currency", () => {
   it("splits a net only when it spans currencies", () => {
@@ -9,10 +9,11 @@ describe("money in more than one currency", () => {
     expect(currencyName(null)).toBe("no currency");
   });
 
-  it("says when an instance's accounts book in more than one currency", () => {
-    expect(mixedCurrencyNote("forward", ["USD"])).toBeNull();
-    expect(mixedCurrencyNote("forward", undefined)).toBeNull();
-    expect(mixedCurrencyNote("soak", ["USD", "USDC"])).toMatch(/^Accounts on soak book in USD and USDC\. .*1:1 with no conversion/u);
-    expect(mixedCurrencyNote("soak", ["USD", "USDC", "USDT"])).toMatch(/^Accounts on soak book in USD, USDC and USDT\./u);
+  it("marks a figure that adds currencies, and only then", () => {
+    expect(currencyMix(["USD"])).toBeNull();
+    expect(currencyMix(undefined)).toBeNull();
+    expect(currencyMix(["USD", "USD", null])).toBeNull();
+    expect(currencyMix(["USDC", "USD"])).toEqual({ label: "USD+USDC", title: "Adds USD and USDC 1:1, no conversion." });
+    expect(currencyMix(["USD", "USDC", "USDT"])).toEqual({ label: "USD+USDC+USDT", title: "Adds USD, USDC and USDT 1:1, no conversion." });
   });
 });

@@ -1,4 +1,7 @@
+import { useQuery } from "@tanstack/react-query";
+import { get, type InstanceRow } from "./api";
 import type { CurrencyNet } from "./trades/data";
+import { useView } from "./view";
 
 /*
  * Money from venue accounts in different currencies (USD, USDC, USDT) is never one number: the collector
@@ -15,9 +18,20 @@ export function currencyName(c: string | null): string {
   return c ?? "no currency";
 }
 
-/** What the app says when an instance's accounts book in more than one currency; null when they do not. */
-export function mixedCurrencyNote(instanceId: string, currencies: readonly string[] | undefined): string | null {
-  if (!currencies || currencies.length < 2) return null;
-  const list = currencies.length === 2 ? currencies.join(" and ") : `${currencies.slice(0, -1).join(", ")} and ${currencies[currencies.length - 1]}`;
-  return `Accounts on ${instanceId} book in ${list}. A figure that spans accounts (a strategy's or the account's total, a book) adds them 1:1 with no conversion; trade lists show their net per currency.`;
+/**
+ * The mark a figure carries when it adds money from accounts in different currencies: "USD+USDC", with what that
+ * means for its tooltip ("Adds USD and USDC 1:1, no conversion."). Null when the money is in one currency.
+ */
+export function currencyMix(currencies: readonly (string | null | undefined)[] | undefined): { label: string; title: string } | null {
+  const list = [...new Set((currencies ?? []).filter((c): c is string => !!c))].sort();
+  if (list.length < 2) return null;
+  const words = list.length === 2 ? list.join(" and ") : `${list.slice(0, -1).join(", ")} and ${list[list.length - 1]}`;
+  return { label: list.join("+"), title: `Adds ${words} 1:1, no conversion.` };
+}
+
+/** The mix mark for figures that span the instance's accounts (the shell's instance list); none on a shared link. */
+export function useInstanceCurrencyMix(instanceId: string | null): { label: string; title: string } | null {
+  const view = useView();
+  const instances = useQuery({ queryKey: ["instances"], queryFn: () => get<InstanceRow[]>("/instances"), enabled: !view.public, refetchInterval: 30_000 });
+  return view.public ? null : currencyMix(instances.data?.find((i) => i.id === instanceId)?.currencies);
 }

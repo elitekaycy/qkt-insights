@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 import type { AccountRiskRow, LivePositionRow } from "./api";
-import { dailyMeasured, drawdownMeasured, emptyPeriods, floatingNote, floatingNoteText, limitLine, limitUse, noAccountMessage, openRisk, positionRisks, rangeFirstDay, riskRowFor, strategyLines, strategyPeriods, strategyTotal, todayHeadline, todaySplit } from "./home";
+import { dailyMeasured, drawdownMeasured, emptyPeriods, floatingNote, floatingNoteText, limitLine, limitUse, noAccountMessage, openRisk, positionRisks, rangeFirstDay, riskRowFor, strategyLines, strategyPeriods, strategyTotal, todayHeadline, todaySplit, attentionItems } from "./home";
 
 function position(p: Partial<LivePositionRow> & Pick<LivePositionRow, "ticket">): LivePositionRow {
   return { symbol: "XAUUSD", side: "BUY", qty: 1, entryPrice: 100, ...p };
@@ -275,5 +275,29 @@ describe("todayHeadline", () => {
       .toEqual([{ kind: "qkt", value: 2, currency: "USD" }]);
     expect(todayHeadline([{ key: "a", name: "A", currency: "USDC", split: split(0) }]).parts).toEqual([{ kind: "qkt", value: 0, currency: "USDC" }]);
     expect(todayHeadline([{ key: "a", name: "A", currency: "USDC", split: null }])).toEqual({ parts: [], missing: 1 });
+  });
+});
+
+describe("attentionItems", () => {
+  const strategy = (strategyId: string, extra: { active?: boolean; halted?: boolean } = {}) => ({ strategyId, name: strategyId, active: true, ...extra });
+  const account = (key: string, extra: { stale?: boolean; stopped?: boolean } = {}) => ({ key, name: key, stale: false, lastSeen: 1, ...extra });
+
+  it("lists halted strategies, quiet accounts and positions without a stop, in that order", () => {
+    expect(attentionItems({
+      strategies: [strategy("o04", { halted: true }), strategy("o11"), strategy("old", { active: false, halted: true })],
+      accounts: [account("x"), account("a", { stale: true, stopped: true }), account("h", { stale: true })],
+      noStop: 2,
+    })).toEqual([
+      { kind: "halted", strategyId: "o04", name: "o04" },
+      { kind: "account", key: "a", name: "a", state: "stopped", since: 1 },
+      { kind: "account", key: "h", name: "h", state: "stale", since: 1 },
+      { kind: "no-stop", count: 2 },
+    ]);
+  });
+
+  it("counts halted strategies past two, and is empty when nothing needs a look", () => {
+    expect(attentionItems({ strategies: ["a", "b", "c"].map((id) => strategy(id, { halted: true })), accounts: [], noStop: 0 }))
+      .toEqual([{ kind: "halted-many", count: 3 }]);
+    expect(attentionItems({ strategies: [strategy("a")], accounts: [account("x")], noStop: 0 })).toEqual([]);
   });
 });

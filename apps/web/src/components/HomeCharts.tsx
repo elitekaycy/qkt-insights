@@ -5,7 +5,7 @@ import { HOME_RANGES, rangeFirstDay, type HomeRange } from "../home";
 import { Link, useRoute } from "../router";
 import { ChartCard } from "./ChartCard";
 import { chartColors, EChart, qktChartAxis, qktChartGrid, qktChartTooltip, qktXAxis, tipHtml, tok, zeroLine, type QktChartOption } from "./EChart";
-import { Card, IconButton, Pnl, Segmented } from "./ui";
+import { Card, CurrencyMix, IconButton, Pnl, Segmented } from "./ui";
 
 /*
  * Home's history: realized P&L by UTC close day over the chosen range (bars) with its running total
@@ -19,7 +19,7 @@ function weekday(d: string): string {
   return ["Sun", "Mon", "Tue", "Wed", "Thu", "Fri", "Sat"][new Date(`${d}T00:00:00Z`).getUTCDay()]!;
 }
 
-export function PnlChart({ days, range, onRange, now }: { days: DayNet[]; range: HomeRange; onRange: (r: HomeRange) => void; now: number }) {
+export function PnlChart({ days, range, onRange, now, mix = null }: { days: DayNet[]; range: HomeRange; onRange: (r: HomeRange) => void; now: number; /** Set when the days add accounts in different currencies. */ mix?: { label: string; title: string } | null }) {
   const first = rangeFirstDay(range, now);
   const rows = first == null ? days : days.filter((d) => d.day >= first);
   let running = 0;
@@ -61,7 +61,7 @@ export function PnlChart({ days, range, onRange, now }: { days: DayNet[]; range:
       title="Realized P&L"
       description="Bars: UTC close days. Line: running total over the range."
       meta={`${count(trades)} closed trades · ${count(rows.length)} trading days`}
-      value={<Pnl value={total} />}
+      value={<><Pnl value={total} /><CurrencyMix mix={mix} /></>}
     >
       <div className="flex justify-end px-3 pt-3 sm:px-4">
         <Segmented label="Range" value={range} options={HOME_RANGES} onChange={onRange} />
@@ -99,7 +99,7 @@ function shiftMonth(month: string, n: number): string {
 }
 
 /** One Monday-first month of daily realized P&L; a day opens its closed trades on the Trades page. */
-export function MonthCalendar({ days, now }: { days: DayNet[]; now: number }) {
+export function MonthCalendar({ days, now, mix = null }: { days: DayNet[]; now: number; mix?: { label: string; title: string } | null }) {
   const { navigate } = useRoute();
   const today = utcDay(now);
   const [month, setMonth] = useState(today.slice(0, 7));
@@ -122,7 +122,7 @@ export function MonthCalendar({ days, now }: { days: DayNet[]; now: number }) {
         <IconButton label="previous month" d="M15 18l-6-6 6-6" onClick={() => setMonth(shiftMonth(month, -1))} disabled={month <= firstMonth} />
         <div className="min-w-0 flex-1 text-center">
           <div className="text-sm font-semibold text-bright">{monthName(month)}</div>
-          <div className="text-xs"><Pnl value={net} /> <span className="text-muted">· {count(monthDays.reduce((a, d) => a + d.trades, 0))} trades</span></div>
+          <div className="text-xs"><Pnl value={net} /><CurrencyMix mix={mix} /> <span className="text-muted">· {count(monthDays.reduce((a, d) => a + d.trades, 0))} trades</span></div>
         </div>
         <IconButton label="next month" d="M9 18l6-6-6-6" onClick={() => setMonth(shiftMonth(month, 1))} disabled={month >= today.slice(0, 7)} />
       </div>
