@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 import type { AccountRiskRow, LivePositionRow } from "./api";
-import { dailyMeasured, drawdownMeasured, emptyPeriods, limitLine, limitUse, noAccountMessage, openRisk, positionRisks, rangeFirstDay, riskRowFor, strategyLines, strategyPeriods } from "./home";
+import { dailyMeasured, drawdownMeasured, emptyPeriods, floatingNote, floatingNoteText, limitLine, limitUse, noAccountMessage, openRisk, positionRisks, rangeFirstDay, riskRowFor, strategyLines, strategyPeriods } from "./home";
 
 function position(p: Partial<LivePositionRow> & Pick<LivePositionRow, "ticket">): LivePositionRow {
   return { symbol: "XAUUSD", side: "BUY", qty: 1, entryPrice: 100, ...p };
@@ -172,3 +172,35 @@ describe("limitLine", () => {
   });
 });
 
+
+describe("floatingNote", () => {
+  // the soak's Exness account: equity - balance is -584.39, the listed positions float +9.20, another bot the rest
+  const account = { balance: 4_983_985.86, equity: 4_983_401.47 };
+  const listed = [
+    position({ ticket: "1", profit: 4.11, swap: 0 }),
+    position({ ticket: "2", profit: 1.06, swap: 0 }),
+    position({ ticket: "3", profit: 4.03, swap: 0 }),
+  ];
+
+  it("splits the account's floating into the listed positions and those outside the instance", () => {
+    const n = floatingNote(account, listed, { count: 2, floating: -593.59 })!;
+    expect(n.account).toBeCloseTo(-584.39, 6);
+    expect(n.listed).toBeCloseTo(9.2, 9);
+    expect(n.unmarked).toBe(0);
+    expect(floatingNoteText(n)).toBe("\u2212593.59 on 2 positions outside this instance");
+  });
+
+  it("names listed positions the venue sends no mark for, never counting them as 0.00", () => {
+    const paper = [position({ ticket: "p", profit: undefined, swap: undefined }), position({ ticket: "q", profit: 1.06, swap: 0 })];
+    const n = floatingNote({ balance: 9_999.96, equity: 10_001.02 }, paper, null)!;
+    expect(n).toMatchObject({ marked: 1, unmarked: 1, outside: null });
+    expect(n.listed).toBeCloseTo(1.06, 9);
+    expect(floatingNoteText(n)).toBe("1 listed position without a venue mark");
+    expect(floatingNoteText(floatingNote(account, listed, { count: 1, floating: null })!)).toBe("1 position outside this instance");
+  });
+
+  it("has nothing to say when every listed position is marked and none is outside", () => {
+    expect(floatingNote(account, listed, null)).toBeNull();
+    expect(floatingNote(account, listed, { count: 0, floating: 0 })).toBeNull();
+  });
+});

@@ -1,4 +1,4 @@
-import { accountKey, accountTab, groupAccounts, maskLogin, type AccountGroup } from "../accounts";
+import { accountKey, accountName, accountTab, groupAccounts, type AccountGroup } from "../accounts";
 import { chartColors } from "../components/EChart";
 import { useState } from "react";
 import { usePublicPageView, useView } from "../view";
@@ -104,7 +104,7 @@ export default function Equity({ instanceId }: { instanceId: string | null }) {
   const curveKeyOf = (g: AccountGroup) => [...accountByBroker.keys()].find((k) => k === accountKey(g.account) || g.labels.includes(k) || g.labels.includes(accountLabel.get(k) ?? ""));
   const nameOf = (key: string) => {
     const g = choice.accounts.find((a) => curveKeyOf(a) === key);
-    return g ? accountTab(g.account, view.public).name : accountHeading(key, accountLabel.get(key) ?? key);
+    return accountName(g ? g.account : { broker: accountLabel.get(key) ?? key }, view.public);
   };
   const shownCurve = scoped ? curveKeyOf(scoped) : null;
   const accountSeries: ComparisonSeries[] = [...accountByBroker.entries()].map(([key, pts], i) => ({
@@ -275,10 +275,4 @@ export default function Equity({ instanceId }: { instanceId: string | null }) {
       )}
     </div>
   );
-}
-
-/** "ICMARKETS · #•••4821" for an account identified by login ("mt5:login@server"), else its label. */
-function accountHeading(key: string, label: string): string {
-  const at = key.lastIndexOf("@");
-  return at > 0 ? `${label} · #${maskLogin(key.slice(key.indexOf(":") + 1, at))}` : label;
 }

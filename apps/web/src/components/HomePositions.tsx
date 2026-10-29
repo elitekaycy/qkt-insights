@@ -13,6 +13,7 @@ import { Card, Cell, FlashValue, Freshness, Pill, Pnl, RowChevron, SideTag } fro
  * the ticket opens the position in the trades drawer.
  */
 
+const NO_MARK = "the venue sends no mark for this position: no price now and no floating P&L; its floating is only in the account's equity";
 const HEAD = ["Instrument", "Side", "Size", "Entry", "Current", "SL", "TP", "To stop", "Floating", "Held", "Strategy"];
 
 export function OpenPositions({ positions, strategyName, now, freshness }: {
@@ -42,7 +43,14 @@ export function OpenPositions({ positions, strategyName, now, freshness }: {
   const ticket = (p: LivePositionRow) => (
     <span className="font-mono text-[11px] text-faint">#{p.ticket}</span>
   );
-  const held = (p: LivePositionRow) => (p.openedAt ? <span title={`opened ${human(p.openedAt)}`}>{duration(now - p.openedAt)}</span> : DASH);
+  const held = (p: LivePositionRow) => (p.openedAt
+    ? <span title={`opened ${human(p.openedAt)}`}>{duration(now - p.openedAt)}</span>
+    : <span className="text-faint" title="the venue reports no open time for this position">{DASH}</span>);
+  // a venue that marks no position (the gateway's paper adapter) sends no price or floating: unknown, never 0.00
+  const current = (p: LivePositionRow) => (p.currentPrice != null ? price(p.currentPrice) : <span className="text-faint" title={NO_MARK}>{DASH}</span>);
+  const floating = (p: LivePositionRow) => (p.profit != null
+    ? <FlashValue value={openPnl(p)}><Pnl value={openPnl(p)} glyphs={false} /></FlashValue>
+    : <span className="text-xs font-normal text-faint" title={NO_MARK}>no mark</span>);
   const typeOf = (p: LivePositionRow) => instrumentType(p.kind, p.category);
   const [picked, setPicked] = useState<InstrumentType | null>(null);
   const shown = picked ? positions.filter((p) => typeOf(p) === picked) : positions;
@@ -89,13 +97,11 @@ export function OpenPositions({ positions, strategyName, now, freshness }: {
                       {p.unit && <div className="text-[10px] text-muted">{p.unit}</div>}
                     </Cell>
                     <Cell className="text-right text-muted">{price(p.entryPrice)}</Cell>
-                    <Cell className="text-right">{price(p.currentPrice)}</Cell>
+                    <Cell className="text-right">{current(p)}</Cell>
                     <Cell className="text-right text-muted">{level(p.stopLoss)}</Cell>
                     <Cell className="text-right text-muted">{level(p.takeProfit)}</Cell>
                     <Cell className="text-right">{toStop(p)}</Cell>
-                    <Cell className="text-right font-semibold">
-                      <FlashValue value={openPnl(p)}><Pnl value={openPnl(p)} glyphs={false} /></FlashValue>
-                    </Cell>
+                    <Cell className="text-right font-semibold">{floating(p)}</Cell>
                     <Cell className="whitespace-nowrap text-right text-muted">{held(p)}</Cell>
                     <Cell>{strategy(p)}</Cell>
                     <td className="pr-2"><RowChevron /></td>
@@ -118,12 +124,12 @@ export function OpenPositions({ positions, strategyName, now, freshness }: {
                   <TypeBadge type={typeOf(p)} short />
                   <SideTag side={p.side} />
                   <span className="min-w-0 truncate text-muted">{sizeInWords(p.qty, p)}</span>
-                  <span className="ml-auto font-semibold"><Pnl value={openPnl(p)} glyphs={false} /></span>
+                  <span className="ml-auto font-semibold">{floating(p)}</span>
                   <RowChevron className="self-center" />
                 </div>
                 <div className="mt-1.5 grid grid-cols-3 gap-x-3 gap-y-1 text-xs">
                   <Pair k="Entry" v={price(p.entryPrice)} />
-                  <Pair k="Now" v={price(p.currentPrice)} />
+                  <Pair k="Now" v={current(p)} />
                   <Pair k="Held" v={held(p)} />
                   <Pair k="SL" v={level(p.stopLoss)} />
                   <Pair k="TP" v={level(p.takeProfit)} />

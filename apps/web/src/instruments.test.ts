@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 import type { LiveAccount } from "./api";
-import { GLOSSARY, INSTRUMENT_TYPE_KEYS, legLabel, sizeInWords, strategyLegs, TYPE_LABEL } from "./instruments";
+import { distinctLegs, GLOSSARY, INSTRUMENT_TYPE_KEYS, legLabel, sizeInWords, strategyLegs, TYPE_LABEL, type InstrumentType } from "./instruments";
 
 const NOW = Date.UTC(2026, 9, 29);
 
@@ -55,6 +55,27 @@ describe("strategy legs", () => {
     expect(legs.map((l) => legLabel(l, NOW))).toEqual(["CFD · XAUUSD · Exness", "CFD · EURUSD"]);
     expect(strategyLegs({ metadata: { streams: [{ broker: "X", symbol: "Y", qktSymbol: "X:Y" }] } }, [], "i").map((l) => legLabel(l, NOW))).toEqual(["Y"]);
     expect(strategyLegs(null)).toEqual([]);
+  });
+});
+
+describe("strategy instruments", () => {
+  it("lists an instrument once however many broker profiles of one account traded it", () => {
+    // soak_o12_xau: one stream, deals under ten Exness profiles, only some of them in live state
+    const exness = { instanceId: "soak", broker: "EXNESS_O13", currency: "USD", balance: 1, equity: 1, lastSeen: 1, stale: false,
+      connector: "mt5", adapter: "exness", profiles: ["EXNESS_O10", "EXNESS_O12X", "EXNESS_O13"] };
+    const labels = ["EXNESS_O12", "EXNESS_O12X", "EXNESS_O10", "EXNESS_O13", "EXNESS_H02", "EXNESS_O08", "EXNESS_O04", "EXNESS_O11", "EXNESS_H01", "EXNESS_O08B"];
+    const legs = strategyLegs({
+      metadata: { streams: [{ alias: "xau", broker: "EXNESS_O12X", symbol: "XAUUSD", qktSymbol: "EXNESS_O12X:XAUUSD", timeframe: "5m" }] },
+      instruments: labels.map((b) => ({ symbol: `${b}:XAUUSD`, broker: b, kind: "cfd", category: "Metals", contractSize: 100, unit: "lots" })),
+    }, [exness], "soak");
+    expect(legs.map((l) => legLabel(l, NOW))).toEqual(["CFD · XAUUSD · Exness"]);
+  });
+
+  it("keeps one instrument at two venues apart, and folds an unplaced label into the one venue it can be", () => {
+    const leg = (venue: string | null, type: InstrumentType | null = "cfd") => ({ symbol: `X:${venue}`, name: "XAUUSD", type, venue });
+    expect(distinctLegs([leg("Exness"), leg("IC Markets"), leg(null)]).map((l) => l.venue)).toEqual(["Exness", "IC Markets", null]);
+    expect(distinctLegs([leg(null, null), leg("Exness")]).map((l) => [l.venue, l.type])).toEqual([["Exness", "cfd"]]);
+    expect(distinctLegs([{ ...leg("Exness"), type: "stock-cfd" as const }, leg("Exness")])).toHaveLength(2);
   });
 });
 

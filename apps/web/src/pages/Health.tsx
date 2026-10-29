@@ -1,4 +1,4 @@
-import { accountTitle, realAccounts } from "../accounts";
+import { accountName, accountTitle, realAccounts } from "../accounts";
 import { Fragment, useRef, useState, type KeyboardEvent, type PointerEvent, type ReactNode } from "react";
 import { useQuery } from "@tanstack/react-query";
 import { get, type ContractInfo, type HealthRow, type LiveAccount, type LiveStateSnapshot, type MonitorEventRow, type MonitorSummary, type MonitorsView, type StripBucket } from "../api";
@@ -327,9 +327,9 @@ function InstanceDetail({ row, accounts }: { row: HealthRow; accounts: LiveAccou
           empty="No broker account state yet — waiting for the state poller."
           cells={(a) => (
             <>
-              <Cell className="font-semibold text-bright">{accountTitle(a)}</Cell>
+              <Cell className="font-semibold text-bright"><span title={accountTitle(a)}>{accountName(a)}</span></Cell>
               <Cell>
-                <Pill tone={a.stale ? "neutral" : "ok"}>{a.stale ? "stale" : "live"}</Pill>
+                <Pill tone={a.stale ? "neutral" : "ok"}>{a.stopped ? "stopped" : a.stale ? "stale" : "live"}</Pill>
               </Cell>
               <Cell className="whitespace-nowrap text-muted">{age(a.lastSeen)}</Cell>
               <Cell className="text-muted">{money(a.balance)}</Cell>
@@ -341,8 +341,8 @@ function InstanceDetail({ row, accounts }: { row: HealthRow; accounts: LiveAccou
           card={(a) => (
             <>
               <div className="flex items-center gap-2">
-                <span className="truncate font-semibold text-bright">{accountTitle(a)}</span>
-                <Pill tone={a.stale ? "neutral" : "ok"}>{a.stale ? "stale" : "live"}</Pill>
+                <span className="truncate font-semibold text-bright" title={accountTitle(a)}>{accountName(a)}</span>
+                <Pill tone={a.stale ? "neutral" : "ok"}>{a.stopped ? "stopped" : a.stale ? "stale" : "live"}</Pill>
                 <span className="ml-auto whitespace-nowrap text-xs text-muted">{age(a.lastSeen)}</span>
               </div>
               <div className="mt-2 grid grid-cols-3 gap-3 text-sm">
@@ -437,7 +437,7 @@ export default function Health() {
                   <Freshness at={Math.max(r.lastSeen, acct?.lastSeen ?? 0)} stale={!fresh} className="ml-auto" />
                 </div>
                 <div className="mt-2 grid grid-cols-2 gap-x-4 gap-y-1.5 text-sm">
-                  <Fact label="broker">{acct ? accountTitle(acct) : "—"}</Fact>
+                  <Fact label="broker">{acct ? <span title={accountTitle(acct)}>{accountName(acct)}</span> : "—"}</Fact>
                   <Fact label="equity" mono>
                     {acct ? money(acct.equity) : "—"}
                   </Fact>
@@ -499,7 +499,7 @@ export default function Health() {
                   <Cell className="text-muted">
                     <span title={r.retiredStrategies > 0 ? "retired: rows a newer roster or 30 days of silence left behind, not counted as deployed" : undefined}>{strategiesLabel(r)}</span>
                   </Cell>
-                  <Cell className="text-muted">{acct ? accountTitle(acct) : "—"}</Cell>
+                  <Cell className="text-muted">{acct ? <span title={accountTitle(acct)}>{accountName(acct)}</span> : "—"}</Cell>
                   <Cell className="text-bright">{acct ? money(acct.equity) : "—"}</Cell>
                   <Cell>
                     <span className="flex flex-wrap gap-1.5">

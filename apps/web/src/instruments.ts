@@ -179,10 +179,16 @@ const num = (v: unknown) => (typeof v === "number" && Number.isFinite(v) ? v : n
 export function strategyLegs(row: Pick<StrategyRow, "metadata" | "instruments"> | null, accounts: readonly LiveAccount[] = [], instanceId?: string): Leg[] {
   if (!row) return [];
   const traded = new Map((row.instruments ?? []).map((i) => [i.symbol, i]));
+  // A label's account, else (a profile of the venue no live account lists, EXNESS_H01) the one venue whose adapter prefixes it.
   const venueOfLabel = (label: string | null): string | null => {
     if (!label || !instanceId) return null;
-    const account = accountOfLabel(accounts, instanceId, label.toUpperCase());
-    return account ? venueName(account) : null;
+    const upper = label.toUpperCase();
+    const account = accountOfLabel(accounts, instanceId, upper);
+    if (account) return venueName(account);
+    const venues = new Set(accounts
+      .filter((a) => a.instanceId === instanceId && a.adapter && upper.startsWith(`${a.adapter.toUpperCase()}_`))
+      .map((a) => venueName(a)));
+    return venues.size === 1 ? [...venues][0]! : null;
   };
   const legs: Leg[] = [];
   const seen = new Set<string>();
@@ -208,5 +214,23 @@ export function strategyLegs(row: Pick<StrategyRow, "metadata" | "instruments"> 
     seen.add(i.symbol);
     legs.push({ symbol: i.symbol, name: i.symbol.slice(i.symbol.indexOf(":") + 1), type: instrumentType(i.kind, i.category), venue: venueOfLabel(i.broker) });
   }
-  return legs;
+  return distinctLegs(legs);
+}
+
+/**
+ * One leg per instrument: the same instrument traded under several broker profiles of one account (EXNESS_O12:XAUUSD,
+ * EXNESS_O13:XAUUSD) is one leg, identified by its type, what it is and its venue. A leg whose venue nothing names
+ * folds into the one leg of the same instrument whose venue is known; with two known venues it stays apart.
+ */
+export function distinctLegs(legs: readonly Leg[]): Leg[] {
+  // the same instrument: what it is in words, and a type that does not contradict (an unstated type matches any)
+  const same = (a: Leg, b: Leg) => legInstrument(a, 0) === legInstrument(b, 0) && (a.type == null || b.type == null || a.type === b.type);
+  const out: Leg[] = [];
+  for (const leg of legs) {
+    const twin = out.find((l) => same(l, leg) && l.venue === leg.venue);
+    if (twin) twin.type ??= leg.type;
+    else out.push({ ...leg });
+  }
+  // unknown venues fold into the instrument's single known venue
+  return out.filter((l) => l.venue != null || out.filter((o) => o.venue != null && same(o, l)).length !== 1);
 }

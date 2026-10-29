@@ -9,7 +9,7 @@ import { StrategyTable, type StrategyLine } from "../components/HomeStrategies";
 import { ShareControl } from "../components/ShareControl";
 import { Card, Loadable, PageHeader } from "../components/ui";
 import { day as utcDay } from "../format";
-import { dayBasisLabel, floatingByStrategy, HOME_RANGES, noAccountMessage, openRisk, riskRowFor, strategyLines, strategyPeriods, type HomeRange } from "../home";
+import { dayBasisLabel, floatingByStrategy, floatingNote, HOME_RANGES, noAccountMessage, openRisk, riskRowFor, strategyLines, strategyPeriods, type HomeRange } from "../home";
 import { strategyDisplayName } from "../portfolio";
 import { useSearchParam } from "../router";
 import { useLiveState } from "../useLiveState";
@@ -82,6 +82,16 @@ export default function Home({ instanceId }: { instanceId: string | null }) {
     const profiles = accountProfiles(g.account, g.labels);
     return groups.filter((p) => profiles.includes(p.broker)).flatMap((p) => p.list);
   };
+  // positions of another system on the account: counted by the collector, never listed
+  const outsideOf = (list: typeof groups) => {
+    const parts = list.flatMap((p) => (p.outside ? [p.outside] : []));
+    if (parts.length === 0) return null;
+    return { count: parts.reduce((a, o) => a + o.count, 0), floating: parts.some((o) => o.floating == null) ? null : parts.reduce((a, o) => a + o.floating!, 0) };
+  };
+  const groupsOf = (g: { account: (typeof accounts)[number]; labels: string[] }) => {
+    const profiles = accountProfiles(g.account, g.labels);
+    return groups.filter((p) => profiles.includes(p.broker));
+  };
   const shownGroups = scoped ? groups.filter((p) => accountProfiles(scoped.account, scoped.labels).includes(p.broker)) : groups;
   const positions: LivePositionRow[] = shownGroups.flatMap((g) => g.list);
   const rows = strategies.data ?? [];
@@ -104,7 +114,8 @@ export default function Home({ instanceId }: { instanceId: string | null }) {
   const realizedFallback = periods ? [...periods.values()].reduce((a, p) => a + p.todayRealized, 0) : 0;
   const accountLines: AccountLine[] = choice.accounts.map((g) => {
     const row = riskRowFor(g.account, riskRows);
-    return { group: g, risk: row, realizedToday: row?.dailyLoss.realizedToday ?? null, open: view.public ? null : openRisk(positionsOf(g)) };
+    return { group: g, risk: row, realizedToday: row?.dailyLoss.realizedToday ?? null, open: view.public ? null : openRisk(positionsOf(g)),
+      note: view.public ? null : floatingNote(g.account, positionsOf(g), outsideOf(groupsOf(g))) };
   });
   const shown = choice.chosen;
   const shownName = scoped ? accountTab(scoped.account, view.public).name : null;
@@ -140,6 +151,7 @@ export default function Home({ instanceId }: { instanceId: string | null }) {
                 realizedToday={row?.dailyLoss.realizedToday ?? realizedFallback}
                 dayLabel={row ? dayBasisLabel(row) : dayLabel}
                 open={view.public ? null : openRisk(choice.many ? positionsOf(shown) : positions)}
+                note={view.public ? null : choice.many ? floatingNote(shown.account, positionsOf(shown), outsideOf(groupsOf(shown))) : floatingNote(shown.account, positions, outsideOf(groups))}
                 isPublic={view.public}
               />
             );

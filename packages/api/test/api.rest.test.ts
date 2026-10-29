@@ -2,7 +2,7 @@ import { describe, it, expect, beforeEach, afterEach } from "vitest";
 import Fastify, { type FastifyInstance } from "fastify";
 import cookie from "@fastify/cookie";
 import argon2 from "argon2";
-import { openDb, ingestEvents, LiveStateStore, Sessions, type Db } from "@qkt-insights/store";
+import { openDb, ingestEvents, persistStateEvent, LiveStateStore, Sessions, type Db } from "@qkt-insights/store";
 import { registerAuth } from "../src/auth.js";
 import { registerRest } from "../src/rest.js";
 import { CONTRACT_VERSION, SUPPORTED_MAJORS, type Envelope } from "@qkt-insights/contract";
@@ -189,6 +189,24 @@ describe("broker state REST", () => {
       balance: 7824.05, equity: 7676.54, stale: false });
     expect(body.positions).toHaveLength(1);
     expect(body.positions[0].list[0]).toMatchObject({ ticket: "123", strategyId: null });
+  });
+
+  it("keeps listing an account that stopped reporting, stopped, under the venue facts it reported with", async () => {
+    const T = Date.now() - 3_600_000;
+    const paper = env({ type: "state.account", ts: T, payload: { broker: "PAPER_F", currency: "USDC", balance: 9999.77, equity: 9999.77,
+      login: "soak-paper-f", accountId: "vgp:807ce98500e97c3d", venue: { connector: "vgp", adapter: "paper", label: "PAPER_F" } } });
+    persistStateEvent(db, "qkt-prod", paper);
+    const before = new LiveStateStore();
+    before.upsert("qkt-prod", paper);
+    before.flushRollup(db, T);
+    ingestEvents(db, "qkt-prod", [env({ type: "strategy.started", strategyId: "s", ts: T, payload: { strategyId: "s" } })]);
+    // the collector restarted; only the Exness account reports now
+    liveState.upsert("qkt-prod", env({ type: "state.account", ts: Date.now(),
+      payload: { broker: "EXNESS", currency: "USD", balance: 7824.05, equity: 7676.54, accountId: "mt5:748e270a7f5018e5" } }));
+    const body = (await get("/live/state")).json() as { accounts: Array<Record<string, unknown>> };
+    expect(body.accounts.map((a) => [a.broker, a.stale, a.stopped ?? false])).toEqual([["EXNESS", false, false], ["PAPER_F", true, true]]);
+    expect(body.accounts[1]).toMatchObject({ accountId: "vgp:807ce98500e97c3d", connector: "vgp", adapter: "paper", login: "•••er-f", currency: "USDC", equity: 9999.77 });
+    expect(JSON.stringify(body)).not.toContain("soak-paper-f");
   });
 
   it("serves deals filtered by instance and strategy", async () => {

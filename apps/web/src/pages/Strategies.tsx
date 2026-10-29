@@ -1,4 +1,4 @@
-import { accountTitle, realAccounts } from "../accounts";
+import { accountName, accountTitle, realAccounts } from "../accounts";
 import { useQuery } from "@tanstack/react-query";
 import { get, type AccountRiskRow, type AccountSummary, type StrategyRow } from "../api";
 import { useMemo, useState } from "react";
@@ -283,7 +283,7 @@ function PortfolioDetail({
           value={money(account?.equity)}
           sub={
             account
-              ? `${accountTitle(account, view.public)} · shared account`
+              ? `${accountName(account, view.public)} · shared account`
               : accounts.length > 1
                 ? "multiple broker accounts"
                 : "account state unavailable"
@@ -363,8 +363,8 @@ function PortfolioDetail({
             {accounts.map((a) => (
               <Row key={`${a.broker}:${a.login ?? ""}:${a.server ?? ""}`}>
                 <Cell>
-                  <span className="font-semibold text-bright">{a.broker}</span>
-                  {a.stale && <div className="text-xs text-warn">stale</div>}
+                  <span className="font-semibold text-bright" title={accountTitle(a)}>{accountName(a)}</span>
+                  {a.stale && <div className="text-xs text-warn">{a.stopped ? "stopped reporting" : "stale"}</div>}
                 </Cell>
                 <Cell>{a.currency}</Cell>
                 <Cell>{money(a.balance)}</Cell>
