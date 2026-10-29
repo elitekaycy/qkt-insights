@@ -1,7 +1,9 @@
-import type { ReactNode } from "react";
+import { useState, type ReactNode } from "react";
 import type { LivePositionRow } from "../api";
-import { DASH, duration, human, instrumentOf, openPnl, price, quantity, sized } from "../format";
+import { DASH, duration, human, instrumentOf, openPnl, price, quantity } from "../format";
 import { positionRisks } from "../home";
+import { instrumentType, sizeInWords, TYPE_LABEL, type InstrumentType } from "../instruments";
+import { TypeBadge } from "./InstrumentType";
 import { Link, useRoute } from "../router";
 import { Card, Cell, FlashValue, Freshness, Pill, Pnl, RowChevron, SideTag } from "./ui";
 
@@ -41,6 +43,9 @@ export function OpenPositions({ positions, strategyName, now, freshness }: {
     <span className="font-mono text-[11px] text-faint">#{p.ticket}</span>
   );
   const held = (p: LivePositionRow) => (p.openedAt ? <span title={`opened ${human(p.openedAt)}`}>{duration(now - p.openedAt)}</span> : DASH);
+  const typeOf = (p: LivePositionRow) => instrumentType(p.kind, p.category);
+  const [picked, setPicked] = useState<InstrumentType | null>(null);
+  const shown = picked ? positions.filter((p) => typeOf(p) === picked) : positions;
 
   return (
     <Card className="overflow-hidden">
@@ -49,6 +54,7 @@ export function OpenPositions({ positions, strategyName, now, freshness }: {
         <span className="text-xs text-muted">venue-marked · to stop = money from the price now to the stop · floating incl. swap</span>
         {freshness && <Freshness at={freshness.at} stale={freshness.stale} className="ml-auto" />}
       </div>
+      <TypeFilter types={positions.map(typeOf)} picked={picked} onPick={setPicked} />
       {positions.length === 0 ? (
         <div className="px-4 py-6 text-center text-sm text-muted">Flat: no open positions.</div>
       ) : (
@@ -64,7 +70,7 @@ export function OpenPositions({ positions, strategyName, now, freshness }: {
                 </tr>
               </thead>
               <tbody>
-                {positions.map((p) => (
+                {shown.map((p) => (
                   <tr
                     key={p.ticket}
                     tabIndex={0}
@@ -74,12 +80,12 @@ export function OpenPositions({ positions, strategyName, now, freshness }: {
                     className="group cursor-pointer border-b border-line text-bright transition-colors last:border-b-0 hover:bg-hover focus-visible:bg-hover focus-visible:outline-2 focus-visible:-outline-offset-2 focus-visible:outline-accent-hi"
                   >
                     <Cell>
-                      <div className="font-semibold">{instrumentOf(p.symbol)}</div>
+                      <div className="flex items-center gap-1.5 font-semibold">{instrumentOf(p.symbol)}<TypeBadge type={typeOf(p)} short /></div>
                       {ticket(p)}
                     </Cell>
                     <Cell><SideTag side={p.side} /></Cell>
                     <Cell className="text-right">
-                      <span title={sized(p.qty, p.unit, p.contractSize)}>{quantity(p.qty)}</span>
+                      <span title={sizeInWords(p.qty, p)}>{quantity(p.qty)}</span>
                       {p.unit && <div className="text-[10px] text-muted">{p.unit}</div>}
                     </Cell>
                     <Cell className="text-right text-muted">{price(p.entryPrice)}</Cell>
@@ -99,7 +105,7 @@ export function OpenPositions({ positions, strategyName, now, freshness }: {
             </table>
           </div>
           <ul className="divide-y divide-line @3xl:hidden">
-            {positions.map((p) => (
+            {shown.map((p) => (
               <li
                 key={p.ticket}
                 tabIndex={0}
@@ -109,8 +115,9 @@ export function OpenPositions({ positions, strategyName, now, freshness }: {
               >
                 <div className="flex items-baseline gap-2">
                   <span className="font-semibold text-bright">{instrumentOf(p.symbol)}</span>
+                  <TypeBadge type={typeOf(p)} short />
                   <SideTag side={p.side} />
-                  <span className="text-muted">{sized(p.qty, p.unit, p.contractSize)}</span>
+                  <span className="min-w-0 truncate text-muted">{sizeInWords(p.qty, p)}</span>
                   <span className="ml-auto font-semibold"><Pnl value={openPnl(p)} glyphs={false} /></span>
                   <RowChevron className="self-center" />
                 </div>
@@ -156,3 +163,26 @@ export function PublicOpenPositions({ summary }: { summary: { count: number; unr
     </Card>
   );
 }
+
+/** One chip per type among the open positions, with its count; shown once there are two kinds to tell apart. */
+function TypeFilter({ types, picked, onPick }: {
+  types: Array<InstrumentType | null>; picked: InstrumentType | null; onPick: (t: InstrumentType | null) => void;
+}) {
+  const counts = new Map<InstrumentType, number>();
+  for (const t of types) if (t) counts.set(t, (counts.get(t) ?? 0) + 1);
+  const unknown = types.filter((t) => t == null).length;
+  if (counts.size + (unknown > 0 ? 1 : 0) < 2) return null;
+  const chip = (label: string, on: boolean, click: () => void, key: string) => (
+    <button key={key} type="button" aria-pressed={on} onClick={click}
+      className={`h-7 shrink-0 whitespace-nowrap rounded-full border px-2.5 text-xs font-medium transition ${on ? "border-accent-hi/50 bg-accent-soft text-bright" : "border-line bg-raised text-body hover:bg-hover"}`}>
+      {label}
+    </button>
+  );
+  return (
+    <div className="flex gap-1.5 overflow-x-auto border-b border-line px-4 py-2" role="group" aria-label="Show positions of one type">
+      {chip(`All ${types.length}`, picked == null, () => onPick(null), "all")}
+      {[...counts].map(([t, n]) => chip(`${TYPE_LABEL[t]} ${n}`, picked === t, () => onPick(picked === t ? null : t), t))}
+    </div>
+  );
+}
+

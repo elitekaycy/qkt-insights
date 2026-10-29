@@ -273,8 +273,8 @@ export function ingestEnvelopes(db: Db, instanceId: string, events: Envelope[], 
        (id, instance_id, broker, deal_ticket, position_ticket, order_ticket, symbol, side, entry,
         qty, price, profit, commission, swap, fee, magic, comment, strategy_id, ts,
         account_id, close_reason, realized_source, attribution, next_position_ticket, tick_size, value_per_point,
-        instrument_kind, contract_size, quantity_unit, funding)
-     VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)`,
+        instrument_kind, contract_size, quantity_unit, funding, instrument_category)
+     VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)`,
   );
 
   const tx = db.transaction((evs: Envelope[]): IngestOutcome => {
@@ -335,7 +335,7 @@ export function ingestEnvelopes(db: Db, instanceId: string, events: Envelope[], 
           p.accountId ?? null, p.closeReason ?? null, p.realizedSource ?? null, p.attribution ?? null, p.nextPositionId ?? null,
           p.instrument?.tickSize ?? null, p.instrument?.valuePerPoint ?? null,
           p.instrument?.kind?.toLowerCase() ?? null, p.instrument?.contractSize ?? null, p.instrument?.quantityUnit ?? null,
-          costs.funding);
+          costs.funding, p.instrument?.category ?? null);
         if (info.changes === 0) {
           duplicate();
           // Re-ingested deal (the 30d backfill re-runs on every restart). If it

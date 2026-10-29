@@ -122,8 +122,19 @@ the strategy's signal, the venue, or by hand). Unattributed positions are includ
 The query bar takes free text and tags, and every tag becomes a removable chip:
 `strategy:gold_ema_pullback`, `symbol:XAUUSD` (broker prefixes folded), `side:long|short`, `pnl:>50`,
 `pnl:<0`, `r:>=1`, `held:<1h`, `held:1h..4h`, `entry:2026-10`, `exit:2026-10-21`,
-`ended:stop|tp|signal|venue|manual`, `size:>=0.5`, `weekday:mon` and `hour:14` (UTC entry), `#<ticket>`, and the bare
+`ended:stop|tp|signal|venue|manual`, `type:cfd|stock-cfd|share|coin|perpetual|future|option` (`type:cfd`
+includes stock CFDs), `size:>=0.5`, `weekday:mon` and `hour:14` (UTC entry), `#<ticket>`, and the bare
 words `win`, `loss` and `open`.
+
+**What each position is.** Every round trip, open position and trade drawer carries a type badge: CFD,
+Stock CFD, Share, Coin (spot), Perpetual future, Dated future or Option. qkt names the type
+(`instrument.kind`, and the venue folder `instrument.category` that sets a stock CFD apart from an FX or
+metal CFD). Hover or tap the badge for what the type is and what holding it costs. Sizes are in words:
+"2 shares", "0.01 lot = 1 share", "10 contracts × 0.001". Each strategy names what it trades, leg by leg,
+on its card and its page: "Stock CFD · AAPL · Exness", "Option · BTC 70000 call, 29 Nov · Deribit". Open
+positions filter by type once there are two. The trade drawer explains each cost kind its deals booked
+(commission, swap, funding, fee). One glossary (`apps/web/src/instruments.ts`) holds every explanation.
+An instrument qkt states no type for shows none rather than a guess.
 A later tag of the same key replaces the earlier one; a word it cannot read gets a message naming
 what it expected, and the rest still apply. Completions come from the instance's own strategies,
 instruments and days. `/` focuses the bar, `Esc` clears it, `j`/`k` move through the rows and

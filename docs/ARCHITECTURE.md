@@ -104,7 +104,7 @@ its way out, what to send instead (`deprecated`). A type without an entry fails 
 
 ```json
 {
-  "contractVersion": "1.3.0",
+  "contractVersion": "1.4.0",
   "majors": [1],
   "types": [{ "type": "balances.updated", "since": "1.0.0" }, "..."],
   "maxBatch": null,
@@ -144,6 +144,8 @@ counts each inference and logs its first use and every thousandth: `venue fact i
 | stated fact | where | used for | inferred when absent from |
 |---|---|---|---|
 | `venue{connector,adapter,label}`, `accountId` | every venue envelope | one account per `accountId`, its card titled by the venue, `venue.tradeMode` and the masked login (web `accounts.ts` `accountTitle`), with every label that reported it counted as its profiles | `login` + `server` (hashed to the opaque `mt5:` id), the label without its `_S<n>` profile suffix |
+| `instrument.category` (1.4.0) | deals, positions, `strategy.started` streams | the type badge, with a stock CFD apart from an FX or metal CFD (`kind: cfd, category: Stocks`); `type:` in the query language; kept as `deals.instrument_category` | no stock CFD: a CFD reads as a CFD |
+| `instrument.root`, `expiry`, `strike`, `optionRight`, `underlying` (1.4.0) | deals, positions, `strategy.started` streams | a strategy's legs in words: "Option · BTC 70000 call, 29 Nov · Deribit" | the venue symbol |
 | `venue.tradeMode` (1.3.0) | every venue envelope | the account's environment in its title: `demo`, `real`, `contest` | not shown |
 | `strategyId` + `attribution` | deals, positions, orders, fills | the strategy of a deal | a `dsl-<strategy>` deal comment |
 | `positionId`, `legEntry`, `nextPositionId` | deals, fills, `trade.closed` | round-trip identity and leg | `positionTicket`, `entry`; the entry order by its broker ticket |

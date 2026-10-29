@@ -16,6 +16,8 @@ import { tripParams, useTripFacets, type RoundTripTotals, type TripScope } from 
 import { RoundTripTable } from "../trades/RoundTripTable";
 import { TripCount, useSortParams } from "../trades/scope";
 import { TradeDrawer, useOpenTrade } from "../trades/TradeDrawer";
+import { LegList } from "../components/InstrumentType";
+import { strategyLegs } from "../instruments";
 import { useLiveState } from "../useLiveState";
 import { usePublicPageView, useView } from "../view";
 import { CalendarSection, DailySection, MonthlySection } from "./Days";
@@ -116,6 +118,7 @@ export function StrategyDetail({ instanceId, strategyId }: { instanceId: string;
     refetchInterval: 30_000,
   });
   const open = useOpen(instanceId, strategyId);
+  const liveAccounts = useLiveState().data?.accounts;
   const facets = useTripFacets(instanceId, strategyId);
 
   const from = rangeStart(range);
@@ -223,6 +226,7 @@ export function StrategyDetail({ instanceId, strategyId }: { instanceId: string;
             <ShareControl instanceId={instanceId} kind="strategy" subject={strategyId} />
           </div>
         </header>
+        <LegList legs={strategyLegs(row, liveAccounts, instanceId)} className="mt-3" />
       </div>
 
       <nav aria-label="Strategy sections" className="-mx-4 flex gap-1.5 overflow-x-auto px-4 sm:hidden">

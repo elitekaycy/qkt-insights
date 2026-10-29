@@ -18,11 +18,15 @@ const venue = object({ connector: opt(z.string()), adapter: opt(z.string()), lab
  * What one instrument is: qkt's symbol, the venue's code, its kind (cfd, equity, spot, perpetual, future, option),
  * contract size, tick, quote currency and account value of a point. `quantityUnit` says what one unit of `qty` is
  * (lots, shares, contracts, or a coin code); qkt does not send it yet, and the collector names a unit from `kind`
- * until it does.
+ * until it does. From 1.4.0: `category`, the venue's folder for the symbol (`Stocks` for an MT5 stock CFD, which is
+ * what tells it from an FX or metal CFD), and a derivative's `root` (`DERIBIT:BTC`), `expiry` (UTC ms; none for a
+ * perpetual), and an option's `strike`, `optionRight` (`call`, `put`) and `underlying` index.
  */
 const instrument = object({
   symbol: opt(z.string()), venueCode: opt(z.string()), kind: opt(z.string()), contractSize: opt(z.number()),
   tickSize: opt(z.number()), quoteCurrency: opt(z.string()), valuePerPoint: opt(z.number()), quantityUnit: opt(z.string()),
+  category: opt(z.string()), root: opt(z.string()), expiry: opt(z.number()), strike: opt(z.number()),
+  optionRight: opt(z.string()), underlying: opt(z.string()),
 });
 /** A typed venue cost; `amount` is positive when paid. */
 const cost = object({ kind: z.string(), amount: z.number(), currency: opt(z.string()) });
@@ -312,7 +316,7 @@ export type EventType = keyof typeof payloadByType;
  * The contract this collector speaks, as semver. Minor: a new type or a new optional field. Major: a rename, a
  * removal or a change of meaning, which also takes a new envelope `v` (envelope.ts `SUPPORTED_MAJORS`).
  */
-export const CONTRACT_VERSION = "1.3.0";
+export const CONTRACT_VERSION = "1.4.0";
 
 /** When a type joined the contract and, once it is on its way out, what replaces it. */
 export interface EventTypeMeta {

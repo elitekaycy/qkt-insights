@@ -322,4 +322,16 @@ describe("enriched qkt payloads", () => {
     } });
     expect(r.success && r.data.type === "state.account" && r.data.payload.venue).toMatchObject({ tradeMode: "demo" });
   });
+
+  it("reads an instrument's venue folder and a derivative's terms", () => {
+    const r = EnvelopeSchema.safeParse({ ...base, type: "broker.deal", payload: {
+      broker: "DERIBIT", dealTicket: "d1", qty: 1, price: 0.05, profit: 0, ts: base.ts,
+      instrument: { symbol: "DERIBIT:BTC-29NOV26-70000-C", kind: "option", root: "DERIBIT:BTC_USDC", expiry: 1796025600000, strike: 70000, optionRight: "call", underlying: "btc_usdc" },
+    } });
+    expect(r.success && r.data.type === "broker.deal" && r.data.payload.instrument).toMatchObject({ strike: 70000, optionRight: "call", expiry: 1796025600000 });
+    const cfd = EnvelopeSchema.safeParse({ ...base, type: "broker.deal", payload: {
+      broker: "EXNESS", dealTicket: "d2", qty: 0.1, price: 230, profit: 0, ts: base.ts, instrument: { kind: "cfd", category: "Stocks" },
+    } });
+    expect(cfd.success && cfd.data.type === "broker.deal" && cfd.data.payload.instrument).toMatchObject({ category: "Stocks" });
+  });
 });

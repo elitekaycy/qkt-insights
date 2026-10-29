@@ -83,24 +83,6 @@ export function quantity(v: number | null | undefined): string {
   return price(v);
 }
 
-/** A quantity with its unit when the unit is known: "10 shares", "0.1 lots", "12"; a contract size follows ("10 contracts × 0.001"). */
-export function sized(qty: number | null | undefined, unit?: string | null, contractSize?: number | null): string {
-  if (missing(qty)) return DASH;
-  const n = quantity(qty);
-  if (!unit) return n;
-  return unit === "contracts" && contractSize != null && contractSize !== 1 ? `${n} contracts × ${quantity(contractSize)}` : `${n} ${unit}`;
-}
-
-/** An instrument kind as qkt states it, in words: "cfd" -> "CFD", "equity" -> "Share", "future" -> "Dated future". */
-export function kindLabel(kind: string | null | undefined): string | null {
-  if (!kind) return null;
-  return KIND_LABEL[kind.toLowerCase()] ?? kind;
-}
-
-const KIND_LABEL: Record<string, string> = {
-  cfd: "CFD", equity: "Share", spot: "Spot coin", perpetual: "Perpetual", future: "Dated future", option: "Option",
-};
-
 /** Compact axis value, e.g. 1234 → "1.2k", −56000 → "−56k"; tooltips and tables keep full precision. */
 export function compact(v: number): string {
   const abs = Math.abs(v);

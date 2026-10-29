@@ -1,5 +1,7 @@
 import { useEffect, useMemo, useRef, useState, type ReactNode } from "react";
-import { DASH, duration, pnl, quantity, sized, toneClass } from "../format";
+import { DASH, duration, pnl, quantity, toneClass } from "../format";
+import { TypeBadge } from "../components/InstrumentType";
+import { instrumentType, sizeInWords } from "../instruments";
 import { Pill, RowChevron } from "../components/ui";
 import { useView } from "../view";
 import { useRoundTrips, type RoundTrip, type RoundTripTotals, type SortKey, type TripScope } from "./data";
@@ -23,6 +25,7 @@ const COLUMNS: Column[] = [
   { key: "id", label: "#", w: "88px", sort: "ticket", title: "Venue position ticket" },
   { key: "strategy", label: "Strategy", w: "minmax(120px,1fr)", sort: "strategy" },
   { key: "instrument", label: "Symbol", w: "72px", sort: "symbol", title: "The instrument, whatever broker profile traded it; with its venue beneath when the instance trades it on more than one" },
+  { key: "type", label: "Type", w: "84px", title: "What the position is: CFD, stock CFD, share, coin, perpetual or dated future, option; hover a badge for what it means" },
   { key: "side", label: "Side", w: "70px", sort: "side" },
   { key: "entry", label: "Entry (UTC)", w: "112px", sort: "entry" },
   { key: "entryPrice", label: "Entry", w: "92px", sort: "entryPrice", right: true },
@@ -34,6 +37,10 @@ const COLUMNS: Column[] = [
   { key: "held", label: "Held", w: "74px", sort: "held", right: true },
   { key: "ended", label: "Ended by", w: "84px", sort: "ended" },
 ];
+
+function tripType(t: RoundTrip) {
+  return instrumentType(t.kind, t.category);
+}
 
 function StrategyName({ id }: { id: string | null }) {
   return id ? <span className="truncate text-bright" title={id}>{id}</span> : <Pill>unattributed</Pill>;
@@ -75,6 +82,7 @@ function cells(t: RoundTrip, hide: ReadonlySet<string>): ReactNode[] {
         ) : t.instrument}
       </Cell>
     ),
+    type: <Cell>{tripType(t) ? <TypeBadge type={tripType(t)} short /> : <span className="text-faint" title="qkt did not state this instrument's type">{DASH}</span>}</Cell>,
     side: <Cell><SideText side={t.side} /></Cell>,
     entry: <Cell className="font-mono text-xs text-body"><span title={`${minuteStamp(t.entryTs)} UTC`}>{tableStamp(t.entryTs)}</span></Cell>,
     entryPrice: <Cell right className="text-body">{px(t.entryPrice, t.priceDigits)}</Cell>,
@@ -83,7 +91,7 @@ function cells(t: RoundTrip, hide: ReadonlySet<string>): ReactNode[] {
     size: (
       <Cell right className="text-body">
         {t.unit ? (
-          <span title={sized(t.qty, t.unit, t.contractSize)}>
+          <span title={sizeInWords(t.qty, t)}>
             <span className="block truncate leading-tight">{quantity(t.qty)}</span>
             <span className="block truncate text-[10px] leading-tight text-muted">{t.unit}</span>
           </span>
@@ -272,6 +280,7 @@ export function RoundTripTable({ scope, q, sort, dir, onSort, hide = [], height 
       <div key={t.id} {...common} className={`group absolute inset-x-0 flex flex-col justify-center gap-1 border-b border-line pl-3 pr-1.5 text-sm ${clickable ? "cursor-pointer active:bg-press" : ""} ${selected ? "bg-accent-soft" : ""}`}>
         <div className="flex items-center gap-2">
           <span className="min-w-0 truncate font-semibold text-bright" title={tripInstrument(t)}>{tripInstrument(t)}</span>
+          <TypeBadge type={tripType(t)} short />
           <SideText side={t.side} />
           <span className={`ml-auto shrink-0 font-semibold ${toneClass(t.pnlInExit ?? t.pnl)}`}>{t.status === "open" ? <Pill tone="info">open</Pill> : <TripPnl t={t} />}</span>
           {clickable && <RowChevron />}

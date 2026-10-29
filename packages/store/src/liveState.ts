@@ -40,13 +40,13 @@ export interface LivePosition {
   positionId?: string; attribution?: string;
   /** The entry's initial stop and target, and its money at risk to that stop in account currency, when it had a bracket. */
   initialStop?: number; initialTarget?: number; riskAmount?: number;
-  /** The instrument's kind as qkt states it, the unit of `qty` (instrumentKind.ts) and the contract size, when known. */
-  kind?: string; unit?: string; contractSize?: number;
+  /** The instrument's kind as qkt states it, the unit of `qty` (instrumentKind.ts), the contract size and the venue's folder (`Stocks`), when known. */
+  kind?: string; unit?: string; contractSize?: number; category?: string;
 }
 
 /** A position as `state.positions` reports it: the live fields, and the instrument facts they are read from. */
-type ReportedPosition = Omit<LivePosition, "kind" | "unit" | "contractSize"> & {
-  instrument?: { kind?: string | null; quantityUnit?: string | null; contractSize?: number | null } | null;
+type ReportedPosition = Omit<LivePosition, "kind" | "unit" | "contractSize" | "category"> & {
+  instrument?: { kind?: string | null; quantityUnit?: string | null; contractSize?: number | null; category?: string | null } | null;
 };
 
 /** A resting (pending) order at the broker: limit/stop waiting to trigger. */
@@ -126,7 +126,8 @@ export class LiveStateStore {
         requestedStopLoss: x.requestedStopLoss, requestedTakeProfit: x.requestedTakeProfit,
         magic: x.magic, clientOrderId: x.clientOrderId,
         ...stated({ positionId: x.positionId, attribution: x.attribution, initialStop: x.initialStop, initialTarget: x.initialTarget, riskAmount: x.riskAmount,
-          kind: x.instrument?.kind?.toLowerCase(), unit: quantityUnitOf(x.instrument?.kind, x.instrument?.quantityUnit), contractSize: x.instrument?.contractSize }) }));
+          kind: x.instrument?.kind?.toLowerCase(), unit: quantityUnitOf(x.instrument?.kind, x.instrument?.quantityUnit), contractSize: x.instrument?.contractSize,
+          category: x.instrument?.category }) }));
       this.positions.set(key, { at: e.ts, list, accountId: p.accountId != null ? opaqueAccountId(p.accountId) : undefined });
       return !prev || JSON.stringify(prev.list) !== JSON.stringify(list);
     }

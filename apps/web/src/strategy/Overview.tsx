@@ -1,6 +1,7 @@
 import { useMemo } from "react";
 import { useQuery } from "@tanstack/react-query";
 import { get, MIN_RATIO_DAYS, type PerformanceBundle } from "../api";
+import { CostTerm } from "../components/InstrumentType";
 import { chartColors, EChart, areaFade, qktChartAxis, qktChartGrid, qktChartTooltip, qktXAxis, tipHtml, tok, zeroLine, type QktChartOption } from "../components/EChart";
 import { rangeStart, type RangeKey } from "../components/ui";
 import { count, DASH, day as utcDay, days, duration, num, pct, pctValue, pnl, polarity, signedMoney, signedPct, toneClass, tsShort } from "../format";
@@ -253,11 +254,11 @@ export function OverviewSection({ instanceId, strategyId, scope, q, toggle, a, b
               {costs ? (
                 <>
                   <StatRow label="Gross, before costs"><span className={toneClass(costs.total.grossProfit)}>{signedMoney(costs.total.grossProfit)}</span></StatRow>
-                  <StatRow label="Commission · swap · fees">
+                  <StatRow label={<><CostTerm kind="commission" /> · <CostTerm kind="swap">swap</CostTerm> · <CostTerm kind="fee">fees</CostTerm></>}>
                     <span className="text-body">{signedMoney(costs.total.commission, 0)} · {signedMoney(costs.total.swap, 0)} · {signedMoney(costs.total.fee, 0)}</span>
                   </StatRow>
                   {costs.total.funding ? (
-                    <StatRow label="Perpetual funding" title="What the venue charged (negative) or paid the strategy's perpetual positions for funding; not in swap">
+                    <StatRow label={<>Perpetual <CostTerm kind="funding">funding</CostTerm></>} title="What the venue charged (negative) or paid the strategy's perpetual positions for funding; not in swap">
                       <span className="text-body">{signedMoney(costs.total.funding)}</span>
                     </StatRow>
                   ) : null}
