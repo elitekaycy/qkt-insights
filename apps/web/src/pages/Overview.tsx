@@ -198,7 +198,6 @@ export default function Home({ instanceId }: { instanceId: string | null }) {
         <div id="home-strategies" className="scroll-mt-4">
           <StrategyTable
             lines={lines}
-            now={now}
             search
             origin="Home"
             hint={`${shownName ? `on ${shownName} · ` : ""}Today includes open P&L · other columns are closed trades`}

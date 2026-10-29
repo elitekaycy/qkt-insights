@@ -95,11 +95,11 @@ export function ShareControl({ instanceId, kind, subject = "" }: { instanceId: s
           <p className="flex items-center gap-1.5 font-semibold text-bright">
             <Icon d={state.effective ? GLOBE : LOCK} className="h-3.5 w-3.5" />
             {state.effective ? "Public" : "Private"}
-            {inherited && <span className="font-normal text-muted">· follows the {state.effective ? "public" : "private"} setting above it</span>}
+            {inherited && <span className="font-normal text-muted">· from the overview</span>}
           </p>
           {state.effective ? (
             <>
-              <p className="text-muted">Anyone with the link sees {subjectWords(kind)}, {delay} minutes behind, read-only.</p>
+              <p className="text-muted">Anyone with the link sees it, {delay} minutes behind.</p>
               {url && (
                 <div className="flex items-center gap-1.5">
                   <input readOnly value={url} onFocus={(e) => e.currentTarget.select()} aria-label="Public link" className="h-8 min-w-0 flex-1 rounded-lg border border-ctl bg-panel px-2 font-mono text-[11px] text-body" />
@@ -127,7 +127,6 @@ export function ShareControl({ instanceId, kind, subject = "" }: { instanceId: s
           ) : confirming ? (
             <>
               <p className="text-body">Anyone with the link sees {subjectWords(kind)}, {delay} minutes behind.</p>
-              <p className="text-muted">Tickets, logs, code and account logins stay private.</p>
               <div className="flex gap-1.5">
                 <button type="button" disabled={busy} onClick={() => toggle.mutate("public")} className={`${SMALL} border-transparent bg-accent text-on-accent hover:bg-accent-hi`}>
                   Make public
@@ -137,7 +136,7 @@ export function ShareControl({ instanceId, kind, subject = "" }: { instanceId: s
             </>
           ) : (
             <>
-              <p className="text-muted">Only signed-in viewers see it.</p>
+              <p className="text-muted">Only you can see it.</p>
               <div className="flex flex-wrap gap-1.5">
                 <button type="button" onClick={() => setConfirming(true)} className={QUIET}>Create a public link…</button>
                 {state.visibility != null && kind !== "overview" && (

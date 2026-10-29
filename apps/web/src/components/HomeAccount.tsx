@@ -94,30 +94,13 @@ function LimitGauge({ label, use, value, measured, basis, help }: {
           <p className="text-muted">{help}</p>
         </>
       }
-      sub={line ? <span className={line.over ? "font-medium text-loss" : ""}>{line.left}</span> : <span className="text-faint">no limit set</span>}
+      sub={line ? <span className={line.over ? "font-medium text-loss" : ""}>{line.left}</span> : <span className="text-muted">no limit</span>}
     >
       <div className="flex items-end gap-2 sm:gap-2.5">
         {line && <Arc pct={use.pct} />}
         <span className={tone}>{value}</span>
       </div>
     </Kpi>
-  );
-}
-
-/** "via 41 profiles": one venue account reached through several qkt broker profiles; the names on hover or tap. */
-function ProfileCount({ profiles }: { profiles: string[] }) {
-  const shown = profiles.slice(0, 12);
-  return (
-    <Popover
-      hover
-      label={`The ${profiles.length} broker profiles of this account`}
-      trigger={<span className="cursor-default text-xs text-muted underline decoration-dotted underline-offset-2">via {profiles.length} profiles</span>}
-    >
-      <p className="text-bright">One venue account, reached through {profiles.length} qkt broker profiles. Its balance and equity are counted once.</p>
-      <p className="mt-1.5 break-words font-mono text-[11px] text-muted">
-        {shown.join(", ")}{profiles.length > shown.length ? `, and ${profiles.length - shown.length} more` : ""}
-      </p>
-    </Popover>
   );
 }
 
@@ -160,33 +143,25 @@ export function AccountStrip({
   return (
     <section className={account.stale ? "opacity-90" : ""} aria-label={`Account ${title}`}>
       <div className="flex flex-wrap items-center gap-x-2.5 gap-y-1 text-sm">
-        <span className="font-semibold text-bright" title={isPublic ? accountTitle(account, isPublic) : `${accountTitle(account)} · last reported by broker profile ${account.broker}; the login shows its last four characters`}>{title}</span>
-        {hint && <span className="text-xs text-faint">{hint}</span>}
+        <span className="font-semibold text-bright" title={isPublic ? accountTitle(account, isPublic) : [accountTitle(account), account.server, profiles.length > 1 ? `via ${profiles.length} broker profiles: ${profiles.join(", ")}` : null].filter(Boolean).join(" · ")}>{title}</span>
+        {hint && <span className="text-xs text-muted">{hint}</span>}
         {account.stopped && <Pill tone="warn">stopped reporting</Pill>}
-        {!isPublic && account.server && <span className="text-xs text-faint">{account.server}</span>}
-        {profiles.length > 1 && <ProfileCount profiles={profiles} />}
         <span className="ml-auto">
           {isPublic ? <span className="text-xs text-muted">as of {clock(account.lastSeen)} UTC</span> : <Freshness at={account.lastSeen} stale={account.stale} />}
         </span>
       </div>
       <div className={`mt-3 grid grid-cols-2 gap-3 sm:grid-cols-3 ${open ? "xl:grid-cols-6" : "xl:grid-cols-5"}`}>
-        <Kpi icon={ICON.wallet} label="Balance" sub="closed trades only" info={<p>The venue's balance in {account.currency}: closed trades only. Open P&L is in Equity.</p>}>
+        <Kpi icon={ICON.wallet} label="Balance" info={<p>Cash after closed trades, in {account.currency}. Open trades are in Equity.</p>}>
           <FlashValue value={account.balance}><span className="text-bright">{money(account.balance)}</span></FlashValue>
         </Kpi>
         <Kpi
           icon={ICON.pulse}
           label="Equity"
-          sub={<>floating <Pnl value={account.equity - account.balance} glyphs={false} /></>}
+          sub={<>open <Pnl value={account.equity - account.balance} glyphs={false} /></>}
           info={
             <>
-              <p>Balance plus the open positions' floating P&L, as the venue marks them.</p>
-              {note && (
-                <p className="text-warn">
-                  {signedMoney(note.account)} floating on the account, of which {floatingNoteText(note)}.
-                  {note.outside && " Another system trades this account; its positions move equity but are not listed here."}
-                  {note.unmarked > 0 && " The venue sends no mark for those positions, so their floating is only in equity."}
-                </p>
-              )}
+              <p>Balance plus what open trades are worth now.</p>
+              {note && <p className="text-muted">Of the {signedMoney(note.account)} open: {floatingNoteText(note)}.</p>}
             </>
           }
         >
@@ -197,14 +172,13 @@ export function AccountStrip({
           label="Today"
           sub={
             split
-              ? <>{today.other != null && <><span className="font-mono">{signedMoney(today.other)}</span> other system</>}{today.other != null && today.unassigned !== 0 && " · "}{today.unassigned !== 0 && <><span className="font-mono">{signedMoney(today.unassigned)}</span> not attributed</>}</>
+              ? <>{today.other != null && <><span className="font-mono">{signedMoney(today.other)}</span> other system</>}{today.other != null && today.unassigned !== 0 && " · "}{today.unassigned !== 0 && <><span className="font-mono">{signedMoney(today.unassigned)}</span> unlisted</>}</>
               : `${signedMoney(realizedToday)} closed`
           }
           info={
             <>
-              {split && <p className="text-bright">The account's own Today is {signedMoney(today.total)}: {signedMoney(today.qkt)} from qkt{today.other != null ? `, ${signedMoney(today.other)} floating on positions of another system trading this login` : ""}{today.unassigned !== 0 ? `, ${signedMoney(today.unassigned)} not attributed to either` : ""}.</p>}
-              <p>qkt: {signedMoney(realizedToday)} from trades closed since the day began, {signedMoney(today.qkt - realizedToday)} open now on its listed positions. The day runs from {dayLabel.replace(/^day from /, "")}.</p>
-              {note && <p className="text-muted">Outside qkt's positions: {floatingNoteText(note)}.</p>}
+              <p>qkt today: {signedMoney(realizedToday)} closed, {signedMoney(today.qkt - realizedToday)} still open. The day starts {dayLabel.replace(/^day from /, "")}.</p>
+              {split && <p className="text-muted">The whole account is {signedMoney(today.total)} today{today.other != null ? `; ${signedMoney(today.other)} of it is open on another system's trades on this login` : ""}{today.unassigned !== 0 ? `; ${signedMoney(today.unassigned)} is on trades not listed here` : ""}.</p>}
             </>
           }
         >
@@ -213,15 +187,15 @@ export function AccountStrip({
         {open && (
           <Kpi
             icon={ICON.shield}
-            label="Open risk"
+            label="Risk to stops"
             sub={
               open.noStop > 0 ? <span className="font-medium text-warn">{count(open.noStop)} without a stop</span>
-                : openCount === 0 ? "flat" : `${count(openCount)} ${openCount === 1 ? "position" : "positions"}`
+                : openCount === 0 ? "no open trades" : `${count(openCount)} open ${openCount === 1 ? "trade" : "trades"}`
             }
             info={
               <>
-                <p>Open risk to stops: what the open positions would lose if every stop filled at its price now.</p>
-                {open.noStop > 0 && <p className="text-warn">{count(open.noStop)} without a stop: their loss is not bounded.</p>}
+                <p>What open trades would lose if every stop were hit now.</p>
+                {open.noStop > 0 && <p>{count(open.noStop)} without a stop: no limit on their loss.</p>}
                 {open.unpriced > 0 && <p className="text-muted">{count(open.unpriced)} not priced yet.</p>}
               </>
             }
@@ -262,42 +236,10 @@ export function AccountStrip({
             <div className="mt-3 h-7 w-32 rounded bg-raised" />
           </Card>
         ) : (
-          <Card className="col-span-2 flex items-center p-4 text-sm text-muted">Loss limits appear with the account's first equity rollup.</Card>
+          <Card className="col-span-2 flex items-center p-4 text-sm text-muted">No loss limits yet.</Card>
         )}
       </div>
-      {note && <FloatingLine note={note} stopped={account.stopped === true} />}
     </section>
-  );
-}
-
-/**
- * The account's floating P&L split so it reconciles with the positions listed below it: what the listed positions
- * float, and what floats outside them (another system's positions on the account, known or not, and positions the
- * venue marks not).
- */
-function FloatingLine({ note, stopped }: { note: FloatingNote; stopped: boolean }) {
-  const n = (k: number, one: string, many: string) => `${count(k)} ${k === 1 ? one : many}`;
-  const parts: ReactNode[] = [];
-  if (note.marked > 0) parts.push(<><Pnl value={note.listed} glyphs={false} /> on the {n(note.marked, "position", "positions")} listed below</>);
-  if (note.outside) {
-    parts.push(
-      <>
-        {note.outside.floating != null && <><Pnl value={note.outside.floating} glyphs={false} /> on </>}
-        {n(note.outside.count, "position", "positions")} outside this instance (another system trading this account; not listed)
-      </>,
-    );
-  }
-  if (note.elsewhere != null) {
-    parts.push(stopped
-      ? <><Pnl value={note.elsewhere} glyphs={false} /> on positions no longer listed (the account stopped reporting)</>
-      : <><Pnl value={note.elsewhere} glyphs={false} /> on positions from another system on this login (qkt reports only its own)</>);
-  }
-  if (note.unmarked > 0) parts.push(<>{n(note.unmarked, "listed position has", "listed positions have")} no mark from the venue, so {note.unmarked === 1 ? "its" : "their"} floating is in equity only</>);
-  return (
-    <p className="mt-2 text-xs text-muted">
-      Equity floats <Pnl value={note.account} glyphs={false} />:{" "}
-      {parts.map((part, i) => <span key={i}>{i > 0 && "; "}{part}</span>)}.
-    </p>
   );
 }
 

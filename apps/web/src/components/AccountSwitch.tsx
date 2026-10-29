@@ -190,14 +190,14 @@ function Pending() {
 export function TodayFigure({ split, note, realized }: { split: TodaySplit; note: FloatingNote | null; realized: number }) {
   const parts = [`Account today ${signedMoney(split.total)}`, `${signedMoney(realized)} closed`, `${signedMoney(split.qkt - realized)} open on qkt's positions`];
   if (split.other != null) parts.push(`${signedMoney(split.other)} on positions of another system on this login`);
-  if (split.unassigned !== 0 && note) parts.push(`${signedMoney(split.unassigned)} not attributed (${floatingNoteText(note)})`);
+  if (split.unassigned !== 0 && note) parts.push(`${signedMoney(split.unassigned)} on trades not listed here (${floatingNoteText(note)})`);
   const title = parts.join(" · ");
   if (split.other == null && split.unassigned === 0) return <span title={title}><Pnl value={split.total} /></span>;
   return (
     <span className="inline-flex flex-col items-end leading-tight" title={title}>
       <span className="whitespace-nowrap"><Pnl value={split.qkt} /> <span className="font-sans text-xs text-muted">qkt</span></span>
       {split.other != null && <span className="whitespace-nowrap text-xs text-muted">{signedMoney(split.other)} <span className="font-sans">other system</span></span>}
-      {split.unassigned !== 0 && <span className="whitespace-nowrap text-xs text-muted">{signedMoney(split.unassigned)} <span className="font-sans">not attributed</span></span>}
+      {split.unassigned !== 0 && <span className="whitespace-nowrap text-xs text-muted">{signedMoney(split.unassigned)} <span className="font-sans">unlisted</span></span>}
     </span>
   );
 }

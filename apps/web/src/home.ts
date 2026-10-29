@@ -314,17 +314,17 @@ export function floatingNote(
   return { account: floating, listed, marked: positions.length - unmarked, unmarked, outside: hidden, elsewhere };
 }
 
-/** The note in words, e.g. "−597.30 on 1 position outside this instance · 2 listed without a venue mark". */
+/** The note in plain words, e.g. "−597.30 on 1 trade from another system · 2 trades with no price from the venue". */
 export function floatingNoteText(n: FloatingNote): string {
   const plural = (k: number, word: string) => `${k} ${word}${k === 1 ? "" : "s"}`;
   const parts: string[] = [];
   if (n.outside) {
     parts.push(n.outside.floating != null
-      ? `${signedMoney(n.outside.floating)} on ${plural(n.outside.count, "position")} outside this instance`
-      : `${plural(n.outside.count, "position")} outside this instance`);
+      ? `${signedMoney(n.outside.floating)} on ${plural(n.outside.count, "trade")} from another system`
+      : `${plural(n.outside.count, "trade")} from another system`);
   }
-  if (n.elsewhere != null) parts.push(`${signedMoney(n.elsewhere)} on positions this instance does not list`);
-  if (n.unmarked > 0) parts.push(`${plural(n.unmarked, "listed position")} without a venue mark`);
+  if (n.elsewhere != null) parts.push(`${signedMoney(n.elsewhere)} on trades not listed here`);
+  if (n.unmarked > 0) parts.push(`${plural(n.unmarked, "trade")} with no price from the venue`);
   return parts.join(" · ");
 }
 

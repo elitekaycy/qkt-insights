@@ -63,7 +63,6 @@ const quiet = (row: StrategyRow | null) => row != null && (!row.active || haltSu
 
 export function StrategyTable({
   lines,
-  now,
   title = "Strategies",
   hint,
   right,
@@ -72,7 +71,6 @@ export function StrategyTable({
   origin,
 }: {
   lines: StrategyLine[];
-  now: number;
   title?: string;
   hint?: string;
   /** Extra header content at the right edge, e.g. a group's total. */
@@ -221,7 +219,7 @@ export function StrategyTable({
           </ul>
         </div>
       )}
-      <TotalLine total={strategyTotal(shown.map((l) => l.periods.today), account)} hidden={lines.length - shown.length} now={now} />
+      <TotalLine total={strategyTotal(shown.map((l) => l.periods.today), account)} hidden={lines.length - shown.length} />
     </Card>
   );
 }
@@ -259,18 +257,17 @@ function Mini({ k, children }: { k: string; children: ReactNode }) {
 }
 
 /**
- * The table's total, computed from the rows shown: "Total qkt +18.35 · other system −767.77 · account −749.42". On one
- * account the line names whatever else makes up the account's Today, so the parts always add up to it.
+ * The table's total from the rows shown: "Total +18.35"; on one account, set against the account's own Today
+ * ("· other system −767.77 · account −749.42"), with whatever else it holds named so the parts add up.
  */
-function TotalLine({ total, hidden, now }: { total: ReturnType<typeof strategyTotal>; hidden: number; now: number }) {
+function TotalLine({ total, hidden }: { total: ReturnType<typeof strategyTotal>; hidden: number }) {
   const part = (label: string, v: number) => <span className="whitespace-nowrap">{label} <span className="font-mono tabular-nums text-body">{signedMoney(v)}</span></span>;
-  const parts = [part(total.account == null ? "Total today" : "Total qkt", total.rows)];
+  const parts = [part("Total", total.rows)];
   if (total.other != null) parts.push(part("other system", total.other));
-  if (total.account != null && total.rest !== 0) parts.push(part(hidden > 0 ? "in rows not shown" : "not in a row", total.rest));
+  if (total.account != null && total.rest !== 0) parts.push(part(hidden > 0 ? "rows not shown" : "not in a row", total.rest));
   if (total.account != null) parts.push(part("account", total.account));
   return (
-    <div className="flex flex-wrap items-center gap-x-1.5 gap-y-0.5 border-t border-line px-4 py-2 text-xs text-muted" title="Today of the rows shown; on one account, set against the account's own Today (realized since its day began plus equity minus balance)">
-      <span className="text-faint">as of {ts(now).slice(11, 16)} UTC ·</span>
+    <div className="flex flex-wrap items-center gap-x-1.5 gap-y-0.5 border-t border-line px-4 py-2 text-xs text-muted">
       {parts.map((p, i) => <span key={i} className="inline-flex items-center gap-1.5">{i > 0 && <span className="text-faint">·</span>}{p}</span>)}
     </div>
   );

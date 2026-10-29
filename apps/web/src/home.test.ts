@@ -187,7 +187,7 @@ describe("floatingNote", () => {
     expect(n.account).toBeCloseTo(-584.39, 6);
     expect(n.listed).toBeCloseTo(9.2, 9);
     expect(n.unmarked).toBe(0);
-    expect(floatingNoteText(n)).toBe("\u2212593.59 on 2 positions outside this instance");
+    expect(floatingNoteText(n)).toBe("\u2212593.59 on 2 trades from another system");
   });
 
   it("names listed positions the venue sends no mark for, never counting them as 0.00", () => {
@@ -195,8 +195,8 @@ describe("floatingNote", () => {
     const n = floatingNote({ balance: 9_999.96, equity: 10_001.02 }, paper, null)!;
     expect(n).toMatchObject({ marked: 1, unmarked: 1, outside: null });
     expect(n.listed).toBeCloseTo(1.06, 9);
-    expect(floatingNoteText(n)).toBe("1 listed position without a venue mark");
-    expect(floatingNoteText(floatingNote(account, listed, { count: 1, floating: null })!)).toBe("1 position outside this instance");
+    expect(floatingNoteText(n)).toBe("1 trade with no price from the venue");
+    expect(floatingNoteText(floatingNote(account, listed, { count: 1, floating: null })!)).toBe("1 trade from another system");
   });
 
   it("has nothing to say when every listed position is marked and the account floats what they float", () => {
@@ -210,7 +210,7 @@ describe("floatingNote", () => {
     const n = floatingNote({ balance: 4_983_990.48, equity: 4_982_840.72 }, [position({ ticket: "e", profit: 1.06, swap: 0 })], null)!;
     expect(n.outside).toBeNull();
     expect(n.elsewhere).toBeCloseTo(-1_150.82, 2);
-    expect(floatingNoteText(n)).toBe("\u22121,150.82 on positions this instance does not list");
+    expect(floatingNoteText(n)).toBe("\u22121,150.82 on trades not listed here");
     expect(floatingNote(account, listed, null)!.elsewhere).toBeCloseTo(-593.59, 2);
   });
 });
