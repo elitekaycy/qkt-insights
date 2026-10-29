@@ -26,8 +26,10 @@ const MOVED: Record<string, PageKey> = {
 };
 
 /** A strategy's sections, the journal's: the path segment of each (overview has none). */
-export type StrategyTab = "overview" | "calendar" | "daily" | "monthly" | "trades" | "time" | "logs";
-export const STRATEGY_TABS: readonly StrategyTab[] = ["overview", "calendar", "daily", "monthly", "trades", "time", "logs"];
+export type StrategyTab = "overview" | "calendar" | "daily" | "monthly" | "trades" | "time" | "code" | "logs";
+export const STRATEGY_TABS: readonly StrategyTab[] = ["overview", "calendar", "daily", "monthly", "trades", "time", "code", "logs"];
+/** Sections a shared link never shows: the strategy's code and its engine logs. */
+export const PRIVATE_STRATEGY_TABS: ReadonlySet<StrategyTab> = new Set<StrategyTab>(["code", "logs"]);
 
 export type SettingsSection = "sharing" | "viewership" | "appearance" | "account";
 export const SETTINGS_SECTIONS: readonly SettingsSection[] = ["sharing", "viewership", "appearance", "account"];

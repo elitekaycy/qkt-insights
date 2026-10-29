@@ -191,12 +191,22 @@ export const payloadByType = {
     halted: z.boolean().optional(), haltReason: z.string().nullable().optional(), haltScope: z.string().nullable().optional(),
     haltPersistent: z.boolean().nullable().optional(), haltedAt: z.number().nullable().optional(),
   }),
+  /*
+   * sourceText (1.2.0) is the strategy file's text, cut to 64 KiB of UTF-8 (sourceTruncated: true when cut);
+   * sourceSha256 always hashes the whole file. qkt sends the text on strategy.started only, and one qkt
+   * process sends it once per strategy and sha: a later start at the same sha carries the sha with
+   * sourceTextOmitted: true instead. The collector stores each (instance, strategy, sha) once and never
+   * keeps the text in events or strategy metadata (store strategySources.ts).
+   */
   "strategy.started": object({
     strategyId: z.string(),
     ts: z.number().optional(),
     deployName: z.string().optional(),
     sourcePath: z.string().optional(),
     sourceSha256: z.string().optional(),
+    sourceText: z.string().optional(),
+    sourceTruncated: z.boolean().optional(),
+    sourceTextOmitted: z.boolean().optional(),
     dslVersion: z.number().optional(),
     runtimeMode: z.string().optional(),
     brokers: z.array(z.string()).optional(),
@@ -299,7 +309,7 @@ export type EventType = keyof typeof payloadByType;
  * The contract this collector speaks, as semver. Minor: a new type or a new optional field. Major: a rename, a
  * removal or a change of meaning, which also takes a new envelope `v` (envelope.ts `SUPPORTED_MAJORS`).
  */
-export const CONTRACT_VERSION = "1.1.0";
+export const CONTRACT_VERSION = "1.2.0";
 
 /** When a type joined the contract and, once it is on its way out, what replaces it. */
 export interface EventTypeMeta {

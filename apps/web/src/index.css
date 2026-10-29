@@ -138,6 +138,46 @@
   --shadow-card-lift: 0 8px 22px -14px rgba(15, 23, 42, 0.35);
 }
 
+/*
+ * Strategy code (strategy/code/highlight.ts): one colour per grammar role. Hand-picked per theme so
+ * every role keeps at least 4.5:1 contrast on the card it sits on.
+ */
+:root {
+  --code-text: #c9cbd3;
+  --code-comment: #8b8d99;
+  --code-keyword: #86b9f7;
+  --code-action: #f0956a;
+  --code-modifier: #b9a3fb;
+  --code-operator: #a3a5b0;
+  --code-function: #ec8fb3;
+  --code-field: #7fd4c1;
+  --code-alias: #ececef;
+  --code-namespace: #a3a5b0;
+  --code-string: #9fd38a;
+  --code-constant: #e6c06a;
+  --code-invalid: #ef5b5b;
+  --code-add: rgba(47, 179, 106, 0.14);
+  --code-del: rgba(230, 103, 103, 0.14);
+}
+
+:root[data-theme="light"] {
+  --code-text: #33363f;
+  --code-comment: #6b6e7b;
+  --code-keyword: #1f5fbb;
+  --code-action: #b4461a;
+  --code-modifier: #6941c6;
+  --code-operator: #5f6270;
+  --code-function: #a8305f;
+  --code-field: #0b6f60;
+  --code-alias: #14151a;
+  --code-namespace: #5f6270;
+  --code-string: #2f6f1f;
+  --code-constant: #8a5a00;
+  --code-invalid: #c93030;
+  --code-add: rgba(31, 157, 85, 0.12);
+  --code-del: rgba(227, 73, 72, 0.12);
+}
+
 html {
   background: var(--color-ink);
   color-scheme: dark;

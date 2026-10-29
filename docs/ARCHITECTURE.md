@@ -104,7 +104,7 @@ its way out, what to send instead (`deprecated`). A type without an entry fails 
 
 ```json
 {
-  "contractVersion": "1.1.0",
+  "contractVersion": "1.2.0",
   "majors": [1],
   "types": [{ "type": "balances.updated", "since": "1.0.0" }, "..."],
   "maxBatch": null,
@@ -188,6 +188,19 @@ conversion. No exchange rate is applied anywhere.
 An engine close (`trade.closed`) is a round trip of its own only while neither its strategy nor its broker (the
 symbol's `LABEL:` prefix) has stored a venue deal, so an instance that trades an MT5 account and a venue that sends
 no deals shows both.
+
+### Strategy code
+
+`strategy.started` carries the strategy file's text (`sourceText`, 1.2.0) beside `sourcePath` and `sourceSha256`.
+qkt cuts it to 64 KiB (`sourceTruncated`; the sha covers the whole file) and sends it once per qkt process,
+strategy and sha: a later start at that sha says `sourceTextOmitted: true` instead. The collector keeps each
+`(instance, strategy, sha)` once in `strategy_sources` (`packages/store/src/strategySources.ts`): the text the first
+time it arrives, the first and last start, and a count of starts, so a restart over unchanged code moves only
+`last_seen`. The text is never written to `events`, `strategies.metadata` or the live bus, and no `/public` route
+reads the table. A version with no text says why: qkt sent none (`not-sent`, a qkt before 1.2.0's fields), or it
+left the text out after sending it at an earlier start this collector does not hold (`not-received`, e.g. after a
+database reset; the next qkt restart sends it again). `GET /strategy-source` lists the versions without text and
+`GET /strategy-source/text?sha=` answers one, both behind the session.
 
 ## Reads
 

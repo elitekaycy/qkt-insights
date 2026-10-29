@@ -231,6 +231,33 @@ export interface ReconciliationView {
   ignored: { ranges: string[]; deals: number; net: number };
   accounts: AccountReconciliation[];
 }
+/** Why a version of a strategy's code shows its text or does not (store strategySources.ts). */
+export type SourceTextState = "stored" | "not-received" | "not-sent";
+
+/** One version of a strategy's code: its sha256 names it; the text is fetched on its own. */
+export interface StrategySourceVersion {
+  sha256: string;
+  path: string | null;
+  dslVersion: number | null;
+  firstSeen: number;
+  lastSeen: number;
+  starts: number;
+  truncated: boolean | null;
+  bytes: number | null;
+  text: SourceTextState;
+}
+
+export interface StrategySourceView {
+  running: string | null;
+  versions: StrategySourceVersion[];
+}
+
+export interface StrategySourceText {
+  sha256: string;
+  text: string;
+  truncated: boolean;
+}
+
 export interface StrategyRow {
   strategyId: string;
   firstSeen: number;
