@@ -1,8 +1,8 @@
 import { useState, type ReactNode } from "react";
 import type { LivePositionRow } from "../api";
-import { DASH, duration, human, instrumentOf, openPnl, price, quantity } from "../format";
+import { DASH, duration, human, openPnl, price, quantity } from "../format";
 import { positionRisks } from "../home";
-import { instrumentType, sizeInWords, TYPE_LABEL, type InstrumentType } from "../instruments";
+import { instrumentType, shortInstrument, sizeInWords, TYPE_LABEL, type InstrumentType } from "../instruments";
 import { TypeBadge } from "./InstrumentType";
 import { Link, useRoute, useSearchParam } from "../router";
 import { Card, Cell, FlashValue, Freshness, Pill, Pnl, RowChevron, SideTag } from "./ui";
@@ -13,12 +13,12 @@ import { Card, Cell, FlashValue, Freshness, Pill, Pnl, RowChevron, SideTag } fro
  * the ticket opens the position in the trades drawer.
  */
 
-const NO_MARK = "The venue sent no price for this contract: floating unknown, counted as —. Its floating is only in the account's equity.";
+const NO_MARK = "No price from the venue";
 /** Each column, with what it means on hover where the header alone does not say it. */
 const HEAD: ReadonlyArray<{ label: string; right?: boolean; title?: string }> = [
   { label: "Instrument" },
   { label: "Side" },
-  { label: "Size", right: true },
+  { label: "Size", right: true, title: "Hover a size for it in words; the unit is in the header when every position shares one" },
   { label: "Entry", right: true },
   { label: "Current", right: true, title: "The venue's mark now" },
   { label: "SL / TP", right: true, title: "Stop loss and take profit levels" },
@@ -59,12 +59,14 @@ export function OpenPositions({ positions, strategyName, now, freshness }: {
   const current = (p: LivePositionRow) => (p.currentPrice != null ? price(p.currentPrice) : <span className="text-faint" title={NO_MARK}>{DASH}</span>);
   const floating = (p: LivePositionRow) => (p.profit != null
     ? <FlashValue value={openPnl(p)}><Pnl value={openPnl(p)} glyphs={false} /></FlashValue>
-    : <span className="text-xs font-normal text-faint" title={NO_MARK}>no mark</span>);
+    : <span className="whitespace-nowrap font-normal text-faint" title={NO_MARK}>{DASH}</span>);
   const typeOf = (p: LivePositionRow) => instrumentType(p.kind, p.category);
   const [picked, setPicked] = useState<InstrumentType | null>(null);
   // "?pos=nostop" (Home's attention line links it) lists only the positions without a stop
   const [only, setOnly] = useSearchParam("pos");
   const noStop = only === "nostop";
+  // a unit every position shares is said once, in the header; otherwise each size says it on hover
+  const unit = positions.length > 0 && positions.every((p) => p.unit && p.unit === positions[0]!.unit) ? positions[0]!.unit : null;
   const shown = positions.filter((p) => (!picked || typeOf(p) === picked) && (!noStop || risks.get(p.ticket)!.noStop));
 
   return (
@@ -88,7 +90,7 @@ export function OpenPositions({ positions, strategyName, now, freshness }: {
               <thead>
                 <tr className="border-b border-line text-left">
                   {HEAD.map((h) => (
-                    <th key={h.label} title={h.title} className={`eyebrow whitespace-nowrap px-3 py-2 ${h.right ? "text-right" : ""} ${h.title ? "cursor-help underline decoration-dotted underline-offset-4" : ""}`}>{h.label}</th>
+                    <th key={h.label} title={h.title} className={`eyebrow whitespace-nowrap px-3 py-2 ${h.right ? "text-right" : ""} ${h.title ? "cursor-help underline decoration-dotted underline-offset-4" : ""}`}>{h.label === "Size" && unit ? `Size (${unit})` : h.label}</th>
                   ))}
                   <th className="w-8" aria-label="Open" />
                 </tr>
@@ -104,13 +106,10 @@ export function OpenPositions({ positions, strategyName, now, freshness }: {
                     className="group cursor-pointer border-b border-line text-bright transition-colors last:border-b-0 hover:bg-hover focus-visible:bg-hover focus-visible:outline-2 focus-visible:-outline-offset-2 focus-visible:outline-accent-hi"
                   >
                     <Cell>
-                      <div className="flex items-center gap-1.5 font-semibold">{instrumentOf(p.symbol)}<TypeBadge type={typeOf(p)} short /></div>
+                      <div className="flex items-center gap-1.5 font-semibold" title={p.symbol}>{shortInstrument(p.symbol, typeOf(p))}<TypeBadge type={typeOf(p)} short /></div>
                     </Cell>
                     <Cell><SideTag side={p.side} /></Cell>
-                    <Cell className="text-right font-mono">
-                      <span title={sizeInWords(p.qty, p)}>{quantity(p.qty)}</span>
-                      {p.unit && <div className="text-[10px] text-muted">{p.unit}</div>}
-                    </Cell>
+                    <Cell className="text-right font-mono"><span title={sizeInWords(p.qty, p)}>{quantity(p.qty)}</span></Cell>
                     <Cell className="text-right font-mono text-muted">{price(p.entryPrice)}</Cell>
                     <Cell className="text-right font-mono">{current(p)}</Cell>
                     <Cell className="whitespace-nowrap text-right font-mono text-muted">{level(p.stopLoss)} / {level(p.takeProfit)}</Cell>
@@ -134,7 +133,7 @@ export function OpenPositions({ positions, strategyName, now, freshness }: {
                 className="group cursor-pointer px-4 py-3 text-sm tabular-nums transition-colors hover:bg-hover active:bg-press"
               >
                 <div className="flex items-baseline gap-2">
-                  <span className="font-semibold text-bright">{instrumentOf(p.symbol)}</span>
+                  <span className="font-semibold text-bright" title={p.symbol}>{shortInstrument(p.symbol, typeOf(p))}</span>
                   <TypeBadge type={typeOf(p)} short />
                   <SideTag side={p.side} />
                   <span className="min-w-0 truncate text-muted">{sizeInWords(p.qty, p)}</span>

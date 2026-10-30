@@ -133,7 +133,7 @@ export default function Strategies({ instanceId }: { instanceId: string | null }
     <div className="@container grid gap-4">
       <PageHeader
         title="Strategies"
-        sub={`${live} ${live === 1 ? "strategy" : "strategies"}${halted ? ` · ${halted} halted` : ""}${view.public ? ` · ${view.meta.delayMinutes} minutes behind` : ""}`}
+        sub={`${live} ${live === 1 ? "strategy" : "strategies"}${halted ? ` · ${halted} halted` : ""} · figures net incl. open${view.public ? ` · ${view.meta.delayMinutes} minutes behind` : ""}`}
         right={
           <div className="flex w-full items-center gap-2 sm:w-auto">
             <StrategySearch className="flex-1 sm:flex-none" />

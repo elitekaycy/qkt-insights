@@ -106,7 +106,7 @@ export function TimeRiskSection({ q, toggle, a, busy, openTrade }: SectionProps)
         <StatRow label="Trades with a known stop">{count(a.r.n)} of {count(a.closed)}</StatRow>
         <StatRow label="Average R"><span className={toneClass(a.r.avg)}>{a.r.n ? rMultiple(a.r.avg) : "no stop"}</span>{a.r.n > 0 && a.r.n < a.closed && <span className="text-muted"> · {count(a.r.n)} of {count(a.closed)}</span>}</StatRow>
         <StatRow label="Total R"><span className={toneClass(a.r.total)}>{a.r.n ? rMultiple(a.r.total) : "no stop"}</span>{a.r.n > 0 && a.r.n < a.closed && <span className="text-muted"> · {count(a.r.n)} of {count(a.closed)}</span>}</StatRow>
-        <StatRow label="Payoff ratio">{num(a.payoff)}</StatRow>
+        <StatRow label="Win/loss ratio">{num(a.payoff)}</StatRow>
         <StatRow label="Average hold">{a.avgHoldMs == null ? DASH : duration(a.avgHoldMs)}</StatRow>
       </Widget>
       <Widget icon={ICON.streak} title="Streaks and extremes" busy={busy}

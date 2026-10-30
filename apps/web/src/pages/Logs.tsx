@@ -6,6 +6,7 @@ import { Card, Empty, Loadable, PageHeader, Panel, RangeChips, rangeStart, Spinn
 import { useSearchParam } from "../router";
 import { useStrategyNames } from "../hooks/useStrategyNames";
 import { LogLine } from "../components/LogLine";
+import { groupLogs } from "../logs";
 import { useLiveStream } from "../useLiveStream";
 import { count } from "../format";
 import { LOG_PRESETS, QueryBar } from "../query/QueryBar";
@@ -128,20 +129,14 @@ export default function Logs({ instanceId }: { instanceId: string | null }) {
       {liveLogs.length > 0 && (
         <Panel className="mt-5" title="Live" right={<span className="text-xs text-muted">newest {new Date(liveLogs[0]!.ts).toISOString().slice(11, 19)} UTC</span>} scroll="max-h-[20rem]">
           <div className="p-2">
-            {liveLogs.slice(0, 20).map((e) => (
-              <LogLine
-                key={`${e.instanceId}-${e.id}`}
-                log={{
-                  id: e.id,
-                  strategyId: e.strategyId ?? null,
-                  level: String(e.payload.level) as LogRow["level"],
-                  logger: String(e.payload.logger ?? ""),
-                  message: String(e.payload.message ?? ""),
-                  ts: e.ts,
-                }}
-                strategyName={strategyName}
-              />
-            ))}
+            {groupLogs(liveLogs.slice(0, 20).map((e) => ({
+              id: `${e.instanceId}-${e.id}`,
+              strategyId: e.strategyId ?? null,
+              level: String(e.payload.level) as LogRow["level"],
+              logger: String(e.payload.logger ?? ""),
+              message: String(e.payload.message ?? ""),
+              ts: e.ts,
+            }))).map((g) => <LogLine key={g.log.id} log={g.log} group={g} strategyName={strategyName} />)}
           </div>
         </Panel>
       )}
@@ -149,8 +144,8 @@ export default function Logs({ instanceId }: { instanceId: string | null }) {
       <Panel className="mt-5" title="History" hint="newest first" scroll="max-h-[calc(100dvh-20rem)]">
         <Loadable loading={logs.isPending} error={logs.isError} retry={() => logs.refetch()} what="log history" shape="lines" lines={8}>
           <div className={`p-2 ${logs.isPlaceholderData ? "opacity-60" : ""}`}>
-            {rows.map((l) => (
-              <LogLine key={l.id} log={l} strategyName={strategyName} />
+            {groupLogs(rows).map((g) => (
+              <LogLine key={g.log.id} log={g.log} group={g} strategyName={strategyName} />
             ))}
             {rows.length === 0 && (
               <Empty>

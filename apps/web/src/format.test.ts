@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { axisTick, compact, compactPnl, returnPct, dealNet, duration, fixed, glyph, human, instrumentOf, money, num, openPnl, pct, pnl, price, signedMoney, signedPct, toneClass, ts, tsShort } from "./format";
+import { axisTick, compact, compactDuration, compactPnl, returnPct, dealNet, duration, fixed, glyph, human, instrumentOf, money, num, openPnl, pct, pnl, price, signedMoney, signedPct, toneClass, ts, tsShort } from "./format";
 import { tableStamp } from "./trades/format";
 
 describe("price", () => {
@@ -158,5 +158,16 @@ describe("axisTick", () => {
     expect(axisTick(-1500)).toBe("\u22121.5k");
     expect(axisTick(0)).toBe("0");
     expect(axisTick(-0.001)).toBe("0");
+  });
+});
+
+describe("compactDuration", () => {
+  it("keeps a holding time to two units and drops seconds past a minute", () => {
+    expect(compactDuration(45_000)).toBe("45s");
+    expect(compactDuration(25 * 60_000 + 7_000)).toBe("25m");
+    expect(compactDuration(61 * 60_000 + 3_000)).toBe("1h 1m");
+    expect(compactDuration(2 * 3_600_000)).toBe("2h");
+    expect(compactDuration(52 * 3_600_000)).toBe("2d 4h");
+    expect(compactDuration(null)).toBe("—");
   });
 });

@@ -243,6 +243,17 @@ export function duration(ms: number | null | undefined): string {
   return `${d}d${h % 24 ? ` ${h % 24}h` : ""}`;
 }
 
+/** A holding time for a narrow column, the two largest units without seconds past a minute: 45s, 25m, 1h 1m, 2d 4h. */
+export function compactDuration(ms: number | null | undefined): string {
+  if (missing(ms) || ms < 0) return DASH;
+  const m = Math.floor(ms / 60_000);
+  if (m < 1) return `${Math.floor(ms / 1000)}s`;
+  if (m < 60) return `${m}m`;
+  const h = Math.floor(m / 60);
+  if (h < 24) return `${h}h${m % 60 ? ` ${m % 60}m` : ""}`;
+  return `${Math.floor(h / 24)}d${h % 24 ? ` ${h % 24}h` : ""}`;
+}
+
 export function age(ms: number): string {
   const s = Math.max(0, Math.floor((Date.now() - ms) / 1000));
   if (s < 60) return `${s}s ago`;

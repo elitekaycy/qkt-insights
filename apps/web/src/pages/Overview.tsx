@@ -10,6 +10,7 @@ import { ShareControl } from "../components/ShareControl";
 import { Card, Loadable, PageHeader } from "../components/ui";
 import { day as utcDay, ts } from "../format";
 import { attentionItems, dayBasisLabel, floatingByStrategy, floatingNote, HOME_RANGES, noAccountMessage, openRisk, riskRowFor, strategyLines, strategyPeriods, todayHeadline, todaySplit, type HomeRange } from "../home";
+import { haltWords } from "../halt";
 import { strategyDisplayName } from "../portfolio";
 import { useRoute, useSearchParam } from "../router";
 import { useLiveState } from "../useLiveState";
@@ -133,7 +134,7 @@ export default function Home({ instanceId }: { instanceId: string | null }) {
       split: l.realizedToday == null ? null : todaySplit(l.group.account, l.realizedToday, l.note) })));
   const headlinePending = liveState.isPending || risk.isPending || (shown != null && shownRealized == null && summary.isPending);
   const attention = attentionItems({
-    strategies: rows.map((r) => ({ strategyId: r.strategyId, name: strategyDisplayName(r), active: r.active, halted: r.halted })),
+    strategies: rows.map((r) => ({ strategyId: r.strategyId, name: strategyDisplayName(r), active: r.active, halted: r.halted, why: haltWords(r)?.label })),
     accounts: choice.accounts.map((g) => ({ key: accountKey(g.account), name: accountTab(g.account).name, stale: g.account.stale, stopped: g.account.stopped, lastSeen: g.account.lastSeen })),
     noStop: openRisk(positions).noStop,
   });
@@ -151,13 +152,14 @@ export default function Home({ instanceId }: { instanceId: string | null }) {
                 missing={headline.missing}
                 pending={headlinePending}
                 onQkt={() => document.getElementById("home-strategies")?.scrollIntoView({ behavior: "smooth", block: "start" })}
-                onAccount={(key) => choice.choose(choice.accounts.find((g) => accountKey(g.account) === key) ?? null)}
               />
             )}
             {!view.public && !liveState.isPending && !strategies.isPending && (
               <div className="mt-1.5">
                 <AttentionLine
                   items={attention}
+                  others={headline.others}
+                  onAccount={(key) => choice.choose(choice.accounts.find((g) => accountKey(g.account) === key) ?? null)}
                   onItem={(item) => {
                     if (item.kind === "halted") navigate(`/s/${encodeURIComponent(item.strategyId)}`, { from: "Home" });
                     else if (item.kind === "halted-many") navigate(`/s?find=${encodeURIComponent("status:halted")}`, { from: "Home" });

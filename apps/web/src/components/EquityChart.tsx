@@ -64,6 +64,8 @@ export interface ComparisonSeries {
   /** The series' name in the legend and tooltip: a strategy id, or an account's name. */
   name: string;
   color: string;
+  /** Line width; 2 when not given. */
+  width?: number;
   points: { ts: number; pct: number }[];
 }
 
@@ -100,7 +102,7 @@ export function ComparisonChart({ series, height = 320, label = "Strategy equity
       showSymbol: false,
       smooth: false,
       data: s.points.map((p) => [p.ts, p.pct]),
-      lineStyle: { width: 2 },
+      lineStyle: { width: s.width ?? 2 },
     })),
   };
   return <EChart option={option} height={height} label={label} />;

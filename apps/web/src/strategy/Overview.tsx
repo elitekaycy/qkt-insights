@@ -5,7 +5,7 @@ import { CostTerm } from "../components/InstrumentType";
 import { chartColors, EChart, areaFade, qktChartAxis, qktChartGrid, qktChartTooltip, qktXAxis, tipHtml, tok, zeroLine, type QktChartOption } from "../components/EChart";
 import { withTokens } from "@qkt-insights/contract/query";
 import { rangeStart, type RangeKey } from "../components/ui";
-import { count, DASH, day as utcDay, days, num, pctValue, pnl, polarity, signedMoney, toneClass, tsShort } from "../format";
+import { count, day as utcDay, days, num, pctValue, pnl, polarity, signedMoney, toneClass, tsShort } from "../format";
 import { rMultiple } from "../trades/format";
 import { useTripAnalytics } from "../trades/analytics";
 import { chipOf, emptyHint, exitSpan, nearestByTime, profitFactorText, todayParts, without } from "./journal";
@@ -13,7 +13,7 @@ import type { SectionProps } from "./StrategyPage";
 import { BigPnl, ICON, PayoffBars, Ring, SignedBars, Spark, StatRow, Widget } from "./widgets";
 
 /*
- * The strategy's Overview: today's story first, then realized P&L, win rate, profit factor, payoff, expectancy and
+ * The strategy's Overview: today's story first, then realized P&L, win rate, profit factor, win/loss ratio, expectancy and
  * the deepest fall as cards; the running total and every trade's P&L as charts. Cards and bars narrow the query (or
  * open the trade) when clicked.
  */
@@ -111,7 +111,7 @@ export function OverviewSection({ instanceId, strategyId, scope, q, toggle, a, b
         <Widget
           icon={ICON.pnl}
           title="Realized P&L"
-          className="relative overflow-hidden md:col-span-2"
+          className={`relative overflow-hidden ${decided === 0 ? "md:col-span-3" : "md:col-span-2"}`}
           busy={busy}
           explain={`Closed trades in the range that match the search, after commission, swap and fees.${base ? ` ${signedMoney(a.pnl)} is ${pctValue((a.pnl / base) * 100, 2)} ${capital.label}.` : ""}`}
         >
@@ -123,15 +123,13 @@ export function OverviewSection({ instanceId, strategyId, scope, q, toggle, a, b
           </button>
           <Spark values={thin(trades, SPARK_POINTS).map((t) => t.cum)} className="absolute bottom-0 right-0 hidden h-14 w-[55%] @xl:block" />
         </Widget>
-        <Widget
-          icon={ICON.percent}
-          title="Win rate"
-          busy={busy}
-          explain={`Winning closed trades over winning plus losing ones; breakeven trades (${a.breakeven}) count for neither. Read it with the payoff: a low win rate pays when wins are bigger than losses.`}
-        >
-          {decided === 0 ? (
-            <div className="text-2xl font-headline text-faint">{DASH}<span className="ml-2 text-sm font-normal text-muted">no decided trades</span></div>
-          ) : (
+        {decided > 0 && (
+          <Widget
+            icon={ICON.percent}
+            title="Win rate"
+            busy={busy}
+            explain={`Winning closed trades over winning plus losing ones; breakeven trades (${a.breakeven}) count for neither. Read it with the win/loss ratio: a low win rate pays when wins are bigger than losses.`}
+          >
             <div className="flex items-center gap-4">
               <Ring wins={a.wins} losses={a.losses} picked={picked} onWins={() => toggle("win")} onLosses={() => toggle("loss")} />
               <div className="grid gap-1 text-sm tabular-nums">
@@ -139,12 +137,12 @@ export function OverviewSection({ instanceId, strategyId, scope, q, toggle, a, b
                 <button type="button" onClick={() => toggle("loss")} className="text-left text-loss hover:underline">▼ {count(a.losses)} lost</button>
               </div>
             </div>
-          )}
-        </Widget>
+          </Widget>
+        )}
       </div>
 
-      <div className="grid gap-4 sm:grid-cols-2 md:grid-cols-4">
-        <Widget
+      {a.closed > 0 && <div className="grid gap-4 sm:grid-cols-2 md:grid-cols-[repeat(auto-fit,minmax(12rem,1fr))]">
+        {a.profitFactor != null && <Widget
           icon={ICON.gauge}
           title="Profit factor"
           busy={busy}
@@ -156,32 +154,32 @@ export function OverviewSection({ instanceId, strategyId, scope, q, toggle, a, b
           <div className="mt-1 text-sm tabular-nums text-muted">
             <span className="font-mono text-gain">{signedMoney(a.grossWin)}</span> won / <span className="font-mono text-loss">{signedMoney(a.grossLoss)}</span> lost
           </div>
-        </Widget>
-        <Widget
+        </Widget>}
+        {(a.avgWin != null || a.avgLoss != null) && <Widget
           icon={ICON.scale}
           title="Avg win / loss"
           busy={busy}
-          explain="The mean winning and losing trade. Payoff is their ratio: above 1 winners are bigger than losers."
+          explain="The mean winning and losing trade, and their ratio: above 1 winners are bigger than losers."
         >
           <div className="flex items-baseline gap-1.5">
             <span className="text-2xl font-headline tabular-nums text-bright">{num(a.payoff)}</span>
-            <span className="text-sm text-muted">payoff</span>
+            <span className="text-sm text-muted">win/loss ratio</span>
           </div>
           <div className="mt-2">
             <PayoffBars avgWin={a.avgWin} avgLoss={a.avgLoss} onWin={() => toggle("win")} onLoss={() => toggle("loss")} />
           </div>
-        </Widget>
-        <Widget
+        </Widget>}
+        {a.expectancy != null && <Widget
           icon={ICON.target}
           title="Expectancy"
           busy={busy}
           explain="What one closed trade makes on average. R is the same over the money at risk to the first stop, for trades that had one."
         >
-          <div className={`text-2xl font-headline tabular-nums ${toneClass(a.expectancy)}`}>{a.expectancy == null ? DASH : signedMoney(a.expectancy)}</div>
+          <div className={`text-2xl font-headline tabular-nums ${toneClass(a.expectancy)}`}>{signedMoney(a.expectancy)}</div>
           <div className="mt-1 text-sm text-muted">
             {a.r.n > 0 ? <><span className={`font-semibold ${toneClass(a.r.avg)}`}>{rMultiple(a.r.avg)}</span> · {count(a.r.n)} with a stop</> : "per trade"}
           </div>
-        </Widget>
+        </Widget>}
         <Widget
           icon={ICON.drawdown}
           title="Max drawdown"
@@ -195,7 +193,7 @@ export function OverviewSection({ instanceId, strategyId, scope, q, toggle, a, b
             </div>
           </button>
         </Widget>
-      </div>
+      </div>}
 
       {a.closed === 0 ? (
         <p className="rounded-card border border-line bg-panel px-4 py-6 text-center text-sm text-muted">No closed trades yet. The charts fill in as trades close.</p>
@@ -221,13 +219,13 @@ export function OverviewSection({ instanceId, strategyId, scope, q, toggle, a, b
             />
           </Widget>
         )}
-        <Widget icon={ICON.shield} title="Costs and recovery" explain={`From the strategy's equity on its base and the venue's cost columns.${rangeNote}`}>
+        {a.closed > 0 && <Widget icon={ICON.shield} title="Costs and recovery" explain={`From the strategy's equity on its base and the venue's cost columns.${rangeNote}`}>
           {perf.isPending ? (
             <div className="h-24 rounded bg-raised" />
           ) : (
             <div className={`grid gap-x-8 ${a.instrument.length > 1 ? "" : "@3xl:grid-cols-2"}`}>
-              <StatRow label="Longest under water">{days(r?.drawdownDurationDays)}</StatRow>
-              <StatRow label="Recovery factor" title="Total net over the deepest drawdown">{num(r?.recoveryFactor)}</StatRow>
+              {r?.drawdownDurationDays != null && <StatRow label="Longest under water">{days(r.drawdownDurationDays)}</StatRow>}
+              {r?.recoveryFactor != null && <StatRow label="Recovery factor" title="Total net over the deepest drawdown">{num(r.recoveryFactor)}</StatRow>}
               {costs ? (
                 <>
                   <StatRow label="Gross, before costs"><span className={toneClass(costs.total.grossProfit)}>{signedMoney(costs.total.grossProfit)}</span></StatRow>
@@ -249,7 +247,7 @@ export function OverviewSection({ instanceId, strategyId, scope, q, toggle, a, b
             </div>
           )}
           {ratioNote && <p className="mt-2 text-xs text-muted">{ratioNote}</p>}
-        </Widget>
+        </Widget>}
       </div>
     </div>
   );

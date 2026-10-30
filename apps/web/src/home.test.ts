@@ -256,7 +256,7 @@ describe("strategyTotal", () => {
 describe("todayHeadline", () => {
   const split = (qkt: number, other: number | null = null) => ({ total: qkt + (other ?? 0), qkt, other, unassigned: 0 });
 
-  it("sums qkt per currency and names each account's other-system floating", () => {
+  it("sums the strategies per currency and sets each account's other activity apart", () => {
     const h = todayHeadline([
       { key: "x", name: "Exness •••2618", currency: "USD", split: split(18.35, -767.77) },
       { key: "a", name: "Paper A", currency: "USDC", split: split(0.5) },
@@ -266,29 +266,32 @@ describe("todayHeadline", () => {
     expect(h.parts).toEqual([
       { kind: "qkt", value: 18.35, currency: "USD" },
       { kind: "qkt", value: -0.04, currency: "USDC" },
-      { kind: "other", value: -767.77, currency: "USD", account: { key: "x", name: "Exness •••2618" } },
     ]);
+    expect(h.others).toEqual([{ kind: "other", value: -767.77, currency: "USD", account: { key: "x", name: "Exness •••2618" } }]);
   });
 
   it("leaves zero parts out, keeps one zero when there is nothing else, and counts accounts not known yet", () => {
     expect(todayHeadline([{ key: "a", name: "A", currency: "USDC", split: split(0) }, { key: "b", name: "B", currency: "USD", split: split(2) }]).parts)
       .toEqual([{ kind: "qkt", value: 2, currency: "USD" }]);
     expect(todayHeadline([{ key: "a", name: "A", currency: "USDC", split: split(0) }]).parts).toEqual([{ kind: "qkt", value: 0, currency: "USDC" }]);
-    expect(todayHeadline([{ key: "a", name: "A", currency: "USDC", split: null }])).toEqual({ parts: [], missing: 1 });
+    expect(todayHeadline([{ key: "a", name: "A", currency: "USDC", split: split(0, -5) }])).toEqual({
+      parts: [{ kind: "qkt", value: 0, currency: "USDC" }], others: [{ kind: "other", value: -5, currency: "USDC", account: { key: "a", name: "A" } }], missing: 0,
+    });
+    expect(todayHeadline([{ key: "a", name: "A", currency: "USDC", split: null }])).toEqual({ parts: [], others: [], missing: 1 });
   });
 });
 
 describe("attentionItems", () => {
-  const strategy = (strategyId: string, extra: { active?: boolean; halted?: boolean } = {}) => ({ strategyId, name: strategyId, active: true, ...extra });
+  const strategy = (strategyId: string, extra: { active?: boolean; halted?: boolean; why?: string } = {}) => ({ strategyId, name: strategyId, active: true, ...extra });
   const account = (key: string, extra: { stale?: boolean; stopped?: boolean } = {}) => ({ key, name: key, stale: false, lastSeen: 1, ...extra });
 
   it("lists halted strategies, quiet accounts and positions without a stop, in that order", () => {
     expect(attentionItems({
-      strategies: [strategy("o04", { halted: true }), strategy("o11"), strategy("old", { active: false, halted: true })],
+      strategies: [strategy("o04", { halted: true, why: "Daily loss cap hit · resumes 00:00 UTC" }), strategy("o11"), strategy("old", { active: false, halted: true })],
       accounts: [account("x"), account("a", { stale: true, stopped: true }), account("h", { stale: true })],
       noStop: 2,
     })).toEqual([
-      { kind: "halted", strategyId: "o04", name: "o04" },
+      { kind: "halted", strategyId: "o04", name: "o04", why: "Daily loss cap hit · resumes 00:00 UTC" },
       { kind: "account", key: "a", name: "a", state: "stopped", since: 1 },
       { kind: "account", key: "h", name: "h", state: "stale", since: 1 },
       { kind: "no-stop", count: 2 },

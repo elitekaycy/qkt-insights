@@ -1,17 +1,17 @@
 import { useId, type ReactNode } from "react";
-import { age, count, DASH, money, ts } from "../format";
-import { haltClearing, haltReasonText, haltSummary } from "../halt";
+import { age, count, DASH, money, signedPct, ts } from "../format";
+import { haltWords } from "../halt";
 import { Link } from "../router";
 import { cardFigures, cardName, sparkPath, thinCurve, type CardLine, type PortfolioCard } from "../strategyCards";
 import type { Leg } from "../instruments";
 import { LegLine } from "./InstrumentType";
-import { CurrencyMix, Pnl, ReturnPct } from "./ui";
+import { CurrencyMix, Pill, Pnl, ReturnPct } from "./ui";
 
 /*
  * The Strategies page's cards: one per strategy (name, what it trades on one line, net incl. open with its return on
  * its own base on hover, a sparkline of cumulative realized P&L once there are five closes, then today, open, trades
  * and last close), and a group card per portfolio with its sleeves beneath. The whole card is the link. A halted
- * strategy stays at full ink with its reason in amber under the name; a retired one is muted.
+ * strategy stays at full ink with an amber pill beside its name; a retired one is muted.
  */
 
 const SPARK_W = 120;
@@ -41,7 +41,7 @@ function Sparkline({ points, className = "" }: { points: readonly number[]; clas
 
 /**
  * A card surface whose whole area is one link: the anchor covers the card, so it opens on click,
- * tap or Enter, and keeps open-in-new-tab. Controls inside (the halt reason) sit above it.
+ * tap or Enter, and keeps open-in-new-tab. Parts with a tooltip (the halt pill, the net figure) take the pointer.
  */
 function LinkCard({ to, origin, label, bare = false, className = "", children }: { to: string | null; origin: string; label: string; bare?: boolean; className?: string; children: ReactNode }) {
   const surface = bare
@@ -66,19 +66,15 @@ function Fig({ k, title, children }: { k: string; title?: string; children: Reac
 
 const BASE_WORD: Record<string, string> = { defined: "defined capital", "portfolio allocation": "portfolio allocation", "starting balance": "starting balance" };
 
-/** A halted strategy's reason under its name, in amber at full ink: it needs action, it is not retired. */
-function HaltLine({ row }: { row: NonNullable<CardLine["row"]> }) {
-  const summary = haltSummary(row) ?? "";
-  return (
-    <p className="mt-0.5 text-xs font-medium text-warn" title={summary}>
-      Halted · {haltReasonText(row.haltReason)} · {haltClearing(row)}
-    </p>
-  );
-}
-
 /** At least this many closes before a curve is drawn: two points make a diagonal, not a shape. */
 const SPARK_MIN_CLOSES = 5;
 
+/**
+ * One strategy's card. Every card has the same rows at the same heights, so a grid of them lines up: name and status,
+ * what it trades (one line), net incl. open, the curve's slot (a faint baseline until five closes), then today, open,
+ * trades and last close. A halt is an amber pill whose tooltip says why in plain words; the return is on the figure's
+ * tooltip.
+ */
 export function StrategyCard({ line, curve, name, origin, legs = [], mix = null }: {
   line: CardLine; curve: readonly number[]; name?: string; origin: string;
   /** What it trades: type, instrument and venue per leg. */
@@ -89,35 +85,29 @@ export function StrategyCard({ line, curve, name, origin, legs = [], mix = null 
   const f = cardFigures(line);
   const label = name ?? cardName(line);
   const retired = line.row != null && !line.row.active;
-  const halted = line.row != null && !retired && line.row.halted === true;
+  const halt = line.row != null && !retired ? haltWords(line.row) : null;
   const to = line.key ? `/s/${encodeURIComponent(line.key)}` : null;
-  const baseWords = f.base == null ? "no capital known" : `Return on the strategy's ${BASE_WORD[f.baseSource ?? ""] ?? "base"} of ${money(f.base, 0)}`;
+  const ret = f.base ? `Return ${signedPct((f.net / f.base) * 100, 1)} on the strategy's ${BASE_WORD[f.baseSource ?? ""] ?? "base"} of ${money(f.base, 0)}` : "Return: no capital known";
   return (
     <LinkCard to={to} origin={origin} label={label} className="h-full">
-      <div className={`flex h-full flex-col gap-3 p-4 ${retired ? "opacity-60" : ""}`}>
-        <div className="min-w-0">
-          <div className="flex items-start gap-2">
-            <span className="min-w-0 break-words text-sm font-medium text-bright" title={line.key ?? undefined}>{label}</span>
-            {retired && <span className="ml-auto shrink-0 text-xs text-faint">Retired</span>}
-          </div>
-          {halted && <HaltLine row={line.row!} />}
-          {legs.length > 0 && <LegLine legs={legs} className="mt-1" />}
+      <div className={`flex h-full flex-col p-4 ${retired ? "opacity-60" : ""}`}>
+        <div className="flex h-5 min-w-0 items-center gap-2">
+          <span className="min-w-0 truncate text-sm font-medium text-bright" title={line.key ?? undefined}>{label}</span>
+          {halt && <span className="pointer-events-auto shrink-0" title={halt.label}><Pill tone="warn">Halted</Pill></span>}
+          {retired && <span className="ml-auto shrink-0 text-xs text-faint">Retired</span>}
         </div>
-        <div className="flex items-end justify-between gap-3">
-          <div className="min-w-0">
-            <div className="text-xs text-muted">Net incl. open</div>
-            <span className="block whitespace-nowrap"><Pnl value={f.net} className="text-xl font-headline tabular-nums" /><CurrencyMix mix={mix} /></span>
-            <span title={baseWords}><ReturnPct net={f.net} base={f.base} /></span>
-          </div>
+        <div className="mt-1 h-4">{legs.length > 0 && <LegLine legs={legs} className="text-xs leading-4" />}</div>
+        <div className="mt-3 flex items-end justify-between gap-3">
+          <span className="pointer-events-auto min-w-0 whitespace-nowrap" title={ret}><Pnl value={f.net} className="text-xl font-headline tabular-nums" /><CurrencyMix mix={mix} /></span>
           {f.trades >= SPARK_MIN_CLOSES ? (
             <span title={`cumulative realized P&L over ${count(f.trades)} closes`} className="shrink-0">
               <Sparkline points={curve} className="h-9 w-28" />
             </span>
           ) : (
-            <span className="shrink-0 text-xs text-muted">{f.trades === 0 ? "no closes" : `${count(f.trades)} ${f.trades === 1 ? "close" : "closes"}`}</span>
+            <span aria-hidden className="flex h-9 w-28 shrink-0 items-end pb-0.5"><span className="h-px w-full bg-line-strong" /></span>
           )}
         </div>
-        <div className="mt-auto grid grid-cols-4 gap-2 border-t border-line pt-3">
+        <div className="mt-3 grid grid-cols-4 gap-2 border-t border-line pt-3">
           <Fig k="Today" title="realized since the account's trading day began"><Pnl value={f.today} glyphs={false} /></Fig>
           <Fig k="Open" title="floating on its open positions now"><Pnl value={f.floating} glyphs={false} /></Fig>
           <Fig k="Trades">{count(f.trades)}</Fig>
