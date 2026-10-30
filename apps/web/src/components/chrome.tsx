@@ -104,7 +104,7 @@ export function ThemeToggle({ iconsOnly = false }: { iconsOnly?: boolean }) {
       aria-pressed={theme === "dark"}
       title="Dark mode"
       aria-label="Dark mode"
-      className={`flex h-9 w-full items-center gap-3 rounded-lg px-3 text-sm font-medium text-body transition hover:bg-hover hover:text-bright ${
+      className={`flex h-9 w-full items-center gap-3 rounded-lg px-3 text-sm font-medium text-muted transition hover:bg-hover hover:text-bright ${
         iconsOnly ? "justify-center px-0" : ""
       }`}
     >
@@ -169,7 +169,7 @@ function RailLink({ item, iconsOnly, onNavigate }: { item: NavItem; iconsOnly: b
       className={`relative flex h-9 shrink-0 items-center gap-3 rounded-lg px-3 text-sm font-medium transition ${iconsOnly ? "justify-center px-0" : ""} ${
         active
           ? "bg-accent-soft text-bright"
-          : "text-body hover:bg-hover hover:text-bright"
+          : "text-muted hover:bg-hover hover:text-bright"
       }`}
     >
       <NavIcon d={item.icon} big className={active ? "text-accent-ink" : "text-muted"} />
@@ -217,7 +217,7 @@ export function Shell({
       {/* phone top bar */}
       <header className="pad-safe-top sticky top-0 z-30 flex h-12 shrink-0 items-center gap-2.5 border-b border-line bg-side px-4 lg:hidden">
         <Mark />
-        <div className="min-w-0 flex-1 truncate text-[15px] font-headline text-bright">{current?.label ?? "qkt·insights"}</div>
+        <div className="min-w-0 flex-1 truncate text-sm font-headline text-bright">{current?.label ?? "qkt·insights"}</div>
         {mobileTitleRight}
       </header>
 
@@ -266,7 +266,7 @@ export function Shell({
               key={n.key}
               to={PAGE_PATHS[n.key]}
               aria-current={active ? "page" : undefined}
-              className={`flex h-14 flex-col items-center justify-center gap-1 text-[11px] font-medium ${active ? "text-accent-ink" : "text-muted"}`}
+              className={`flex h-14 flex-col items-center justify-center gap-1 text-xs font-medium ${active ? "text-accent-ink" : "text-muted"}`}
             >
               <NavIcon d={n.icon} big />
               <span className="max-w-full truncate px-1">{n.label}</span>
@@ -277,7 +277,7 @@ export function Shell({
           type="button"
           onClick={() => setMore(true)}
           aria-expanded={more}
-          className={`flex h-14 flex-col items-center justify-center gap-1 text-[11px] font-medium ${moreActive ? "text-accent-ink" : "text-muted"}`}
+          className={`flex h-14 flex-col items-center justify-center gap-1 text-xs font-medium ${moreActive ? "text-accent-ink" : "text-muted"}`}
         >
           <svg viewBox="0 0 24 24" className="h-[17px] w-[17px]" fill="currentColor" aria-hidden>
             <circle cx="5" cy="12" r="1.8" />

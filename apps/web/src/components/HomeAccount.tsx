@@ -2,8 +2,8 @@ import type { ReactNode } from "react";
 import type { AccountRiskRow, LiveAccount } from "../api";
 import { clock, count, money, pctValue, signedMoney, signedPct, toneClass } from "../format";
 import { dailyMeasured, floatingNoteText, type FloatingNote, dailyReferenceLabel, dayBasisLabel, limitLine, drawdownMeasured, limitUse, todaySplit, type AttentionItem, type LimitUse, type OpenRisk, type TodayPart } from "../home";
-import { accountHint, accountName, accountProfiles, accountTitle } from "../accounts";
-import { Card, FlashValue, Freshness, InfoIcon, Pill, Pnl, Popover } from "./ui";
+import { accountName, accountProfiles, accountTitle } from "../accounts";
+import { Card, FlashValue, Freshness, Pill, Pnl, Popover } from "./ui";
 
 /*
  * Home's account strip: what the account has, what today did, what the stops put at risk, and how
@@ -11,44 +11,36 @@ import { Card, FlashValue, Freshness, InfoIcon, Pill, Pnl, Popover } from "./ui"
  */
 
 /**
- * A KPI card: a label, one headline figure, one quiet line under it. What the figure
- * means and how it is measured lives behind the info icon (hover, or tap on touch), so every card in
- * the row keeps the same height.
+ * A KPI card: a label, one headline figure, one quiet line under it. What the figure means and how it is measured
+ * opens from the label itself (hover, or tap on touch), so every card in the row keeps the same height.
  */
 function Kpi({ label, children, sub, info }: {
   label: string; children: ReactNode; sub?: ReactNode; info?: ReactNode;
 }) {
   return (
     <Card className="min-w-0 p-4">
-      <div className="flex items-center gap-2 text-sm font-medium text-muted">
-        <span className="truncate">{label}</span>
-        {info && (
-          <span className="ml-auto">
-            <Popover hover label={`About ${label.toLowerCase()}`} align="right" trigger={<InfoIcon className="h-3.5 w-3.5 text-faint hover:text-bright" />}>
-              <div className="space-y-1.5">{info}</div>
-            </Popover>
-          </span>
-        )}
+      <div className="text-sm text-muted">
+        {info ? (
+          <Popover hover label={`About ${label.toLowerCase()}`} trigger={<span className="cursor-help truncate underline decoration-line-strong decoration-dotted underline-offset-4">{label}</span>}>
+            <div className="space-y-1.5">{info}</div>
+          </Popover>
+        ) : label}
       </div>
       {/* sized to the card (Card is a container) so a seven-figure balance never clips */}
-      {/* a fixed-height figure row, so a card with a gauge is exactly as tall as one with plain text */}
-      <div className="mt-2 flex h-7 items-end truncate font-headline text-[clamp(1rem,12.5cqi,1.5rem)] tabular-nums sm:h-9">{children}</div>
-      {sub && <div className="mt-1.5 truncate text-xs text-muted">{sub}</div>}
+      <div className="mt-2 truncate font-headline text-[clamp(1rem,10cqi,1.25rem)] leading-7">{children}</div>
+      {sub && <div className="mt-1 truncate text-xs text-muted">{sub}</div>}
     </Card>
   );
 }
 
-/** Semicircle gauge of a limit's use: blue under 55% (a limit is not P&L), amber to 80%, red beyond; the percent is printed too. */
-function Arc({ pct }: { pct: number | null }) {
-  const r = 34;
-  const half = Math.PI * r;
-  const k = pct == null ? 0 : Math.min(1, Math.max(0, pct / 100));
-  const tone = pct == null ? "var(--color-faint)" : pct >= 80 ? "var(--color-loss-fill)" : pct >= 55 ? "var(--color-warn)" : "var(--color-accent-hi)";
+/** A limit's use as a slim bar: the accent under 55% (a limit is not P&L), amber to 80%, red beyond. Colour never alone: the words say what is left. */
+function Meter({ pct }: { pct: number | null }) {
+  const k = pct == null ? 0 : Math.min(100, Math.max(0, pct));
+  const tone = pct == null ? "bg-muted" : pct >= 80 ? "bg-loss-fill" : pct >= 55 ? "bg-warn" : "bg-accent";
   return (
-    <svg viewBox="0 0 84 48" className="h-6 w-10 shrink-0 sm:h-9 sm:w-16" aria-hidden>
-      <path d="M8 44a34 34 0 0 1 68 0" fill="none" stroke="var(--color-raised)" strokeWidth="8" strokeLinecap="round" />
-      {k > 0 && <path d="M8 44a34 34 0 0 1 68 0" fill="none" stroke={tone} strokeWidth="8" strokeLinecap="round" strokeDasharray={`${k * half} ${half}`} />}
-    </svg>
+    <span aria-hidden className="mt-1.5 block h-1 overflow-hidden rounded-full bg-well">
+      <span className={`block h-full rounded-full ${tone}`} style={{ width: `${k}%` }} />
+    </span>
   );
 }
 
@@ -76,12 +68,9 @@ function LimitGauge({ label, use, value, measured, basis, help }: {
           <p className="text-muted">{help}</p>
         </>
       }
-      sub={line ? <span className={line.over ? "font-medium text-loss" : ""}>{line.left}</span> : <span className="text-muted">no limit</span>}
+      sub={line ? <><Meter pct={use.pct} /><span className={`mt-1.5 block truncate ${line.over ? "font-medium text-loss" : ""}`}>{line.left}</span></> : "no limit"}
     >
-      <div className="flex items-end gap-2 sm:gap-2.5">
-        {line && <Arc pct={use.pct} />}
-        <span className={tone}>{value}</span>
-      </div>
+      <span className={tone}>{value}</span>
     </Kpi>
   );
 }
@@ -120,13 +109,11 @@ export function AccountStrip({
   const use = risk ? limitUse(risk, account.equity) : null;
   const openCount = open ? open.priced + open.noStop + open.unpriced : 0;
   const title = accountName(account, isPublic);
-  const hint = accountHint(account);
   const profiles = isPublic ? [] : accountProfiles(account, labels);
   return (
     <section className={account.stale ? "opacity-90" : ""} aria-label={`Account ${title}`}>
       <div className="flex flex-wrap items-center gap-x-2.5 gap-y-1 text-sm">
-        <span className="font-semibold text-bright" title={isPublic ? accountTitle(account, isPublic) : [accountTitle(account), account.server, profiles.length > 1 ? `via ${profiles.length} broker profiles: ${profiles.join(", ")}` : null].filter(Boolean).join(" · ")}>{title}</span>
-        {hint && <span className="text-xs text-muted">{hint}</span>}
+        <span className="font-medium text-bright" title={isPublic ? accountTitle(account, isPublic) : [accountTitle(account), account.server, profiles.length > 1 ? `via ${profiles.length} broker profiles: ${profiles.join(", ")}` : null].filter(Boolean).join(" · ")}>{title}</span>
         {account.stopped && <Pill tone="warn">stopped reporting</Pill>}
         <span className="ml-auto">
           {isPublic ? <span className="text-xs text-muted">as of {clock(account.lastSeen)} UTC</span> : <Freshness at={account.lastSeen} stale={account.stale} quiet />}
@@ -138,7 +125,7 @@ export function AccountStrip({
         </Kpi>
         <Kpi
           label="Equity"
-          sub={<>open <Pnl value={account.equity - account.balance} glyphs={false} /></>}
+          sub={<>open <Pnl value={account.equity - account.balance} /></>}
           info={
             <>
               <p>Balance plus what open trades are worth now.</p>
@@ -152,7 +139,7 @@ export function AccountStrip({
           label="Today"
           sub={
             split
-              ? <>other <span className="font-mono">{signedMoney((today.other ?? 0) + today.unassigned)}</span></>
+              ? <>other {signedMoney((today.other ?? 0) + today.unassigned)}</>
               : `${signedMoney(realizedToday)} closed`
           }
           info={
@@ -179,7 +166,7 @@ export function AccountStrip({
               </>
             }
           >
-            {openCount === 0 ? <span className="text-faint">{money(0)}</span> : <FlashValue value={open.toStops}><span className="text-bright">{signedMoney(open.toStops)}</span></FlashValue>}
+            {openCount === 0 ? <span className="text-muted">{money(0)}</span> : <FlashValue value={open.toStops}><span className="text-bright">{signedMoney(open.toStops)}</span></FlashValue>}
           </Kpi>
         )}
         {risk && use ? (
@@ -227,41 +214,38 @@ function limitSource(risk: AccountRiskRow): string {
 }
 
 /**
- * Home's answer in one line: "Today +18.35 USD · −0.04 USDC", the strategies' Today per currency; it opens the
- * strategy table. Another system's activity on an account is not here: it is a quiet chip in the attention row.
- * `missing` counts accounts whose Today is not known yet.
+ * Home's answer, the largest figure on the page: "Today −65.68 USD · −5.72 USDC", the strategies' Today per currency;
+ * it opens the strategy table. Another system's activity on an account is not here: it is in that account's Today
+ * tooltip. `missing` counts accounts whose Today is not known yet; `asOf` is when the newest account state arrived.
  */
-export function TodayHeadline({ parts, missing, pending, onQkt }: {
-  parts: TodayPart[]; missing: number; pending: boolean; onQkt: () => void;
+export function TodayHeadline({ parts, missing, pending, onQkt, asOf }: {
+  parts: TodayPart[]; missing: number; pending: boolean; onQkt: () => void; asOf?: string;
 }) {
-  if (pending) return <span className="inline-block h-4 w-72 max-w-full rounded bg-raised align-middle" role="status" aria-label="Loading today's figures" />;
+  if (pending) return <span className="inline-block h-7 w-72 max-w-full rounded bg-raised align-middle" role="status" aria-label="Loading today's figures" />;
   if (parts.length === 0) return <span>Today: not known yet, waiting for the accounts' first rollup</span>;
-  const link = "rounded-sm underline decoration-line-strong decoration-dotted underline-offset-4 hover:decoration-current focus-visible:outline-2 focus-visible:outline-accent-hi";
+  const why = `Your strategies: closes since each account's day began plus what their positions float${asOf ? `, as of ${asOf} UTC` : ""}; opens the strategies`;
   return (
-    <span className="flex flex-wrap items-baseline gap-x-2 gap-y-0.5">
-      <span className="font-medium text-body">Today</span>
+    <span className="flex flex-wrap items-baseline gap-x-2.5 gap-y-1">
+      <span className="text-sm text-muted">Today</span>
       {parts.map((p, i) => (
-        <span key={i} className="inline-flex items-baseline gap-2">
-          {i > 0 && <span aria-hidden className="text-faint">·</span>}
-          <button type="button" className={link} onClick={onQkt} title="Your strategies: closes since each account's day began plus what their positions float; opens the strategies">
-            <span className={`font-mono font-semibold tabular-nums ${toneClass(p.value)}`}>{signedMoney(p.value)}</span>
-            <span className="ml-1 text-xs text-muted">{p.currency}</span>
+        <span key={i} className="inline-flex items-baseline gap-2.5">
+          {i > 0 && <span aria-hidden className="text-muted">·</span>}
+          <button type="button" className="rounded-sm focus-visible:outline-2 focus-visible:outline-accent-hi" onClick={onQkt} title={why}>
+            <span className={`text-2xl font-headline ${toneClass(p.value)}`}>{signedMoney(p.value)}</span>
+            <span className="ml-1 text-sm text-muted">{p.currency}</span>
           </button>
         </span>
       ))}
-      {missing > 0 && <span className="text-faint"><span aria-hidden>· </span>{missing} {missing === 1 ? "account" : "accounts"} not known yet</span>}
+      {missing > 0 && <span className="text-sm text-muted"><span aria-hidden>· </span>{missing} {missing === 1 ? "account" : "accounts"} not known yet</span>}
     </span>
   );
 }
 
 /**
  * The line under Home's headline that answers "does anything need me?": each item links to where it lives (the
- * halted strategy, Health for a quiet account, the positions without a stop). "Nothing needs you" when empty. Another
- * system's activity on an account follows as a muted chip that opens the account: the same truth, not an alarm.
+ * halted strategy, Health for a quiet account, the positions without a stop). "Nothing needs you" when empty.
  */
-export function AttentionLine({ items, others, onItem, onAccount }: {
-  items: AttentionItem[]; others: TodayPart[]; onItem: (item: AttentionItem) => void; onAccount: (key: string) => void;
-}) {
+export function AttentionLine({ items, onItem }: { items: AttentionItem[]; onItem: (item: AttentionItem) => void }) {
   const words = (i: AttentionItem): string => {
     switch (i.kind) {
       case "halted": return `Halted: ${i.name}`;
@@ -272,18 +256,11 @@ export function AttentionLine({ items, others, onItem, onAccount }: {
   };
   return (
     <span className="flex flex-wrap items-center gap-1.5" role="list" aria-label="Needs a look">
-      {items.length === 0 && <span className="mr-1 text-muted">Nothing needs you</span>}
+      {items.length === 0 && <span className="text-muted">Nothing needs you</span>}
       {items.map((i, n) => (
         <button key={n} type="button" role="listitem" onClick={() => onItem(i)} title={i.kind === "halted" ? i.why : undefined}
-          className="inline-flex h-6 items-center gap-1.5 rounded-full border border-warn/45 bg-warn/10 px-2.5 text-xs font-medium text-warn transition hover:bg-warn/15 focus-visible:outline-2 focus-visible:outline-accent-hi">
+          className="inline-flex h-6 items-center rounded-full border border-warn/45 px-2.5 text-xs font-medium text-warn transition hover:bg-warn/10 focus-visible:outline-2 focus-visible:outline-accent-hi">
           {words(i)}
-        </button>
-      ))}
-      {others.map((p) => (
-        <button key={p.account?.key} type="button" role="listitem" onClick={() => p.account && onAccount(p.account.key)}
-          title={`Floating on positions of another system on ${p.account?.name}, not your strategies; opens the account`}
-          className="inline-flex h-6 items-center gap-1 rounded-full border border-line bg-raised px-2.5 text-xs text-muted transition hover:bg-hover focus-visible:outline-2 focus-visible:outline-accent-hi">
-          Other activity on {p.account?.name}: <span className="font-mono tabular-nums text-body">{signedMoney(p.value)}</span>
         </button>
       ))}
     </span>

@@ -1,4 +1,4 @@
-import { accountKey, accountName, accountTab, groupAccounts, type AccountGroup } from "../accounts";
+import { accountKey, accountName, groupAccounts, type AccountGroup } from "../accounts";
 import { chartColors, tok } from "../components/EChart";
 import { useState } from "react";
 import { usePublicPageView, useView } from "../view";
@@ -71,7 +71,7 @@ export default function Equity({ instanceId }: { instanceId: string | null }) {
   });
 
   const strategyName = useStrategyNames(instanceId);
-  if (!instanceId) return <Card className="p-8 text-center text-faint">No instance selected.</Card>;
+  if (!instanceId) return <Card className="p-8 text-center text-muted">No instance selected.</Card>;
 
   const shownIds = picked ?? biggestMovers(curveList);
   const series: ComparisonSeries[] = shownIds
@@ -114,7 +114,7 @@ export default function Equity({ instanceId }: { instanceId: string | null }) {
   const curveKeyOf = (g: AccountGroup) => [...accountByBroker.keys()].find((k) => k === accountKey(g.account) || g.labels.includes(k) || g.labels.includes(accountLabel.get(k) ?? ""));
   const nameOf = (key: string) => {
     const g = choice.accounts.find((a) => curveKeyOf(a) === key);
-    return accountName(g ? g.account : { broker: accountLabel.get(key) ?? key }, view.public);
+    return accountName(g ? g.account : { broker: accountLabel.get(key) ?? key }, view.public, choice.accounts.map((c) => c.account));
   };
   const shownCurve = scoped ? curveKeyOf(scoped) : null;
   // one hue per account from the series set: real venue accounts first at full strength (the first is the stand-out),
@@ -151,7 +151,7 @@ export default function Equity({ instanceId }: { instanceId: string | null }) {
       <PageHeader title="Equity & risk" />
       {choice.many && <div className="mt-4"><AccountTabs choice={choice} isPublic={view.public} /></div>}
       <Panel
-        className="mt-5"
+        className="mt-4"
         title="Account equity"
         hint={choice.many && !scoped ? "% change" : undefined}
       >
@@ -160,7 +160,7 @@ export default function Equity({ instanceId }: { instanceId: string | null }) {
             <Empty>No equity history yet. It shows up after the first account update.</Empty>
           ) : scoped ? (
             shownCurve ? <div className="p-4"><EquityChart points={accountByBroker.get(shownCurve)!} height={320} /></div>
-              : <Empty>No equity history for {accountTab(scoped.account, view.public).name} yet.</Empty>
+              : <Empty>No equity history for {accountName(scoped.account, view.public, choice.accounts.map((c) => c.account))} yet.</Empty>
           ) : accountByBroker.size > 1 ? (
             <div className="p-4">
               <ComparisonChart series={accountSeries} height={320} label="Account equity, percent change from each account's first point" />
@@ -172,7 +172,7 @@ export default function Equity({ instanceId }: { instanceId: string | null }) {
       </Panel>
 
       <Panel
-        className="mt-5"
+        className="mt-4"
         title="Strategy equity"
         hint={`% change · ${series.length} of ${ids.length}`}
       >
@@ -194,7 +194,7 @@ export default function Equity({ instanceId }: { instanceId: string | null }) {
                   const on = shownIds.includes(id);
                   return (
                     <button key={id} type="button" aria-pressed={on} onClick={() => togglePick(id)}
-                      className={`h-7 rounded-full border px-2.5 text-xs font-medium transition ${on ? "border-accent-hi/50 bg-accent-soft text-bright" : "border-line bg-raised text-muted hover:text-body"}`}>
+                      className={`h-7 rounded-full border px-2.5 text-xs font-medium transition ${on ? "border-accent-hi/50 bg-accent-soft text-bright" : "border-line text-muted hover:text-bright"}`}>
                       {strategyName(id)}
                     </button>
                   );
@@ -205,7 +205,7 @@ export default function Equity({ instanceId }: { instanceId: string | null }) {
         </Loadable>
       </Panel>
 
-      <div className="mt-5 grid grid-cols-1 items-start gap-5 2xl:grid-cols-2">
+      <div className="mt-4 grid grid-cols-1 items-start gap-5 2xl:grid-cols-2">
         <Panel title="Underwater" hint="5 deepest shaded" toolbar={ddSelect}>
           <Loadable
             loading={strategies.isPending || (focusIdx >= 0 && (curves[focusIdx]?.isPending ?? false))}
@@ -243,15 +243,11 @@ export default function Equity({ instanceId }: { instanceId: string | null }) {
                 <Cell className="whitespace-nowrap text-muted">{tsDay(p.peakTs).slice(0, 14)}</Cell>
                 <Cell className="whitespace-nowrap text-muted">{tsDay(p.troughTs).slice(0, 14)}</Cell>
                 <Cell className="text-loss">
-                  {signedMoney(-p.depth)} <span className="text-faint">({signedPct(-p.depthPct)})</span>
+                  {signedMoney(-p.depth)} <span className="text-muted">({signedPct(-p.depthPct)})</span>
                 </Cell>
                 <Cell className="text-muted">{days(p.lengthDays)}</Cell>
                 <Cell>
-                  {p.recoveryTs != null ? (
-                    <Pill tone="ok">recovered {days(p.recoveryDays)}</Pill>
-                  ) : (
-                    <Pill tone="warn">ongoing</Pill>
-                  )}
+                  {p.recoveryTs != null ? <span className="text-muted">recovered {days(p.recoveryDays)}</span> : <Pill tone="warn">Ongoing</Pill>}
                 </Cell>
               </>
             )}
@@ -259,16 +255,12 @@ export default function Equity({ instanceId }: { instanceId: string | null }) {
               <>
                 <div className="flex items-baseline gap-2">
                   <span className="text-sm font-semibold text-loss">{signedMoney(-p.depth)}</span>
-                  <span className="text-xs text-faint">({signedPct(-p.depthPct)})</span>
+                  <span className="text-xs text-muted">({signedPct(-p.depthPct)})</span>
                   <span className="ml-auto shrink-0">
-                    {p.recoveryTs != null ? (
-                      <Pill tone="ok">recovered {days(p.recoveryDays)}</Pill>
-                    ) : (
-                      <Pill tone="warn">ongoing</Pill>
-                    )}
+                    {p.recoveryTs != null ? <span className="text-xs text-muted">recovered {days(p.recoveryDays)}</span> : <Pill tone="warn">Ongoing</Pill>}
                   </span>
                 </div>
-                <div className="mt-1 flex items-center gap-2 text-xs text-faint">
+                <div className="mt-1 flex items-center gap-2 text-xs text-muted">
                   <span className="whitespace-nowrap">
                     {tsDay(p.peakTs).slice(4, 14)} → {tsDay(p.troughTs).slice(4, 14)}
                   </span>
@@ -293,7 +285,7 @@ export default function Equity({ instanceId }: { instanceId: string | null }) {
             <Field label="Trough (deepest point)">{human(openDd.troughTs)}</Field>
             <Field label="Depth">
               <span className="text-loss">{signedMoney(-openDd.depth)}</span>
-              <span className="ml-2 text-xs text-faint">{pctValue(openDd.depthPct)} below the peak</span>
+              <span className="ml-2 text-xs text-muted">{pctValue(openDd.depthPct)} below the peak</span>
             </Field>
             <Field label="Peak to trough">{duration(openDd.troughTs - openDd.peakTs)}</Field>
             <Field label="Recovered (back at the peak)">
@@ -302,7 +294,7 @@ export default function Equity({ instanceId }: { instanceId: string | null }) {
             <Field label="Time underwater">
               {fixed(openDd.lengthDays, 1)} days
               {openDd.recoveryDays != null && (
-                <span className="ml-2 text-xs text-faint">{days(openDd.recoveryDays)} of that climbing back</span>
+                <span className="ml-2 text-xs text-muted">{days(openDd.recoveryDays)} of that climbing back</span>
               )}
             </Field>
           </div>

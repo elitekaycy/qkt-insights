@@ -87,7 +87,7 @@ export default function Strategies({ instanceId }: { instanceId: string | null }
   const [sort, setSort] = useSearchParam("sort", "attention");
   const mix = useInstanceCurrencyMix(instanceId);
 
-  if (!instanceId) return <Card className="p-8 text-center text-faint">No instance selected.</Card>;
+  if (!instanceId) return <Card className="p-8 text-center text-muted">No instance selected.</Card>;
   if (selected) return <StrategyDetail instanceId={instanceId} strategyId={selected} />;
 
   const rows = strategies.data ?? [];
@@ -129,7 +129,7 @@ export default function Strategies({ instanceId }: { instanceId: string | null }
     <div className="@container grid gap-4">
       <PageHeader
         title="Strategies"
-        sub={`${live} ${live === 1 ? "strategy" : "strategies"}${halted ? ` · ${halted} halted` : ""} · figures net incl. open${view.public ? ` · ${view.meta.delayMinutes} minutes behind` : ""}`}
+        sub={strategies.isPending ? undefined : `${live} ${live === 1 ? "strategy" : "strategies"}${halted ? ` · ${halted} halted` : ""} · net includes open${!scoped && mix ? ` · ${mix.label.replace("+", " and ")} added 1:1` : ""}${view.public ? ` · ${view.meta.delayMinutes} minutes behind` : ""}`}
         right={
           <div className="flex w-full items-center gap-2 sm:w-auto">
             <StrategySearch className="flex-1 sm:flex-none" />
@@ -215,19 +215,19 @@ function StrategyCardList({ lines, closes, now, instanceId, noStop, mix, unprice
       )}
       {idle.length > 0 && (
         <p className="text-sm text-muted">
-          <span className="font-medium text-body">Not traded yet ({count(idle.length)}):</span>{" "}
+          <span className="font-medium text-muted">Not traded yet ({count(idle.length)}):</span>{" "}
           {idle.map((l, i) => (
-            <span key={l.key}>{i > 0 && ", "}<Link to={`/s/${encodeURIComponent(l.key!)}`} from="Strategies" className="text-body hover:underline">{cardName(l)}</Link></span>
+            <span key={l.key}>{i > 0 && ", "}<Link to={`/s/${encodeURIComponent(l.key!)}`} from="Strategies" className="text-muted hover:underline">{cardName(l)}</Link></span>
           ))}
         </p>
       )}
       {unattributed && (
-        <p className="text-sm italic text-muted" title="Closes and positions on the account that no strategy claimed: deals without a qkt strategy's magic or comment">
-          Unattributed: net incl. open <span className="font-mono not-italic">{signedMoney(unattributed.periods.all + unattributed.periods.floating)}</span>
+        <p className="text-sm text-muted" title="Closes and positions on the account that no strategy claimed: deals without a qkt strategy's magic or comment">
+          Unattributed: net incl. open <span className="not-italic">{signedMoney(unattributed.periods.all + unattributed.periods.floating)}</span>
           {" · "}{count(unattributed.periods.trades)} {unattributed.periods.trades === 1 ? "close" : "closes"}
         </p>
       )}
-      <div className="flex flex-wrap items-center gap-x-3 gap-y-1 text-[11px] text-faint">
+      <div className="flex flex-wrap items-center gap-x-3 gap-y-1 text-xs text-muted">
         <CardsTotal lines={shown} mix={mix} />
         {foldedCount > 0 && !asksForRetired(find) && (
           <button type="button" onClick={() => setShowAll((s) => !s)} className="text-xs font-medium text-accent-ink hover:underline">
@@ -244,7 +244,7 @@ function CardsTotal({ lines, mix }: { lines: StrategyLine[]; mix: { label: strin
   const t = cardsTotal(lines);
   return (
     <span className="text-xs text-muted">
-      Total <span className="font-mono text-body">{signedMoney(t.net)}</span> · today <span className="font-mono text-body">{signedMoney(t.today)}</span>
+      Total <span className="text-bright">{signedMoney(t.net)}</span> · today <span className="text-bright">{signedMoney(t.today)}</span>
       <CurrencyMix mix={mix} />
     </span>
   );
@@ -262,7 +262,7 @@ function HaltBadge({ row }: { row: StrategyRow }) {
   const summary = haltSummary(row);
   if (!summary) return null;
   return (
-    <Popover label="Why this strategy is halted" align="right" trigger={<Pill tone="warn">halted</Pill>}>
+    <Popover label="Why this strategy is halted" align="right" trigger={<Pill tone="warn">Halted</Pill>}>
       {summary}
     </Popover>
   );
@@ -292,11 +292,10 @@ function PortfolioDetail({
     <div>
       <PageHeader
         title={id}
-        sub={`${summary.childCount} child strategies · ${summary.dealCount} attributed deals`}
+        sub={`Portfolio · ${summary.childCount} strategies · ${summary.dealCount} deals`}
         right={
           <div className="flex flex-wrap items-center gap-2">
             <ShareControl instanceId={instanceId} kind="portfolio" subject={id} />
-            <Pill tone="accent">portfolio</Pill>
           </div>
         }
       />
@@ -327,7 +326,7 @@ function PortfolioDetail({
           value={money(account?.equity)}
           sub={
             account
-              ? `${accountName(account, view.public)} · shared account`
+              ? `${accountName(account, view.public, accounts)} · shared account`
               : accounts.length > 1
                 ? "multiple broker accounts"
                 : "account state unavailable"
@@ -337,7 +336,7 @@ function PortfolioDetail({
       </div>
       <div className={`mt-6 grid gap-6 ${view.public ? "" : "xl:grid-cols-[2fr_1fr]"}`}>
         <Panel
-          title="Child contribution"
+          title="Strategies"
         >
           <div className="overflow-x-auto">
             <Table
@@ -366,30 +365,25 @@ function PortfolioDetail({
                   >
                     <Cell>
                       <div className="flex items-center gap-2">
-                        <span className="font-semibold text-bright" title={child.strategyId}>
+                        <span className="font-medium text-bright" title={[child.strategyId, portfolioAlias(child)].filter(Boolean).join(" · ")}>
                           {displayName(child)}
                         </span>
                         <HaltBadge row={child} />
                       </div>
-                      {portfolioAlias(child) && (
-                        <div className="text-xs text-faint">
-                          {portfolioAlias(child)}
-                        </div>
-                      )}
                     </Cell>
                     <Cell>{money(allocation)}</Cell>
                     <Cell>{pct(weight)}</Cell>
                     <Cell>
-                      <Pnl value={child.realizedNet ?? 0} glyphs={false} />
+                      <Pnl value={child.realizedNet ?? 0} />
                     </Cell>
                     <Cell>
-                      <Pnl value={open} glyphs={false} />
+                      <Pnl value={open} />
                     </Cell>
                     <Cell className="font-semibold">
                       <Pnl value={net} />
                     </Cell>
                     <Cell>{count(child.dealCount)}</Cell>
-                    <Cell className="whitespace-nowrap text-faint">
+                    <Cell className="whitespace-nowrap text-muted">
                       {age(child.lastSeen)}
                     </Cell>
                   </Row>
@@ -399,16 +393,16 @@ function PortfolioDetail({
           </div>
         </Panel>
         {!view.public && (
-        <Panel title="Broker accounts" hint="shared venue truth">
-          <Table head={["Broker", "Currency", "Balance", "Equity"]}>
+        <Panel title="Accounts">
+          <Table head={["Account", "Currency", "Balance", "Equity"]}>
             {accounts.length === 0 && (
               <Empty colSpan={4}>Account state unavailable.</Empty>
             )}
             {accounts.map((a) => (
               <Row key={`${a.broker}:${a.login ?? ""}:${a.server ?? ""}`}>
                 <Cell>
-                  <span className="font-semibold text-bright" title={accountTitle(a)}>{accountName(a)}</span>
-                  {a.stale && <div className="text-xs text-warn">{a.stopped ? "stopped reporting" : "stale"}</div>}
+                  <span className="font-medium text-bright" title={accountTitle(a, false, accounts)}>{accountName(a, false, accounts)}</span>
+                  {a.stale && <span className="ml-2 text-xs text-warn">{a.stopped ? "stopped" : "stale"}</span>}
                 </Cell>
                 <Cell>{a.currency}</Cell>
                 <Cell>{money(a.balance)}</Cell>

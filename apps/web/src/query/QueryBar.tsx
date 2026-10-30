@@ -37,7 +37,7 @@ const FILTER = "M22 3H2l8 9.46V19l4 2v-8.54z";
 const X = "M18 6L6 18M6 6l12 12";
 
 function Kbd({ children }: { children: ReactNode }) {
-  return <span className="inline-flex h-[18px] min-w-[18px] items-center justify-center rounded border border-line-strong bg-raised px-1 font-mono text-[10px] text-body">{children}</span>;
+  return <span className="inline-flex h-[18px] min-w-[18px] items-center justify-center rounded border border-line-strong bg-raised px-1 font-mono text-xs text-muted">{children}</span>;
 }
 
 /**
@@ -218,7 +218,7 @@ export function QueryBar({
               key={c.text}
               title={ignored ? `${page} ignores ${c.key === "text" ? "free text" : `${c.key}:`}; it applies on other pages` : c.label}
               className={`inline-flex h-6 max-w-full items-center gap-0.5 rounded-md border pl-2 pr-0.5 font-mono text-xs [font-variant-ligatures:none] ${
-                ignored ? "border-dashed border-line-strong bg-transparent text-faint line-through decoration-faint/60" : "border-accent-hi/40 bg-accent-soft text-accent-ink"
+                ignored ? "border-dashed border-line-strong bg-transparent text-muted line-through decoration-faint/60" : "border-accent-hi/40 bg-accent-soft text-accent-ink"
               }`}
             >
               <span className="truncate">{c.text}</span>
@@ -288,14 +288,14 @@ export function QueryBar({
                 className={`grid cursor-pointer grid-cols-[minmax(0,11rem)_1fr] items-center gap-3 px-3 py-1.5 text-sm sm:grid-cols-[16rem_1fr_auto] ${i === sel ? "bg-hover" : ""}`}
               >
                 <span className="truncate font-mono text-xs font-medium text-accent-ink [font-variant-ligatures:none]">{s.text}</span>
-                <span className="min-w-0 truncate text-body">
+                <span className="min-w-0 truncate text-muted">
                   {s.label}
                   {s.hint && <span className="text-muted"> · {s.hint}</span>}
                 </span>
-                <span className="eyebrow hidden !text-[10px] !text-faint sm:inline">{s.group}</span>
+                <span className="eyebrow hidden !text-xs !text-muted sm:inline">{s.group}</span>
               </li>
             ))}
-            <li aria-hidden className="mt-1 hidden items-center gap-1.5 border-t border-line px-3 pb-1 pt-2 text-[11px] text-muted sm:flex">
+            <li aria-hidden className="mt-1 hidden items-center gap-1.5 border-t border-line px-3 pb-1 pt-2 text-xs text-muted sm:flex">
               <Kbd>↑</Kbd>
               <Kbd>↓</Kbd> move <Kbd>Enter</Kbd> add <Kbd>Tab</Kbd> complete <Kbd>Esc</Kbd> close
             </li>
@@ -313,7 +313,7 @@ export function QueryBar({
           >
             <Icon d={FILTER} className="h-3.5 w-3.5" />
             Filters
-            {activePresets > 0 && <span className="inline-flex h-4 min-w-4 items-center justify-center rounded-full bg-accent px-1 text-[10px] font-semibold text-on-accent">{activePresets}</span>}
+            {activePresets > 0 && <span className="inline-flex h-4 min-w-4 items-center justify-center rounded-full bg-accent px-1 text-xs font-semibold text-on-accent">{activePresets}</span>}
           </button>
           {panel && <PresetPanel presets={presets} value={presetValue} onPick={setPreset} onClose={() => setPanel(false)} />}
         </div>
@@ -391,7 +391,7 @@ function PresetPanel({
         })}
       </div>
       <p className="mt-3 text-xs text-muted">
-        Or type in the search box: <span className="font-mono text-body [font-variant-ligatures:none]">{sample}</span>
+        Or type in the search box: <span className="font-mono text-muted [font-variant-ligatures:none]">{sample}</span>
       </p>
     </div>
   );

@@ -21,7 +21,7 @@ function InstallHint({ id, platform }: { id: string; platform: InstallPlatform }
   const r = ROUTE[platform];
   return (
     <div id={id} role="note" className="mt-2.5 rounded-lg border border-line bg-raised px-3 py-2.5 text-xs leading-relaxed text-muted">
-      Tap <span className="font-semibold text-body">{r.steps[0]}</span>, then <span className="font-semibold text-body">{r.steps[1]}</span>. {r.then}
+      Tap <span className="font-semibold text-muted">{r.steps[0]}</span>, then <span className="font-semibold text-muted">{r.steps[1]}</span>. {r.then}
     </div>
   );
 }
@@ -62,7 +62,7 @@ export function InstallApp({ variant }: { variant: "sidebar" | "login" }) {
         onClick={onClick}
         {...aria}
         title={label}
-        className="flex w-full items-center gap-3 rounded-lg px-3.5 py-2.5 text-left text-[15px] font-medium text-muted transition hover:bg-raised hover:text-body"
+        className="flex w-full items-center gap-3 rounded-lg px-3.5 py-2.5 text-left text-sm font-medium text-muted transition hover:bg-raised hover:text-muted"
       >
         <DownloadIcon className="h-5 w-5" />
         {label}

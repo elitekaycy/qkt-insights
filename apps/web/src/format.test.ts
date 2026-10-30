@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { axisTick, compact, compactDuration, compactPnl, returnPct, dealNet, duration, fixed, glyph, human, instrumentOf, money, num, openPnl, pct, pnl, price, signedMoney, signedPct, toneClass, ts, tsShort } from "./format";
+import { axisTick, compact, compactPnl, returnPct, dealNet, duration, fixed, human, instrumentOf, money, num, openPnl, pct, price, signedMoney, signedPct, toneClass, ts, tsShort } from "./format";
 import { tableStamp } from "./trades/format";
 
 describe("price", () => {
@@ -57,19 +57,17 @@ describe("signed money", () => {
     expect(signedMoney(null)).toBe("\u2014");
   });
 
-  it("pairs a glyph with the sign so colour is never the only signal", () => {
-    expect(pnl(1002.4)).toBe("\u25b2 +1,002.40");
-    expect(pnl(-1002.4)).toBe("\u25bc \u22121,002.40");
-    expect(pnl(0.001)).toBe("0.00");
-    expect(glyph(-3)).toBe("\u25bc");
-    expect(glyph(0)).toBe("");
+  it("signs money so colour is never the only signal", () => {
+    expect(signedMoney(1002.4)).toBe("+1,002.40");
+    expect(signedMoney(-1002.4)).toBe("\u22121,002.40");
+    expect(signedMoney(0.001)).toBe("0.00");
   });
 
   it("maps polarity to the gain and loss text tones", () => {
     expect(toneClass(5)).toBe("text-gain");
     expect(toneClass(-5)).toBe("text-loss");
     expect(toneClass(-0.001)).toBe("text-muted");
-    expect(toneClass(null)).toBe("text-faint");
+    expect(toneClass(null)).toBe("text-muted");
   });
 
   it("signs percent changes", () => {
@@ -95,12 +93,12 @@ describe("compact axis labels", () => {
 });
 
 describe("compact cell money", () => {
-  it("keeps the glyph and sign at cell width", () => {
-    expect(compactPnl(1234)).toBe("\u25b2 +1.23k");
-    expect(compactPnl(-640.4)).toBe("\u25bc \u2212640");
-    expect(compactPnl(-5.94)).toBe("\u25bc \u22125.94");
-    expect(compactPnl(14.84)).toBe("\u25b2 +14.8");
-    expect(compactPnl(-0.4)).toBe("\u25bc \u22120.40");
+  it("keeps the sign at cell width", () => {
+    expect(compactPnl(1234)).toBe("+1.23k");
+    expect(compactPnl(-640.4)).toBe("\u2212640");
+    expect(compactPnl(-5.94)).toBe("\u22125.94");
+    expect(compactPnl(14.84)).toBe("+14.8");
+    expect(compactPnl(-0.4)).toBe("\u22120.40");
     expect(compactPnl(0.003)).toBe("0");
     expect(returnPct(0.0024)).toBe("<0.01%");
     expect(returnPct(-0.0024)).toBe("\u2212<0.01%");
@@ -158,16 +156,5 @@ describe("axisTick", () => {
     expect(axisTick(-1500)).toBe("\u22121.5k");
     expect(axisTick(0)).toBe("0");
     expect(axisTick(-0.001)).toBe("0");
-  });
-});
-
-describe("compactDuration", () => {
-  it("keeps a holding time to two units and drops seconds past a minute", () => {
-    expect(compactDuration(45_000)).toBe("45s");
-    expect(compactDuration(25 * 60_000 + 7_000)).toBe("25m");
-    expect(compactDuration(61 * 60_000 + 3_000)).toBe("1h 1m");
-    expect(compactDuration(2 * 3_600_000)).toBe("2h");
-    expect(compactDuration(52 * 3_600_000)).toBe("2d 4h");
-    expect(compactDuration(null)).toBe("—");
   });
 });

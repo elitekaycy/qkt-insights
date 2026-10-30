@@ -1,6 +1,6 @@
 import { useQuery } from "@tanstack/react-query";
 import { get, type AccountRiskRow, type AccountSummary, type InstanceRow, type LivePositionRow, type StrategyRow } from "../api";
-import { accountKey, accountProfiles, accountTab, groupAccounts } from "../accounts";
+import { accountKey, accountName, accountProfiles, groupAccounts } from "../accounts";
 import { AccountsTable, AccountTabs, useAccountChoice, type AccountLine } from "../components/AccountSwitch";
 import { AccountStrip, AttentionLine, TodayHeadline } from "../components/HomeAccount";
 import { MonthCalendar, PnlChart } from "../components/HomeCharts";
@@ -23,9 +23,9 @@ import { useStrategies } from "../hooks/useStrategies";
 const FEED_TYPES = ["state.account", "state.positions"];
 
 /**
- * Home answers "am I safe right now": the account strip (balance, equity, today, open risk to the
- * stops, loss limits), the open positions, every strategy's periods, the realized P&L history and
- * the month. Shared links show the same page 15 minutes behind, without positions.
+ * Home answers "am I making money, and does anything need me": today's figure and what needs a look first, then the
+ * accounts, the realized P&L history and the month, the open positions, and every strategy's periods. Shared links
+ * show the same page 15 minutes behind, without positions.
  */
 export default function Home({ instanceId }: { instanceId: string | null }) {
   const view = useView();
@@ -118,19 +118,19 @@ export default function Home({ instanceId }: { instanceId: string | null }) {
       note: view.public ? null : floatingNote(g.account, positionsOf(g), outsideOf(groupsOf(g))), pending: risk.isPending };
   });
   const shown = choice.chosen;
-  const shownName = scoped ? accountTab(scoped.account, view.public).name : null;
+  const shownName = scoped ? accountName(scoped.account, view.public, accounts) : null;
   // the shown account's Today as the strip shows it (its risk row, else the strategies' closes today)
   const shownNote = shown && !view.public ? (choice.many ? floatingNote(shown.account, positionsOf(shown), outsideOf(groupsOf(shown))) : floatingNote(shown.account, positions, outsideOf(groups))) : null;
   const shownRealized = shown ? (riskRowFor(shown.account, riskRows)?.dailyLoss.realizedToday ?? (periods ? realizedFallback : null)) : null;
   const shownSplit = shown && shownRealized != null ? todaySplit(shown.account, shownRealized, shownNote) : null;
   const headline = todayHeadline(shown
-    ? [{ key: accountKey(shown.account), name: accountTab(shown.account, view.public).name, currency: shown.account.currency, split: shownSplit }]
-    : accountLines.map((l) => ({ key: accountKey(l.group.account), name: accountTab(l.group.account, view.public).name, currency: l.group.account.currency,
+    ? [{ key: accountKey(shown.account), name: accountName(shown.account, view.public, accounts), currency: shown.account.currency, split: shownSplit }]
+    : accountLines.map((l) => ({ key: accountKey(l.group.account), name: accountName(l.group.account, view.public, accounts), currency: l.group.account.currency,
       split: l.realizedToday == null ? null : todaySplit(l.group.account, l.realizedToday, l.note) })));
   const headlinePending = liveState.isPending || risk.isPending || (shown != null && shownRealized == null && summary.isPending);
   const attention = attentionItems({
     strategies: rows.map((r) => ({ strategyId: r.strategyId, name: strategyDisplayName(r), active: r.active, halted: r.halted, why: haltWords(r)?.label })),
-    accounts: choice.accounts.map((g) => ({ key: accountKey(g.account), name: accountTab(g.account).name, stale: g.account.stale, stopped: g.account.stopped, lastSeen: g.account.lastSeen })),
+    accounts: choice.accounts.map((g) => ({ key: accountKey(g.account), name: accountName(g.account, false, accounts), stale: g.account.stale, stopped: g.account.stopped, lastSeen: g.account.lastSeen })),
     noStop: openRisk(positions).noStop,
   });
 
@@ -146,15 +146,14 @@ export default function Home({ instanceId }: { instanceId: string | null }) {
                 parts={headline.parts}
                 missing={headline.missing}
                 pending={headlinePending}
+                asOf={!view.public && accounts.length > 0 ? ts(Math.max(...accounts.map((a) => a.lastSeen))).slice(11) : undefined}
                 onQkt={() => document.getElementById("home-strategies")?.scrollIntoView({ behavior: "smooth", block: "start" })}
               />
             )}
             {!view.public && !liveState.isPending && !strategies.isPending && (
-              <div className="mt-1.5">
+              <div className="mt-2">
                 <AttentionLine
                   items={attention}
-                  others={headline.others}
-                  onAccount={(key) => choice.choose(choice.accounts.find((g) => accountKey(g.account) === key) ?? null)}
                   onItem={(item) => {
                     if (item.kind === "halted") navigate(`/s/${encodeURIComponent(item.strategyId)}`, { from: "Home" });
                     else if (item.kind === "halted-many") navigate(`/s?find=${encodeURIComponent("status:halted")}`, { from: "Home" });
@@ -170,12 +169,7 @@ export default function Home({ instanceId }: { instanceId: string | null }) {
           </>
         }
         right={
-          <div className="flex items-center gap-3">
-            {!view.public && accounts.length > 0 && (
-              <span className="text-xs text-muted" title="when the newest account state arrived from the venue">as of {ts(Math.max(...accounts.map((a) => a.lastSeen))).slice(11)} UTC</span>
-            )}
-            <ShareControl instanceId={instanceId} kind="overview" />
-          </div>
+          <span className="max-sm:hidden"><ShareControl instanceId={instanceId} kind="overview" /></span>
         }
       />
 
@@ -211,6 +205,17 @@ export default function Home({ instanceId }: { instanceId: string | null }) {
         )}
       </Loadable>
 
+      <Loadable loading={summary.isPending} error={summary.isError} retry={() => summary.refetch()} what="the P&L history" shape="chart">
+        {summary.data && (
+          <div className="grid gap-4 lg:grid-cols-3">
+            <div className="min-w-0 lg:col-span-2">
+              <PnlChart days={summary.data.dailyNets} range={range} onRange={(r) => setRange(r, { push: true })} now={now} mix={scoped ? null : mix} />
+            </div>
+            <MonthCalendar key={utcDay(now).slice(0, 7)} days={summary.data.dailyNets} now={now} mix={scoped ? null : mix} />
+          </div>
+        )}
+      </Loadable>
+
       {view.public ? (
         !scoped && <PublicOpenPositions summary={liveState.data?.openPositions ?? null} />
       ) : (
@@ -237,16 +242,6 @@ export default function Home({ instanceId }: { instanceId: string | null }) {
         </div>
       </Loadable>
 
-      <Loadable loading={summary.isPending} error={summary.isError} retry={() => summary.refetch()} what="the P&L history" shape="chart">
-        {summary.data && (
-          <div className="grid gap-4 lg:grid-cols-3">
-            <div className="min-w-0 lg:col-span-2">
-              <PnlChart days={summary.data.dailyNets} range={range} onRange={(r) => setRange(r, { push: true })} now={now} mix={scoped ? null : mix} />
-            </div>
-            <MonthCalendar key={utcDay(now).slice(0, 7)} days={summary.data.dailyNets} now={now} mix={scoped ? null : mix} />
-          </div>
-        )}
-      </Loadable>
     </div>
   );
 }

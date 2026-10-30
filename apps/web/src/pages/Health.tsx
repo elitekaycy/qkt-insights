@@ -127,7 +127,7 @@ function UptimeStrip({ strip, name }: { strip: StripBucket[]; name: string }) {
 }
 
 function uptimeTone(v: number | null): string {
-  if (v == null) return "text-faint";
+  if (v == null) return "text-muted";
   return v >= 0.999 ? "text-ok" : v >= 0.99 ? "text-bright" : v >= 0.95 ? "text-warn" : "text-loss";
 }
 
@@ -148,18 +148,13 @@ function MonitorRow({ m }: { m: MonitorSummary }) {
       <div className="flex items-center gap-3">
         <div className="min-w-0 flex-1">
           <div className="flex items-center gap-2">
-            <span className="truncate font-semibold text-bright">{m.name}</span>
+            <span className="truncate font-medium text-bright" title={target}>{m.name}</span>
             <StatusWord tone={STATUS_TONE[m.status]}>{m.status}</StatusWord>
-          </div>
-          <div className="truncate font-mono text-[11px] text-faint" title={target}>
-            {target}
           </div>
         </div>
         <div className="shrink-0 text-right">
-          <div className={`text-lg font-semibold leading-tight ${uptimeTone(m.uptime24h)}`} title={uncheckedLabel(m.unchecked24h) ?? undefined}>
-            {pct(m.uptime24h, 2)}
-          </div>
-          <div className="text-xs text-muted">24h</div>
+          <span className="text-xs text-muted">24h </span>
+          <span className={`text-sm font-medium ${uptimeTone(m.uptime24h)}`} title={uncheckedLabel(m.unchecked24h) ?? undefined}>{pct(m.uptime24h, 2)}</span>
         </div>
       </div>
       <div className="mt-2.5">
@@ -168,7 +163,7 @@ function MonitorRow({ m }: { m: MonitorSummary }) {
       <div className="mt-1.5 flex flex-wrap gap-x-4 gap-y-1 text-xs text-muted">
         <span>
           30d <span className={`${uptimeTone(m.uptime30d)}`}>{pct(m.uptime30d, 2)}</span>
-          {uncheckedLabel(m.unchecked30d) && <span className="text-faint"> · {uncheckedLabel(m.unchecked30d)}</span>}
+          {uncheckedLabel(m.unchecked30d) && <span className="text-muted"> · {uncheckedLabel(m.unchecked30d)}</span>}
         </span>
         {m.status === "down" ? (
           <span className="text-loss">{m.detail ?? "check failed"}</span>
@@ -210,7 +205,7 @@ function FleetStats({ monitors, rows, accounts, pending }: { monitors: MonitorSu
         label="Accounts reporting"
         value={`${accounts.length - quiet.length} / ${accounts.length}`}
         tone={quiet.length > 0 ? "warn" : "neutral"}
-        sub={quiet.length > 0 ? quiet.map((a) => `${accountName(a)} ${a.stopped ? "stopped" : `stale ${elapsed(Date.now() - a.lastSeen)}`}`).join(", ") : undefined}
+        sub={quiet.length > 0 ? quiet.map((a) => `${accountName(a, false, quiet)} ${a.stopped ? "stopped" : `stale ${elapsed(Date.now() - a.lastSeen)}`}`).join(", ") : undefined}
       />
       <Stat label="Monitors down" value={down.length} tone={down.length > 0 ? "bad" : "neutral"} sub={down.length > 0 ? down.map((m) => m.name).join(", ") : undefined} />
     </div>
@@ -223,7 +218,7 @@ function Monitors({ view, loading, failed }: { view: MonitorsView | undefined; l
   return (
     <>
       <Panel
-        className="mt-6"
+        className="mt-4"
        
         title="Uptime"
         hint="30-min beats, last 24 h"
@@ -233,7 +228,7 @@ function Monitors({ view, loading, failed }: { view: MonitorsView | undefined; l
         {failed && !view && <div className="px-4 py-10 text-center text-sm text-loss">Could not load monitors from the collector. Retrying.</div>}
         <ul className="divide-y divide-line/60">
           {!loading && !failed && monitors.length === 0 && (
-            <li className="px-4 py-10 text-center text-sm text-faint">
+            <li className="px-4 py-10 text-center text-sm text-muted">
               No monitors yet. They show up once a qkt instance reports.
             </li>
           )}
@@ -243,7 +238,7 @@ function Monitors({ view, loading, failed }: { view: MonitorsView | undefined; l
         </ul>
       </Panel>
 
-      <Panel className="mt-6" title="Incidents" scroll="max-h-[24rem]">
+      <Panel className="mt-4" title="Incidents" scroll="max-h-[24rem]">
         {!view ? (loading ? <Skeleton lines={3} className="p-4" /> : null) : <DataList
           head={["When (UTC)", "Monitor", "Status", "Lasted", "Reason"]}
           rows={events}
@@ -263,7 +258,7 @@ function Monitors({ view, loading, failed }: { view: MonitorsView | undefined; l
           card={(e) => (
             <>
               <div className="flex items-center gap-2">
-                <span className="truncate font-semibold text-bright">{e.monitor}</span>
+                <span className="truncate font-medium text-bright">{e.monitor}</span>
                 <StatusWord tone={STATUS_TONE[e.status]}>{e.status}</StatusWord>
                 <span className="ml-auto whitespace-nowrap text-xs text-muted">{tsShort(e.ts)} UTC</span>
               </div>
@@ -302,7 +297,7 @@ function InstanceDetail({ row, accounts }: { row: HealthRow; accounts: LiveAccou
   return (
     <div className="grid gap-4 xl:grid-cols-[1.2fr_2fr]">
       <div className="rounded-lg border border-line bg-panel p-4">
-        <div className="text-sm font-medium text-body">Collector delivery</div>
+        <div className="text-sm font-medium text-muted">Collector delivery</div>
         <div className="mt-3 grid grid-cols-2 gap-3 text-sm">
           <Fact label="sent" mono>
             {row.insightsSent ?? "—"}
@@ -327,7 +322,7 @@ function InstanceDetail({ row, accounts }: { row: HealthRow; accounts: LiveAccou
                 <li key={`${q.type}:${q.v}`} className="min-w-0" title={q.reason}>
                   <span className="font-mono text-bright">{q.type ?? "no type"}</span>
                   <span className="font-mono text-muted"> v{q.v ?? "?"} · {q.count} · last {age(q.lastReceivedAt)}</span>
-                  <div className="truncate text-xs text-faint">{q.reason}</div>
+                  <div className="truncate text-xs text-muted">{q.reason}</div>
                 </li>
               ))}
             </ul>
@@ -342,9 +337,9 @@ function InstanceDetail({ row, accounts }: { row: HealthRow; accounts: LiveAccou
           empty="No broker account state yet — waiting for the state poller."
           cells={(a) => (
             <>
-              <Cell className="font-semibold text-bright"><span title={accountTitle(a)}>{accountName(a)}</span></Cell>
+              <Cell className="font-medium text-bright"><span title={accountTitle(a, false, accounts)}>{accountName(a, false, accounts)}</span></Cell>
               <Cell>
-                <Pill tone={a.stale ? "neutral" : "ok"}>{a.stopped ? "stopped" : a.stale ? "stale" : "live"}</Pill>
+                <StatusWord tone={a.stale ? "warn" : "ok"}>{a.stopped ? "stopped" : a.stale ? "stale" : "live"}</StatusWord>
               </Cell>
               <Cell className="whitespace-nowrap text-muted">{age(a.lastSeen)}</Cell>
               <Cell className="text-muted">{money(a.balance)}</Cell>
@@ -356,8 +351,8 @@ function InstanceDetail({ row, accounts }: { row: HealthRow; accounts: LiveAccou
           card={(a) => (
             <>
               <div className="flex items-center gap-2">
-                <span className="truncate font-semibold text-bright" title={accountTitle(a)}>{accountName(a)}</span>
-                <Pill tone={a.stale ? "neutral" : "ok"}>{a.stopped ? "stopped" : a.stale ? "stale" : "live"}</Pill>
+                <span className="truncate font-medium text-bright" title={accountTitle(a, false, accounts)}>{accountName(a, false, accounts)}</span>
+                <StatusWord tone={a.stale ? "warn" : "ok"}>{a.stopped ? "stopped" : a.stale ? "stale" : "live"}</StatusWord>
                 <span className="ml-auto whitespace-nowrap text-xs text-muted">{age(a.lastSeen)}</span>
               </div>
               <div className="mt-2 grid grid-cols-3 gap-3 text-sm">
@@ -424,11 +419,11 @@ export default function Health() {
       <ReconciliationCard instances={rows.map((r) => r.instanceId)} pending={health.isPending} />
 
       <Panel
-        className="mt-6"
+        className="mt-4"
         title="Instances"
         right={
           contract.data && (
-            <span className="font-mono text-xs text-faint" title={contractTitle(contract.data)}>
+            <span className="text-xs text-muted" title={contractTitle(contract.data)}>
               {contractLabel(contract.data)}
             </span>
           )
@@ -438,7 +433,7 @@ export default function Health() {
         <ul className="divide-y divide-line/60 sm:hidden">
           {health.isPending && <li><Skeleton lines={3} /></li>}
           {health.isSuccess && rows.length === 0 && (
-            <li className="px-4 py-10 text-center text-sm text-faint">No instances reporting yet — enable the insights block on a qkt instance.</li>
+            <li className="px-4 py-10 text-center text-sm text-muted">No instances reporting yet — enable the insights block on a qkt instance.</li>
           )}
           {rows.map((r) => {
             const rowAccounts = accounts.filter((a) => a.instanceId === r.instanceId);
@@ -448,7 +443,7 @@ export default function Health() {
             return (
               <li key={r.instanceId} className="px-4 py-3.5">
                 <div className="flex items-center gap-2.5">
-                  <span className="truncate font-semibold text-bright">{r.instanceId}</span>
+                  <span className="truncate font-medium text-bright">{r.instanceId}</span>
                   <Freshness at={Math.max(r.lastSeen, acct?.lastSeen ?? 0)} stale={!fresh} className="ml-auto" />
                 </div>
                 <div className="mt-2 grid grid-cols-2 gap-x-4 gap-y-1.5 text-sm">
@@ -462,11 +457,11 @@ export default function Health() {
                 </div>
                 <div className="mt-2.5 flex flex-wrap items-center gap-2">
                   <span title={SINK_TITLE}>
-                    <Pill tone={sinkTone(r)}>{sinkLabel(r)}</Pill>
+                    <StatusWord tone={sinkTone(r)}>{sinkLabel(r)}</StatusWord>
                   </span>
-                  <Pill tone={r.insightsJournalPending == null ? "neutral" : r.insightsJournalPending > 0 ? "warn" : "ok"}>
+                  <StatusWord tone={r.insightsJournalPending != null && r.insightsJournalPending > 0 ? "warn" : "ok"}>
                     journal {journalLabel(r)}
-                  </Pill>
+                  </StatusWord>
                   <QuarantinePill row={r} />
                   <button
                     type="button"
@@ -501,7 +496,7 @@ export default function Health() {
             return (
               <Fragment key={r.instanceId}>
                 <Row onClick={() => setOpenInstance(expanded ? null : r.instanceId)} label={`${expanded ? "Hide" : "Show"} ${r.instanceId} details`}>
-                  <Cell className="font-semibold text-bright">{r.instanceId}</Cell>
+                  <Cell className="font-medium text-bright">{r.instanceId}</Cell>
                   <Cell>
                     <Freshness at={Math.max(r.lastSeen, acct?.lastSeen ?? 0)} stale={!fresh} />
                   </Cell>
@@ -516,18 +511,18 @@ export default function Health() {
                   <Cell>
                     <span className="flex flex-wrap gap-1.5">
                       <span title={SINK_TITLE}>
-                        <Pill tone={sinkTone(r)}>{sinkLabel(r)}</Pill>
+                        <StatusWord tone={sinkTone(r)}>{sinkLabel(r)}</StatusWord>
                       </span>
                       <QuarantinePill row={r} />
                     </span>
                   </Cell>
                   <Cell>
-                    <Pill tone={r.insightsJournalPending == null ? "neutral" : r.insightsJournalPending > 0 ? "warn" : "ok"}>
+                    <StatusWord tone={r.insightsJournalPending != null && r.insightsJournalPending > 0 ? "warn" : "ok"}>
                       {journalLabel(r)}
-                    </Pill>
+                    </StatusWord>
                   </Cell>
                   <Cell className="w-8 text-right">
-                    <svg viewBox="0 0 24 24" className={`ml-auto h-4 w-4 text-faint transition ${expanded ? "rotate-180 opacity-100" : "opacity-60 group-hover:opacity-100"}`} fill="none" stroke="currentColor" strokeWidth="1.75" strokeLinecap="round" strokeLinejoin="round" aria-hidden>
+                    <svg viewBox="0 0 24 24" className={`ml-auto h-4 w-4 text-muted transition ${expanded ? "rotate-180 opacity-100" : "opacity-60 group-hover:opacity-100"}`} fill="none" stroke="currentColor" strokeWidth="1.75" strokeLinecap="round" strokeLinejoin="round" aria-hidden>
                       <path d="M6 9l6 6 6-6" />
                     </svg>
                   </Cell>

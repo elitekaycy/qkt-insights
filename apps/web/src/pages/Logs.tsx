@@ -99,7 +99,7 @@ export default function Logs({ instanceId }: { instanceId: string | null }) {
       && (!from || e.ts >= from) && (!to || e.ts < to);
   });
 
-  if (!instanceId) return <Card className="p-8 text-center text-faint">No instance selected.</Card>;
+  if (!instanceId) return <Card className="p-8 text-center text-muted">No instance selected.</Card>;
 
   const rows = logs.data?.pages.flatMap((p) => p.rows) ?? [];
   const total = logs.data?.pages[0]?.total ?? null;
@@ -122,12 +122,12 @@ export default function Logs({ instanceId }: { instanceId: string | null }) {
                 <>
               {!f.level && <Segmented label="Which lines" value={attention ? "attention" : "all"} options={LINES} onChange={(v) => setLines(v === "all" ? "all" : "")} />}
               <RangeChips value={range} onChange={setRange} />
-              <span className={`text-sm text-muted ${logs.isFetching ? "opacity-60" : ""}`} aria-live="polite">
+              <span className={`whitespace-nowrap text-sm text-muted ${logs.isFetching ? "opacity-60" : ""}`} aria-live="polite">
                 {logs.data == null ? (
                   <Spinner label="Loading…" show />
                 ) : (
                   <>
-                    Showing <b className="font-semibold text-bright">{count(rows.length)}</b> of {count(total ?? rows.length)} matching lines
+                    <b className="font-medium text-bright">{count(rows.length)}</b> of {count(total ?? rows.length)} lines
                   </>
                 )}
               </span>
@@ -139,7 +139,7 @@ export default function Logs({ instanceId }: { instanceId: string | null }) {
       />
 
       {liveLogs.length > 0 && (
-        <Panel className="mt-5" title="Live" right={<span className="text-xs text-muted">newest {new Date(liveLogs[0]!.ts).toISOString().slice(11, 19)} UTC</span>} scroll="max-h-[20rem]">
+        <Panel className="mt-4" title="Live" right={<span className="text-xs text-muted">newest {new Date(liveLogs[0]!.ts).toISOString().slice(11, 19)} UTC</span>} scroll="max-h-[20rem]">
           <div className="p-2">
             {groupLogs(liveLogs.slice(0, 20).map((e) => ({
               id: `${e.instanceId}-${e.id}`,
@@ -153,7 +153,7 @@ export default function Logs({ instanceId }: { instanceId: string | null }) {
         </Panel>
       )}
 
-      <Panel className="mt-5" title="History" hint="newest first" scroll="max-h-[calc(100dvh-20rem)]">
+      <Panel className="mt-4" title="History" scroll="max-h-[calc(100dvh-20rem)]">
         <Loadable loading={logs.isPending} error={logs.isError} retry={() => logs.refetch()} what="log history" shape="lines" lines={8}>
           <div className={`p-2 ${logs.isPlaceholderData ? "opacity-60" : ""}`}>
             {groupLogs(rows).map((g) => (
@@ -161,7 +161,7 @@ export default function Logs({ instanceId }: { instanceId: string | null }) {
             ))}
             {rows.length === 0 && (
               <Empty>
-                <b className="font-semibold text-body">No log lines match.</b> Loosen the query above.
+                <b className="font-semibold text-muted">No log lines match.</b> Loosen the query above.
               </Empty>
             )}
           </div>

@@ -3,22 +3,21 @@ import { get, type AccountReconciliation, type ReconciledDay, type Reconciliatio
 import { accountName, accountOfLabel } from "../accounts";
 import { useRoute } from "../router";
 import { useLiveState } from "../useLiveState";
-import { count, glyph, signedMoney } from "../format";
+import { count, signedMoney } from "../format";
 import {
   DAY_REASON, EMPTY_TEXT, ignoredLine, unassignedLabels, unassignedLine, checkedLabel, dayCounts, dayMonth, dayTradesPath, ledgerLine, positionIssues, positionsLine, verdict, type ReconciliationTone,
 } from "../reconciliation";
-import { Cell, DataList, InfoIcon, Panel, Pnl, Popover, Skeleton, StatusWord, type Tone } from "./ui";
+import { Cell, DataList, Panel, Pnl, Popover, Skeleton, StatusWord, type Tone } from "./ui";
 
 const TONE: Record<ReconciliationTone, Tone> = { ok: "ok", bad: "bad", neutral: "neutral" };
 
 const HINT = "Nightly at 02:00 UTC against venue deals";
 const HINT_TITLE = "Each UTC day's balance change against the account's deals (a move with no deal is a deposit, withdrawal or credit, not a failure), open positions against the venue, and trades against their deals. Tap a day for its trades.";
 
-/** What no stored deal explains: a signed amount with its glyph, never coloured as P&L. */
+/** What no stored deal explains: a signed amount, never coloured as P&L. */
 function Unexplained({ value, digits }: { value: number | null; digits: number }) {
-  if (value == null) return <span className="text-faint">—</span>;
-  const g = glyph(value, digits);
-  return <span className="whitespace-nowrap font-semibold text-bright">{g ? `${g} ` : ""}{signedMoney(value, digits)}</span>;
+  if (value == null) return <span className="text-muted">—</span>;
+  return <span className="whitespace-nowrap font-medium text-bright">{signedMoney(value, digits)}</span>;
 }
 
 /** "Sat 3 Oct 2026" for "2026-10-03". */
@@ -31,10 +30,10 @@ function dayLabel(day: string): string {
 function Details({ label, lines }: { label: string; lines: string[] }) {
   if (lines.length === 0) return null;
   return (
-    <Popover label={label} trigger={<span className="inline-flex items-center gap-1 text-xs font-medium text-accent-ink"><InfoIcon className="h-3.5 w-3.5" />details</span>}>
+    <Popover label={label} trigger={<span className="text-xs font-medium text-accent-ink hover:underline">details</span>}>
       <ul className="space-y-1">
         {lines.map((l) => (
-          <li key={l} className="font-mono text-[11px] text-body">{l}</li>
+          <li key={l} className="text-xs text-muted">{l}</li>
         ))}
       </ul>
     </Popover>
@@ -49,7 +48,7 @@ function DayList({ kind, days, digits, onDay }: { kind: "diff" | "external"; day
   const external = kind === "external";
   return (
     <div className="mt-2.5 min-w-0">
-      <div className={`mb-1 flex items-center gap-1.5 text-[11px] font-medium ${external ? "text-warn" : "text-loss"}`}>
+      <div className={`mb-1 flex items-center gap-1.5 text-xs font-medium ${external ? "text-warn" : "text-loss"}`}>
         <span className={`inline-block h-1.5 w-1.5 rounded-full ${external ? "bg-warn" : "bg-danger"}`} aria-hidden />
         {external ? "Balance moves without a deal" : "Days that differ"}
       </div>
@@ -71,7 +70,7 @@ function DayList({ kind, days, digits, onDay }: { kind: "diff" | "external"; day
                 <Cell className="text-muted">{count(d.deals)}</Cell>
               </>
             )}
-            <Cell className="min-w-[16rem] text-xs text-muted">{d.reason ? DAY_REASON[d.reason] : "—"}</Cell>
+            <Cell className="max-w-[24rem] truncate text-xs text-muted"><span title={d.reason ? DAY_REASON[d.reason] : undefined}>{d.reason ? DAY_REASON[d.reason] : "—"}</span></Cell>
             <Cell className="whitespace-nowrap text-right text-xs font-medium text-accent-ink">trades →</Cell>
           </>
         )}
@@ -114,18 +113,19 @@ function AccountBlock({ a, view, showInstance }: { a: AccountReconciliation; vie
   const external = a.days.filter((d) => d.status === "external");
   const onDay = (d: ReconciledDay) => navigate(dayTradesPath(view.instanceId, d.day), { from: "Health · Reconciliation" });
   const incomplete = a.days.filter((d) => d.status === "incomplete");
-  const live = accountOfLabel(useLiveState().data?.accounts ?? [], view.instanceId, a.label);
+  const peers = (useLiveState().data?.accounts ?? []).filter((x) => x.instanceId === view.instanceId);
+  const live = accountOfLabel(peers, view.instanceId, a.label);
   // what checks out is one quiet line; anything that does not gets its own line and details
-  const okChecks = [positions.tone === "ok" ? "Positions ✓" : null, ledger.tone === "ok" ? "Ledger ✓" : null].filter(Boolean).join(" · ");
+  const okChecks = [positions.tone === "ok" ? "positions" : null, ledger.tone === "ok" ? "ledger" : null].filter(Boolean).join(" and ");
   return (
-    <li className="min-w-0 px-4 py-3.5">
+    <li className="min-w-0 px-4 py-2.5">
       <div className="flex min-w-0 flex-wrap items-center gap-x-3 gap-y-1">
-        <span className="min-w-0 truncate font-semibold text-bright" title={live ? `checked under broker profile ${a.label}` : undefined}>{live ? accountName(live) : a.label}</span>
-        {showInstance && <span className="truncate font-mono text-xs text-muted">{view.instanceId}</span>}
+        <span className="min-w-0 truncate font-medium text-bright" title={live ? `checked under broker profile ${a.label}` : undefined}>{live ? accountName(live, false, peers) : a.label}</span>
+        {showInstance && <span className="truncate text-xs text-muted">{view.instanceId}</span>}
         <span title={`${dayCounts(a)}${a.firstDay ? ` since ${dayMonth(a.firstDay)} ${a.firstDay.slice(0, 4)}` : ""} · ${checkedLabel(a.checkedAt)}`}>
           <StatusWord tone={TONE[v.tone]}>{v.text}</StatusWord>
         </span>
-        {okChecks && <span className="text-xs text-muted" title={[positions.tone === "ok" ? positions.text : null, ledger.tone === "ok" ? ledger.text : null].filter(Boolean).join(" · ")}>{okChecks}</span>}
+        {okChecks && <span className="text-xs text-muted" title={[positions.tone === "ok" ? positions.text : null, ledger.tone === "ok" ? ledger.text : null].filter(Boolean).join(" · ")}>{okChecks} match</span>}
         <Details label="Incomplete days" lines={incomplete.map((d) => `${d.day}: ${d.reason ? DAY_REASON[d.reason] : "incomplete"}`)} />
       </div>
       {diffs.length > 0 && <DayList kind="diff" days={diffs} digits={view.digits} onDay={onDay} />}
@@ -165,7 +165,7 @@ export function ReconciliationCard({ instances, pending = false }: { instances: 
   const accounts = views.flatMap((view) => view.accounts.map((a) => ({ view, a })));
   const unassigned = views.filter((v) => v.unassigned.deals > 0);
   return (
-    <Panel className="mt-6" title="Reconciliation" hint={HINT} hintTitle={HINT_TITLE}>
+    <Panel className="mt-4" title="Reconciliation" hint={HINT} hintTitle={HINT_TITLE}>
       {loading && accounts.length === 0 && <Skeleton lines={3} className="p-4" />}
       {failed && <div className="px-4 py-3 text-sm text-loss">Could not load a reconciliation from the collector. Retrying.</div>}
       {unassigned.map((v) => (
@@ -190,7 +190,7 @@ export function ReconciliationCard({ instances, pending = false }: { instances: 
           </div>
         );
       })}
-      {!loading && !failed && accounts.length === 0 && <div className="px-4 py-10 text-center text-sm text-faint">{EMPTY_TEXT}</div>}
+      {!loading && !failed && accounts.length === 0 && <div className="px-4 py-10 text-center text-sm text-muted">{EMPTY_TEXT}</div>}
       {accounts.length > 0 && (
         <ul className="divide-y divide-line/60">
           {accounts.map(({ view, a }) => (

@@ -1,44 +1,37 @@
 import { useCallback, useEffect, useMemo, useRef, useState, type ReactNode } from "react";
 import { accountName, accountOfLabel } from "../accounts";
-import { compactDuration, DASH, duration, openPnl, pnl, quantity, signedMoney, toneClass } from "../format";
-import { TypeBadge } from "../components/InstrumentType";
-import { instrumentType, optionFromSymbol, optionLine, shortInstrument, sizeInWords } from "../instruments";
-import { Pill, RowChevron, Skeleton, Spinner } from "../components/ui";
+import { DASH, duration, openPnl, quantity, signedMoney, toneClass } from "../format";
+import { instrumentType, optionFromSymbol, optionLine, shortInstrument, sizeInWords, TYPE_LABEL } from "../instruments";
+import { Pill, RowChevron, SideWord, Skeleton, Spinner } from "../components/ui";
 import { useStrategyNames } from "../hooks/useStrategies";
 import { useView } from "../view";
 import { useLiveState } from "../useLiveState";
 import { useRoundTrips, type RoundTrip, type RoundTripTotals, type SortKey, type TripScope } from "./data";
 import { minuteStamp, px, rMultiple, tableStamp, tripInstrument } from "./format";
-import { EndedBadge, SideText } from "./bits";
+import { EndedWord } from "./bits";
 import { TradeDrawer, useOpenTrade } from "./TradeDrawer";
 
 /*
  * The round-trip table: server-paged (keyset cursor) and virtualised, so a year of trades costs
  * what one screen does. Rows load as you scroll, headers sort on the server, j/k move the
- * selection and Enter opens the trade. Phones get one card per round trip.
+ * selection and Enter opens the trade. One line per trade: its type, account, prices, R and hold time are on the
+ * row's tooltip and in the drawer. Phones get a two-line card per trade.
  */
 
 const ROW = 36;
-const CARD = 66;
+const CARD = 58;
 const OVERSCAN = 8;
 
 interface Column { key: string; label: string; w: string; sort?: SortKey; right?: boolean; title?: string }
 
 const COLUMNS: Column[] = [
-  { key: "id", label: "#", w: "minmax(72px,0.6fr)", sort: "ticket", title: "Venue position ticket" },
-  { key: "strategy", label: "Strategy", w: "minmax(112px,1fr)", sort: "strategy" },
-  { key: "instrument", label: "Symbol", w: "minmax(104px,1fr)", sort: "symbol", title: "The instrument; with its venue beneath when the instance trades it on more than one; the full symbol on hover" },
-  { key: "type", label: "Type", w: "80px", title: "What the position is: CFD, stock CFD, share, coin, perpetual or dated future, option; hover a badge for what it means" },
-  { key: "side", label: "Side", w: "68px", sort: "side" },
-  { key: "entry", label: "Entry (UTC)", w: "104px", sort: "entry" },
-  { key: "entryPrice", label: "Entry", w: "84px", sort: "entryPrice", right: true },
-  { key: "exit", label: "Exit (UTC)", w: "104px", sort: "exit" },
-  { key: "exitPrice", label: "Exit", w: "84px", sort: "exitPrice", right: true },
-  { key: "size", label: "Size", w: "64px", sort: "size", right: true },
-  { key: "pnl", label: "P&L", w: "96px", sort: "pnl", right: true, title: "Realized, after commission, swap and fees" },
-  { key: "r", label: "R", w: "66px", sort: "r", right: true, title: "P&L over the money at risk to the initial stop" },
-  { key: "held", label: "Held", w: "60px", sort: "held", right: true },
-  { key: "ended", label: "Ended by", w: "76px", sort: "ended" },
+  { key: "entry", label: "Opened (UTC)", w: "minmax(104px,0.7fr)", sort: "entry", title: "Keys: / search · j and k move · Enter opens a trade" },
+  { key: "instrument", label: "Symbol", w: "minmax(120px,1fr)", sort: "symbol", title: "Hover a row for its type, account, prices, R and hold time" },
+  { key: "strategy", label: "Strategy", w: "minmax(120px,1.1fr)", sort: "strategy" },
+  { key: "side", label: "Side", w: "64px", sort: "side" },
+  { key: "size", label: "Size", w: "80px", sort: "size", right: true },
+  { key: "pnl", label: "P&L", w: "96px", sort: "pnl", right: true, title: "Realized, after commission, swap and fees; an open trade's worth now in italics" },
+  { key: "ended", label: "Ended", w: "72px", sort: "ended", title: "What closed it: the stop, the target, the strategy's signal, the venue or a hand" },
 ];
 
 function tripType(t: RoundTrip) {
@@ -46,7 +39,7 @@ function tripType(t: RoundTrip) {
 }
 
 function StrategyName({ id, name }: { id: string | null; name: (id: string) => string }) {
-  return id ? <span className="truncate text-bright" title={id}>{name(id)}</span> : <Pill>unattributed</Pill>;
+  return id ? <span className="truncate text-bright" title={id}>{name(id)}</span> : <span className="text-muted">unattributed</span>;
 }
 
 function Cell({ children, right, className = "" }: { children: ReactNode; right?: boolean; className?: string }) {
@@ -63,63 +56,48 @@ function Cell({ children, right, className = "" }: { children: ReactNode; right?
  * with the whole position's P&L in the tooltip.
  */
 function TripPnl({ t }: { t: RoundTrip }) {
-  if (t.pnlInExit == null) return <>{pnl(t.pnl)}</>;
+  if (t.pnlInExit == null) return <>{signedMoney(t.pnl)}</>;
   return (
-    <span title={`${pnl(t.pnlInExit)} closed in this range; the position's other closing legs fell on other days (whole position ${pnl(t.pnl)})`}>
-      <span className="mr-1 text-[10px] font-medium text-faint">part</span>{pnl(t.pnlInExit)}
+    <span title={`${signedMoney(t.pnlInExit)} closed in this range; the position's other closing legs fell on other days (whole position ${signedMoney(t.pnl)})`}>
+      <span className="mr-1 font-sans text-xs font-normal text-muted">part</span>{signedMoney(t.pnlInExit)}
     </span>
   );
 }
 
-/** An open trade's P&L cell: what it is worth now, from the live positions, in grey italic so it never reads as realized. */
+/** An open trade's P&L cell: what it is worth now, from the live positions, in muted italics so it never reads as realized. */
 function OpenPnl({ value }: { value: number | undefined }) {
-  if (value == null) return <span className="text-faint">{DASH}</span>;
-  return <span className="font-normal italic text-muted" title="Open: what it is worth now, not realized">open {signedMoney(value)}</span>;
+  if (value == null) return <span className="text-muted">{DASH}</span>;
+  return <span className="font-normal italic text-muted" title="Open: what it is worth now, not realized">{signedMoney(value)}</span>;
 }
 
-function cells(t: RoundTrip, hide: ReadonlySet<string>, strategyName: (id: string) => string, floating: ReadonlyMap<string, number>, commonUnit: string | null, venueOf: (label: string) => string): ReactNode[] {
-  const option = optionLine(t.symbol);
-  const premium = option ? optionFromSymbol(t.symbol)?.premium : null;
+/** The row's tooltip: everything the line leaves out, so a hover answers what a trade was without opening it. */
+function rowTitle(t: RoundTrip, venueOf: (label: string) => string): string {
+  const type = tripType(t);
+  const premium = optionLine(t.symbol) ? optionFromSymbol(t.symbol)?.premium : null;
+  const exit = t.status === "open" ? "still open" : `exit ${px(t.exitPrice, t.priceDigits)}${t.exitTs != null ? ` at ${minuteStamp(t.exitTs)}` : ""}`;
+  return [
+    tripInstrument(t),
+    type ? TYPE_LABEL[type] : null,
+    optionLine(t.symbol),
+    t.venue ? venueOf(t.venue) : null,
+    `entry ${px(t.entryPrice, t.priceDigits)}${premium ? ` ${premium}` : ""}`,
+    exit,
+    t.r != null ? rMultiple(t.r) : null,
+    t.status === "open" ? null : `held ${duration(t.holdMs)}`,
+    sizeInWords(t.qty, t),
+    `ticket ${t.id}`,
+  ].filter(Boolean).join(" · ");
+}
+
+function cells(t: RoundTrip, hide: ReadonlySet<string>, strategyName: (id: string) => string, floating: ReadonlyMap<string, number>): ReactNode[] {
   const all: Record<string, ReactNode> = {
-    id: <Cell className="font-mono text-xs text-faint">{t.id}</Cell>,
+    entry: <Cell className="font-mono text-xs text-muted">{tableStamp(t.entryTs)}</Cell>,
+    instrument: <Cell className="font-medium text-bright">{shortInstrument(t.instrument, tripType(t))}</Cell>,
     strategy: <Cell><StrategyName id={t.strategyId} name={strategyName} /></Cell>,
-    instrument: (
-      <Cell className="font-semibold text-bright">
-        <span title={tripInstrument(t)}>
-          <span className="block truncate leading-tight">{shortInstrument(t.instrument, tripType(t))}</span>
-          {(t.venue || option) && <span className="block truncate text-[10px] font-normal leading-tight text-muted">{[option, t.venue ? venueOf(t.venue) : null].filter(Boolean).join(" · ")}</span>}
-        </span>
-      </Cell>
-    ),
-    type: <Cell>{tripType(t) ? <TypeBadge type={tripType(t)} short /> : <span className="text-faint" title="qkt did not state this instrument's type">{DASH}</span>}</Cell>,
-    side: <Cell><SideText side={t.side} /></Cell>,
-    entry: <Cell className="font-mono text-xs text-body"><span title={`${minuteStamp(t.entryTs)} UTC`}>{tableStamp(t.entryTs)}</span></Cell>,
-    entryPrice: (
-      <Cell right className="text-body">
-        {premium ? (
-          <span title={`Option premium per contract, in ${premium}`}>
-            <span className="block truncate leading-tight">{px(t.entryPrice, t.priceDigits)}</span>
-            <span className="block truncate text-[10px] leading-tight text-muted">{premium}</span>
-          </span>
-        ) : px(t.entryPrice, t.priceDigits)}
-      </Cell>
-    ),
-    exit: <Cell className="font-mono text-xs text-body">{t.status === "open" ? <Pill tone="info">open</Pill> : <span title={`${minuteStamp(t.exitTs)} UTC`}>{tableStamp(t.exitTs)}</span>}</Cell>,
-    exitPrice: <Cell right className="text-body">{t.status === "open" ? DASH : px(t.exitPrice, t.priceDigits)}</Cell>,
-    size: (
-      <Cell right className="text-body">
-        {t.unit && t.unit !== commonUnit ? (
-          <span title={sizeInWords(t.qty, t)}>
-            <span className="block truncate leading-tight">{quantity(t.qty)}</span>
-            <span className="block truncate text-[10px] leading-tight text-muted">{t.unit}</span>
-          </span>
-        ) : quantity(t.qty)}
-      </Cell>
-    ),
-    pnl: <Cell right className={`font-semibold ${toneClass(t.pnlInExit ?? t.pnl)}`}>{t.pnl == null ? (t.status === "open" ? <OpenPnl value={floating.get(t.id)} /> : DASH) : <TripPnl t={t} />}</Cell>,
-    r: <Cell right className={t.r == null ? "text-faint" : toneClass(t.r)}>{t.r == null ? (t.status === "open" ? DASH : <span title="No stop set, so no R">{DASH}</span>) : rMultiple(t.r)}</Cell>,
-    held: <Cell right className="text-body">{t.status === "open" ? DASH : <span title={duration(t.holdMs)}>{compactDuration(t.holdMs)}</span>}</Cell>,
-    ended: <Cell>{t.status === "open" ? null : <EndedBadge ended={t.ended} />}</Cell>,
+    side: <Cell><SideWord side={t.side} /></Cell>,
+    size: <Cell right className="font-mono text-muted"><span title={sizeInWords(t.qty, t)}>{quantity(t.qty)}</span></Cell>,
+    pnl: <Cell right className={`font-mono font-medium ${toneClass(t.pnlInExit ?? t.pnl)}`}>{t.pnl == null ? (t.status === "open" ? <OpenPnl value={floating.get(t.id)} /> : DASH) : <TripPnl t={t} />}</Cell>,
+    ended: <Cell>{t.status === "open" ? <Pill tone="info">Open</Pill> : <EndedWord ended={t.ended} />}</Cell>,
   };
   return COLUMNS.filter((c) => !hide.has(c.key)).map((c) => <span key={c.key} className="contents">{all[c.key]}</span>);
 }
@@ -157,8 +135,7 @@ export function RoundTripTable({ scope, q, sort, dir, onSort, hide = [], height 
   // the open trade (?trade=) is highlighted, kept in view, and j/k continue from it
   const [openId, onOpen] = useOpenTrade();
   const wide = useWide();
-  // a shared link's tickets are opaque stand-ins: no use as a column
-  const hidden = useMemo(() => new Set(view.public ? [...hide, "id"] : hide), [hide, view.public]);
+  const hidden = useMemo(() => new Set(hide), [hide]);
   const cols = COLUMNS.filter((c) => !hidden.has(c.key));
   // the last track holds the row's "opens" chevron
   const template = `${cols.map((c) => c.w).join(" ")} 1.75rem`;
@@ -169,8 +146,9 @@ export function RoundTripTable({ scope, q, sort, dir, onSort, hide = [], height 
   const live = useLiveState();
   // a venue label (PAPER_F) reads as its account's name (Paper F); a label no live account reports stays as it is
   const venueOf = useCallback((label: string) => {
-    const a = scope ? accountOfLabel(live.data?.accounts ?? [], scope.instanceId, label) : null;
-    return a ? accountName(a, view.public) : label;
+    const peers = (live.data?.accounts ?? []).filter((x) => x.instanceId === scope?.instanceId);
+    const a = scope ? accountOfLabel(peers, scope.instanceId, label) : null;
+    return a ? accountName(a, view.public, peers) : label;
   }, [live.data, scope, view.public]);
   const floating = useMemo(() => {
     const out = new Map<string, number>();
@@ -179,7 +157,7 @@ export function RoundTripTable({ scope, q, sort, dir, onSort, hide = [], height 
     return out;
   }, [live.data, scope, view.public]);
   const rows = useMemo(() => data.data?.pages.flatMap((p) => p.rows) ?? [], [data.data]);
-  // a unit every row shares is said once, in the header; mixed units stay on each row
+  // a unit every row shares is said once, in the header; mixed units are on each size's tooltip
   const commonUnit = rows.length > 0 && rows.every((r) => r.unit && r.unit === rows[0]!.unit) ? rows[0]!.unit ?? null : null;
   const first = data.data?.pages[0];
   const matched = first?.totals?.matched ?? rows.length;
@@ -299,12 +277,13 @@ export function RoundTripTable({ scope, q, sort, dir, onSort, hide = [], height 
         setSel(i);
         if (clickable) onOpen(t.id);
       },
+      title: rowTitle(t, venueOf),
       style: { top: i * rowH, height: rowH, ...(wide ? { gridTemplateColumns: template } : {}) },
     } as const;
     if (wide) {
       return (
         <div key={t.id} {...common} className={`group absolute inset-x-0 grid items-center border-b border-line text-sm transition-colors ${clickable ? "cursor-pointer" : ""} ${selected ? "bg-accent-soft shadow-[inset_3px_0_0_var(--color-accent-hi)]" : "hover:bg-hover"}`}>
-          {cells(t, hidden, strategyName, floating, commonUnit, venueOf)}
+          {cells(t, hidden, strategyName, floating)}
           <div role="cell" className="flex justify-center">{clickable && <RowChevron className={selected ? "opacity-100" : ""} />}</div>
         </div>
       );
@@ -312,16 +291,15 @@ export function RoundTripTable({ scope, q, sort, dir, onSort, hide = [], height 
     return (
       <div key={t.id} {...common} className={`group absolute inset-x-0 flex flex-col justify-center gap-1 border-b border-line pl-3 pr-1.5 text-sm ${clickable ? "cursor-pointer active:bg-press" : ""} ${selected ? "bg-accent-soft" : ""}`}>
         <div className="flex items-center gap-2">
-          <span className="min-w-0 truncate font-semibold text-bright" title={tripInstrument(t)}>{shortInstrument(t.instrument, tripType(t))}{t.venue && <span className="font-normal text-muted"> · {venueOf(t.venue)}</span>}</span>
-          <TypeBadge type={tripType(t)} short />
-          <SideText side={t.side} />
-          <span className={`ml-auto shrink-0 font-semibold ${toneClass(t.pnlInExit ?? t.pnl)}`}>{t.status === "open" ? <OpenPnl value={floating.get(t.id)} /> : <TripPnl t={t} />}</span>
+          <span className="min-w-0 truncate font-medium text-bright">{shortInstrument(t.instrument, tripType(t))}</span>
+          <span className={`ml-auto shrink-0 font-mono font-medium ${toneClass(t.pnlInExit ?? t.pnl)}`}>{t.status === "open" ? <OpenPnl value={floating.get(t.id)} /> : <TripPnl t={t} />}</span>
           {clickable && <RowChevron />}
         </div>
         <div className="flex items-center gap-2 text-xs text-muted">
-          <span className="min-w-0 truncate">{t.strategyId ?? "unattributed"}</span>
-          <span className="shrink-0">· {rMultiple(t.r)}</span>
-          <span className={`ml-auto shrink-0 whitespace-nowrap font-mono ${clickable ? "pr-6" : ""}`}>{minuteStamp(t.exitTs ?? t.entryTs)} UTC</span>
+          <span className="min-w-0 truncate">{t.strategyId ? strategyName(t.strategyId) : "unattributed"}</span>
+          <SideWord side={t.side} />
+          {t.status === "open" && <Pill tone="info">Open</Pill>}
+          <span className={`ml-auto shrink-0 whitespace-nowrap font-mono ${clickable ? "pr-6" : ""}`}>{tableStamp(t.exitTs ?? t.entryTs)}</span>
         </div>
       </div>
     );
@@ -343,15 +321,15 @@ export function RoundTripTable({ scope, q, sort, dir, onSort, hide = [], height 
           {wide && header}
           {data.isError && rows.length === 0 ? (
             <div className="flex items-center justify-between gap-3 p-4 text-sm text-loss">
-              Round trips could not be loaded.
+              Trades could not be loaded.
               <button type="button" onClick={() => void data.refetch()} className="h-8 rounded-lg border border-ctl bg-raised px-3 font-medium text-bright hover:bg-well">
                 Retry
               </button>
             </div>
           ) : data.isPending ? (
-            <Skeleton lines={8} what="round trips" />
+            <Skeleton lines={8} what="trades" />
           ) : rows.length === 0 ? (
-            <div className="p-8 text-center text-sm text-muted"><b className="font-semibold text-body">No round trips match.</b> Loosen the query above.</div>
+            <div className="p-8 text-center text-sm text-muted"><b className="font-medium text-bright">No trades match.</b> Loosen the search above.</div>
           ) : (
             <div className={`relative ${data.isPlaceholderData ? "opacity-60 transition-opacity" : ""}`} style={{ height: rows.length * rowH + (loadingMore ? rowH : 0) }}>
               {visible}

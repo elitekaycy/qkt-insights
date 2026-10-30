@@ -6,7 +6,7 @@ import { age, count, tsDay } from "../format";
 import { useSearchParam } from "../router";
 import { diffCounts, lineDiff, type DiffLine } from "./code/diff";
 import { highlightQkt, type CodeToken } from "./code/highlight";
-import { ICON, Widget } from "./widgets";
+import { Widget } from "./widgets";
 import { metaString } from "../portfolio";
 
 /*
@@ -101,7 +101,7 @@ function CodeBlock({ text, wrap }: { text: string; wrap: boolean }) {
       <pre className={css.pre} style={{ color: "var(--code-text)" }}>
         {lines.map((tokens, i) => (
           <div key={i} className="flex">
-            <span className="sticky left-0 box-content shrink-0 select-none bg-ink pl-3 pr-4 text-right text-faint" style={{ width: `${width}ch` }} aria-hidden>{i + 1}</span>
+            <span className="sticky left-0 box-content shrink-0 select-none bg-ink pl-3 pr-4 text-right text-muted" style={{ width: `${width}ch` }} aria-hidden>{i + 1}</span>
             <code className={css.code}><Tokens tokens={tokens} /></code>
           </div>
         ))}
@@ -118,9 +118,9 @@ function DiffBlock({ diff, wrap }: { diff: DiffLine[]; wrap: boolean }) {
       <pre className={css.pre} style={{ color: "var(--code-text)" }}>
         {diff.map((d, i) => (
           <div key={i} className="flex" style={{ background: d.kind === "add" ? "var(--code-add)" : d.kind === "del" ? "var(--code-del)" : undefined }}>
-            <span className="w-10 shrink-0 select-none pr-1 text-right text-faint" aria-hidden>{d.oldNo ?? ""}</span>
-            <span className="w-10 shrink-0 select-none pr-2 text-right text-faint" aria-hidden>{d.newNo ?? ""}</span>
-            <span className={`w-4 shrink-0 select-none ${d.kind === "add" ? "text-gain" : d.kind === "del" ? "text-loss" : "text-faint"}`}>
+            <span className="w-10 shrink-0 select-none pr-1 text-right text-muted" aria-hidden>{d.oldNo ?? ""}</span>
+            <span className="w-10 shrink-0 select-none pr-2 text-right text-muted" aria-hidden>{d.newNo ?? ""}</span>
+            <span className={`w-4 shrink-0 select-none ${d.kind === "add" ? "text-gain" : d.kind === "del" ? "text-loss" : "text-muted"}`}>
               {d.kind === "add" ? "+" : d.kind === "del" ? "−" : " "}
             </span>
             <code className={css.code}>{d.text}</code>
@@ -151,9 +151,9 @@ function VersionFacts({ version, running }: { version: StrategySourceVersion; ru
   return (
     <dl className="grid grid-cols-1 gap-x-6 gap-y-1.5 text-xs sm:grid-cols-[auto_1fr]">
       <dt className="text-muted">File</dt>
-      <dd className="min-w-0 break-all font-mono text-[11px] text-bright">{version.path ?? "not stated"}</dd>
+      <dd className="min-w-0 break-all font-mono text-xs text-bright">{version.path ?? "not stated"}</dd>
       <dt className="text-muted">sha256</dt>
-      <dd className="min-w-0 break-all font-mono text-[11px] text-bright">{version.sha256}</dd>
+      <dd className="min-w-0 break-all font-mono text-xs text-bright">{version.sha256}</dd>
       <dt className="text-muted">{running ? "Running since" : "First seen"}</dt>
       <dd className="text-bright">
         {tsDay(version.firstSeen)} UTC <span className="text-muted">· last start {age(version.lastSeen)} · {count(version.starts)} start{version.starts === 1 ? "" : "s"}</span>
@@ -178,8 +178,8 @@ function VersionList({ versions, running, picked, onPick }: {
             }`}
           >
             <span className="font-mono text-xs text-bright" title={v.sha256}>{shortSha(v.sha256)}</span>
-            <span>{v.sha256 === running ? <Pill tone="info">running</Pill> : v.text !== "stored" && <span className="text-[11px] text-faint">no text</span>}</span>
-            <span className="col-span-2 text-[11px] text-muted">
+            <span>{v.sha256 === running ? <span className="text-xs font-medium text-accent-ink">running</span> : v.text !== "stored" && <span className="text-xs text-muted">no text</span>}</span>
+            <span className="col-span-2 text-xs text-muted">
               {tsDay(v.firstSeen).slice(0, 14)} UTC · {count(v.starts)} start{v.starts === 1 ? "" : "s"}
             </span>
           </button>
@@ -216,14 +216,14 @@ export default function CodeSection({ instanceId, strategyId, meta }: {
   return (
     <Loadable loading={sources.isPending} error={sources.isError} retry={() => sources.refetch()} what="the strategy's code" shape="lines" lines={10}>
       {versions.length === 0 || !version ? (
-        <Widget icon={ICON.code} title="Source">
+        <Widget title="Source">
           {metaString(meta, "sourceSha256") || metaString(meta, "sourcePath") ? (
             <div className="grid gap-3">
               <dl className="grid grid-cols-1 gap-x-6 gap-y-1.5 text-xs sm:grid-cols-[auto_1fr]">
                 <dt className="text-muted">File</dt>
-                <dd className="break-all font-mono text-[11px] text-bright">{metaString(meta, "sourcePath") ?? "not stated"}</dd>
+                <dd className="break-all font-mono text-xs text-bright">{metaString(meta, "sourcePath") ?? "not stated"}</dd>
                 <dt className="text-muted">sha256</dt>
-                <dd className="break-all font-mono text-[11px] text-bright">{metaString(meta, "sourceSha256") ?? "not stated"}</dd>
+                <dd className="break-all font-mono text-xs text-bright">{metaString(meta, "sourceSha256") ?? "not stated"}</dd>
               </dl>
               <Missing>{NOT_SENT}</Missing>
             </div>
@@ -234,7 +234,7 @@ export default function CodeSection({ instanceId, strategyId, meta }: {
       ) : (
         <div className="grid gap-4 xl:grid-cols-[minmax(0,1fr)_260px]">
           <Widget
-            icon={ICON.code}
+            
             title={version.sha256 === running ? "Running version" : `Version ${shortSha(version.sha256)}`}
             hint={version.sha256 === running ? undefined : "an earlier version, not the one running"}
           >
@@ -244,13 +244,13 @@ export default function CodeSection({ instanceId, strategyId, meta }: {
                 <div className="flex flex-wrap items-center gap-2">
                   {version.truncated && <span title={TRUNCATED}><Pill tone="warn">first 64 KiB of the file</Pill></span>}
                   {previous && (
-                    <label className="inline-flex cursor-pointer items-center gap-2 text-xs text-body">
+                    <label className="inline-flex cursor-pointer items-center gap-2 text-xs text-muted">
                       <input type="checkbox" checked={compare} onChange={(e) => setCompare(e.target.checked)} className="accent-[var(--color-accent)]" />
                       Changes since {shortSha(previous.sha256)}
-                      {counts && <span className="font-mono text-[11px]"><span className="text-gain">+{counts.added}</span> <span className="text-loss">−{counts.removed}</span></span>}
+                      {counts && <span className="font-mono text-xs"><span className="text-gain">+{counts.added}</span> <span className="text-loss">−{counts.removed}</span></span>}
                     </label>
                   )}
-                  <label className="inline-flex cursor-pointer items-center gap-2 text-xs text-body">
+                  <label className="inline-flex cursor-pointer items-center gap-2 text-xs text-muted">
                     <input type="checkbox" checked={wrap} onChange={(e) => setWrap(e.target.checked)} className="accent-[var(--color-accent)]" />
                     Wrap lines
                   </label>
@@ -268,7 +268,7 @@ export default function CodeSection({ instanceId, strategyId, meta }: {
               )}
             </div>
           </Widget>
-          <Widget icon={ICON.layers} title={`${versions.length} version${versions.length === 1 ? "" : "s"}`} hint="newest first">
+          <Widget title={`${versions.length} version${versions.length === 1 ? "" : "s"}`} hint="newest first">
             <VersionList
               versions={versions}
               running={running}

@@ -3,8 +3,9 @@
 /*
  * Design tokens. Every colour, font, size and radius the app uses lives here.
  * Two hand-tuned themes (dark is the default), not an automatic inversion: the
- * values are the qkt-backtester journal's (packages/web/src/theme.css), copied
- * rather than shared so insights carries no release coupling to the studio.
+ * values are qkt's own: the brand strokes of qkt-mark.svg and qkt-site's tokens.css
+ * resolved to hex (charts read them on a canvas), copied rather than shared so insights
+ * carries no release coupling to the site.
  * `static` emits every token, including ones only charts read from JS. Utilities
  * read the `--color-*` variables at runtime, so swapping the values
  * under [data-theme="light"] restyles the whole UI without a rebuild.
@@ -13,77 +14,67 @@
   --font-sans: "Inter", system-ui, -apple-system, "Segoe UI", Roboto, sans-serif;
   --font-mono: "JetBrains Mono", ui-monospace, "SF Mono", Menlo, Consolas, monospace;
 
-  /* type scale: 11 / 12 / 13 (body) / 15 / 20 / 24 / 28 */
+  /* type scale: small 12 / body 13 / title 20, and 24 for a page's one hero figure */
   --text-xs: 0.75rem;
   --text-xs--line-height: 1rem;
   --text-sm: 0.8125rem;
   --text-sm--line-height: 1.45;
-  --text-base: 0.9375rem;
-  --text-base--line-height: 1.45;
-  --text-lg: 0.9375rem;
-  --text-lg--line-height: 1.4;
   --text-xl: 1.25rem;
   --text-xl--line-height: 1.2;
   --text-2xl: 1.5rem;
   --text-2xl--line-height: 1.1;
-  --text-3xl: 1.75rem;
-  --text-3xl--line-height: 1.1;
 
-  /* surfaces: page, side rail, card, well (card-2), raised well (card-3) */
-  --color-ink: #1b1c20;
-  --color-side: #17181b;
-  --color-panel: #202126;
-  --color-raised: #282a30;
-  --color-well: #30323a;
+  /* surfaces, qkt-site's neutral ramp at hue 270: page, side rail, card, well, raised well */
+  --color-ink: #090a0c;
+  --color-side: #0e0f12;
+  --color-panel: #121315;
+  --color-raised: #191a1e;
+  --color-well: #222428;
   /* hairlines and the 3:1 control border (WCAG 1.4.11) */
   --color-line: rgba(255, 255, 255, 0.08);
-  --color-line-strong: rgba(255, 255, 255, 0.16);
-  --color-ctl: #6e707b;
+  --color-line-strong: rgba(255, 255, 255, 0.14);
+  --color-ctl: #616369;
 
-  /* text, strongest to faintest */
-  --color-bright: #ececef;
-  --color-body: #aeb0b9;
-  --color-muted: #9a9ca7;
-  --color-faint: #7b7d89;
+  /* text: two colours, primary ink and muted. Disabled uses opacity. */
+  --color-bright: #f1f2f4;
+  --color-muted: #a2a4aa;
 
-  /* one action colour: fill, hover, text, selection */
-  --color-accent: #2a6fd0;
-  --color-accent-hi: #4b8fe6;
-  --color-accent-ink: #86b9f7;
-  --color-accent-soft: rgba(75, 143, 230, 0.16);
-  --color-on-accent: #ffffff;
+  /* one action colour, the brand violet of qkt-mark.svg: fill, hover, text, selection */
+  --color-accent: #a78bfa;
+  --color-accent-hi: #b9a3fb;
+  --color-accent-ink: #a78bfa;
+  --color-accent-soft: rgba(167, 139, 250, 0.14);
+  --color-on-accent: #090a0c;
 
   /* money: gains green, losses red; `-fill` for bars/areas, the plain name for text (AA on every surface) */
-  --color-gain: #5fd38d;
-  --color-gain-fill: #2fb36a;
-  --color-loss: #f39a9a;
-  --color-loss-fill: #e66767;
+  --color-gain: #46ce83;
+  --color-gain-fill: #20b46b;
+  --color-loss: #fa706a;
+  --color-loss-fill: #e54c4a;
 
   /* status, never P&L */
-  --color-ok: #3ec76c;
-  --color-warn: #f0b429;
-  --color-danger: #ef5b5b;
-  --color-info: #6da7ec;
+  --color-ok: #46ce83;
+  --color-warn: #edb345;
+  --color-danger: #fa706a;
+  --color-info: #6db0f4;
 
   /* interaction layers */
-  --color-hover: rgba(255, 255, 255, 0.06);
-  --color-press: rgba(255, 255, 255, 0.1);
-  --color-scrim: rgba(6, 7, 9, 0.55);
+  --color-hover: rgba(255, 255, 255, 0.05);
+  --color-press: rgba(255, 255, 255, 0.09);
+  --color-scrim: rgba(4, 5, 7, 0.6);
 
-  /* charts: gridlines, axis + crosshair, categorical series */
+  /* charts: gridlines, axis + crosshair, categorical series (qkt-site's series-1..4 plus a rose) */
   --color-grid: rgba(255, 255, 255, 0.06);
   --color-axis: rgba(255, 255, 255, 0.16);
-  --color-s1: #4b8fe6;
-  --color-s2: #d95926;
-  --color-s3: #199e70;
-  --color-s4: #c98500;
-  --color-s5: #d55181;
+  --color-s1: #a78bfa;
+  --color-s2: #46c6cd;
+  --color-s3: #f3ae58;
+  --color-s4: #9fa4b2;
+  --color-s5: #e57db1;
 
-  /* the insights logo keeps its own colours; the tittle (the dot of the i, and the wordmark's ·) is lime on dark
-     and ink on light, exactly as public/favicon.svg draws it */
-  --color-brand: #c8f74a;
+  /* the insights logo keeps its own colours, exactly as public/favicon.svg draws it */
   --color-brand-violet: #a78bfa;
-  --color-tittle: #c8f74a;
+  --color-tittle: #e5e7eb;
 
   /* radii 6 / 8 / 12 */
   --radius-sm: 6px;
@@ -99,43 +90,41 @@
 }
 
 :root[data-theme="light"] {
-  --color-ink: #ffffff;
-  --color-side: #fbfbfc;
+  --color-ink: #fdfdff;
+  --color-side: #f6f7f9;
   --color-panel: #ffffff;
-  --color-raised: #f4f5f8;
-  --color-well: #eaecf1;
-  --color-line: rgba(15, 23, 42, 0.09);
-  --color-line-strong: rgba(15, 23, 42, 0.18);
-  --color-ctl: #858896;
-  --color-bright: #14151a;
-  --color-body: #4a4d58;
-  --color-muted: #5f6270;
-  --color-faint: #6b6e7a;
-  --color-accent: #2a6fd0;
-  --color-accent-hi: #1f5fbb;
-  --color-accent-ink: #1f5fbb;
-  --color-accent-soft: rgba(42, 111, 208, 0.1);
+  --color-raised: #f2f3f6;
+  --color-well: #e6e8eb;
+  --color-line: rgba(22, 24, 29, 0.08);
+  --color-line-strong: rgba(22, 24, 29, 0.16);
+  --color-ctl: #83868e;
+  --color-bright: #16181d;
+  --color-muted: #55585f;
+  --color-accent: #7c3aed;
+  --color-accent-hi: #6d28d9;
+  --color-accent-ink: #6d28d9;
+  --color-accent-soft: rgba(124, 58, 237, 0.1);
   --color-on-accent: #ffffff;
-  --color-gain: #0f7a3a;
-  --color-gain-fill: #1f9d55;
-  --color-loss: #b8302f;
-  --color-loss-fill: #e34948;
-  --color-ok: #12783a;
-  --color-warn: #8a5f00;
-  --color-danger: #c93030;
-  --color-info: #1f5fbb;
-  --color-hover: rgba(15, 23, 42, 0.05);
-  --color-press: rgba(15, 23, 42, 0.09);
-  --color-scrim: rgba(20, 24, 33, 0.35);
-  --color-grid: rgba(15, 23, 42, 0.07);
-  --color-axis: rgba(15, 23, 42, 0.18);
-  --color-s1: #2a78d6;
-  --color-s2: #eb6834;
-  --color-s3: #1baf7a;
-  --color-s4: #eda100;
-  --color-s5: #e87ba4;
-  --shadow-pop: 0 12px 32px rgba(15, 23, 42, 0.16), 0 0 0 1px var(--color-line-strong);
-  --shadow-card-lift: 0 8px 22px -14px rgba(15, 23, 42, 0.35);
+  --color-gain: #007338;
+  --color-gain-fill: #008d4b;
+  --color-loss: #c9222b;
+  --color-loss-fill: #d73337;
+  --color-ok: #007338;
+  --color-warn: #945000;
+  --color-danger: #c9222b;
+  --color-info: #0064b9;
+  --color-hover: rgba(22, 24, 29, 0.05);
+  --color-press: rgba(22, 24, 29, 0.09);
+  --color-scrim: rgba(20, 22, 28, 0.35);
+  --color-grid: rgba(22, 24, 29, 0.07);
+  --color-axis: rgba(22, 24, 29, 0.18);
+  --color-s1: #7c3aed;
+  --color-s2: #00878f;
+  --color-s3: #bf6600;
+  --color-s4: #5f636f;
+  --color-s5: #c04688;
+  --shadow-pop: 0 12px 32px rgba(22, 24, 29, 0.16), 0 0 0 1px var(--color-line-strong);
+  --shadow-card-lift: 0 8px 22px -14px rgba(22, 24, 29, 0.35);
   --color-tittle: #0d1117;
 }
 
@@ -146,9 +135,9 @@
 :root {
   --code-text: #c9cbd3;
   --code-comment: #8b8d99;
-  --code-keyword: #86b9f7;
+  --code-keyword: #a78bfa;
   --code-action: #f0956a;
-  --code-modifier: #b9a3fb;
+  --code-modifier: #6db0f4;
   --code-operator: #a3a5b0;
   --code-function: #ec8fb3;
   --code-field: #7fd4c1;
@@ -164,9 +153,9 @@
 :root[data-theme="light"] {
   --code-text: #33363f;
   --code-comment: #6b6e7b;
-  --code-keyword: #1f5fbb;
+  --code-keyword: #6d28d9;
   --code-action: #b4461a;
-  --code-modifier: #6941c6;
+  --code-modifier: #0064b9;
   --code-operator: #5f6270;
   --code-function: #a8305f;
   --code-field: #0b6f60;
@@ -271,7 +260,7 @@ th,
   background-clip: padding-box;
 }
 *::-webkit-scrollbar-thumb:hover {
-  background: var(--color-faint);
+  background: var(--color-muted);
   border: 2px solid transparent;
   background-clip: padding-box;
 }
@@ -314,7 +303,7 @@ th,
   letter-spacing: -0.025em;
 }
 
-/* small label: table headers and section labels, sentence case at 12px in the muted ink */
+/* small label: table headers and section labels, sentence case in the muted ink */
 .eyebrow {
   font-size: 12px;
   font-weight: 500;
