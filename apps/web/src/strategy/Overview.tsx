@@ -46,7 +46,7 @@ export function OverviewSection({ instanceId, strategyId, scope, q, toggle, a, b
     xAxis: { type: "time", ...qktXAxis },
     yAxis: { type: "value", splitNumber: 4, ...qktChartAxis },
     series: [{
-      name: "running total", type: "line", showSymbol: false, smooth: false, data: trades.map((t) => [t.exitTs, t.cum]),
+      name: "running total", type: "line", showSymbol: trades.length === 1, smooth: false, data: trades.map((t) => [t.exitTs, t.cum]),
       lineStyle: { color: chartColors.primary, width: 2 }, itemStyle: { color: chartColors.primary }, areaStyle: areaFade(chartColors.primary), markLine: zeroLine(),
     }],
   }), [trades, openTrade]);

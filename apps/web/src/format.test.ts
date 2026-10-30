@@ -77,6 +77,16 @@ describe("signed money", () => {
   });
 });
 
+describe("axis ticks", () => {
+  it("keeps a whole number's own zeros", () => {
+    expect(axisTick(-120)).toBe("\u2212120");
+    expect(axisTick(100)).toBe("100");
+    expect(axisTick(2000)).toBe("2k");
+    expect(axisTick(12.5)).toBe("12.5");
+    expect(axisTick(0)).toBe("0");
+  });
+});
+
 describe("compact axis labels", () => {
   it("shortens with a true minus", () => {
     expect(compact(1234)).toBe("1.2k");

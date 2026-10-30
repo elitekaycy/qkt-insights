@@ -3,7 +3,7 @@ import { useQuery } from "@tanstack/react-query";
 import { get, type ViewBreakdown, type ViewRow, type ViewSummary } from "../api";
 import { ChartCard } from "../components/ChartCard";
 import { ViewsChart } from "../components/ViewsChart";
-import { Card, Cell, DataList, Loadable, LoadMore, PageHeader, Panel, SearchInput, Select, Stat, TimeCell } from "../components/ui";
+import { Card, Cell, DataList, Loadable, LoadMore, Panel, SearchInput, Select, Stat, TimeCell } from "../components/ui";
 import { pct, tsShort } from "../format";
 import { strategyDisplayName } from "../portfolio";
 import { fillDays, linkLabel, withShares } from "../viewership";
@@ -111,10 +111,8 @@ export default function Viewership({ instanceId }: { instanceId: string | null }
 
   return (
     <div>
-      <PageHeader
-        title="Viewership"
-        sub="Who opens your shared links"
-        right={
+      <div className="flex flex-wrap items-center justify-between gap-3">
+        <p className="text-sm text-muted">Who opens your shared links</p>
           <div className="flex flex-wrap items-center gap-2">
             <Select
               value={link}
@@ -138,8 +136,7 @@ export default function Viewership({ instanceId }: { instanceId: string | null }
               ))}
             </Select>
           </div>
-        }
-      />
+      </div>
 
       <Loadable loading={summary.isPending} error={summary.isError} retry={() => summary.refetch()} what="viewership" shape="kpis" lines={4}>
         {total === 0 ? (

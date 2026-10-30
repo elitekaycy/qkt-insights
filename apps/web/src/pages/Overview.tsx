@@ -9,7 +9,7 @@ import { StrategyTable, type StrategyLine } from "../components/HomeStrategies";
 import { ShareControl } from "../components/ShareControl";
 import { Card, Loadable, PageHeader } from "../components/ui";
 import { day as utcDay, DAY_MS, ts } from "../format";
-import { attentionItems, dayBasisLabel, floatingByStrategy, floatingNote, unpricedStrategies, HOME_RANGES, noAccountMessage, openRisk, riskRowFor, strategyLines, strategyPeriods, todayHeadline, todaySplit, type HomeRange } from "../home";
+import { attentionItems, sharedFloatingNote, dayBasisLabel, floatingByStrategy, floatingNote, unpricedStrategies, HOME_RANGES, noAccountMessage, openRisk, riskRowFor, strategyLines, strategyPeriods, todayHeadline, todaySplit, type HomeRange } from "../home";
 import { haltWords } from "../halt";
 import { strategyDisplayName } from "../portfolio";
 import { useRoute, useSearchParam } from "../router";
@@ -25,7 +25,7 @@ const FEED_TYPES = ["state.account", "state.positions"];
 /**
  * Home answers "am I making money, and does anything need me": today's figure and what needs a look first, then the
  * accounts, the realized P&L history and the month, the open positions, and every strategy's periods. Shared links
- * show the same page 15 minutes behind, without positions.
+ * show the same page 15 minutes behind, without positions. Phones reach Share from the top bar (App).
  */
 export default function Home({ instanceId }: { instanceId: string | null }) {
   const view = useView();
@@ -115,12 +115,12 @@ export default function Home({ instanceId }: { instanceId: string | null }) {
   const accountLines: AccountLine[] = choice.accounts.map((g) => {
     const row = riskRowFor(g.account, riskRows);
     return { group: g, risk: row, realizedToday: row?.dailyLoss.realizedToday ?? null, open: view.public ? null : openRisk(positionsOf(g)),
-      note: view.public ? null : floatingNote(g.account, positionsOf(g), outsideOf(groupsOf(g))), pending: risk.isPending };
+      note: view.public ? sharedFloatingNote(g.account) : floatingNote(g.account, positionsOf(g), outsideOf(groupsOf(g))), pending: risk.isPending };
   });
   const shown = choice.chosen;
   const shownName = scoped ? accountName(scoped.account, view.public, accounts) : null;
   // the shown account's Today as the strip shows it (its risk row, else the strategies' closes today)
-  const shownNote = shown && !view.public ? (choice.many ? floatingNote(shown.account, positionsOf(shown), outsideOf(groupsOf(shown))) : floatingNote(shown.account, positions, outsideOf(groups))) : null;
+  const shownNote = shown && view.public ? sharedFloatingNote(shown.account) : shown ? (choice.many ? floatingNote(shown.account, positionsOf(shown), outsideOf(groupsOf(shown))) : floatingNote(shown.account, positions, outsideOf(groups))) : null;
   const shownRealized = shown ? (riskRowFor(shown.account, riskRows)?.dailyLoss.realizedToday ?? (periods ? realizedFallback : null)) : null;
   const shownSplit = shown && shownRealized != null ? todaySplit(shown.account, shownRealized, shownNote) : null;
   const headline = todayHeadline(shown
@@ -169,7 +169,7 @@ export default function Home({ instanceId }: { instanceId: string | null }) {
           </>
         }
         right={
-          <span className="max-sm:hidden"><ShareControl instanceId={instanceId} kind="overview" /></span>
+          <span className="max-lg:hidden"><ShareControl instanceId={instanceId} kind="overview" /></span>
         }
       />
 
@@ -199,6 +199,7 @@ export default function Home({ instanceId }: { instanceId: string | null }) {
                 note={shownNote}
                 riskPending={risk.isPending}
                 isPublic={view.public}
+                peers={accounts}
               />
             );
           })()

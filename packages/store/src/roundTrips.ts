@@ -71,6 +71,27 @@ function weighted(legs: Leg[]): number | null {
   return q > 0 ? v / q : null;
 }
 
+/** The engine's closes of a position, as the closing legs its deals lack: realized is the engine's net of the close. */
+function engineCloses(db: Db, instanceId: string, position: string, entry: Leg): Leg[] {
+  if (entry.strategyId == null) return [];
+  const rows = statement(db,
+    `SELECT ts, payload FROM events WHERE instance_id=? AND strategy_id=? AND type='trade.closed'
+       AND json_extract(payload,'$.positionId')=? ORDER BY ts, seq`,
+  ).all(instanceId, entry.strategyId, position) as Array<{ ts: number; payload: string }>;
+  return rows.map((r) => {
+    const p = JSON.parse(r.payload) as Record<string, unknown>;
+    return { ...entry, side: entry.side === "BUY" ? "SELL" : "BUY", entry: "OUT", qty: num(p.qty), price: num(p.price), profit: num(p.realized), commission: 0, swap: 0, fee: 0,
+      comment: null, orderTicket: null, attribution: null, closeReason: typeof p.closeReason === "string" ? p.closeReason : null, ts: r.ts };
+  });
+}
+
+/**
+ * SQL over round_trips `rt`: closed by engine closes alone (engineCloses), so no closed_trades row
+ * stands for it. Added to a strategy's closes wherever its realized figure is read.
+ */
+export const ENGINE_CLOSED_TRIP = `rt.open=0 AND rt.source='deal' AND NOT EXISTS (
+  SELECT 1 FROM closed_trades c WHERE c.instance_id=rt.instance_id AND c.position_ticket=rt.position_ticket)`;
+
 /**
  * Rewrites the round trip of one position from its canonical legs and the engine events around
  * its entry and exit. O(legs) plus a few indexed event reads.
@@ -88,7 +109,10 @@ export function recomputeRoundTrip(db: Db, instanceId: string, position: string)
   if (legs.length === 0) return;
 
   const ins = legs.filter((l) => l.entry === "IN");
-  const outs = legs.filter((l) => CLOSING.has(l.entry ?? ""));
+  let outs = legs.filter((l) => CLOSING.has(l.entry ?? ""));
+  // no venue deal closes it: an engine close (a settlement booked without a deal) is all there is to say it ended
+  const engine = outs.length === 0 && ins.length > 0 ? engineCloses(db, instanceId, position, ins[0]!) : [];
+  if (engine.length > 0) { legs.push(...engine); outs = engine; }
   const first = ins[0] ?? legs[0]!;
   const inSide = ins[0]?.side ?? (outs[0]?.side === "BUY" ? "SELL" : outs[0]?.side === "SELL" ? "BUY" : null);
   let gross = 0, commission = 0, swap = 0, fee = 0;
@@ -99,7 +123,8 @@ export function recomputeRoundTrip(db: Db, instanceId: string, position: string)
   const realized = roundMoney(realizedExact, digits);
   [gross, commission, swap, fee] = [gross, commission, swap, fee].map((v) => roundMoney(v, digits)) as [number, number, number, number];
   const inQty = ins.reduce((a, l) => a + (l.qty ?? 0), 0);
-  const fullyClosed = statement(db,
+  const engineQty = engine.reduce((a, l) => a + (l.qty ?? 0), 0);
+  const fullyClosed = (engine.length > 0 && engineQty >= inQty - 1e-9) || statement(db,
     "SELECT 1 FROM position_closures WHERE instance_id=? AND position_ticket=? AND until_ts IS NULL",
   ).get(instanceId, position) != null;
   const open = ins.length > 0 && !fullyClosed;
@@ -207,6 +232,14 @@ export function recomputeLedgerTrip(db: Db, instanceId: string, closeId: string)
      VALUES (?, ?, NULL, ?, ?, ?, ?, ?, NULL, ?, ?, ?, ?, ?, 0, 0, 0, 1, NULL, NULL, NULL, NULL, ?, ?, 0, 'ledger', ?, ?)`,
   ).run(instanceId, closeId, c.strategyId, instrument(c.symbol), c.symbol, c.side === "BUY" ? "short" : "long", c.entryTs,
     c.ts, c.price, c.qty, realized, realized, endedByReason(c.closeReason), c.entryTs != null ? c.ts - c.entryTs : null, c.closeReason, c.realized);
+}
+
+/** The open venue positions of the strategy that engine close `closeId` belongs to. */
+export function openTripsOfClose(db: Db, instanceId: string, closeId: string): string[] {
+  return (statement(db,
+    `SELECT rt.position_ticket p FROM round_trips rt JOIN trade_closes c ON c.instance_id=rt.instance_id AND c.strategy_id=rt.strategy_id
+     WHERE c.instance_id=? AND c.id=? AND rt.open=1 AND rt.source='deal'`,
+  ).all(instanceId, closeId) as Array<{ p: string }>).map((r) => r.p);
 }
 
 /** A strategy's (or the instance's) round trips, newest exit first: the stored rows as they are. */

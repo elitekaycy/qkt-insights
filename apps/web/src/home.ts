@@ -342,6 +342,12 @@ export function floatingNote(
 }
 
 /** The note in plain words, e.g. "−597.30 on 1 trade from another system · 2 trades with no price from the venue". */
+/** A shared link lists no positions and has no per-account attribution: all the floating is "not listed here", so Today stays what closed. */
+export function sharedFloatingNote(a: { balance: number; equity: number }): FloatingNote {
+  const account = a.equity - a.balance;
+  return { account, listed: 0, marked: 0, unmarked: 0, outside: null, elsewhere: Math.abs(account) >= 0.005 ? account : null };
+}
+
 export function floatingNoteText(n: FloatingNote): string {
   const plural = (k: number, word: string) => `${k} ${word}${k === 1 ? "" : "s"}`;
   const parts: string[] = [];
