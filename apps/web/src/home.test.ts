@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 import type { AccountRiskRow, LivePositionRow } from "./api";
-import { dailyMeasured, drawdownMeasured, emptyPeriods, floatingNote, floatingNoteText, limitLine, limitUse, noAccountMessage, openRisk, positionRisks, rangeFirstDay, riskRowFor, strategyLines, strategyPeriods, strategyTotal, todayHeadline, todaySplit, attentionItems, unpricedStrategies, sharedFloatingNote } from "./home";
+import { splitOtherWords, splitTotalWords, dailyMeasured, drawdownMeasured, emptyPeriods, floatingNote, floatingNoteText, limitLine, limitUse, noAccountMessage, openRisk, positionRisks, rangeFirstDay, riskRowFor, strategyLines, strategyPeriods, strategyTotal, todayHeadline, todaySplit, attentionItems, unpricedStrategies, sharedFloatingNote } from "./home";
 
 function position(p: Partial<LivePositionRow> & Pick<LivePositionRow, "ticket">): LivePositionRow {
   return { symbol: "XAUUSD", side: "BUY", qty: 1, entryPrice: 100, ...p };
@@ -19,7 +19,7 @@ function riskRow(p: Partial<AccountRiskRow> = {}): AccountRiskRow {
 describe("sharedFloatingNote", () => {
   it("keeps Today on what closed and states the floating as not listed", () => {
     const a = { balance: 10_000, equity: 9_840 };
-    expect(todaySplit(a, -2, sharedFloatingNote(a))).toEqual({ total: -162, qkt: -2, other: -160, unassigned: 0 });
+    expect(todaySplit(a, -2, sharedFloatingNote(a))).toEqual({ basis: "open", total: -162, qkt: -2, other: -160, unassigned: 0 });
     expect(sharedFloatingNote({ balance: 5, equity: 5 }).elsewhere).toBeNull();
   });
 });
@@ -229,23 +229,75 @@ describe("todaySplit", () => {
     const account = { balance: 4_983_990.48, equity: 4_983_990.48 + 1.42 - 767.77 };
     const n = floatingNote(account, [position({ ticket: "a", profit: 1.0, swap: 0 }), position({ ticket: "b", profit: 0.42, swap: 0 })], null);
     const s = todaySplit(account, 16.93, n);
-    expect(s).toEqual({ total: -749.42, qkt: 18.35, other: -767.77, unassigned: 0 });
+    expect(s).toEqual({ basis: "open", total: -749.42, qkt: 18.35, other: -767.77, unassigned: 0 });
   });
 
   it("is all qkt's when nothing floats outside the listed positions", () => {
-    expect(todaySplit({ balance: 10_000, equity: 10_002.5 }, -1.25, null)).toEqual({ total: 1.25, qkt: 1.25, other: null, unassigned: 0 });
+    expect(todaySplit({ balance: 10_000, equity: 10_002.5 }, -1.25, null)).toEqual({ basis: "open", total: 1.25, qkt: 1.25, other: null, unassigned: 0 });
   });
 
   it("keeps what no part explains (a listed position without a mark) as unassigned, never as qkt's or the other system's", () => {
     const account = { balance: 9_999.96, equity: 10_001.02 };
     const n = floatingNote(account, [position({ ticket: "p", profit: undefined, swap: undefined }), position({ ticket: "q", profit: 1.06, swap: 0 })], null);
-    expect(todaySplit(account, 0.5, n)).toEqual({ total: 1.56, qkt: 1.56, other: null, unassigned: 0 });
+    expect(todaySplit(account, 0.5, n)).toEqual({ basis: "open", total: 1.56, qkt: 1.56, other: null, unassigned: 0 });
     // an outside position whose floating is unknown: the account's remainder stays unassigned
     const outside = floatingNote({ balance: 100, equity: 90 }, [position({ ticket: "r", profit: 2, swap: 0 })], { count: 1, floating: null })!;
-    expect(todaySplit({ balance: 100, equity: 90 }, 0, outside)).toEqual({ total: -10, qkt: 2, other: null, unassigned: -12 });
+    expect(todaySplit({ balance: 100, equity: 90 }, 0, outside)).toEqual({ basis: "open", total: -10, qkt: 2, other: null, unassigned: -12 });
     // a stopped account lists no positions: its last floating is not another system's
     const stopped = { balance: 9_999.96, equity: 10_001.85, stopped: true };
-    expect(todaySplit(stopped, 0, floatingNote(stopped, [], null))).toEqual({ total: 1.89, qkt: 0, other: null, unassigned: 1.89 });
+    expect(todaySplit(stopped, 0, floatingNote(stopped, [], null))).toEqual({ basis: "open", total: 1.89, qkt: 0, other: null, unassigned: 1.89 });
+  });
+});
+
+describe("todaySplit on the day's starting equity", () => {
+  // the soak's Exness account, 2026-10-30: another system realized a loss the floating alone hides
+  const exness = { balance: 4_974_006.16, equity: 4_979_056.02 };
+  const day = { dayStartEquity: 4_983_369.48, dayStartBalance: 4_983_993.55 };
+  const note = floatingNote(exness, [], null);
+
+  it("counts another system's closes: negative on the day despite positive floating", () => {
+    expect(note!.elsewhere).toBeCloseTo(5_049.86, 2);
+    expect(todaySplit(exness, -163.87, note, day)).toEqual({ basis: "day", total: -4_313.46, qkt: -163.87, other: -4_149.59, unassigned: 0 });
+  });
+
+  it("without the starting equity keeps closes plus floating, on the open basis, whose words never say today", () => {
+    for (const missing of [undefined, null, {}, { dayStartEquity: null, dayStartBalance: 4_983_993.55 }]) {
+      const s = todaySplit(exness, -163.87, note, missing);
+      expect(s).toEqual({ basis: "open", total: 4_885.99, qkt: -163.87, other: 5_049.86, unassigned: 0 });
+      expect(splitTotalWords(s)).not.toMatch(/today/i);
+      expect(splitOtherWords(s)).toMatch(/^open/);
+    }
+    expect(splitTotalWords({ basis: "day" })).toBe("Account today");
+  });
+
+  it("sees another system that closed everything, with no floating left to note", () => {
+    const flat = { balance: 9_000, equity: 9_000 };
+    expect(todaySplit(flat, -10, floatingNote(flat, [], null), { dayStartEquity: 10_000, dayStartBalance: 10_000 }))
+      .toEqual({ basis: "day", total: -1_000, qkt: -10, other: -990, unassigned: 0 });
+  });
+
+  it("leaves an account with only qkt on it whole: floating carried from yesterday is not another system", () => {
+    const own = { balance: 10_000, equity: 10_100 };
+    const listed = [position({ ticket: "a", profit: 100, swap: 0 })];
+    expect(todaySplit(own, 0, floatingNote(own, listed, null), { dayStartEquity: 10_100, dayStartBalance: 10_000 }))
+      .toEqual({ basis: "open", total: 100, qkt: 100, other: null, unassigned: 0 });
+  });
+
+  it("never calls what an unmarked position or a stopped account leaves another system's", () => {
+    const paper = { balance: 9_999.96, equity: 9_840.36 };
+    const unmarked = floatingNote(paper, [position({ ticket: "p", profit: undefined, swap: undefined })], null);
+    expect(todaySplit(paper, 3.05, unmarked, { dayStartEquity: 10_003.33, dayStartBalance: 9_999.96 }))
+      .toEqual({ basis: "day", total: -162.97, qkt: 3.05, other: null, unassigned: -166.02 });
+    const stopped = { balance: 9_000, equity: 9_500, stopped: true };
+    expect(todaySplit(stopped, 0, floatingNote(stopped, [], null), { dayStartEquity: 10_000, dayStartBalance: 10_000 }))
+      .toEqual({ basis: "day", total: -500, qkt: 0, other: null, unassigned: -500 });
+  });
+
+  it("its parts add to the total, and the note follows the same size rule", () => {
+    const s = todaySplit(exness, -163.87, note, day);
+    expect(s.qkt + s.other! + s.unassigned).toBeCloseTo(s.total, 2);
+    const items = attentionItems({ strategies: [], accounts: [{ key: "x", name: "x", stale: false, lastSeen: 1, split: s }], noStop: 0 });
+    expect(items).toEqual([{ kind: "other", key: "x", name: "x", split: s }]);
   });
 });
 
@@ -262,7 +314,7 @@ describe("strategyTotal", () => {
 });
 
 describe("todayHeadline", () => {
-  const split = (qkt: number, other: number | null = null) => ({ total: qkt + (other ?? 0), qkt, other, unassigned: 0 });
+  const split = (qkt: number, other: number | null = null) => ({ basis: "day" as const, total: qkt + (other ?? 0), qkt, other, unassigned: 0 });
 
   it("sums the strategies per currency and sets each account's other activity apart", () => {
     const h = todayHeadline([
@@ -310,6 +362,40 @@ describe("attentionItems", () => {
     expect(attentionItems({ strategies: ["a", "b", "c"].map((id) => strategy(id, { halted: true })), accounts: [], noStop: 0 }))
       .toEqual([{ kind: "halted-many", count: 3 }]);
     expect(attentionItems({ strategies: [strategy("a")], accounts: [account("x")], noStop: 0 })).toEqual([]);
+  });
+
+  describe("other activity", () => {
+    const split = (qkt: number, other: number | null) => ({ basis: "day" as const, total: qkt + (other ?? 0), qkt, other, unassigned: 0 });
+    const others = (accounts: Parameters<typeof attentionItems>[0]["accounts"]) => attentionItems({ strategies: [], accounts, noStop: 0 });
+
+    it("names an account whose other system outweighs its strategies, either sign, after what needs a look", () => {
+      const big = split(18.35, -813.86);
+      expect(attentionItems({ strategies: [], accounts: [{ ...account("x"), split: big }], noStop: 1 }))
+        .toEqual([{ kind: "no-stop", count: 1 }, { kind: "other", key: "x", name: "x", split: big }]);
+      expect(others([{ ...account("x"), split: split(-18.35, 813.86) }])).toHaveLength(1);
+      expect(others([{ ...account("x"), split: split(0, -0.5) }])).toHaveLength(1);
+    });
+
+    it("stays away when the other system is smaller, equal, zero or absent, or Today is not known", () => {
+      expect(others([{ ...account("a"), split: split(100, -50) }])).toEqual([]);
+      expect(others([{ ...account("b"), split: split(-50, 50) }])).toEqual([]);
+      expect(others([{ ...account("c"), split: split(0, 0) }])).toEqual([]);
+      expect(others([{ ...account("d"), split: split(5, null) }])).toEqual([]);
+      expect(others([{ ...account("e"), split: null }])).toEqual([]);
+    });
+
+    it("judges each account on its own", () => {
+      const items = others([{ ...account("a"), split: split(100, -50) }, { ...account("b"), split: split(1, -50) }, { ...account("c"), split: split(2, 60) }]);
+      expect(items.map((i) => (i.kind === "other" ? i.key : null))).toEqual(["b", "c"]);
+    });
+
+    it("never counts a stopped account's leftovers, from the note or an explicit split", () => {
+      const stopped = { balance: 9_999.96, equity: 9_000, stopped: true };
+      const leftovers = todaySplit(stopped, 0, floatingNote(stopped, [], null));
+      expect(leftovers.other).toBeNull();
+      expect(others([{ ...account("s", { stale: true, stopped: true }), split: leftovers }]).filter((i) => i.kind === "other")).toEqual([]);
+      expect(others([{ ...account("s", { stale: true, stopped: true }), split: split(0, -500) }]).filter((i) => i.kind === "other")).toEqual([]);
+    });
   });
 });
 

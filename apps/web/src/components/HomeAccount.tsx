@@ -1,7 +1,7 @@
 import type { ReactNode } from "react";
 import type { AccountRiskRow, LiveAccount } from "../api";
 import { clock, count, money, pctValue, signedMoney, signedPct, toneClass } from "../format";
-import { dailyMeasured, floatingNoteText, type FloatingNote, dailyReferenceLabel, dayBasisLabel, limitLine, drawdownMeasured, limitUse, todaySplit, type AttentionItem, type LimitUse, type OpenRisk, type TodayPart } from "../home";
+import { dailyMeasured, floatingNoteText, type FloatingNote, dailyReferenceLabel, dayBasisLabel, limitLine, drawdownMeasured, limitUse, splitOtherWords, splitTotalWords, todaySplit, type AttentionItem, type LimitUse, type OpenRisk, type TodayPart, type TodaySplit } from "../home";
 import { accountName, accountProfiles, accountTitle } from "../accounts";
 import { Card, FlashValue, Freshness, Pill, Pnl, Popover } from "./ui";
 
@@ -107,7 +107,8 @@ export function AccountStrip({
   /** The accounts shown beside it, which its name must stay apart from. */
   peers?: readonly LiveAccount[];
 }) {
-  const today = todaySplit(account, realizedToday, note);
+  // a shared link never measures the account's day: its Today stays what closed
+  const today = todaySplit(account, realizedToday, note, isPublic ? null : risk?.dailyLoss);
   const split = today.other != null || today.unassigned !== 0;
   const use = risk ? limitUse(risk, account.equity) : null;
   const openCount = open ? open.priced + open.noStop + open.unpriced : 0;
@@ -142,13 +143,13 @@ export function AccountStrip({
           label="Today"
           sub={
             split
-              ? <>other {signedMoney((today.other ?? 0) + today.unassigned)}</>
+              ? <>{today.basis === "day" ? "other" : "other open"} {signedMoney((today.other ?? 0) + today.unassigned)}</>
               : `${signedMoney(realizedToday)} closed`
           }
           info={
             <>
               <p>Your strategies today: {signedMoney(realizedToday)} closed, {signedMoney(today.qkt - realizedToday)} still open. The day starts {dayLabel.replace(/^day from /, "")}.</p>
-              {split && <p className="text-muted">The whole account is {signedMoney(today.total)} today{today.other != null ? `; ${signedMoney(today.other)} of it is open on another system's trades on this login` : ""}{today.unassigned !== 0 ? `; ${signedMoney(today.unassigned)} is on trades not listed here` : ""}.</p>}
+              {split && <p className="text-muted">{today.basis === "day" ? `The whole account is ${signedMoney(today.total)} today` : `The whole account is ${signedMoney(today.total)} in closes plus open trades; its start of day is not known`}{today.other != null ? `; ${signedMoney(today.other)} of it is ${splitOtherWords(today)}` : ""}{today.unassigned !== 0 ? `; ${signedMoney(today.unassigned)} is on trades not listed here` : ""}.</p>}
             </>
           }
         >
@@ -246,21 +247,40 @@ export function TodayHeadline({ parts, missing, pending, onQkt, asOf }: {
 
 /**
  * The line under Home's headline that answers "does anything need me?": each item links to where it lives (the
- * halted strategy, Health for a quiet account, the positions without a stop). "Nothing needs you" when empty.
+ * halted strategy, Health for a quiet account, the positions without a stop). "Nothing needs you" when empty of those.
+ * Other activity on an account is information, not a problem: muted, beside that answer, and it links to the account's
+ * tab unless that tab is `shownKey`, where it is plain text.
  */
-export function AttentionLine({ items, onItem }: { items: AttentionItem[]; onItem: (item: AttentionItem) => void }) {
+export function AttentionLine({ items, onItem, shownKey }: { items: AttentionItem[]; onItem: (item: AttentionItem) => void; shownKey?: string }) {
   const words = (i: AttentionItem): string => {
     switch (i.kind) {
       case "halted": return `Halted: ${i.name}`;
       case "halted-many": return `${count(i.count)} strategies halted`;
       case "account": return i.state === "stopped" ? `${i.name} stopped · ${clock(i.since)} UTC` : `${i.name} stale`;
       case "no-stop": return `${count(i.count)} ${i.count === 1 ? "position" : "positions"} without a stop`;
+      case "other": return `${i.split.basis === "day" ? "Other activity on" : "Other system open on"} ${i.name} ${signedMoney(i.split.other ?? 0)}`;
     }
   };
+  const splitWords = (split: TodaySplit): string => [
+    `${splitTotalWords(split)} ${signedMoney(split.total)}`,
+    `${signedMoney(split.qkt)} your strategies`,
+    `${signedMoney(split.other ?? 0)} ${splitOtherWords(split)}`,
+    ...(split.unassigned !== 0 ? [`${signedMoney(split.unassigned)} on trades not listed here`] : []),
+  ].join(" · ");
+  const needs = items.filter((i) => i.kind !== "other");
   return (
     <span className="flex flex-wrap items-center gap-1.5" role="list" aria-label="Needs a look">
-      {items.length === 0 && <span className="text-muted">Nothing needs you</span>}
-      {items.map((i, n) => (
+      {needs.length === 0 && <span className="text-muted">Nothing needs you</span>}
+      {items.map((i, n) => i.kind === "other" ? (
+        i.key === shownKey ? (
+          <span key={n} role="listitem" title={splitWords(i.split)} className="inline-flex h-6 items-center text-xs text-muted">{words(i)}</span>
+        ) : (
+          <button key={n} type="button" role="listitem" onClick={() => onItem(i)} title={splitWords(i.split)}
+            className="inline-flex h-6 items-center rounded-sm text-xs text-muted transition hover:text-bright focus-visible:outline-2 focus-visible:outline-accent-hi">
+            {words(i)}
+          </button>
+        )
+      ) : (
         <button key={n} type="button" role="listitem" onClick={() => onItem(i)} title={i.kind === "halted" ? i.why : undefined}
           className="inline-flex h-6 items-center rounded-full border border-warn/45 px-2.5 text-xs font-medium text-warn transition hover:bg-warn/10 focus-visible:outline-2 focus-visible:outline-accent-hi">
           {words(i)}
