@@ -117,3 +117,13 @@ export function todayParts(today: { closed: number; wins: number; ended: readonl
   return parts;
 }
 
+
+/**
+ * The one realized figure of a strategy's page: its closed trades at All with no search, what the Realized card shows
+ * there. `ledger` is the engine's own figure (stats) only when it differs from that by a cent or more, so a difference
+ * is stated rather than hidden. Before the trades load, or with no closed trade and no figure, it falls back to stats.
+ */
+export function pageRealized(trades: { closed: number; pnl: number } | null, engine: number | null): { realized: number | null; ledger: number | null } {
+  if (trades == null || (trades.closed === 0 && engine == null)) return { realized: engine, ledger: null };
+  return { realized: trades.pnl, ledger: engine != null && Math.abs(engine - trades.pnl) >= 0.005 ? engine : null };
+}

@@ -440,8 +440,17 @@ export function Segmented<T extends string>({
   /** Narrower buttons on phones, for a control that shares its row. */
   dense?: boolean;
 }) {
+  // an option past the scrolled edge would leave the choice invisible on a phone
+  const list = useRef<HTMLDivElement>(null);
+  useEffect(() => {
+    const box = list.current;
+    const on = box?.querySelector<HTMLElement>('[aria-selected="true"]');
+    if (!box || !on) return;
+    if (on.offsetLeft < box.scrollLeft) box.scrollLeft = on.offsetLeft;
+    else if (on.offsetLeft + on.offsetWidth > box.scrollLeft + box.clientWidth) box.scrollLeft = on.offsetLeft + on.offsetWidth - box.clientWidth;
+  }, [value]);
   return (
-    <div role="tablist" aria-label={label} className="inline-flex max-w-full gap-0.5 overflow-x-auto rounded-lg border border-line bg-raised p-0.5">
+    <div ref={list} role="tablist" aria-label={label} className="relative inline-flex max-w-full gap-0.5 overflow-x-auto rounded-lg border border-line bg-raised p-0.5">
       {options.map((o) => (
         <button
           key={o.key}

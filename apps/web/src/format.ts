@@ -93,7 +93,7 @@ export function compact(v: number): string {
 export function axisTick(v: number): string {
   const abs = Math.abs(v);
   const sign = v < 0 && abs >= 0.005 ? MINUS : "";
-  const trim = (n: number, digits: number) => n.toFixed(digits).replace(/\.?0+$/, "");
+  const trim = (n: number, digits: number) => { const s = n.toFixed(digits); return s.includes(".") ? s.replace(/\.?0+$/, "") : s; };
   if (abs >= 1_000_000_000) return `${sign}${trim(abs / 1_000_000_000, 3)}B`;
   if (abs >= 1_000_000) return `${sign}${trim(abs / 1_000_000, 3)}M`;
   if (abs >= 1_000) return `${sign}${trim(abs / 1_000, 2)}k`;

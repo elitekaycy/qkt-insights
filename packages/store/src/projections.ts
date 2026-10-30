@@ -2,7 +2,7 @@ import type { Db } from "./db.js";
 import { statement } from "./statements.js";
 import { clearClosedTrades, positionKeysAfter, recomputePosition, recomputeTicket, takeNewDeals, type ClosedTradeKey } from "./closedTrades.js";
 import { accountRebuildStep, clearAccountProjection, recomputeAccountKeys } from "./accountProjection.js";
-import { recomputeLedgerTrip, recomputeRoundTrip } from "./roundTrips.js";
+import { openTripsOfClose, recomputeLedgerTrip, recomputeRoundTrip } from "./roundTrips.js";
 import { clearExcursions, excursionsAfter, recomputeExcursions, recomputeTicketExcursions } from "./excursions.js";
 import { clearDaily, dailyKey, dailyUnitsAfter, recomputeDaily, recomputeDailyKeys, utcDay, type CloseSource } from "./strategyDaily.js";
 
@@ -28,7 +28,7 @@ export interface Projection {
 
 export const PROJECTIONS: Record<string, Projection> = {
   closed_trades: {
-    version: 7,
+    version: 8,
     clear: clearClosedTrades,
     step: (db, cursor, batch) => {
       const after = cursor == null ? null : (JSON.parse(cursor) as { instanceId: string; key: string });
@@ -73,7 +73,10 @@ PROJECTIONS.account_drawdown = {
  */
 function positionChanged(db: Db, instanceId: string, key: string): void {
   if (key.startsWith("l:")) {
-    recomputeLedgerTrip(db, instanceId, key.slice(2));
+    const closeId = key.slice(2);
+    recomputeLedgerTrip(db, instanceId, closeId);
+    // the close may end a position its deals leave open
+    for (const position of openTripsOfClose(db, instanceId, closeId)) recomputeRoundTrip(db, instanceId, position);
     return;
   }
   const change = recomputePosition(db, instanceId, key);

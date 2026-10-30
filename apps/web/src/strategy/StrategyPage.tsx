@@ -21,7 +21,7 @@ import { strategyLegs } from "../instruments";
 import { useLiveState } from "../useLiveState";
 import { usePublicPageView, useView } from "../view";
 import { CalendarSection, DailySection, MonthlySection } from "./Days";
-import { chipOf, toggleToken, without } from "./journal";
+import { chipOf, pageRealized, toggleToken, without } from "./journal";
 import { OverviewSection } from "./Overview";
 import { TimeRiskSection } from "./TimeRisk";
 import { BigPnl, Widget } from "./widgets";
@@ -49,18 +49,21 @@ const STRATEGY_HIDDEN = ["strategy"];
 const RECENT_LOGS = 50;
 
 /** Open P&L and open positions of one strategy from the live broker state (shared links: the delayed sum). */
-function useOpen(instanceId: string, strategyId: string): { pnl: number | null; positions: number; stale: boolean } {
+function useOpen(instanceId: string, strategyId: string): { pnl: number | null; positions: number; unpriced: number; stale: boolean } {
   const view = useView();
   const live = useLiveState();
   if (view.public) {
     const v = live.data?.openByStrategy?.[strategyId];
-    return { pnl: v ?? (live.data ? 0 : null), positions: 0, stale: false };
+    return { pnl: v ?? (live.data ? 0 : null), positions: 0, unpriced: 0, stale: false };
   }
   const groups = (live.data?.positions ?? []).filter((g) => g.instanceId === instanceId);
   const mine = groups.flatMap((g) => g.list).filter((p) => p.strategyId === strategyId);
+  // a position with no mark is unknown, not worth zero
+  const priced = mine.filter((p) => p.profit != null);
   return {
-    pnl: groups.length > 0 ? mine.reduce((a, p) => a + openPnl(p), 0) : null,
+    pnl: groups.length > 0 && (mine.length === 0 || priced.length > 0) ? priced.reduce((a, p) => a + openPnl(p), 0) : null,
     positions: mine.length,
+    unpriced: mine.length - priced.length,
     stale: groups.length > 0 && groups.every((g) => g.stale),
   };
 }
@@ -119,7 +122,9 @@ export function StrategyDetail({ instanceId, strategyId }: { instanceId: string;
   const capital = row ? strategyCapital(row) : { amount: stats.data?.startingBalance ?? null, source: null };
   const capitalLabel = capital.amount == null ? "no capital known" : `on ${money(capital.amount, 0)} ${capital.source === "defined" ? "defined capital" : capital.source ?? "capital"}`;
   const legs = strategyLegs(row, liveAccounts, instanceId);
-  const realized = stats.data?.realizedPnl ?? row?.realizedNet ?? null;
+  // the figure the Realized card shows at All with no search; the engine's own only when it differs
+  const allTime = useTripAnalytics(useMemo<TripScope>(() => ({ instanceId, strategy: strategyId }), [instanceId, strategyId]), "");
+  const { realized, ledger } = pageRealized(allTime.data ?? null, stats.data?.realizedPnl ?? row?.realizedNet ?? null);
   const net = realized == null && open.pnl == null ? null : (realized ?? 0) + (open.pnl ?? 0);
 
   const goTab = (t: StrategyTab, nextQ?: string, view?: PeriodView) => {
@@ -196,6 +201,12 @@ export function StrategyDetail({ instanceId, strategyId }: { instanceId: string;
               <span className="text-sm text-muted">
                 net incl. open · realized {signedMoney(realized)} · open {open.pnl == null ? DASH : signedMoney(open.pnl)}
                 {open.positions > 0 && ` on ${open.positions} position${open.positions === 1 ? "" : "s"}`}
+                {open.unpriced > 0 && open.pnl != null && ` (${open.unpriced} not priced)`}
+                {ledger != null && (
+                  <span className="cursor-help underline decoration-line-strong decoration-dotted underline-offset-4" title="qkt's own ledger books this. It differs from the closed trades here: usually costs on a trade still open, or a close the venue has not reported as a deal.">
+                    {" "}· engine ledger {signedMoney(ledger)}
+                  </span>
+                )}
                 {open.stale && <span className="ml-1.5 font-medium text-warn">· open P&L from stale broker state</span>}
               </span>
             </div>

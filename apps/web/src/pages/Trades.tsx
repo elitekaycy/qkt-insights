@@ -1,4 +1,4 @@
-import { useCallback, useMemo, useState } from "react";
+import { useCallback, useMemo, useState, type ReactNode } from "react";
 import { TRADE_KEYS } from "@qkt-insights/contract/query";
 import { Card, PageHeader, RangeChips, rangeStart, useRangeParam } from "../components/ui";
 import { useSearchParam } from "../router";
@@ -7,6 +7,24 @@ import { tripParams, useTripFacets, type RoundTripTotals, type TripScope } from 
 import { RoundTripTable } from "../trades/RoundTripTable";
 import { TripCount, useSortParams } from "../trades/scope";
 import { usePublicPageView, useView } from "../view";
+
+/** The search's trades as CSV. Without a label it is the icon alone, for the phone's control row. */
+function ExportLink({ href, className = "", children }: { href: string; className?: string; children?: ReactNode }) {
+  return (
+    <a
+      href={href}
+      download
+      aria-label="Export trades as CSV"
+      title="Every trade the search matches, as CSV"
+      className={`inline-flex h-8 items-center gap-1.5 rounded-lg px-2 text-sm text-muted transition hover:bg-hover hover:text-bright ${className}`}
+    >
+      <svg viewBox="0 0 24 24" className="h-3.5 w-3.5" fill="none" stroke="currentColor" strokeWidth="1.75" strokeLinecap="round" strokeLinejoin="round" aria-hidden>
+        <path d="M12 3v12M7 10l5 5 5-5M5 21h14" />
+      </svg>
+      {children}
+    </a>
+  );
+}
 
 export default function Trades({ instanceId }: { instanceId: string | null }) {
   usePublicPageView("trades");
@@ -42,21 +60,7 @@ export default function Trades({ instanceId }: { instanceId: string | null }) {
       <PageHeader
         title="Trades"
         sub={view.public ? `${view.meta.delayMinutes} minutes behind` : undefined}
-        right={
-          !view.public && (
-            <a
-              href={exportHref}
-              download
-              className="inline-flex h-8 items-center gap-1.5 rounded-lg px-2 text-sm text-muted transition hover:bg-hover hover:text-bright max-sm:hidden"
-              title="Every trade the search matches, as CSV"
-            >
-              <svg viewBox="0 0 24 24" className="h-3.5 w-3.5" fill="none" stroke="currentColor" strokeWidth="1.75" strokeLinecap="round" strokeLinejoin="round" aria-hidden>
-                <path d="M12 3v12M7 10l5 5 5-5M5 21h14" />
-              </svg>
-              Export
-            </a>
-          )
-        }
+        right={!view.public && <ExportLink href={exportHref} className="max-sm:hidden">Export</ExportLink>}
         scope={
           <div className="grid w-full gap-2">
             <div className="flex flex-wrap items-center gap-1.5 sm:hidden">
@@ -70,6 +74,7 @@ export default function Trades({ instanceId }: { instanceId: string | null }) {
                 <svg viewBox="0 0 24 24" className="h-4 w-4" fill="none" stroke="currentColor" strokeWidth="1.75" strokeLinecap="round" aria-hidden><path d="M11 19a8 8 0 1 0 0-16 8 8 0 0 0 0 16zM21 21l-4.35-4.35" /></svg>
               </button>
               <RangeChips value={range} onChange={setRange} dense />
+              {!view.public && <ExportLink href={exportHref} className="ml-auto" />}
               <TripCount totals={totals.t} loading={totals.loading} compactOnPhone />
             </div>
             <div ref={searchBox} className={searchOpen ? "" : "hidden sm:block"}>

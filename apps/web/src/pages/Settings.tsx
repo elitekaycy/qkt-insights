@@ -94,7 +94,7 @@ function Appearance() {
   return (
     <Card className="max-w-md overflow-hidden">
       <Row title="Theme" sub="Remembered on this device.">
-        <div className="w-44">
+        <div>
           <ThemeToggle />
         </div>
       </Row>
@@ -110,7 +110,7 @@ function Account({ onSignedOut }: { onSignedOut: () => void }) {
   return (
     <Card className="max-w-md overflow-hidden">
       <Row title="Install" sub="add the dashboard to your home screen or dock">
-        <div className="w-48">
+        <div>
           <InstallApp variant="sidebar" />
         </div>
       </Row>

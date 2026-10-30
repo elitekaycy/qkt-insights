@@ -6,6 +6,7 @@ import {
   binaryCompare, groupingInputs, hasMinuteWithoutEquity, stateAt, storedChains, totalChains, TOTAL_SCOPE, type StateRow,
 } from "./accountProjection.js";
 import { refreshProjections } from "./projections.js";
+import { ENGINE_CLOSED_TRIP } from "./roundTrips.js";
 import { statement } from "./statements.js";
 import { quantityUnitOf } from "./instrumentKind.js";
 import { searchLogs } from "./logSearch.js";
@@ -68,12 +69,17 @@ export function listStrategies(db: Db, instanceId: string, now = Date.now()): Ar
   for (const t of statement(db, "SELECT strategy_id s, source, closes, net_newest_first net FROM strategy_totals WHERE instance_id=?").all(instanceId) as Array<{ s: string; source: "deal" | "ledger"; closes: number; net: number }>) {
     totals.set(t.s, { ...totals.get(t.s), [t.source]: { closes: t.closes, net: t.net } });
   }
+  const engineOnly = new Map((statement(db,
+    `SELECT rt.strategy_id s, COUNT(*) n, SUM(rt.realized) net FROM round_trips rt WHERE rt.instance_id=? AND ${ENGINE_CLOSED_TRIP} GROUP BY rt.strategy_id`,
+  ).all(instanceId) as Array<{ s: string; n: number; net: number }>).map((e) => [e.s, e]));
   const instruments = strategyInstruments(db, instanceId);
   return strategyRosterRows(db, instanceId).map((r) => {
     const t = totals.get(r.strategyId);
-    const closes = t?.deal ?? t?.ledger;
+    const extra = engineOnly.get(r.strategyId);
+    // an engine close that ends a venue position is already in `extra`, so the ledger total would count it twice
+    const closes = t?.deal ?? (extra ? undefined : t?.ledger);
     return {
-      ...r, realizedNet: closes ? closes.net : null, dealCount: closes?.closes ?? 0,
+      ...r, realizedNet: closes || extra ? (closes?.net ?? 0) + (extra?.net ?? 0) : null, dealCount: (closes?.closes ?? 0) + (extra?.n ?? 0),
       ...strategyHalt(halts, r.strategyId), instruments: instruments.get(r.strategyId) ?? [],
     };
   });
@@ -748,6 +754,15 @@ export function strategyStats(db: Db, f: { instanceId: string; strategyId: strin
   return withAnalyticsScope(db, () => statsOf(db, f, now));
 }
 
+/** Round trips only engine closes ended (ENGINE_CLOSED_TRIP), up to `to`. */
+function engineClosedTrips(db: Db, f: { instanceId: string; strategyId: string; to?: number }): { n: number; realized: number } {
+  const row = statement(db,
+    `SELECT COUNT(*) n, COALESCE(SUM(rt.realized),0) realized FROM round_trips rt
+     WHERE rt.instance_id=? AND rt.strategy_id=? AND rt.exit_ts<=? AND ${ENGINE_CLOSED_TRIP}`,
+  ).get(f.instanceId, f.strategyId, f.to ?? Number.MAX_SAFE_INTEGER) as { n: number; realized: number };
+  return row;
+}
+
 function statsOf(db: Db, f: { instanceId: string; strategyId: string; to?: number; closedPositionsOnly?: boolean }, now: number): StrategyStats {
   const t: any = db.prepare(
     `SELECT COUNT(*) c,
@@ -775,7 +790,8 @@ function statsOf(db: Db, f: { instanceId: string; strategyId: string; to?: numbe
     : tradePnls(db, f).pnls;
   const wins = pnls.filter((x) => x > 0).length;
   const winRate = pnls.length > 0 ? wins / pnls.length : null;
-  const dealRealized = dealRows.reduce((a, c) => a + c.realized, 0);
+  const extra = engineClosedTrips(db, f);
+  const dealRealized = (extra.n > 0 && !hasClosingDeals(db, f) ? 0 : dealRows.reduce((a, c) => a + c.realized, 0)) + extra.realized;
 
   let peak = -Infinity, maxDd = 0;
   for (const s of snaps) {
