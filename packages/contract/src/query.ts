@@ -117,6 +117,12 @@ export interface QueryContext {
 export const TRADE_KEYS: ReadonlySet<QueryKey> = new Set<QueryKey>(["text", "strategy", "symbol", "side", "outcome", "pnl", "r", "held", "entry", "exit", "ended", "size", "ticket", "weekday", "hour", "type"]);
 export const LOG_KEYS: ReadonlySet<QueryKey> = new Set<QueryKey>(["text", "strategy", "level", "logger", "time"]);
 
+/**
+ * The Logs pages' default lines: warnings and errors, and the order flow (orders submitted, accepted and filled, trades)
+ * at any level, by the qkt loggers that write it. Sent as `/logs?level=WARN,ERROR&orLogger=...`.
+ */
+export const LOG_ATTENTION = { levels: ["WARN", "ERROR"], loggers: ["OrderManager", "TradingPipeline", "trade"] } as const;
+
 const KEY_ALIAS: Record<string, QueryKey> = {
   strategy: "strategy", strat: "strategy",
   symbol: "symbol", sym: "symbol", instrument: "symbol", inst: "symbol", pair: "symbol",

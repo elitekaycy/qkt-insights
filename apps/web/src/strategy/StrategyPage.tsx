@@ -1,6 +1,6 @@
 import { lazy, Suspense, useMemo, useState, type ReactNode } from "react";
 import { useQuery } from "@tanstack/react-query";
-import { parseQuery, TRADE_KEYS } from "@qkt-insights/contract/query";
+import { LOG_ATTENTION, parseQuery, TRADE_KEYS } from "@qkt-insights/contract/query";
 import { get, type LogRow, type StrategyRow, type StrategyStats } from "../api";
 import { LogLine } from "../components/LogLine";
 import { groupLogs } from "../logs";
@@ -21,7 +21,7 @@ import { strategyEnvironment, strategyLegs } from "../instruments";
 import { useLiveState } from "../useLiveState";
 import { usePublicPageView, useView } from "../view";
 import { CalendarSection, DailySection, MonthlySection } from "./Days";
-import { chipOf, importantLog, toggleToken, without } from "./journal";
+import { chipOf, toggleToken, without } from "./journal";
 import { OverviewSection } from "./Overview";
 import { TimeRiskSection } from "./TimeRisk";
 import { BigPnl, ICON, Widget } from "./widgets";
@@ -400,14 +400,15 @@ function StrategyTrades({ scope, q, exportHref }: { scope: TripScope; q: string;
 
 /** The latest log lines; the Logs page holds the history, filtered to this strategy. */
 function StrategyLogs({ instanceId, strategyId }: { instanceId: string; strategyId: string }) {
+  const [all, setAll] = useState(false);
+  // the strategy's story first: its order flow and anything that went wrong; every line is one click away
+  const which = all ? "" : `&level=${LOG_ATTENTION.levels.join(",")}&orLogger=${LOG_ATTENTION.loggers.join(",")}`;
   const logs = useQuery({
-    queryKey: ["logs", instanceId, strategyId, RECENT_LOGS],
-    queryFn: () => get<LogRow[]>(`/logs?instance=${encodeURIComponent(instanceId)}&strategy=${encodeURIComponent(strategyId)}&limit=${RECENT_LOGS}`),
+    queryKey: ["logs", instanceId, strategyId, RECENT_LOGS, all],
+    queryFn: () => get<LogRow[]>(`/logs?instance=${encodeURIComponent(instanceId)}&strategy=${encodeURIComponent(strategyId)}&limit=${RECENT_LOGS}${which}`),
     refetchInterval: 30_000,
   });
-  const [all, setAll] = useState(false);
-  // the strategy's story first: orders, fills, trades and anything that went wrong; every line is one click away
-  const rows = (logs.data ?? []).filter((l) => all || importantLog(l));
+  const rows = logs.data ?? [];
   return (
     <Widget
       icon={ICON.logs}
@@ -421,7 +422,7 @@ function StrategyLogs({ instanceId, strategyId }: { instanceId: string; strategy
     >
       <Loadable loading={logs.isPending} error={logs.isError} retry={() => logs.refetch()} what="logs" shape="lines" lines={8}>
         <div className="px-4 pb-2">
-          <Segmented label="Which lines" value={all ? "all" : "orders"} onChange={(v) => setAll(v === "all")} options={[{ key: "orders", label: "Orders & errors" }, { key: "all", label: "All lines" }]} />
+          <Segmented label="Which lines" value={all ? "all" : "orders"} onChange={(v) => setAll(v === "all")} options={[{ key: "orders", label: "Warnings & orders" }, { key: "all", label: "All lines" }]} />
         </div>
         <div className="px-2 pb-2">
           {groupLogs(rows).map((g) => <LogLine key={g.log.id} log={g.log} group={g} showStrategy={false} />)}

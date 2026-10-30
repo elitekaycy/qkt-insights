@@ -1,8 +1,8 @@
 import { useEffect, useMemo, useRef } from "react";
 import { keepPreviousData, useInfiniteQuery, useQuery } from "@tanstack/react-query";
-import { LOG_KEYS, parseQuery, UNATTRIBUTED_STRATEGY } from "@qkt-insights/contract/query";
+import { LOG_ATTENTION, LOG_KEYS, parseQuery, UNATTRIBUTED_STRATEGY } from "@qkt-insights/contract/query";
 import { get, type LogRow, type StrategyRow } from "../api";
-import { Card, Empty, Loadable, PageHeader, Panel, RangeChips, rangeStart, Spinner, useRangeParam } from "../components/ui";
+import { Card, Empty, Loadable, PageHeader, Panel, RangeChips, rangeStart, Segmented, Spinner, useRangeParam } from "../components/ui";
 import { useSearchParam } from "../router";
 import { useStrategyNames } from "../hooks/useStrategies";
 import { LogLine } from "../components/LogLine";
@@ -13,6 +13,8 @@ import { LOG_PRESETS, QueryBar } from "../query/QueryBar";
 
 const LOG_TYPES = ["log"];
 const PAGE = 200;
+const LINES = [{ key: "attention", label: "Warnings & orders" }, { key: "all", label: "All" }] as const;
+const loggerName = (logger: string) => logger.slice(logger.lastIndexOf(".") + 1);
 
 /** One page of /logs/page: newest first; `total` (first page only) is how many lines the whole query matches. */
 interface LogPage {
@@ -29,6 +31,8 @@ function ftsWords(words: string[]): string {
 export default function Logs({ instanceId }: { instanceId: string | null }) {
   const [q, setQ] = useSearchParam("q");
   const [range, setRange] = useRangeParam();
+  // the default lines are warnings, errors and the order flow; "All" is one click away, and a level: chip decides alone
+  const [lines, setLines] = useSearchParam("lines");
 
   const strategies = useQuery({
     queryKey: ["strategies", instanceId],
@@ -42,17 +46,22 @@ export default function Logs({ instanceId }: { instanceId: string | null }) {
   const rangeFrom = rangeStart(range);
   const from = Math.max(rangeFrom > 0 ? Math.floor(rangeFrom / 60_000) * 60_000 : 0, f.time?.from ?? 0) || undefined;
   const to = f.time?.to;
+  const attention = !f.level && lines !== "all";
 
   const params = useMemo(() => {
     const p = new URLSearchParams({ instance: instanceId ?? "", limit: String(PAGE) });
     if (f.level) p.set("level", f.level);
+    else if (attention) {
+      p.set("level", LOG_ATTENTION.levels.join(","));
+      p.set("orLogger", LOG_ATTENTION.loggers.join(","));
+    }
     if (f.strategy !== undefined) p.set("strategy", f.strategy ?? UNATTRIBUTED_STRATEGY);
     if (f.logger) p.set("logger", f.logger);
     if (f.text.length) p.set("q", ftsWords(f.text));
     if (from) p.set("from", String(from));
     if (to) p.set("to", String(to));
     return p.toString();
-  }, [instanceId, f, from, to]);
+  }, [instanceId, f, attention, from, to]);
 
   // The range, the filters and the words all run on the server; pages follow by cursor, so every
   // matching line in the range is reachable by scrolling, and the count is the query's own.
@@ -83,6 +92,8 @@ export default function Logs({ instanceId }: { instanceId: string | null }) {
     const msg = String(e.payload.message ?? "").toLowerCase();
     return (f.strategy === undefined || (e.strategyId ?? null) === f.strategy)
       && (!f.level || e.payload.level === f.level)
+      && (!attention || (LOG_ATTENTION.levels as readonly string[]).includes(String(e.payload.level))
+        || (LOG_ATTENTION.loggers as readonly string[]).includes(loggerName(String(e.payload.logger ?? ""))))
       && (!f.logger || String(e.payload.logger ?? "").toLowerCase().includes(f.logger.toLowerCase()))
       && f.text.every((w) => msg.includes(w.toLowerCase()))
       && (!from || e.ts >= from) && (!to || e.ts < to);
@@ -109,6 +120,7 @@ export default function Logs({ instanceId }: { instanceId: string | null }) {
               placeholder="Search logs"
               trailing={
                 <>
+              {!f.level && <Segmented label="Which lines" value={attention ? "attention" : "all"} options={LINES} onChange={(v) => setLines(v === "all" ? "all" : "")} />}
               <RangeChips value={range} onChange={setRange} />
               <span className={`text-sm text-muted ${logs.isFetching ? "opacity-60" : ""}`} aria-live="polite">
                 {logs.data == null ? (
