@@ -258,6 +258,80 @@ export interface StrategySourceText {
   truncated: boolean;
 }
 
+/** A resolved setting: no value means the limit is off or unset, never zero. */
+export interface EffectiveSetting {
+  value?: number | string;
+  source?: "configured" | "default";
+}
+
+export interface EffectiveAccount {
+  name?: string;
+  type?: string;
+  connector?: string;
+  adapter?: string;
+  environment?: string;
+  tickPollIntervalMs?: number;
+}
+
+/** What a strategy runs on, as qkt resolved it at start (contract effectiveConfig.ts). */
+export interface EffectiveConfig {
+  kind?: "standalone" | "portfolio_child" | "bot_session";
+  tradingMode?: "paper" | "demo" | "contest" | "live";
+  runtimeMode?: EffectiveSetting;
+  accounts?: EffectiveAccount[];
+  currency?: EffectiveSetting;
+  startingBalance?: EffectiveSetting;
+  book?: {
+    name?: string;
+    capital?: EffectiveSetting;
+    weight?: number;
+    allocatedCapital?: number;
+    maxGrossExposure?: EffectiveSetting;
+    maxNetExposure?: EffectiveSetting;
+    maxSymbolConcentration?: EffectiveSetting;
+    allocationMethod?: EffectiveSetting;
+    targetVol?: number;
+    deRiskSteps?: Array<{ drawdown?: number; factor?: number; cooldownBars?: number }>;
+  };
+  risk?: {
+    appliesTo?: "strategy" | "book";
+    maxDailyLoss?: EffectiveSetting;
+    maxDrawdownFraction?: EffectiveSetting;
+    totalDdBasis?: EffectiveSetting;
+    maxDailyDrawdownFraction?: EffectiveSetting;
+    dailyDdBasis?: EffectiveSetting;
+    liveEquityBasis?: EffectiveSetting;
+  };
+  strategyRisk?: Partial<Record<
+    "maxDailyLoss" | "maxPositionSize" | "maxOpenPositions" | "maxDrawdownFraction" | "maxDailyDrawdownFraction"
+    | "maxTradesPerDay" | "cooldownAfterLossMs" | "cooldownAfterLosses" | "lossStreakHalt" | "lossStreakHaltScope",
+    EffectiveSetting
+  >>;
+  orders?: Partial<Record<
+    "maxOrderQty" | "maxOrderNotional" | "priceCollarFraction" | "marginFloorPct" | "measuredUsageHours"
+    | "measuredUsageMaxQty" | "runawayMaxRoundTrips10m" | "runawayMaxBrokerRejections1m",
+    EffectiveSetting
+  >>;
+  marketData?: Partial<Record<
+    "candleCloseGraceMs" | "staleAgeMultiple" | "minStaleAgeMs" | "outlierSigma" | "maxClockSkewMs" | "quietAlertAfterMs",
+    EffectiveSetting
+  >>;
+}
+
+export interface StrategyConfigVersion {
+  sha256: string;
+  firstSeen: number;
+  lastSeen: number;
+  starts: number;
+  state: "stored" | "not-received";
+  config: EffectiveConfig | null;
+}
+
+export interface StrategyConfigView {
+  running: string | null;
+  versions: StrategyConfigVersion[];
+}
+
 /** One symbol a strategy traded, as its newest deal there states it (store queries.ts StrategyInstrument). */
 export interface StrategyInstrument {
   symbol: string;

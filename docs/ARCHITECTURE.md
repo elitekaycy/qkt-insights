@@ -105,7 +105,7 @@ its way out, what to send instead (`deprecated`). A type without an entry fails 
 
 ```json
 {
-  "contractVersion": "1.4.0",
+  "contractVersion": "1.5.0",
   "majors": [1],
   "types": [{ "type": "balances.updated", "since": "1.0.0" }, "..."],
   "maxBatch": null,
@@ -205,6 +205,19 @@ reads the table. A version with no text says why: qkt sent none (`not-sent`, a q
 left the text out after sending it at an earlier start this collector does not hold (`not-received`, e.g. after a
 database reset; the next qkt restart sends it again). `GET /strategy-source` lists the versions without text and
 `GET /strategy-source/text?sha=` answers one, both behind the session.
+
+### Strategy configuration
+
+`strategy.started` also carries what the strategy runs on (`effectiveConfig`, 1.5.0): an allow-list qkt builds from
+named, resolved settings (account, risk limits, orders, market data, its book), never its config file, each with
+where its value came from. `effectiveConfigSha256` names it, and like the source it is sent once per qkt process,
+strategy and sha (`effectiveConfigOmitted: true` on a repeat). The collector keeps each `(instance, strategy, sha)` once
+in `strategy_configs` (`packages/store/src/strategyConfigs.ts`), through its own allow-list (`EffectiveConfigSchema`):
+a field the contract does not name is not stored, and a field that does not fit is dropped alone, so a malformed
+config never quarantines its start. The config is never written to `events`, `strategies.metadata` or the live bus.
+`GET /strategy-config` answers the running sha and every version behind the session; no `/public` route reads the
+table and `publicView.ts` does not list it. A collector must accept the field before a qkt sends it: an older collector
+keeps an unknown payload field in `events` and metadata (the payload schemas pass unknown fields through).
 
 ## Reads
 

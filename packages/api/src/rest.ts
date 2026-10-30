@@ -1,5 +1,5 @@
 import type { FastifyInstance } from "fastify";
-import { listInstances, listStrategies, listTrades, searchEvents, equityCurve, instanceHealth, searchLogs, logPage, strategyStats, listDeals, accountEquity, accountDrawdown, accountPerformance, accountRisk, accountScope, monitorSummaries, withJournalStrategies, withStoppedAccounts, listMonitorEvents, reconciliation, strategySources, strategySourceText, type AccountLimits, type Db, type LiveStateStore, type Monitors } from "@qkt-insights/store";
+import { listInstances, listStrategies, listTrades, searchEvents, equityCurve, instanceHealth, searchLogs, logPage, strategyStats, listDeals, accountEquity, accountDrawdown, accountPerformance, accountRisk, accountScope, monitorSummaries, withJournalStrategies, withStoppedAccounts, listMonitorEvents, reconciliation, strategyConfigs, strategySources, strategySourceText, type AccountLimits, type Db, type LiveStateStore, type Monitors } from "@qkt-insights/store";
 import { CONTRACT_VERSION, SUPPORTED_MAJORS } from "@qkt-insights/contract";
 import { UNATTRIBUTED_STRATEGY } from "@qkt-insights/contract/query";
 import { requireSession } from "./auth.js";
@@ -73,6 +73,14 @@ export function registerRest(app: FastifyInstance, deps: RestDeps): void {
     if (!source) return reply.code(404).send({ error: "no source stored for this version" });
     reply.header("cache-control", "private, no-store");
     return source;
+  });
+
+  // What the strategy runs on (store strategyConfigs.ts): behind the session, and no /public route reads it.
+  app.get<{ Querystring: Record<string, string> }>("/strategy-config", guard, async (req, reply) => {
+    const q = req.query;
+    if (!need(reply, q.instance, "instance") || !need(reply, q.strategy, "strategy")) return;
+    reply.header("cache-control", "private, no-store");
+    return strategyConfigs(deps.db, q.instance, q.strategy);
   });
 
   // Also the one WS reconciliation misses: a fill lands on the wire the instant it
