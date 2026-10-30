@@ -4,7 +4,7 @@ import { LOG_KEYS, parseQuery, UNATTRIBUTED_STRATEGY } from "@qkt-insights/contr
 import { get, type LogRow, type StrategyRow } from "../api";
 import { Card, Empty, Loadable, PageHeader, Panel, RangeChips, rangeStart, Spinner, useRangeParam } from "../components/ui";
 import { useSearchParam } from "../router";
-import { useStrategyNames } from "../hooks/useStrategyNames";
+import { useStrategyNames } from "../hooks/useStrategies";
 import { LogLine } from "../components/LogLine";
 import { groupLogs } from "../logs";
 import { useLiveStream } from "../useLiveStream";

@@ -1,6 +1,8 @@
 import { useEffect, useId, useMemo, useRef, useState, type ReactNode } from "react";
+import { flushSync } from "react-dom";
 import { parseQuery, withoutChip, withoutKeys, type QueryContext, type QueryKey } from "@qkt-insights/contract/query";
 import { suggest, type SuggestData } from "./suggest";
+import { Icon } from "../components/ui";
 
 /*
  * The search bar of Trades, a strategy's trades, the calendar drill and Logs, after the
@@ -34,16 +36,23 @@ const SEARCH = "M11 19a8 8 0 1 0 0-16 8 8 0 0 0 0 16zM21 21l-4.35-4.35";
 const FILTER = "M22 3H2l8 9.46V19l4 2v-8.54z";
 const X = "M18 6L6 18M6 6l12 12";
 
-function Icon({ d, className = "h-3.5 w-3.5" }: { d: string; className?: string }) {
-  return (
-    <svg viewBox="0 0 24 24" className={`shrink-0 ${className}`} fill="none" stroke="currentColor" strokeWidth="1.75" strokeLinecap="round" strokeLinejoin="round" aria-hidden>
-      <path d={d} />
-    </svg>
-  );
-}
-
 function Kbd({ children }: { children: ReactNode }) {
   return <span className="inline-flex h-[18px] min-w-[18px] items-center justify-center rounded border border-line-strong bg-raised px-1 font-mono text-[10px] text-body">{children}</span>;
+}
+
+/**
+ * A phone's search button for a page's query bar: `toggle` opens the box (rendered before focusing, inside the tap,
+ * so a phone raises its keyboard) or closes it; `box` goes on the box's wrapper.
+ */
+export function useSearchToggle() {
+  const [open, setOpen] = useState(false);
+  const box = useRef<HTMLDivElement>(null);
+  const toggle = () => {
+    if (open) return setOpen(false);
+    flushSync(() => setOpen(true));
+    box.current?.querySelector("input")?.focus();
+  };
+  return { open, box, toggle };
 }
 
 /** True when a keystroke belongs to a field the viewer is typing in. */
@@ -302,7 +311,7 @@ export function QueryBar({
             onClick={() => setPanel((p) => !p)}
             className={`inline-flex h-[34px] items-center gap-1.5 rounded-lg border px-3 text-sm font-medium transition ${panel ? "border-accent-hi bg-accent-soft text-bright" : "border-ctl bg-raised text-bright hover:bg-well"}`}
           >
-            <Icon d={FILTER} />
+            <Icon d={FILTER} className="h-3.5 w-3.5" />
             Filters
             {activePresets > 0 && <span className="inline-flex h-4 min-w-4 items-center justify-center rounded-full bg-accent px-1 text-[10px] font-semibold text-on-accent">{activePresets}</span>}
           </button>

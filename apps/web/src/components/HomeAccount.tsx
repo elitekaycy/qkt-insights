@@ -15,11 +15,11 @@ import { Card, FlashValue, Freshness, InfoIcon, Pill, Pnl, Popover } from "./ui"
  * means and how it is measured lives behind the info icon (hover, or tap on touch), so every card in
  * the row keeps the same height.
  */
-function Kpi({ label, children, sub, info, className = "" }: {
-  label: string; children: ReactNode; sub?: ReactNode; info?: ReactNode; className?: string;
+function Kpi({ label, children, sub, info }: {
+  label: string; children: ReactNode; sub?: ReactNode; info?: ReactNode;
 }) {
   return (
-    <Card className={`min-w-0 p-4 ${className}`}>
+    <Card className="min-w-0 p-4">
       <div className="flex items-center gap-2 text-sm font-medium text-muted">
         <span className="truncate">{label}</span>
         {info && (

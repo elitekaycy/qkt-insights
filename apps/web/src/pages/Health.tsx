@@ -6,7 +6,7 @@ import { ReconciliationCard } from "../components/Reconciliation";
 import { Cell, DataList, Empty, Freshness, StatusWord, PageHeader, Panel, Pill, Row, Skeleton, Stat, Table, type Tone } from "../components/ui";
 import { contractLabel, contractTitle } from "../contract";
 import { Link } from "../router";
-import { age, clock, duration, money, pct, signedMoney, tsDay, tsShort } from "../format";
+import { age, clock, duration, elapsed, money, pct, signedMoney, tsDay, tsShort } from "../format";
 
 /** Red only for a loss: failed POSTs are retried (from the journal when it is on), so they are not one. */
 function sinkTone(row: HealthRow): Tone {
@@ -210,7 +210,7 @@ function FleetStats({ monitors, rows, accounts, pending }: { monitors: MonitorSu
         label="Accounts reporting"
         value={`${accounts.length - quiet.length} / ${accounts.length}`}
         tone={quiet.length > 0 ? "warn" : "neutral"}
-        sub={quiet.length > 0 ? quiet.map((a) => `${accountName(a)} ${a.stopped ? "stopped" : `stale ${age(a.lastSeen).replace(/ ago$/, "")}`}`).join(", ") : undefined}
+        sub={quiet.length > 0 ? quiet.map((a) => `${accountName(a)} ${a.stopped ? "stopped" : `stale ${elapsed(Date.now() - a.lastSeen)}`}`).join(", ") : undefined}
       />
       <Stat label="Monitors down" value={down.length} tone={down.length > 0 ? "bad" : "neutral"} sub={down.length > 0 ? down.map((m) => m.name).join(", ") : undefined} />
     </div>

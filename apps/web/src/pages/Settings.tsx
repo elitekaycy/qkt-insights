@@ -1,12 +1,13 @@
 import { lazy, Suspense } from "react";
-import { useQuery, useQueryClient } from "@tanstack/react-query";
-import { get, logout, logoutEverywhere, type StrategyRow } from "../api";
+import { useQueryClient } from "@tanstack/react-query";
+import { logout, logoutEverywhere } from "../api";
 import { ThemeToggle } from "../components/chrome";
 import { InstallApp } from "../components/InstallApp";
 import { ShareControl } from "../components/ShareControl";
 import { Button, Card, InfoIcon, PageFallback, PageHeader, Popover, Segmented } from "../components/ui";
 import { portfolioGroupId, strategyDisplayName } from "../portfolio";
 import { routePath, useRoute, type SettingsSection } from "../router";
+import { useStrategies } from "../hooks/useStrategies";
 
 const Viewership = lazy(() => import("./Viewership"));
 
@@ -55,11 +56,7 @@ function Row({ title, sub, info, children }: { title: string; sub?: string; info
 
 /** Every shareable subject with its public/private toggle and link; strategies inherit from the overview. */
 function Sharing({ instanceId }: { instanceId: string | null }) {
-  const strategies = useQuery({
-    queryKey: ["strategies", instanceId],
-    queryFn: () => get<StrategyRow[]>(`/strategies?instance=${encodeURIComponent(instanceId!)}`),
-    enabled: !!instanceId,
-  });
+  const strategies = useStrategies(instanceId, false);
   if (!instanceId) return <Card className="p-8 text-center text-muted">No instance selected.</Card>;
   const rows = (strategies.data ?? []).filter((s) => s.active);
   const portfolios = [...new Set(rows.map(portfolioGroupId).filter((p): p is string => p != null))];

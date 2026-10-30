@@ -67,19 +67,14 @@ const retired = (row: StrategyRow | null) => row != null && !row.active;
 
 export function StrategyTable({
   lines,
-  title = "Strategies",
   hint,
-  right,
   account = null,
   mix = null,
   search = false,
   origin,
 }: {
   lines: StrategyLine[];
-  title?: string;
   hint?: string;
-  /** Extra header content at the right edge, e.g. a group's total. */
-  right?: ReactNode;
   /** The shown account's Today split; the total row then sets the rows against the account's own figure. Null on All accounts. */
   account?: TodaySplit | null;
   /** Set when the rows add accounts in different currencies: the total carries "USD+USDC". */
@@ -133,12 +128,11 @@ export function StrategyTable({
   return (
     <Card className="overflow-hidden">
       <div className="flex flex-wrap items-center gap-x-2.5 gap-y-2 border-b border-line px-4 py-3">
-        <h2 className="text-sm font-medium text-body">{title}</h2>
+        <h2 className="text-sm font-medium text-body">Strategies</h2>
         {hint && <span className="text-xs text-muted">{hint}</span>}
-        {right && <span className="ml-auto flex items-center gap-2">{right}</span>}
-        {search && <StrategySearch className={right ? "" : "ml-auto"} />}
+        {search && <StrategySearch className="ml-auto" />}
         {hiddenCount > 0 && !asksForRetired(find) && (
-          <button type="button" onClick={() => setShowAll((s) => !s)} className={`${right || search ? "" : "ml-auto"} text-xs font-medium text-accent-ink hover:underline`}>
+          <button type="button" onClick={() => setShowAll((s) => !s)} className={`${search ? "" : "ml-auto"} text-xs font-medium text-accent-ink hover:underline`}>
             {showAll ? "Hide retired" : `Show ${hiddenCount} retired`}
           </button>
         )}

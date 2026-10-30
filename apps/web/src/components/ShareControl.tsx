@@ -2,7 +2,7 @@ import { useState } from "react";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { get, rotateShareLink, setShareVisibility, shareUrl, type ShareKind, type ShareState, type SharesView } from "../api";
 import { useView } from "../view";
-import { Popover } from "./ui";
+import { Icon, Popover } from "./ui";
 
 const GLOBE = "M12 21a9 9 0 1 0 0-18 9 9 0 0 0 0 18zM3.6 9h16.8M3.6 15h16.8M12 3a14 14 0 0 1 0 18M12 3a14 14 0 0 0 0 18";
 const LOCK = "M5 11h14v10H5zM8 11V7a4 4 0 0 1 8 0v4";
@@ -15,14 +15,6 @@ function stateOf(view: SharesView | undefined, kind: ShareKind, subject: string)
   if (kind === "overview") return view.overview;
   const list = kind === "portfolio" ? view.portfolios : view.strategies;
   return list.find((s) => s.id === subject) ?? null;
-}
-
-function Icon({ d, className = "h-4 w-4" }: { d: string; className?: string }) {
-  return (
-    <svg viewBox="0 0 24 24" className={className} fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" aria-hidden>
-      <path d={d} />
-    </svg>
-  );
 }
 
 const SMALL = "inline-flex h-8 items-center justify-center rounded-lg border px-3 text-xs font-semibold transition disabled:opacity-50";
@@ -78,7 +70,7 @@ export function ShareControl({ instanceId, kind, subject = "" }: { instanceId: s
         state.effective ? "border-accent/50 bg-accent/10 text-accent-ink" : "border-ctl bg-raised text-body hover:border-line-strong hover:text-bright"
       }`}
     >
-      <Icon d={state.effective ? GLOBE : LOCK} />
+      <Icon d={state.effective ? GLOBE : LOCK} className="h-4 w-4" strokeWidth={2} />
       {state.effective ? "Public…" : "Share…"}
     </span>
   );
@@ -93,7 +85,7 @@ export function ShareControl({ instanceId, kind, subject = "" }: { instanceId: s
       <Popover label={state.effective ? "Sharing: public" : "Sharing: private"} align="right" trigger={trigger}>
         <div className="grid w-[min(18rem,calc(100vw-2.5rem))] gap-2.5">
           <p className="flex items-center gap-1.5 font-semibold text-bright">
-            <Icon d={state.effective ? GLOBE : LOCK} className="h-3.5 w-3.5" />
+            <Icon d={state.effective ? GLOBE : LOCK} className="h-3.5 w-3.5" strokeWidth={2} />
             {state.effective ? "Public" : "Private"}
             {inherited && <span className="font-normal text-muted">· from the overview</span>}
           </p>

@@ -7,7 +7,7 @@ import { PAGE_PATHS, useSearchParam } from "../router";
 import { usePositionPath, useTripDetail, type RoundTripDetail, type Slippage, type TimelineStep } from "./data";
 import { latency, legCosts, preciseClock, px, rMultiple, tradeStory, tripInstrument } from "./format";
 import { PositionMap } from "./PositionMap";
-import { useStrategyNames } from "../hooks/useStrategyNames";
+import { useStrategyNames } from "../hooks/useStrategies";
 
 /*
  * One trade, opened from any list of trades (Trades, a strategy's trades, a calendar day, Home's positions) and

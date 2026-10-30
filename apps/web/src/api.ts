@@ -293,25 +293,6 @@ export interface StrategyRow {
   /** True when haltedAt is only a bound (the halt began at or before it): a restart re-asserted it and no earlier record is stored. */
   haltedBefore?: boolean;
 }
-export interface OrderRow {
-  orderId: string;
-  strategyId: string | null;
-  symbol: string | null;
-  side: string | null;
-  type: string | null;
-  state: string;
-  qty: number | null;
-  cumQty: number;
-  avgPrice: number | null;
-  createdTs: number;
-  updatedTs: number;
-}
-export interface TradeRow {
-  id: string;
-  strategyId: string | null;
-  ts: number;
-  payload: { orderId: string; symbol: string; side: string; price: number; qty: number; ts: number };
-}
 export interface LogRow {
   id: string;
   strategyId: string | null;
@@ -341,14 +322,6 @@ export interface EquityPoint {
   realized: number;
   unrealized: number;
 }
-export interface SearchHit {
-  id: string;
-  instanceId: string;
-  type: string;
-  ts: number;
-  payload: Record<string, unknown>;
-}
-
 export interface PerformanceReport {
   profitFactor: number | "inf" | null;
   expectancy: number | null;
@@ -482,11 +455,6 @@ export interface AccountRiskRow {
     base?: "balance" | "higher"; dayStartEquity?: number | null; reference?: number | null;
   };
 }
-export interface AccountDrawdownRow {
-  broker: string; currentEquity: number | null; peakEquity: number | null;
-  peakTs: number | null; currentDdPct: number | null; maxDdPct: number | null; points: number;
-}
-
 export interface LiveAccount {
   instanceId: string;
   broker: string;
@@ -570,29 +538,6 @@ export interface LiveStateSnapshot {
   /** Shared links only: open P&L per strategy, as marked at the cutoff. */
   openByStrategy?: Record<string, number>;
   orders: Array<{ instanceId: string; broker: string; at: number; stale: boolean; list: LivePendingOrderRow[] }>;
-}
-export interface DealRow {
-  id: string;
-  broker: string;
-  dealTicket: string;
-  positionTicket: string | null;
-  orderTicket: string | null;
-  symbol: string | null;
-  side: string | null;
-  entry: string | null;
-  qty: number | null;
-  price: number | null;
-  profit: number | null;
-  commission: number | null;
-  /** Swap without perpetual funding. */
-  swap: number | null;
-  /** Perpetual funding, negative when paid (absent from an older collector). */
-  funding?: number;
-  fee: number | null;
-  magic: number | null;
-  comment: string | null;
-  strategyId: string | null;
-  ts: number;
 }
 export interface AccountEquityPoint {
   broker: string;

@@ -1,6 +1,7 @@
 import { describe, expect, it } from "vitest";
+import { INSTRUMENT_TYPES } from "@qkt-insights/contract/query";
 import type { LiveAccount } from "./api";
-import { distinctLegs, GLOSSARY, INSTRUMENT_TYPE_KEYS, legLabel, legsLine, optionFromSymbol, optionLine, shortInstrument, sizeInWords, strategyCurrencies, strategyEnvironment, strategyLegs, TYPE_LABEL, type InstrumentType, type Leg } from "./instruments";
+import { distinctLegs, GLOSSARY, legLabel, legsLine, optionFromSymbol, optionLine, shortInstrument, sizeInWords, strategyCurrencies, strategyEnvironment, strategyLegs, TYPE_LABEL, type InstrumentType, type Leg } from "./instruments";
 
 const NOW = Date.UTC(2026, 9, 29);
 
@@ -81,7 +82,7 @@ describe("strategy instruments", () => {
 
 describe("glossary", () => {
   it("explains every type it labels", () => {
-    for (const t of INSTRUMENT_TYPE_KEYS) {
+    for (const t of INSTRUMENT_TYPES) {
       expect(TYPE_LABEL[t]).toBeTruthy();
       expect(GLOSSARY[t].text.length).toBeGreaterThan(40);
     }

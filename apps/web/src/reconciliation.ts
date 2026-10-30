@@ -1,5 +1,5 @@
 import type { AccountReconciliation, ReconciledDayReason, ReconciledLedger, ReconciledPositions } from "./api";
-import { clock, count, pnl, quantity, signedMoney, tsShort } from "./format";
+import { clock, count, MONTHS, pnl, quantity, signedMoney, tsShort } from "./format";
 import { PAGE_PATHS } from "./routes";
 
 /*
@@ -7,7 +7,6 @@ import { PAGE_PATHS } from "./routes";
  * text. Days are UTC; the store decides every status, this only says it.
  */
 
-const MONTHS = ["Jan", "Feb", "Mar", "Apr", "May", "Jun", "Jul", "Aug", "Sep", "Oct", "Nov", "Dec"];
 
 /** "21 Oct" for "2026-10-21". */
 export function dayMonth(day: string): string {

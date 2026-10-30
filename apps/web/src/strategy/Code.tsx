@@ -1,12 +1,13 @@
 import { useEffect, useMemo, useState } from "react";
 import { useQuery } from "@tanstack/react-query";
 import { get, type StrategySourceText, type StrategySourceVersion, type StrategySourceView } from "../api";
-import { Loadable, Pill } from "../components/ui";
+import { Icon, Loadable, Pill } from "../components/ui";
 import { age, count, tsDay } from "../format";
 import { useSearchParam } from "../router";
 import { diffCounts, lineDiff, type DiffLine } from "./code/diff";
 import { highlightQkt, type CodeToken } from "./code/highlight";
-import { Icon, ICON, Widget } from "./widgets";
+import { ICON, Widget } from "./widgets";
+import { metaString } from "../portfolio";
 
 /*
  * The strategy's code: the version running now, highlighted with qkt's own grammar, and every
@@ -25,11 +26,6 @@ function shortSha(sha: string): string {
 
 function withoutFinalNewline(text: string): string {
   return text.endsWith("\n") ? text.slice(0, -1) : text;
-}
-
-function metaString(meta: Record<string, unknown> | null | undefined, key: string): string | null {
-  const v = meta?.[key];
-  return typeof v === "string" && v.length > 0 ? v : null;
 }
 
 /** `lines` as highlighted tokens once the grammar has run; the plain lines until then. */

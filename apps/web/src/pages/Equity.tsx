@@ -2,10 +2,10 @@ import { accountKey, accountName, accountTab, groupAccounts, type AccountGroup }
 import { chartColors, tok } from "../components/EChart";
 import { useState } from "react";
 import { usePublicPageView, useView } from "../view";
-import { useStrategyNames } from "../hooks/useStrategyNames";
+import { useStrategies, useStrategyNames } from "../hooks/useStrategies";
 import { useSearchParam } from "../router";
 import { useQueries, useQuery } from "@tanstack/react-query";
-import { get, type AccountEquityPoint, type AccountSummary, type DrawdownPeriod, type EquityPoint, type PerformanceBundle, type StrategyRow } from "../api";
+import { get, type AccountEquityPoint, type AccountSummary, type DrawdownPeriod, type EquityPoint, type PerformanceBundle } from "../api";
 import { AccountTabs, useAccountChoice } from "../components/AccountSwitch";
 import { ComparisonChart, EquityChart, UnderwaterChart, type ComparisonSeries } from "../components/EquityChart";
 import { DataList, Card, Cell, Empty, Field, Loadable, Modal, PageHeader, Panel, Pill, Select } from "../components/ui";
@@ -23,11 +23,7 @@ export default function Equity({ instanceId }: { instanceId: string | null }) {
   const liveState = useLiveState();
   const choice = useAccountChoice(groupAccounts((liveState.data?.accounts ?? []).filter((a) => a.instanceId === instanceId)), view.public);
   const scoped = choice.many && choice.chosen ? choice.chosen : null;
-  const strategies = useQuery({
-    queryKey: ["strategies", instanceId],
-    queryFn: () => get<StrategyRow[]>(`/strategies?instance=${encodeURIComponent(instanceId!)}`),
-    enabled: !!instanceId,
-  });
+  const strategies = useStrategies(instanceId, false);
   // an account's tab compares the strategies that closed on it: the same roll-up Home reads for that tab
   const accountParam = scoped ? `&account=${encodeURIComponent(accountKey(scoped.account))}` : "";
   const scopedSummary = useQuery({

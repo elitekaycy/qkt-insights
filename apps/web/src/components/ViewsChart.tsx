@@ -3,7 +3,7 @@ import { count } from "../format";
 import { chartColors, EChart, qktBottomLegend, qktChartAxis, qktChartGrid, qktChartTooltip, qktXAxis, tipHtml, useNarrowChart, type QktChartOption } from "./EChart";
 
 /** Views per UTC day as bars, unique visitors that day as a line. Counts, never smoothed. */
-export function ViewsChart({ days, height = 240 }: { days: ViewDay[]; height?: number }) {
+export function ViewsChart({ days }: { days: ViewDay[] }) {
   const narrow = useNarrowChart();
   if (days.every((d) => d.views === 0)) {
     return (
@@ -32,5 +32,5 @@ export function ViewsChart({ days, height = 240 }: { days: ViewDay[]; height?: n
       { name: "Unique visitors", type: "line", data: days.map((d) => d.visitors), symbolSize: 5, lineStyle: { color: chartColors.series[1], width: 2 }, itemStyle: { color: chartColors.series[1] } },
     ],
   };
-  return <EChart option={option} height={height} />;
+  return <EChart option={option} height={240} />;
 }

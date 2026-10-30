@@ -2,7 +2,7 @@ import { useMemo } from "react";
 import { useQuery } from "@tanstack/react-query";
 import { get, MIN_RATIO_DAYS, type PerformanceBundle } from "../api";
 import { CostTerm } from "../components/InstrumentType";
-import { chartColors, EChart, areaFade, qktChartAxis, qktChartGrid, qktChartTooltip, qktXAxis, tipHtml, tok, zeroLine, type QktChartOption } from "../components/EChart";
+import { areaFade, chartColors, EChart, qktBarTooltip, qktChartAxis, qktChartGrid, type QktChartOption, qktChartTooltip, qktXAxis, signedBar, tipHtml, zeroLine } from "../components/EChart";
 import { withTokens } from "@qkt-insights/contract/query";
 import { rangeStart, type RangeKey } from "../components/ui";
 import { count, day as utcDay, days, num, pctValue, pnl, polarity, signedMoney, toneClass, tsShort } from "../format";
@@ -61,8 +61,7 @@ export function OverviewSection({ instanceId, strategyId, scope, q, toggle, a, b
   const barOption = useMemo<QktChartOption>(() => ({
     grid: { ...qktChartGrid, top: 12 },
     tooltip: {
-      ...qktChartTooltip(),
-      axisPointer: { type: "shadow", shadowStyle: { color: tok("hover") } },
+      ...qktBarTooltip(),
       formatter: (params: unknown) => {
         const i = (params as Array<{ dataIndex: number }>)[0]?.dataIndex ?? 0;
         const t = trades[i];
@@ -74,7 +73,7 @@ export function OverviewSection({ instanceId, strategyId, scope, q, toggle, a, b
     yAxis: { type: "value", splitNumber: 4, ...qktChartAxis },
     series: [{
       name: "P&L", type: "bar", barMaxWidth: 14, barCategoryGap: "20%",
-      data: trades.map((t) => ({ value: t.pnl, itemStyle: { color: t.pnl >= 0 ? chartColors.gain : chartColors.loss, borderRadius: t.pnl >= 0 ? [3, 3, 0, 0] : [0, 0, 3, 3] } })),
+      data: trades.map((t) => ({ value: t.pnl, itemStyle: signedBar(t.pnl) })),
       markLine: zeroLine(),
     }],
   }), [trades, openTrade]);

@@ -1,12 +1,13 @@
 import { useMemo, useState } from "react";
 import { useQuery } from "@tanstack/react-query";
-import { get, type StrategyRow, type ViewBreakdown, type ViewRow, type ViewSummary } from "../api";
+import { get, type ViewBreakdown, type ViewRow, type ViewSummary } from "../api";
 import { ChartCard } from "../components/ChartCard";
 import { ViewsChart } from "../components/ViewsChart";
 import { Card, Cell, DataList, Loadable, LoadMore, PageHeader, Panel, Pill, SearchInput, Select, Stat, TimeCell } from "../components/ui";
 import { pct, tsShort } from "../format";
 import { strategyDisplayName } from "../portfolio";
 import { fillDays, linkLabel, withShares } from "../viewership";
+import { useStrategies } from "../hooks/useStrategies";
 
 const RANGES = [
   { key: "24h", label: "Last 24h", ms: 86_400_000 },
@@ -78,11 +79,7 @@ export default function Viewership({ instanceId }: { instanceId: string | null }
   const [cap, setCap] = useState(30);
   const filter = link ? `&kind=${encodeURIComponent(splitLink(link)[0])}&subject=${encodeURIComponent(splitLink(link)[1])}` : "";
 
-  const strategies = useQuery({
-    queryKey: ["strategies", instanceId],
-    queryFn: () => get<StrategyRow[]>(`/strategies?instance=${encodeURIComponent(instanceId!)}`),
-    enabled: !!instanceId,
-  });
+  const strategies = useStrategies(instanceId, false);
   const summary = useQuery({
     queryKey: ["views-summary", instanceId, range, link],
     queryFn: () => get<ViewSummary>(`/views/summary?instance=${encodeURIComponent(instanceId!)}&range=${range}${filter}`),

@@ -10,20 +10,11 @@ import { Popover } from "./ui";
 
 const BADGE = "inline-flex h-5 shrink-0 items-center whitespace-nowrap rounded-md border border-line bg-raised px-1.5 text-[10.5px] font-medium text-body";
 
-/**
- * The type's name in a badge; `explain` adds the glossary on hover or tap, otherwise its tooltip carries it.
- * `short` names it in a word or two for dense tables.
- */
-export function TypeBadge({ type, explain = false, short = false }: { type: InstrumentType | null | undefined; explain?: boolean; short?: boolean }) {
+/** The type's name in a badge, what it is on its tooltip. `short` names it in a word or two for dense tables. */
+export function TypeBadge({ type, short = false }: { type: InstrumentType | null | undefined; short?: boolean }) {
   if (!type) return null;
   const g = GLOSSARY[type];
-  if (!explain) return <span className={BADGE} title={`${g.term}: ${g.text}`}>{short ? TYPE_SHORT[type] : TYPE_LABEL[type]}</span>;
-  return (
-    <Popover hover label={`What a ${g.term} is`} trigger={<span className={`${BADGE} cursor-help`}>{TYPE_LABEL[type]}</span>}>
-      <p className="font-medium text-bright">{g.term}</p>
-      <p className="mt-1">{g.text}</p>
-    </Popover>
-  );
+  return <span className={BADGE} title={`${g.term}: ${g.text}`}>{short ? TYPE_SHORT[type] : TYPE_LABEL[type]}</span>;
 }
 
 /** A cost's name with its explanation on hover or tap: "Swap", "Funding", ... */
