@@ -115,15 +115,15 @@ export default function Home({ instanceId }: { instanceId: string | null }) {
   const accountLines: AccountLine[] = choice.accounts.map((g) => {
     const row = riskRowFor(g.account, riskRows);
     return { group: g, risk: row, realizedToday: row?.dailyLoss.realizedToday ?? null, open: view.public ? null : openRisk(positionsOf(g)),
-      note: view.public ? sharedFloatingNote(g.account) : floatingNote(g.account, positionsOf(g), outsideOf(groupsOf(g))), pending: risk.isPending };
+      note: view.public ? sharedFloatingNote(g.account) : floatingNote(g.account, positionsOf(g), outsideOf(groupsOf(g))), day: view.public ? null : row?.dailyLoss, pending: risk.isPending };
   });
-  const lineSplit = (l: AccountLine) => (l.realizedToday == null ? null : todaySplit(l.group.account, l.realizedToday, l.note));
+  const lineSplit = (l: AccountLine) => (l.realizedToday == null ? null : todaySplit(l.group.account, l.realizedToday, l.note, l.day));
   const shown = choice.chosen;
   const shownName = scoped ? accountName(scoped.account, view.public, accounts) : null;
   // the shown account's Today as the strip shows it (its risk row, else the strategies' closes today)
   const shownNote = shown && view.public ? sharedFloatingNote(shown.account) : shown ? (choice.many ? floatingNote(shown.account, positionsOf(shown), outsideOf(groupsOf(shown))) : floatingNote(shown.account, positions, outsideOf(groups))) : null;
   const shownRealized = shown ? (riskRowFor(shown.account, riskRows)?.dailyLoss.realizedToday ?? (periods ? realizedFallback : null)) : null;
-  const shownSplit = shown && shownRealized != null ? todaySplit(shown.account, shownRealized, shownNote) : null;
+  const shownSplit = shown && shownRealized != null ? todaySplit(shown.account, shownRealized, shownNote, view.public ? null : riskRowFor(shown.account, riskRows)?.dailyLoss) : null;
   const headline = todayHeadline(shown
     ? [{ key: accountKey(shown.account), name: accountName(shown.account, view.public, accounts), currency: shown.account.currency, split: shownSplit }]
     : accountLines.map((l) => ({ key: accountKey(l.group.account), name: accountName(l.group.account, view.public, accounts), currency: l.group.account.currency, split: lineSplit(l) })));

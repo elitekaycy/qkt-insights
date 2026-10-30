@@ -2,7 +2,7 @@ import { roundMoney } from "@qkt-insights/contract/money";
 import type { AccountRiskRow } from "../api";
 import { accountByKey, accountKey, accountName, accountTab, switcherOrder, type AccountGroup } from "../accounts";
 import { clock, count, DASH, money, pctValue, signedMoney } from "../format";
-import { floatingNoteText, limitUse, todaySplit, type FloatingNote, type OpenRisk, type TodaySplit } from "../home";
+import { floatingNoteText, limitUse, splitOtherWords, splitTotalWords, todaySplit, type DayStart, type FloatingNote, type OpenRisk, type TodaySplit } from "../home";
 import { useSearchParam } from "../router";
 import { Cell, Freshness, Pill, Pnl, Row, Segmented } from "./ui";
 
@@ -80,6 +80,8 @@ export interface AccountLine {
   open: OpenRisk | null;
   /** Why the account's floating differs from its listed positions (Home floatingNote); null when it does not. */
   note?: FloatingNote | null;
+  /** The start of the account's trading day; null on shared links, which never measure the account's day. */
+  day?: DayStart | null;
   /** The account's risk rows are still loading: Today and drawdown are not known yet, never shown as missing. */
   pending?: boolean;
 }
@@ -140,7 +142,7 @@ export function AccountsTable({ lines, choice, isPublic }: { lines: AccountLine[
 
 function figures(l: AccountLine) {
   const a = l.group.account;
-  const today = l.realizedToday == null ? null : todaySplit(a, l.realizedToday, l.note);
+  const today = l.realizedToday == null ? null : todaySplit(a, l.realizedToday, l.note, l.day);
   const use = l.risk ? limitUse(l.risk, a.equity) : null;
   const dd = use ? (use.drawdown.usedPct ?? (use.drawdown.used === 0 ? 0 : null)) : null;
   return { a, today, dd, ddUse: use?.drawdown.pct ?? null };
@@ -230,8 +232,8 @@ function Pending() {
  * total are in the tooltip, and a dotted underline says there is more than the figure.
  */
 function TodayFigure({ split, note, realized }: { split: TodaySplit; note: FloatingNote | null; realized: number }) {
-  const parts = [`Account today ${signedMoney(split.total)}`, `${signedMoney(realized)} closed`, `${signedMoney(split.qkt - realized)} open on your strategies' positions`];
-  if (split.other != null) parts.push(`${signedMoney(split.other)} on positions of another system on this login`);
+  const parts = [`${splitTotalWords(split)} ${signedMoney(split.total)}`, `${signedMoney(realized)} closed`, `${signedMoney(split.qkt - realized)} open on your strategies' positions`];
+  if (split.other != null) parts.push(`${signedMoney(split.other)} ${splitOtherWords(split)}`);
   if (split.unassigned !== 0 && note) parts.push(`${signedMoney(split.unassigned)} on trades not listed here (${floatingNoteText(note)})`);
   const other = roundMoney((split.other ?? 0) + split.unassigned, 2);
   return (
