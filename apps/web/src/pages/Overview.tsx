@@ -9,7 +9,7 @@ import { StrategyTable, type StrategyLine } from "../components/HomeStrategies";
 import { ShareControl } from "../components/ShareControl";
 import { Card, Loadable, PageHeader } from "../components/ui";
 import { day as utcDay, DAY_MS, ts } from "../format";
-import { attentionItems, dayBasisLabel, floatingByStrategy, floatingNote, HOME_RANGES, noAccountMessage, openRisk, riskRowFor, strategyLines, strategyPeriods, todayHeadline, todaySplit, type HomeRange } from "../home";
+import { attentionItems, dayBasisLabel, floatingByStrategy, floatingNote, unpricedStrategies, HOME_RANGES, noAccountMessage, openRisk, riskRowFor, strategyLines, strategyPeriods, todayHeadline, todaySplit, type HomeRange } from "../home";
 import { haltWords } from "../halt";
 import { strategyDisplayName } from "../portfolio";
 import { useRoute, useSearchParam } from "../router";
@@ -229,6 +229,7 @@ export default function Home({ instanceId }: { instanceId: string | null }) {
             lines={lines}
             search
             origin="Home"
+            unpriced={view.public ? undefined : unpricedStrategies(positions)}
             hint={shownName ? `on ${shownName}` : undefined}
             account={scoped || !choice.many ? shownSplit : null}
             mix={scoped ? null : mix}

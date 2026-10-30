@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 import type { AccountRiskRow, LivePositionRow } from "./api";
-import { dailyMeasured, drawdownMeasured, emptyPeriods, floatingNote, floatingNoteText, limitLine, limitUse, noAccountMessage, openRisk, positionRisks, rangeFirstDay, riskRowFor, strategyLines, strategyPeriods, strategyTotal, todayHeadline, todaySplit, attentionItems } from "./home";
+import { dailyMeasured, drawdownMeasured, emptyPeriods, floatingNote, floatingNoteText, limitLine, limitUse, noAccountMessage, openRisk, positionRisks, rangeFirstDay, riskRowFor, strategyLines, strategyPeriods, strategyTotal, todayHeadline, todaySplit, attentionItems, unpricedStrategies } from "./home";
 
 function position(p: Partial<LivePositionRow> & Pick<LivePositionRow, "ticket">): LivePositionRow {
   return { symbol: "XAUUSD", side: "BUY", qty: 1, entryPrice: 100, ...p };
@@ -302,5 +302,13 @@ describe("attentionItems", () => {
     expect(attentionItems({ strategies: ["a", "b", "c"].map((id) => strategy(id, { halted: true })), accounts: [], noStop: 0 }))
       .toEqual([{ kind: "halted-many", count: 3 }]);
     expect(attentionItems({ strategies: [strategy("a")], accounts: [account("x")], noStop: 0 })).toEqual([]);
+  });
+});
+
+describe("unpricedStrategies", () => {
+  const pos = (strategyId: string | null, profit: number | null) => ({ strategyId, profit }) as unknown as Parameters<typeof unpricedStrategies>[0][number];
+  it("names a strategy whose every open position has no venue price, and only that", () => {
+    const set = unpricedStrategies([pos("roll", null), pos("xau", 1.2), pos("mixed", null), pos("mixed", -0.4)]);
+    expect([...set]).toEqual(["roll"]);
   });
 });

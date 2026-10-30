@@ -72,6 +72,7 @@ export function StrategyTable({
   mix = null,
   search = false,
   origin,
+  unpriced = new Set(),
 }: {
   lines: StrategyLine[];
   hint?: string;
@@ -83,6 +84,8 @@ export function StrategyTable({
   search?: boolean;
   /** The page the table is on, for the strategy page's way back. */
   origin: string;
+  /** Strategies whose open positions have no venue price: their Open is unknown, never 0.00. */
+  unpriced?: ReadonlySet<string | null>;
 }) {
   const { navigate } = useRoute();
   const [sortParam, setSort] = useSearchParam("sort", "today");
@@ -112,7 +115,7 @@ export function StrategyTable({
     const p = l.periods;
     switch (k) {
       case "today": return <Pnl value={p.todayRealized} glyphs={false} />;
-      case "open": return <Pnl value={p.floating} glyphs={false} />;
+      case "open": return unpriced.has(l.key) ? <span className="text-faint" title="No price from the venue for its open position">—</span> : <Pnl value={p.floating} glyphs={false} />;
       case "d7": return <Pnl value={p.d7} glyphs={false} />;
       case "mtd": return <Pnl value={p.mtd} glyphs={false} />;
       case "all": return <Pnl value={p.all} glyphs={false} className="font-semibold" />;

@@ -75,8 +75,10 @@ const SPARK_MIN_CLOSES = 5;
  * trades and last close. A halt is an amber pill whose tooltip says why in plain words; the return is on the figure's
  * tooltip.
  */
-export function StrategyCard({ line, curve, name, origin, legs = [], mix = null }: {
+export function StrategyCard({ line, curve, name, origin, legs = [], mix = null, unpriced = false }: {
   line: CardLine; curve: readonly number[]; name?: string; origin: string;
+  /** Its open positions have no venue price: open P&L shows as unknown, never 0.00. */
+  unpriced?: boolean;
   /** What it trades: type, instrument and venue per leg. */
   legs?: readonly Leg[];
   /** Set when the strategy trades accounts in different currencies: its figures carry "USD+USDC". */
@@ -109,7 +111,9 @@ export function StrategyCard({ line, curve, name, origin, legs = [], mix = null 
         </div>
         <div className="mt-3 grid grid-cols-4 gap-2 border-t border-line pt-3">
           <Fig k="Today" title="realized since the account's trading day began"><Pnl value={f.today} glyphs={false} /></Fig>
-          <Fig k="Open" title="floating on its open positions now"><Pnl value={f.floating} glyphs={false} /></Fig>
+          {unpriced
+            ? <Fig k="Open" title="No price from the venue for its open position"><span className="text-faint">—</span></Fig>
+            : <Fig k="Open" title="floating on its open positions now"><Pnl value={f.floating} glyphs={false} /></Fig>}
           <Fig k="Trades">{count(f.trades)}</Fig>
           <Fig k="Last close" title={f.lastTs == null ? undefined : `${ts(f.lastTs)} UTC`}>{f.lastTs == null ? DASH : age(f.lastTs)}</Fig>
         </div>
