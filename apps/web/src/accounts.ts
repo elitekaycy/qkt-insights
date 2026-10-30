@@ -118,11 +118,15 @@ function baseName(a: NameFacts, isPublic: boolean): string {
  * ("Deribit ·7781"); an account whose login was never stated keeps its broker label ("Paper PAPER_F"); one whose venue
  * was never stated is named by its label alone. Shared links show the venue alone (their labels are "Account 2").
  * `peers` are the accounts it is shown beside: when two would read the same, the login's last four tell them apart
- * ("Exness demo ·2618"). Never a broker profile such as EXNESS_O13 when the venue is known: several profiles share one account.
+ * ("Exness demo ·2618"), and on a shared link their number does ("Paper 2"). Never a broker profile such as EXNESS_O13 when the venue is known: several profiles share one account.
  */
 export function accountName(a: NameFacts, isPublic = false, peers: readonly NameFacts[] = []): string {
   const name = baseName(a, isPublic);
-  if (isPublic) return name;
+  if (isPublic) {
+    // a shared link has no login: its "Account 2" label numbers accounts that would read the same
+    if (!peers.some((p) => p.broker !== a.broker && baseName(p, true) === name)) return name;
+    return `${name} ${/\d+$/u.exec(a.broker)?.[0] ?? "1"}`;
+  }
   const tail = loginTail(a.login);
   const clash = tail != null && peers.some((p) => baseName(p, isPublic) === name && loginTail(p.login) !== tail);
   return clash ? `${name} ·${tail}` : name;

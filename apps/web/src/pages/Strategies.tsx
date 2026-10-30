@@ -14,7 +14,7 @@ import { strategyCurrencies, strategyLegs } from "../instruments";
 import { currencyMix, useInstanceCurrencyMix } from "../currencies";
 import { AccountTabs, useAccountChoice } from "../components/AccountSwitch";
 import { useLiveState } from "../useLiveState";
-import { portfolioGroupId, strategyCapital, strategyDisplayName as displayName, summarizePortfolio } from "../portfolio";
+import { metaString, portfolioGroupId, strategyCapital, strategyDisplayName as displayName, summarizePortfolio } from "../portfolio";
 import { ShareControl } from "../components/ShareControl";
 import { usePublicPageView, useView } from "../view";
 import { haltSummary } from "../halt";
@@ -291,7 +291,7 @@ function PortfolioDetail({
   return (
     <div>
       <PageHeader
-        title={id}
+        title={metaString(children[0]?.metadata, "portfolioName") ?? id}
         sub={`Portfolio · ${summary.childCount} strategies · ${summary.dealCount} deals`}
         right={
           <div className="flex flex-wrap items-center gap-2">
@@ -364,7 +364,7 @@ function PortfolioDetail({
                     onClick={() => onSelectChild(child.strategyId)}
                   >
                     <Cell>
-                      <div className="flex items-center gap-2">
+                      <div className="flex items-center gap-2 whitespace-nowrap">
                         <span className="font-medium text-bright" title={[child.strategyId, portfolioAlias(child)].filter(Boolean).join(" · ")}>
                           {displayName(child)}
                         </span>
@@ -394,19 +394,18 @@ function PortfolioDetail({
         </Panel>
         {!view.public && (
         <Panel title="Accounts">
-          <Table head={["Account", "Currency", "Balance", "Equity"]}>
+          <Table head={["Account", "Currency", "Equity"]}>
             {accounts.length === 0 && (
-              <Empty colSpan={4}>Account state unavailable.</Empty>
+              <Empty colSpan={3}>Account state unavailable.</Empty>
             )}
             {accounts.map((a) => (
               <Row key={`${a.broker}:${a.login ?? ""}:${a.server ?? ""}`}>
-                <Cell>
+                <Cell className="whitespace-nowrap">
                   <span className="font-medium text-bright" title={accountTitle(a, false, accounts)}>{accountName(a, false, accounts)}</span>
                   {a.stale && <span className="ml-2 text-xs text-warn">{a.stopped ? "stopped" : "stale"}</span>}
                 </Cell>
                 <Cell>{a.currency}</Cell>
-                <Cell>{money(a.balance)}</Cell>
-                <Cell>{money(a.equity)}</Cell>
+                <Cell><span title={`Balance ${money(a.balance)}`}>{money(a.equity)}</span></Cell>
               </Row>
             ))}
           </Table>

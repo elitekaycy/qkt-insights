@@ -1,6 +1,7 @@
 import { lazy, Suspense, useCallback, useEffect, useState } from "react";
 import { useIsFetching, useQuery, useQueryClient } from "@tanstack/react-query";
 import { get, Unauthorized, type InstanceRow } from "./api";
+import { ShareControl } from "./components/ShareControl";
 import { ICONS, MAIN_NAV, NavIcon, SETTINGS_NAV, Shell, Wordmark } from "./components/chrome";
 import { PageFallback, Select, Spinner, StatusDot, useNow } from "./components/ui";
 import Login from "./pages/Login";
@@ -201,6 +202,7 @@ export default function App() {
       footer={footer}
       mobileTitleRight={
         <span className="flex min-w-0 items-center gap-2">
+          {route.page === "home" && selected && <ShareControl instanceId={selected} kind="overview" />}
           <span className="max-w-[8rem] truncate text-xs text-muted">{selectedRow?.name ?? selected ?? "no instance"}</span>
           <InstanceStatus lastSeen={selectedRow?.lastSeen} compact />
         </span>

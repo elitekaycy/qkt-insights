@@ -22,7 +22,7 @@ export function ChartCard({
 }) {
   const [expanded, setExpanded] = useState(false);
   const header = (
-    <div className="flex min-w-0 flex-1 flex-wrap items-start gap-3">
+    <div className="flex min-w-0 flex-1 flex-wrap items-start gap-3 max-sm:basis-full">
       <div className="min-w-0 flex-1">
         <h3 className="text-sm font-medium text-bright">{title}</h3>
         {description && <p className="mt-0.5 text-xs leading-relaxed text-muted">{description}</p>}
@@ -35,9 +35,9 @@ export function ChartCard({
   return (
     <>
       <Card className={`min-w-0 overflow-hidden ${className}`}>
-        <div className="flex items-start gap-3 border-b border-line px-4 py-3">
+        <div className="flex flex-wrap items-start gap-3 border-b border-line px-4 py-3">
           {header}
-          <div className="flex shrink-0 items-center gap-2">
+          <div className="flex shrink-0 items-center gap-2 max-sm:ml-auto">
             {controls}
             <IconButton
               label={`Expand ${title}`}

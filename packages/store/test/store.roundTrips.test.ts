@@ -1,5 +1,5 @@
 import { describe, it, expect } from "vitest";
-import { openDb, ingestEvents, storedRoundTrips, rebuildProjection, refreshProjections, listRoundTrips, type Db } from "../src/index.js";
+import { openDb, ingestEvents, listStrategies, strategyStats, storedRoundTrips, rebuildProjection, refreshProjections, listRoundTrips, type Db } from "../src/index.js";
 import type { Envelope } from "@qkt-insights/contract";
 
 const M = 60_000;
@@ -36,6 +36,22 @@ function seeded(): Db {
 const trip = (db: Db, position = "P1") => storedRoundTrips(db, { instanceId: I }).find((r) => r.positionTicket === position);
 
 describe("round_trips projection", () => {
+  it("closes a position by the engine's close when no venue deal closes it, and a later deal takes over", () => {
+    const db = seeded();
+    ingestEvents(db, I, [deal({ ticket: "1", entry: "IN", side: "BUY", ts: T0, qty: 1, price: 40, commission: -0.5 })]);
+    expect(trip(db)).toMatchObject({ open: true, realized: -0.5 });
+    ingestEvents(db, I, [
+      event("trade.closed", T0 + M, { orderId: "settle:x", symbol: "ICM_S05:XAUUSD", side: "SELL", qty: 1, price: 0, realized: -40, ts: T0 + M, strategyId: S, positionId: "P1", closeReason: "EXPIRY" }),
+    ]);
+    expect(trip(db)).toMatchObject({ open: false, exitTs: T0 + M, exitPrice: 0, realized: -40.5, source: "deal" });
+    const stats = strategyStats(db, { instanceId: I, strategyId: S });
+    expect(stats.realizedPnl).toBe(-40.5);
+    expect(listStrategies(db, I).find((s) => s.strategyId === S)).toMatchObject({ realizedNet: -40.5, dealCount: 1 });
+    ingestEvents(db, I, [deal({ ticket: "2", entry: "OUT", side: "SELL", ts: T0 + M, qty: 1, price: 1, profit: -39, commission: -0.5 })]);
+    expect(trip(db)).toMatchObject({ open: false, exitPrice: 1, realized: -40 });
+    expect(strategyStats(db, { instanceId: I, strategyId: S }).realizedPnl).toBe(-40);
+  });
+
   it("folds a scale-in and a scale-out into one round trip with size-weighted prices and every cost", () => {
     const db = seeded();
     ingestEvents(db, I, [

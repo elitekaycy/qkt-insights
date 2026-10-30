@@ -87,6 +87,7 @@ export function AccountStrip({
   note = null,
   riskPending = false,
   isPublic,
+  peers = [],
 }: {
   account: LiveAccount;
   /** Every broker label this account reported under, the shown one first. */
@@ -103,17 +104,19 @@ export function AccountStrip({
   /** The risk rows are still loading: the loss limits are not known yet, so nothing claims there are none. */
   riskPending?: boolean;
   isPublic: boolean;
+  /** The accounts shown beside it, which its name must stay apart from. */
+  peers?: readonly LiveAccount[];
 }) {
   const today = todaySplit(account, realizedToday, note);
   const split = today.other != null || today.unassigned !== 0;
   const use = risk ? limitUse(risk, account.equity) : null;
   const openCount = open ? open.priced + open.noStop + open.unpriced : 0;
-  const title = accountName(account, isPublic);
+  const title = accountName(account, isPublic, peers);
   const profiles = isPublic ? [] : accountProfiles(account, labels);
   return (
     <section className={account.stale ? "opacity-90" : ""} aria-label={`Account ${title}`}>
       <div className="flex flex-wrap items-center gap-x-2.5 gap-y-1 text-sm">
-        <span className="font-medium text-bright" title={isPublic ? accountTitle(account, isPublic) : [accountTitle(account), account.server, profiles.length > 1 ? `via ${profiles.length} broker profiles: ${profiles.join(", ")}` : null].filter(Boolean).join(" · ")}>{title}</span>
+        <span className="font-medium text-bright" title={isPublic ? accountTitle(account, isPublic, peers) : [accountTitle(account), account.server, profiles.length > 1 ? `via ${profiles.length} broker profiles: ${profiles.join(", ")}` : null].filter(Boolean).join(" · ")}>{title}</span>
         {account.stopped && <Pill tone="warn">stopped reporting</Pill>}
         <span className="ml-auto">
           {isPublic ? <span className="text-xs text-muted">as of {clock(account.lastSeen)} UTC</span> : <Freshness at={account.lastSeen} stale={account.stale} quiet />}

@@ -6,6 +6,17 @@ const acct = (broker: string, lastSeen: number, extra: Partial<LiveAccount> = {}
   instanceId: "i", broker, currency: "USD", balance: 100, equity: 100, lastSeen, stale: false, ...extra,
 });
 
+describe("shared links", () => {
+  it("numbers accounts that would read the same, by their public label", () => {
+    const paper = { connector: "vgp", adapter: "paper" };
+    const peers = [{ broker: "Account", ...paper }, { broker: "Account 2", ...paper }, { broker: "Account 3", connector: "mt5", adapter: "exness" }];
+    expect(accountName(peers[0]!, true, peers)).toBe("Paper 1");
+    expect(accountName(peers[1]!, true, peers)).toBe("Paper 2");
+    expect(accountName(peers[2]!, true, peers)).toBe("Exness");
+    expect(accountName(peers[0]!, true)).toBe("Paper");
+  });
+});
+
 describe("groupAccounts", () => {
   it("folds a relabelled account's quiet label into the label reporting now", () => {
     const g = groupAccounts([acct("ICM", 1_000, { stale: true }), acct("ICMARKETS", 900_000, { accountId: "mt5:1234567@S" })]);
@@ -84,7 +95,7 @@ describe("accountName among peers", () => {
     expect(accountName(a, false, [a, c])).toBe("Exness demo");
     expect(accountName(a, false, [a, b, c])).toBe("Exness demo ·2618");
     expect(accountName(b, false, [a, b])).toBe("Exness demo ·9931");
-    expect(accountName(a, true, [a, b])).toBe("Exness");
+    expect(accountName(a, true, [a, b])).toBe("Exness 1");
   });
 });
 

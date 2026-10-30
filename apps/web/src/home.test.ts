@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 import type { AccountRiskRow, LivePositionRow } from "./api";
-import { dailyMeasured, drawdownMeasured, emptyPeriods, floatingNote, floatingNoteText, limitLine, limitUse, noAccountMessage, openRisk, positionRisks, rangeFirstDay, riskRowFor, strategyLines, strategyPeriods, strategyTotal, todayHeadline, todaySplit, attentionItems, unpricedStrategies } from "./home";
+import { dailyMeasured, drawdownMeasured, emptyPeriods, floatingNote, floatingNoteText, limitLine, limitUse, noAccountMessage, openRisk, positionRisks, rangeFirstDay, riskRowFor, strategyLines, strategyPeriods, strategyTotal, todayHeadline, todaySplit, attentionItems, unpricedStrategies, sharedFloatingNote } from "./home";
 
 function position(p: Partial<LivePositionRow> & Pick<LivePositionRow, "ticket">): LivePositionRow {
   return { symbol: "XAUUSD", side: "BUY", qty: 1, entryPrice: 100, ...p };
@@ -15,6 +15,14 @@ function riskRow(p: Partial<AccountRiskRow> = {}): AccountRiskRow {
     ...p,
   };
 }
+
+describe("sharedFloatingNote", () => {
+  it("keeps Today on what closed and states the floating as not listed", () => {
+    const a = { balance: 10_000, equity: 9_840 };
+    expect(todaySplit(a, -2, sharedFloatingNote(a))).toEqual({ total: -162, qkt: -2, other: -160, unassigned: 0 });
+    expect(sharedFloatingNote({ balance: 5, equity: 5 }).elsewhere).toBeNull();
+  });
+});
 
 describe("positionRisks", () => {
   it("measures a short's stop above the price as a loss", () => {

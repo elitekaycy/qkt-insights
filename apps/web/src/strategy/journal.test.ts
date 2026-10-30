@@ -1,8 +1,22 @@
 import { describe, expect, it } from "vitest";
 import { rangeStart } from "../components/ui";
-import { chipOf, emptyHint, exitSpan, nearestByTime, pickedSpan, profitFactorText, todayParts, toggleToken, windowTotals, withCumulative, without } from "./journal";
+import { chipOf, emptyHint, exitSpan, nearestByTime, pageRealized, pickedSpan, profitFactorText, todayParts, toggleToken, windowTotals, withCumulative, without } from "./journal";
 
 const day = (d: string, n: number, wins: number, losses: number, pnl: number) => ({ day: d, n, wins, losses, pnl });
+
+describe("the page's one realized figure", () => {
+  it("is the closed trades' figure, with the engine's stated only when it differs", () => {
+    expect(pageRealized({ closed: 3, pnl: -2.6 }, -2.6)).toEqual({ realized: -2.6, ledger: null });
+    expect(pageRealized({ closed: 0, pnl: 0 }, -0.04)).toEqual({ realized: 0, ledger: -0.04 });
+    expect(pageRealized({ closed: 1, pnl: 3.01 }, 3.014)).toEqual({ realized: 3.01, ledger: null });
+  });
+
+  it("falls back to the engine before the trades load, and stays unknown with neither", () => {
+    expect(pageRealized(null, -0.4)).toEqual({ realized: -0.4, ledger: null });
+    expect(pageRealized(null, null)).toEqual({ realized: null, ledger: null });
+    expect(pageRealized({ closed: 0, pnl: 0 }, null)).toEqual({ realized: null, ledger: null });
+  });
+});
 
 describe("click to filter", () => {
   it("adds a token, replaces the same key, and clears it on the second click", () => {

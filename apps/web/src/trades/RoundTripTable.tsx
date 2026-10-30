@@ -10,6 +10,7 @@ import { useRoundTrips, type RoundTrip, type RoundTripTotals, type SortKey, type
 import { minuteStamp, px, rMultiple, tableStamp, tripInstrument } from "./format";
 import { EndedWord } from "./bits";
 import { TradeDrawer, useOpenTrade } from "./TradeDrawer";
+import { TradeSheet } from "./TradeSheet";
 
 /*
  * The round-trip table: server-paged (keyset cursor) and virtualised, so a year of trades costs
@@ -29,7 +30,7 @@ const COLUMNS: Column[] = [
   { key: "instrument", label: "Symbol", w: "minmax(120px,1fr)", sort: "symbol", title: "Hover a row for its type, account, prices, R and hold time" },
   { key: "strategy", label: "Strategy", w: "minmax(120px,1.1fr)", sort: "strategy" },
   { key: "side", label: "Side", w: "64px", sort: "side" },
-  { key: "size", label: "Size", w: "80px", sort: "size", right: true },
+  { key: "size", label: "Size", w: "116px", sort: "size", right: true },
   { key: "pnl", label: "P&L", w: "96px", sort: "pnl", right: true, title: "Realized, after commission, swap and fees; an open trade's worth now in italics" },
   { key: "ended", label: "Ended", w: "72px", sort: "ended", title: "What closed it: the stop, the target, the strategy's signal, the venue or a hand" },
 ];
@@ -71,7 +72,7 @@ function OpenPnl({ value }: { value: number | undefined }) {
 }
 
 /** The row's tooltip: everything the line leaves out, so a hover answers what a trade was without opening it. */
-function rowTitle(t: RoundTrip, venueOf: (label: string) => string): string {
+function rowTitle(t: RoundTrip, venueOf: (label: string) => string, isPublic: boolean): string {
   const type = tripType(t);
   const premium = optionLine(t.symbol) ? optionFromSymbol(t.symbol)?.premium : null;
   const exit = t.status === "open" ? "still open" : `exit ${px(t.exitPrice, t.priceDigits)}${t.exitTs != null ? ` at ${minuteStamp(t.exitTs)}` : ""}`;
@@ -85,7 +86,7 @@ function rowTitle(t: RoundTrip, venueOf: (label: string) => string): string {
     t.r != null ? rMultiple(t.r) : null,
     t.status === "open" ? null : `held ${duration(t.holdMs)}`,
     sizeInWords(t.qty, t),
-    `ticket ${t.id}`,
+    isPublic ? null : `ticket ${t.id}`,
   ].filter(Boolean).join(" · ");
 }
 
@@ -165,6 +166,9 @@ export function RoundTripTable({ scope, q, sort, dir, onSort, hide = [], height 
   const scroller = useRef<HTMLDivElement>(null);
   const [viewport, setViewport] = useState({ top: 0, h: 600 });
   const [sel, setSel] = useState(-1);
+  // a shared link has no trade route: its rows open their own figures
+  const [sheet, setSheet] = useState<RoundTrip | null>(null);
+  const openRow = useCallback((t: RoundTrip) => { if (view.public) setSheet(t); else onOpen(t.id); }, [view.public, onOpen]);
 
   useEffect(() => {
     onTotals?.(first?.totals ?? null, first?.query ?? null, data.isFetching && !data.isFetchingNextPage);
@@ -221,18 +225,17 @@ export function RoundTripTable({ scope, q, sort, dir, onSort, hide = [], height 
         reveal(n);
         // with a trade open, j/k page through the trades in the drawer
         if (openId) onOpen(rows[n]!.id);
-      } else if (e.key === "Enter" && sel >= 0 && rows[sel] && !view.public) {
+      } else if (e.key === "Enter" && sel >= 0 && rows[sel]) {
         const inDialog = t?.closest("[role=dialog]");
         if (inDialog) return;
         e.preventDefault();
-        onOpen(rows[sel]!.id);
+        openRow(rows[sel]!);
       }
     };
     window.addEventListener("keydown", onKey);
     return () => window.removeEventListener("keydown", onKey);
-  }, [rows, sel, openId, onOpen, view.public]);
+  }, [rows, sel, openId, onOpen, openRow]);
 
-  const clickable = !view.public;
   const header = (
     <div role="row" className="sticky top-0 z-10 grid border-b border-line bg-panel" style={{ gridTemplateColumns: template }}>
       {cols.map((c) => {
@@ -275,31 +278,31 @@ export function RoundTripTable({ scope, q, sort, dir, onSort, hide = [], height 
       "data-row": i,
       onClick: () => {
         setSel(i);
-        if (clickable) onOpen(t.id);
+        openRow(t);
       },
-      title: rowTitle(t, venueOf),
+      title: rowTitle(t, venueOf, view.public),
       style: { top: i * rowH, height: rowH, ...(wide ? { gridTemplateColumns: template } : {}) },
     } as const;
     if (wide) {
       return (
-        <div key={t.id} {...common} className={`group absolute inset-x-0 grid items-center border-b border-line text-sm transition-colors ${clickable ? "cursor-pointer" : ""} ${selected ? "bg-accent-soft shadow-[inset_3px_0_0_var(--color-accent-hi)]" : "hover:bg-hover"}`}>
+        <div key={t.id} {...common} className={`group absolute inset-x-0 grid items-center border-b border-line text-sm transition-colors cursor-pointer ${selected ? "bg-accent-soft shadow-[inset_3px_0_0_var(--color-accent-hi)]" : "hover:bg-hover"}`}>
           {cells(t, hidden, strategyName, floating)}
-          <div role="cell" className="flex justify-center">{clickable && <RowChevron className={selected ? "opacity-100" : ""} />}</div>
+          <div role="cell" className="flex justify-center"><RowChevron className={selected ? "opacity-100" : ""} /></div>
         </div>
       );
     }
     return (
-      <div key={t.id} {...common} className={`group absolute inset-x-0 flex flex-col justify-center gap-1 border-b border-line pl-3 pr-1.5 text-sm ${clickable ? "cursor-pointer active:bg-press" : ""} ${selected ? "bg-accent-soft" : ""}`}>
+      <div key={t.id} {...common} className={`group absolute inset-x-0 flex flex-col justify-center gap-1 border-b border-line pl-3 pr-1.5 text-sm cursor-pointer active:bg-press ${selected ? "bg-accent-soft" : ""}`}>
         <div className="flex items-center gap-2">
           <span className="min-w-0 truncate font-medium text-bright">{shortInstrument(t.instrument, tripType(t))}</span>
           <span className={`ml-auto shrink-0 font-mono font-medium ${toneClass(t.pnlInExit ?? t.pnl)}`}>{t.status === "open" ? <OpenPnl value={floating.get(t.id)} /> : <TripPnl t={t} />}</span>
-          {clickable && <RowChevron />}
+          <RowChevron />
         </div>
         <div className="flex items-center gap-2 text-xs text-muted">
           <span className="min-w-0 truncate">{t.strategyId ? strategyName(t.strategyId) : "unattributed"}</span>
           <SideWord side={t.side} />
           {t.status === "open" && <Pill tone="info">Open</Pill>}
-          <span className={`ml-auto shrink-0 whitespace-nowrap font-mono ${clickable ? "pr-6" : ""}`}>{tableStamp(t.exitTs ?? t.entryTs)}</span>
+          <span className={`ml-auto shrink-0 whitespace-nowrap font-mono pr-6`}>{tableStamp(t.exitTs ?? t.entryTs)}</span>
         </div>
       </div>
     );
@@ -343,6 +346,7 @@ export function RoundTripTable({ scope, q, sort, dir, onSort, hide = [], height 
         </div>
       </div>
       {!view.public && scope && <TradeDrawer instanceId={scope.instanceId} order={rows.map((r) => r.id)} />}
+      {sheet && <TradeSheet trip={sheet} strategy={sheet.strategyId ? strategyName(sheet.strategyId) : null} onClose={() => setSheet(null)} />}
     </div>
   );
 }
