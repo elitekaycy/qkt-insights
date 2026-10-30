@@ -5,7 +5,7 @@ import { useMemo, useState } from "react";
 import { StrategySearch, type StrategyLine } from "../components/HomeStrategies";
 import { CardGrid, PortfolioGroup, StrategyCard } from "../components/StrategyCards";
 import { Card, Cell, CurrencyMix, Empty, Loadable, PageHeader, Panel, Pill, Pnl, Popover, Row, Select, Stat, Table } from "../components/ui";
-import { age, count, money, openPnl, pct, signedMoney } from "../format";
+import { age, count, DAY_MS, money, openPnl, pct, signedMoney } from "../format";
 import { emptyPeriods, floatingByStrategy, positionRisks, riskRowFor, strategyLines, strategyPeriods } from "../home";
 import { Link, routePath, useRoute, useSearchParam } from "../router";
 import { asksForRetired, matchesStrategy } from "../strategyFilter";
@@ -19,10 +19,10 @@ import { ShareControl } from "../components/ShareControl";
 import { usePublicPageView, useView } from "../view";
 import { haltSummary } from "../halt";
 import { StrategyDetail } from "../strategy/StrategyPage";
+import { useStrategies } from "../hooks/useStrategies";
 
 export { StrategyDetail };
 
-const DAY_MS = 86_400_000;
 
 /**
  * Open P&L per strategy from the live broker positions of one instance, with a staleness flag.
@@ -64,12 +64,7 @@ export default function Strategies({ instanceId }: { instanceId: string | null }
   const selectedPortfolio = route.portfolio ?? null;
   usePublicPageView(selected || selectedPortfolio ? null : "strategies");
   const enc = encodeURIComponent(instanceId ?? "");
-  const strategies = useQuery({
-    queryKey: ["strategies", instanceId],
-    queryFn: () => get<StrategyRow[]>(`/strategies?instance=${enc}`),
-    enabled: !!instanceId,
-    refetchInterval: 30_000,
-  });
+  const strategies = useStrategies(instanceId);
   const listing = !selected && !selectedPortfolio;
   const liveState = useLiveState();
   // the same account switcher as Home and Equity & risk: one scope across pages, in the URL
@@ -133,7 +128,7 @@ export default function Strategies({ instanceId }: { instanceId: string | null }
     <div className="@container grid gap-4">
       <PageHeader
         title="Strategies"
-        sub={`${live} ${live === 1 ? "strategy" : "strategies"}${halted ? ` · ${halted} halted` : ""}${view.public ? ` · ${view.meta.delayMinutes} minutes behind` : ""}`}
+        sub={`${live} ${live === 1 ? "strategy" : "strategies"}${halted ? ` · ${halted} halted` : ""} · figures net incl. open${view.public ? ` · ${view.meta.delayMinutes} minutes behind` : ""}`}
         right={
           <div className="flex w-full items-center gap-2 sm:w-auto">
             <StrategySearch className="flex-1 sm:flex-none" />
@@ -429,11 +424,7 @@ function PortfolioDetail({
 export function SharedPortfolio({ instanceId, portfolioId: id }: { instanceId: string; portfolioId: string }) {
   const { route, navigate } = useRoute();
   const selected = route.strategy ?? null;
-  const strategies = useQuery({
-    queryKey: ["strategies", instanceId],
-    queryFn: () => get<StrategyRow[]>(`/strategies?instance=${encodeURIComponent(instanceId)}`),
-    refetchInterval: 30_000,
-  });
+  const strategies = useStrategies(instanceId);
   if (selected) return <StrategyDetail instanceId={instanceId} strategyId={selected} />;
   return (
     <Loadable loading={strategies.isPending} error={strategies.isError} retry={() => strategies.refetch()} what="the portfolio">

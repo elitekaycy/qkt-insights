@@ -1,7 +1,7 @@
-import { INSTRUMENT_TYPES, instrumentType, type InstrumentType } from "@qkt-insights/contract/query";
+import { instrumentType, type InstrumentType } from "@qkt-insights/contract/query";
 import { accountOfLabel, venueName } from "./accounts";
 import type { LiveAccount, StrategyRow } from "./api";
-import { quantity } from "./format";
+import { MONTHS, quantity } from "./format";
 
 /*
  * What a position is, said the same way everywhere a user looks: a type (stock CFD, share, perpetual
@@ -10,8 +10,6 @@ import { quantity } from "./format";
  */
 
 export { instrumentType, type InstrumentType };
-/** Every type, in the order filters list them. */
-export const INSTRUMENT_TYPE_KEYS = INSTRUMENT_TYPES;
 
 export const TYPE_LABEL: Record<InstrumentType, string> = {
   "stock-cfd": "Stock CFD",
@@ -120,7 +118,6 @@ export function sizeInWords(qty: number | null | undefined, f: SizeFacts): strin
   }
 }
 
-const MONTHS = ["Jan", "Feb", "Mar", "Apr", "May", "Jun", "Jul", "Aug", "Sep", "Oct", "Nov", "Dec"];
 
 /** "29 Nov" for a UTC expiry; the year too when it is not this year's. */
 function expiryLabel(ms: number, now = Date.now()): string {
@@ -153,7 +150,7 @@ export interface Leg {
 }
 
 /** What the leg is, in words: "BTC 70000 call, 29 Nov" for an option, "BTC, expires 26 Dec" for a dated future, else its name. */
-export function legInstrument(leg: Leg, now = Date.now()): string {
+function legInstrument(leg: Leg, now = Date.now()): string {
   // an option qkt states without its terms still names them in its symbol
   const fromSymbol = leg.type === "option" && (leg.strike == null || !leg.optionRight) ? optionFromSymbol(leg.name) : null;
   if (fromSymbol) return `${fromSymbol.base} ${quantity(fromSymbol.strike)} ${fromSymbol.right}, ${expiryLabel(fromSymbol.expiry, now)}`;
@@ -168,6 +165,68 @@ export function legInstrument(leg: Leg, now = Date.now()): string {
 /** "Stock CFD · AAPL · Exness": type, instrument and venue, each part only when known. */
 export function legLabel(leg: Leg, now = Date.now()): string {
   return [leg.type ? TYPE_LABEL[leg.type] : null, legInstrument(leg, now), leg.venue].filter((p): p is string => !!p).join(" · ");
+}
+
+const KIND_WORD: Partial<Record<InstrumentType, [string, string]>> = { perpetual: ["perp", "perps"], future: ["future", "futures"], option: ["option", "options"] };
+
+const KIND_ORDER = Object.keys(KIND_WORD);
+
+/**
+ * An instrument as a person names it, for a dense row: a derivative by its coin and kind ("BTC perp", "BTC future",
+ * "BTC option" from BTC_USDC_PERPETUAL, BTC_USDC@front, BTC_USDC_29OCT26_80500_C), anything else by its name
+ * ("XAUUSD"). The broker label is dropped; the full symbol belongs in a tooltip.
+ */
+export function shortInstrument(symbol: string, type: InstrumentType | null | undefined): string {
+  const name = symbol.slice(symbol.lastIndexOf(":") + 1);
+  const word = type ? KIND_WORD[type] : undefined;
+  if (!word) return name;
+  // a dated future keeps its expiry from the symbol: BTC_USDC_30OCT26 reads "BTC future 30 Oct"
+  const exp = type === "future" ? /(\d{1,2})([A-Z]{3})\d{2}(?:$|_)/u.exec(name.toUpperCase()) : null;
+  const month = exp ? MONTH_CODES.indexOf(exp[2]!) : -1;
+  return `${baseOf(name) ?? name} ${word[0]}${month >= 0 ? ` ${Number(exp![1])} ${MONTHS[month]}` : ""}`;
+}
+
+/** A venue without its aside: "Paper (Deribit prices)" reads "Paper". */
+function shortVenueName(venue: string): string {
+  return venue.replace(/\s*\(.*\)$/u, "");
+}
+
+/**
+ * What a strategy trades as one short line, "XAUUSD · Exness", "BTC perp · Paper", "BTC perp + options · Paper":
+ * a coin's derivatives fold into one name, then each venue once in short. `title` lists every leg in full (type,
+ * instrument, venue) for the tooltip.
+ */
+export function legsLine(legs: readonly Leg[], now = Date.now()): { text: string; title: string } {
+  const names: string[] = [];
+  const kinds = new Map<string, Map<InstrumentType, number>>();
+  // an untyped feed named like an id (PAPER_DERIBIT_B.BTC_USDC, an index the strategy reads) is its coin, said once
+  const feeds: string[] = [];
+  for (const l of legs) {
+    const word = l.type ? KIND_WORD[l.type] : undefined;
+    if (!word) {
+      const feed = /[_.]/u.test(l.name) ? baseOf(l.name.slice(l.name.lastIndexOf(".") + 1)) : null;
+      if (feed) feeds.push(feed);
+      else if (!names.includes(l.name)) names.push(l.name);
+      continue;
+    }
+    const base = baseOf(l.underlying) ?? baseOf(l.root) ?? baseOf(l.name) ?? l.name;
+    if (!kinds.has(base)) names.push(base);
+    const k = kinds.get(base) ?? new Map<InstrumentType, number>();
+    k.set(l.type!, (k.get(l.type!) ?? 0) + 1);
+    kinds.set(base, k);
+  }
+  for (const f of feeds) if (!names.includes(f)) names.push(f);
+  const text = names.map((n) => {
+    const k = kinds.get(n);
+    if (!k) return n;
+    const words = [...k.entries()].sort(([a], [b]) => KIND_ORDER.indexOf(a) - KIND_ORDER.indexOf(b)).map(([t, c], i) => KIND_WORD[t]![c > 1 || i > 0 ? 1 : 0]);
+    return `${n} ${words.join(" + ")}`;
+  }).join(", ");
+  const venues = [...new Set(legs.flatMap((l) => (l.venue ? [shortVenueName(l.venue)] : [])))];
+  return {
+    text: venues.length ? `${text} · ${venues.join(", ")}` : text,
+    title: legs.map((l) => `${l.type ? TYPE_LABEL[l.type] : "type not stated"} ${legInstrument(l, now)}${l.venue ? ` · ${l.venue}` : ""}`).join("\n"),
+  };
 }
 
 type Facts = Record<string, unknown>;

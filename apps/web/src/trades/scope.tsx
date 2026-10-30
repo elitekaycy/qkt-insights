@@ -16,10 +16,9 @@ export function useSortParams(): [SortKey, "asc" | "desc", (s: SortKey, d: "asc"
 }
 
 /** "Showing 12 of 1,304 round trips · net ▼ −550.00 · win rate 43%": always the numbers of what is listed. */
-export function TripCount({ totals, loading, unit = "round trips", compactOnPhone = false }: {
+export function TripCount({ totals, loading, compactOnPhone = false }: {
   totals: RoundTripTotals | null;
   loading?: boolean;
-  unit?: string;
   /** Phones keep the counts and the net, stacked on two short lines beside the range chips. */
   compactOnPhone?: boolean;
 }) {
@@ -34,7 +33,7 @@ export function TripCount({ totals, loading, unit = "round trips", compactOnPhon
     >
       <span>
         <span className={wide}>Showing </span><b className="font-semibold text-bright">{count(totals.matched)}</b>
-        <span className={wide}> of {count(totals.total)} {unit}</span><span className={phone}> of {count(totals.total)}</span>
+        <span className={wide}> of {count(totals.total)} round trips</span><span className={phone}> of {count(totals.total)}</span>
       </span>
       {totals.matched > 0 && (
         <span>

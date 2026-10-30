@@ -1,9 +1,8 @@
-import { useCallback, useMemo, useRef, useState } from "react";
-import { flushSync } from "react-dom";
+import { useCallback, useMemo, useState } from "react";
 import { TRADE_KEYS } from "@qkt-insights/contract/query";
 import { Card, PageHeader, RangeChips, rangeStart, useRangeParam } from "../components/ui";
 import { useSearchParam } from "../router";
-import { QueryBar, TRADE_PRESETS } from "../query/QueryBar";
+import { QueryBar, TRADE_PRESETS, useSearchToggle } from "../query/QueryBar";
 import { tripParams, useTripFacets, type RoundTripTotals, type TripScope } from "../trades/data";
 import { RoundTripTable } from "../trades/RoundTripTable";
 import { TripCount, useSortParams } from "../trades/scope";
@@ -24,13 +23,7 @@ export default function Trades({ instanceId }: { instanceId: string | null }) {
     setTotals((cur) => ({ t: t ?? cur.t, errors: query?.errors ?? cur.errors, loading }));
   }, []);
   // phones: one row of a search button, the range and the count; the search box opens on tap
-  const [searchOpen, setSearchOpen] = useState(false);
-  const searchBox = useRef<HTMLDivElement>(null);
-  const openSearch = () => {
-    if (searchOpen) return setSearchOpen(false);
-    flushSync(() => setSearchOpen(true));
-    searchBox.current?.querySelector("input")?.focus();
-  };
+  const { open: searchOpen, box: searchBox, toggle: openSearch } = useSearchToggle();
   const from = rangeStart(range);
   const scope: TripScope | null = useMemo(() => (instanceId ? { instanceId, from: from > 0 ? Math.floor(from / 60_000) * 60_000 : undefined } : null), [instanceId, from]);
   const data = useMemo(

@@ -1,30 +1,31 @@
-import { lazy, Suspense, useMemo, useRef, useState, type ReactNode } from "react";
-import { flushSync } from "react-dom";
+import { lazy, Suspense, useMemo, useState, type ReactNode } from "react";
 import { useQuery } from "@tanstack/react-query";
-import { parseQuery, TRADE_KEYS } from "@qkt-insights/contract/query";
+import { LOG_ATTENTION, parseQuery, TRADE_KEYS } from "@qkt-insights/contract/query";
 import { get, type LogRow, type StrategyRow, type StrategyStats } from "../api";
 import { LogLine } from "../components/LogLine";
+import { groupLogs } from "../logs";
 import { ShareControl } from "../components/ShareControl";
-import { Card, Loadable, OriginBack, Pill, Popover, RangeChips, rangeStart, ReturnPct, Segmented, Skeleton, useRangeParam } from "../components/ui";
+import { Card, Icon, Loadable, OriginBack, Pill, Popover, RangeChips, rangeStart, ReturnPct, Segmented, Skeleton, useRangeParam } from "../components/ui";
 import { age, DASH, glyph, money, openPnl, signedMoney, toneClass } from "../format";
-import { haltClearing, haltReasonText, haltSince, resumeCommand } from "../halt";
-import { strategyCapital, strategyDisplayName } from "../portfolio";
-import { QueryBar, TRADE_PRESETS } from "../query/QueryBar";
+import { haltSince, haltWords, resumeCommand } from "../halt";
+import { metaString, strategyCapital, strategyDisplayName } from "../portfolio";
+import { QueryBar, TRADE_PRESETS, useSearchToggle } from "../query/QueryBar";
 import { Link, PAGE_PATHS, PERIOD_VIEWS, PRIVATE_STRATEGY_TABS, routePath, STRATEGY_TABS, useRoute, useSearchParam, type PeriodView, type StrategyTab } from "../router";
 import { useTripAnalytics, type TripAnalytics } from "../trades/analytics";
 import { tripParams, useTripFacets, type RoundTripTotals, type TripScope } from "../trades/data";
 import { RoundTripTable } from "../trades/RoundTripTable";
 import { TripCount, useSortParams } from "../trades/scope";
 import { TradeDrawer, useOpenTrade } from "../trades/TradeDrawer";
-import { LegSummary } from "../components/InstrumentType";
+import { LegLine } from "../components/InstrumentType";
 import { strategyEnvironment, strategyLegs } from "../instruments";
 import { useLiveState } from "../useLiveState";
 import { usePublicPageView, useView } from "../view";
 import { CalendarSection, DailySection, MonthlySection } from "./Days";
-import { chipOf, importantLog, toggleToken, without } from "./journal";
+import { chipOf, toggleToken, without } from "./journal";
 import { OverviewSection } from "./Overview";
 import { TimeRiskSection } from "./TimeRisk";
-import { BigPnl, Icon, ICON, Widget } from "./widgets";
+import { BigPnl, ICON, Widget } from "./widgets";
+import { useStrategies } from "../hooks/useStrategies";
 
 // The highlighter and its grammar load only when the Code section opens.
 const CodeSection = lazy(() => import("./Code"));
@@ -46,11 +47,6 @@ const PERIOD_LABEL: Record<PeriodView, string> = { calendar: "Calendar", days: "
 /** A strategy page leaves its own name out of each row. */
 const STRATEGY_HIDDEN = ["strategy", "id"];
 const RECENT_LOGS = 50;
-
-function metaString(meta: Record<string, unknown> | null | undefined, key: string): string | null {
-  const v = meta?.[key];
-  return typeof v === "string" && v.length > 0 ? v : null;
-}
 
 /** Open P&L and open positions of one strategy from the live broker state (shared links: the delayed sum). */
 function useOpen(instanceId: string, strategyId: string): { pnl: number | null; positions: number; stale: boolean } {
@@ -100,11 +96,7 @@ export function StrategyDetail({ instanceId, strategyId }: { instanceId: string;
   const [, openTrade] = useOpenTrade();
   const enc = `instance=${encodeURIComponent(instanceId)}&strategy=${encodeURIComponent(strategyId)}`;
 
-  const strategies = useQuery({
-    queryKey: ["strategies", instanceId],
-    queryFn: () => get<StrategyRow[]>(`/strategies?instance=${encodeURIComponent(instanceId)}`),
-    refetchInterval: 30_000,
-  });
+  const strategies = useStrategies(instanceId);
   const stats = useQuery({
     queryKey: ["stats", instanceId, strategyId],
     queryFn: () => get<StrategyStats>(`/stats?${enc}`),
@@ -155,14 +147,7 @@ export function StrategyDetail({ instanceId, strategyId }: { instanceId: string;
   const filterCount = useMemo(() => parseQuery(q, { instruments: suggestData.instruments }).chips.length, [q, suggestData.instruments]);
   // phones: the header folds to one line and the query bar to a search button until tapped
   const [details, setDetails] = useState(false);
-  const [searchOpen, setSearchOpen] = useState(false);
-  const searchBox = useRef<HTMLDivElement>(null);
-  const openSearch = () => {
-    if (searchOpen) return setSearchOpen(false);
-    // rendered before focusing, inside the tap, so a phone raises its keyboard
-    flushSync(() => setSearchOpen(true));
-    searchBox.current?.querySelector("input")?.focus();
-  };
+  const { open: searchOpen, box: searchBox, toggle: openSearch } = useSearchToggle();
 
   const props: SectionProps = {
     instanceId, strategyId, scope, q, toggle, a, base: base.data ?? (baseQ === q ? a : undefined),
@@ -207,7 +192,7 @@ export function StrategyDetail({ instanceId, strategyId }: { instanceId: string;
                 </Link>
               )}
             </div>
-            <div className="mt-2 text-xs text-muted">Net incl. open</div>
+            <div className="mt-2 text-xs text-muted">Net (incl. open)</div>
             <div className="flex flex-wrap items-baseline gap-x-3 gap-y-1">
               <BigPnl value={net} className="max-sm:hidden" />
               <span title={capital.amount == null ? "no capital known" : `Return ${capitalLabel}`}><ReturnPct net={net} base={capital.amount} /></span>
@@ -222,7 +207,7 @@ export function StrategyDetail({ instanceId, strategyId }: { instanceId: string;
             <ShareControl instanceId={instanceId} kind="strategy" subject={strategyId} />
           </div>
         </header>
-        <LegSummary legs={strategyLegs(row, liveAccounts, instanceId)} className="mt-3" />
+        <LegLine legs={strategyLegs(row, liveAccounts, instanceId)} className="mt-3 text-sm" />
       </div>
 
       <nav aria-label="Strategy sections" className="-mx-4 flex gap-1.5 overflow-x-auto px-4 sm:hidden">
@@ -324,27 +309,32 @@ export function StrategyDetail({ instanceId, strategyId }: { instanceId: string;
 /** Status from the engine: halted (with why), retired, or running. */
 function Status({ row, isPublic, compact = false }: { row: StrategyRow | null; isPublic: boolean; compact?: boolean }) {
   if (!row) return null;
-  if (row.halted) return <Pill tone="warn">halted</Pill>;
+  if (row.halted) return <span title={haltWords(row)?.label}><Pill tone="warn">halted</Pill></span>;
   if (!row.active) return <Pill>retired</Pill>;
   if (isPublic) return null;
   return compact ? <span className="sr-only">running</span> : <span className="text-xs text-muted">running</span>;
 }
 
-/** The halt, at the top of the page where it cannot be missed: why, since when, how it ends. */
+/** The halt, at the top of the page where it cannot be missed: why and how it ends in plain words; the engine's own text under Details. */
 function HaltBanner({ row }: { row: StrategyRow }) {
   const command = resumeCommand(row);
   return (
     <div role="status" className="mt-3 flex flex-wrap items-start gap-x-3 gap-y-1 rounded-card border border-warn/45 bg-warn/10 px-4 py-3 text-sm">
       <span className="flex items-center gap-2 font-semibold text-warn">
         <Icon d="M10.29 3.86L1.82 18a2 2 0 0 0 1.71 3h16.94a2 2 0 0 0 1.71-3L13.71 3.86a2 2 0 0 0-3.42 0zM12 9v4M12 17h.01" className="h-4 w-4" />
-        Halted by the engine
+        Halted
       </span>
       <span className="min-w-0 text-body">
-        <span title={row.haltReason ?? undefined}>{haltReasonText(row.haltReason)}</span>
-        {row.haltedAt != null && <span className="text-muted" title={row.haltedBefore ? "re-asserted at a restart; its start is not stored" : undefined}> {haltSince(row)} ({row.haltedBefore ? "at least " : ""}{age(row.haltedAt)})</span>}
-        <span className="text-muted"> · {haltClearing(row)}</span>
+        {haltWords(row)?.sentence}
+        {row.haltedAt != null && <span className="text-muted" title={row.haltedBefore ? "re-asserted at a restart; its start is not stored" : undefined}> Halted {haltSince(row)} ({row.haltedBefore ? "at least " : ""}{age(row.haltedAt)}).</span>}
       </span>
       {command && <code className="rounded bg-raised px-1.5 py-0.5 font-mono text-xs text-bright">{command}</code>}
+      {row.haltReason && (
+        <details className="w-full text-xs text-muted">
+          <summary className="cursor-pointer select-none">Details</summary>
+          <p className="mt-1 break-all font-mono">{row.haltReason}</p>
+        </details>
+      )}
     </div>
   );
 }
@@ -410,14 +400,15 @@ function StrategyTrades({ scope, q, exportHref }: { scope: TripScope; q: string;
 
 /** The latest log lines; the Logs page holds the history, filtered to this strategy. */
 function StrategyLogs({ instanceId, strategyId }: { instanceId: string; strategyId: string }) {
+  const [all, setAll] = useState(false);
+  // the strategy's story first: its order flow and anything that went wrong; every line is one click away
+  const which = all ? "" : `&level=${LOG_ATTENTION.levels.join(",")}&orLogger=${LOG_ATTENTION.loggers.join(",")}`;
   const logs = useQuery({
-    queryKey: ["logs", instanceId, strategyId, RECENT_LOGS],
-    queryFn: () => get<LogRow[]>(`/logs?instance=${encodeURIComponent(instanceId)}&strategy=${encodeURIComponent(strategyId)}&limit=${RECENT_LOGS}`),
+    queryKey: ["logs", instanceId, strategyId, RECENT_LOGS, all],
+    queryFn: () => get<LogRow[]>(`/logs?instance=${encodeURIComponent(instanceId)}&strategy=${encodeURIComponent(strategyId)}&limit=${RECENT_LOGS}${which}`),
     refetchInterval: 30_000,
   });
-  const [all, setAll] = useState(false);
-  // the strategy's story first: orders, fills, trades and anything that went wrong; every line is one click away
-  const rows = (logs.data ?? []).filter((l) => all || importantLog(l));
+  const rows = logs.data ?? [];
   return (
     <Widget
       icon={ICON.logs}
@@ -431,10 +422,10 @@ function StrategyLogs({ instanceId, strategyId }: { instanceId: string; strategy
     >
       <Loadable loading={logs.isPending} error={logs.isError} retry={() => logs.refetch()} what="logs" shape="lines" lines={8}>
         <div className="px-4 pb-2">
-          <Segmented label="Which lines" value={all ? "all" : "orders"} onChange={(v) => setAll(v === "all")} options={[{ key: "orders", label: "Orders & errors" }, { key: "all", label: "All lines" }]} />
+          <Segmented label="Which lines" value={all ? "all" : "orders"} onChange={(v) => setAll(v === "all")} options={[{ key: "orders", label: "Warnings & orders" }, { key: "all", label: "All lines" }]} />
         </div>
         <div className="px-2 pb-2">
-          {rows.map((l) => <LogLine key={l.id} log={l} showStrategy={false} />)}
+          {groupLogs(rows).map((g) => <LogLine key={g.log.id} log={g.log} group={g} showStrategy={false} />)}
           {rows.length === 0 && <div className="px-4 py-8 text-center text-sm text-muted">{all ? "No log lines yet." : "No orders or errors in the latest lines."}</div>}
         </div>
         <div className="border-t border-line px-4 py-2 text-[11px] text-muted sm:hidden">

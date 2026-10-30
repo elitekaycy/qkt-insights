@@ -1,4 +1,5 @@
 import type { ViewBreakdown, ViewDay } from "./api";
+import { DAY_MS } from "./format";
 
 export interface ShareRow { key: string | null; views: number; share: number }
 
@@ -7,7 +8,6 @@ export function withShares(rows: ViewBreakdown[], total: number): ShareRow[] {
   return rows.map((r) => ({ ...r, share: total > 0 ? r.views / total : 0 }));
 }
 
-const DAY_MS = 86_400_000;
 
 /**
  * One entry per UTC day from `from` to `to`. A day with no stored views truly had none, so it

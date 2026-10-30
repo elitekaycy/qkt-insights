@@ -1,6 +1,6 @@
 import type { ReactNode } from "react";
 import { DASH, glyph, signedMoney, toneClass } from "../format";
-import { InfoIcon, Popover } from "../components/ui";
+import { Icon, InfoIcon, Popover } from "../components/ui";
 
 /*
  * The journal's widget kit for the strategy page: a titled card with a click hint, KPI cards with
@@ -31,14 +31,6 @@ export const ICON = {
   code: "M16 18l6-6-6-6M8 6l-6 6 6 6",
   layers: "M12 2l10 5-10 5L2 7zM2 17l10 5 10-5M2 12l10 5 10-5",
 } as const;
-
-export function Icon({ d, className = "h-[15px] w-[15px]" }: { d: string; className?: string }) {
-  return (
-    <svg viewBox="0 0 24 24" className={`shrink-0 ${className}`} fill="none" stroke="currentColor" strokeWidth="1.75" strokeLinecap="round" strokeLinejoin="round" aria-hidden>
-      <path d={d} />
-    </svg>
-  );
-}
 
 /** What a metric is and how to read it, opened by click or tap (never hover only). */
 function Explain({ label, children }: { label: string; children: ReactNode }) {
@@ -100,9 +92,10 @@ export function BigPnl({ value, className = "" }: { value: number | null | undef
 }
 
 /** Win rate as a donut: gain arc for wins, loss arc for losses, the percentage in the middle. */
-export function Ring({ wins, losses, size = 72, onWins, onLosses, picked }: {
-  wins: number; losses: number; size?: number; onWins?: () => void; onLosses?: () => void; picked?: "win" | "loss" | null;
+export function Ring({ wins, losses, onWins, onLosses, picked }: {
+  wins: number; losses: number; onWins?: () => void; onLosses?: () => void; picked?: "win" | "loss" | null;
 }) {
+  const size = 72;
   const total = wins + losses;
   const r = (size - 10) / 2;
   const c = 2 * Math.PI * r;

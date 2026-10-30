@@ -32,8 +32,9 @@ export function strategyCapital(row: StrategyRow): StrategyCapital {
   return { amount: null, source: null };
 }
 
-function metaString(row: StrategyRow, key: string): string | null {
-  const value = row.metadata?.[key];
+/** A non-empty string a strategy's metadata states under `key`, else null. */
+export function metaString(meta: Record<string, unknown> | null | undefined, key: string): string | null {
+  const value = meta?.[key];
   return typeof value === "string" && value.length > 0 ? value : null;
 }
 
@@ -43,7 +44,7 @@ export function logicalPortfolioId(portfolioId: string): string {
 }
 
 function physicalPortfolioId(row: StrategyRow): string | null {
-  return metaString(row, "portfolioId");
+  return metaString(row.metadata, "portfolioId");
 }
 
 export function portfolioGroupId(row: StrategyRow): string | null {
@@ -58,8 +59,8 @@ export function portfolioGroupId(row: StrategyRow): string | null {
  * e.g. portfolio `forward_bench` + dslName `gold_eur_rel2` -> `forward_bench / gold_eur_rel2`.
  */
 export function strategyDisplayName(row: StrategyRow): string {
-  const dsl = metaString(row, "dslName");
-  const portfolio = metaString(row, "portfolioName") ?? portfolioGroupId(row);
+  const dsl = metaString(row.metadata, "dslName");
+  const portfolio = metaString(row.metadata, "portfolioName") ?? portfolioGroupId(row);
   if (dsl && portfolio) return `${portfolio} / ${dsl}`;
   return dsl ?? row.strategyId;
 }

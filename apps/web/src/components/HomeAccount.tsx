@@ -15,11 +15,11 @@ import { Card, FlashValue, Freshness, InfoIcon, Pill, Pnl, Popover } from "./ui"
  * means and how it is measured lives behind the info icon (hover, or tap on touch), so every card in
  * the row keeps the same height.
  */
-function Kpi({ label, children, sub, info, className = "" }: {
-  label: string; children: ReactNode; sub?: ReactNode; info?: ReactNode; className?: string;
+function Kpi({ label, children, sub, info }: {
+  label: string; children: ReactNode; sub?: ReactNode; info?: ReactNode;
 }) {
   return (
-    <Card className={`min-w-0 p-4 ${className}`}>
+    <Card className="min-w-0 p-4">
       <div className="flex items-center gap-2 text-sm font-medium text-muted">
         <span className="truncate">{label}</span>
         {info && (
@@ -152,17 +152,17 @@ export function AccountStrip({
           label="Today"
           sub={
             split
-              ? <>{today.other != null && <><span className="font-mono">{signedMoney(today.other)}</span> other system</>}{today.other != null && today.unassigned !== 0 && " · "}{today.unassigned !== 0 && <><span className="font-mono">{signedMoney(today.unassigned)}</span> unlisted</>}</>
+              ? <>other <span className="font-mono">{signedMoney((today.other ?? 0) + today.unassigned)}</span></>
               : `${signedMoney(realizedToday)} closed`
           }
           info={
             <>
-              <p>qkt today: {signedMoney(realizedToday)} closed, {signedMoney(today.qkt - realizedToday)} still open. The day starts {dayLabel.replace(/^day from /, "")}.</p>
+              <p>Your strategies today: {signedMoney(realizedToday)} closed, {signedMoney(today.qkt - realizedToday)} still open. The day starts {dayLabel.replace(/^day from /, "")}.</p>
               {split && <p className="text-muted">The whole account is {signedMoney(today.total)} today{today.other != null ? `; ${signedMoney(today.other)} of it is open on another system's trades on this login` : ""}{today.unassigned !== 0 ? `; ${signedMoney(today.unassigned)} is on trades not listed here` : ""}.</p>}
             </>
           }
         >
-          <FlashValue value={today.qkt}><Pnl value={today.qkt} />{split && <span className="ml-1.5 font-sans text-sm text-muted">qkt</span>}</FlashValue>
+          <FlashValue value={today.qkt}><Pnl value={today.qkt} /></FlashValue>
         </Kpi>
         {open && (
           <Kpi
@@ -227,41 +227,41 @@ function limitSource(risk: AccountRiskRow): string {
 }
 
 /**
- * Home's answer in one line: "Today +18.35 USD qkt · −767.77 USD other system on Exness •••2618". qkt's part opens the
- * strategy table, another system's part that account's tab. `missing` counts accounts whose Today is not known yet.
+ * Home's answer in one line: "Today +18.35 USD · −0.04 USDC", the strategies' Today per currency; it opens the
+ * strategy table. Another system's activity on an account is not here: it is a quiet chip in the attention row.
+ * `missing` counts accounts whose Today is not known yet.
  */
-export function TodayHeadline({ parts, missing, pending, onQkt, onAccount }: {
-  parts: TodayPart[]; missing: number; pending: boolean;
-  onQkt: () => void; onAccount: (key: string) => void;
+export function TodayHeadline({ parts, missing, pending, onQkt }: {
+  parts: TodayPart[]; missing: number; pending: boolean; onQkt: () => void;
 }) {
   if (pending) return <span className="inline-block h-4 w-72 max-w-full rounded bg-raised align-middle" role="status" aria-label="Loading today's figures" />;
   if (parts.length === 0) return <span>Today: not known yet, waiting for the accounts' first rollup</span>;
   const link = "rounded-sm underline decoration-line-strong decoration-dotted underline-offset-4 hover:decoration-current focus-visible:outline-2 focus-visible:outline-accent-hi";
   return (
-    <span className="flex flex-col items-start gap-x-2 gap-y-0.5 sm:flex-row sm:flex-wrap sm:items-baseline">
+    <span className="flex flex-wrap items-baseline gap-x-2 gap-y-0.5">
       <span className="font-medium text-body">Today</span>
       {parts.map((p, i) => (
         <span key={i} className="inline-flex items-baseline gap-2">
-          {i > 0 && <span aria-hidden className="hidden text-faint sm:inline">·</span>}
-          <button type="button" className={link} onClick={() => (p.kind === "qkt" || !p.account ? onQkt() : onAccount(p.account.key))}
-            title={p.kind === "qkt" ? "qkt's closes since each account's day began plus what its positions float; opens the strategies" : `Floating on positions of another system trading ${p.account?.name}; opens the account`}>
+          {i > 0 && <span aria-hidden className="text-faint">·</span>}
+          <button type="button" className={link} onClick={onQkt} title="Your strategies: closes since each account's day began plus what their positions float; opens the strategies">
             <span className={`font-mono font-semibold tabular-nums ${toneClass(p.value)}`}>{signedMoney(p.value)}</span>
             <span className="ml-1 text-xs text-muted">{p.currency}</span>
-            <span className="ml-1.5">{p.kind === "qkt" ? "qkt" : `other system on ${p.account?.name}`}</span>
           </button>
         </span>
       ))}
-      {missing > 0 && <span className="text-faint"><span aria-hidden className="hidden sm:inline">· </span>{missing} {missing === 1 ? "account" : "accounts"} not known yet</span>}
+      {missing > 0 && <span className="text-faint"><span aria-hidden>· </span>{missing} {missing === 1 ? "account" : "accounts"} not known yet</span>}
     </span>
   );
 }
 
 /**
  * The line under Home's headline that answers "does anything need me?": each item links to where it lives (the
- * halted strategy, Health for a quiet account, the positions without a stop). "Nothing needs you" when empty.
+ * halted strategy, Health for a quiet account, the positions without a stop). "Nothing needs you" when empty. Another
+ * system's activity on an account follows as a muted chip that opens the account: the same truth, not an alarm.
  */
-export function AttentionLine({ items, onItem }: { items: AttentionItem[]; onItem: (item: AttentionItem) => void }) {
-  if (items.length === 0) return <span className="text-muted">Nothing needs you</span>;
+export function AttentionLine({ items, others, onItem, onAccount }: {
+  items: AttentionItem[]; others: TodayPart[]; onItem: (item: AttentionItem) => void; onAccount: (key: string) => void;
+}) {
   const words = (i: AttentionItem): string => {
     switch (i.kind) {
       case "halted": return `Halted: ${i.name}`;
@@ -272,10 +272,18 @@ export function AttentionLine({ items, onItem }: { items: AttentionItem[]; onIte
   };
   return (
     <span className="flex flex-wrap items-center gap-1.5" role="list" aria-label="Needs a look">
+      {items.length === 0 && <span className="mr-1 text-muted">Nothing needs you</span>}
       {items.map((i, n) => (
-        <button key={n} type="button" role="listitem" onClick={() => onItem(i)}
+        <button key={n} type="button" role="listitem" onClick={() => onItem(i)} title={i.kind === "halted" ? i.why : undefined}
           className="inline-flex h-6 items-center gap-1.5 rounded-full border border-warn/45 bg-warn/10 px-2.5 text-xs font-medium text-warn transition hover:bg-warn/15 focus-visible:outline-2 focus-visible:outline-accent-hi">
           {words(i)}
+        </button>
+      ))}
+      {others.map((p) => (
+        <button key={p.account?.key} type="button" role="listitem" onClick={() => p.account && onAccount(p.account.key)}
+          title={`Floating on positions of another system on ${p.account?.name}, not your strategies; opens the account`}
+          className="inline-flex h-6 items-center gap-1 rounded-full border border-line bg-raised px-2.5 text-xs text-muted transition hover:bg-hover focus-visible:outline-2 focus-visible:outline-accent-hi">
+          Other activity on {p.account?.name}: <span className="font-mono tabular-nums text-body">{signedMoney(p.value)}</span>
         </button>
       ))}
     </span>

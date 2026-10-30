@@ -1,11 +1,11 @@
 import { accountKey, accountName, accountTab, groupAccounts, type AccountGroup } from "../accounts";
-import { chartColors } from "../components/EChart";
+import { chartColors, tok } from "../components/EChart";
 import { useState } from "react";
 import { usePublicPageView, useView } from "../view";
-import { useStrategyNames } from "../hooks/useStrategyNames";
+import { useStrategies, useStrategyNames } from "../hooks/useStrategies";
 import { useSearchParam } from "../router";
 import { useQueries, useQuery } from "@tanstack/react-query";
-import { get, type AccountEquityPoint, type AccountSummary, type DrawdownPeriod, type EquityPoint, type PerformanceBundle, type StrategyRow } from "../api";
+import { get, type AccountEquityPoint, type AccountSummary, type DrawdownPeriod, type EquityPoint, type PerformanceBundle } from "../api";
 import { AccountTabs, useAccountChoice } from "../components/AccountSwitch";
 import { ComparisonChart, EquityChart, UnderwaterChart, type ComparisonSeries } from "../components/EquityChart";
 import { DataList, Card, Cell, Empty, Field, Loadable, Modal, PageHeader, Panel, Pill, Select } from "../components/ui";
@@ -23,11 +23,7 @@ export default function Equity({ instanceId }: { instanceId: string | null }) {
   const liveState = useLiveState();
   const choice = useAccountChoice(groupAccounts((liveState.data?.accounts ?? []).filter((a) => a.instanceId === instanceId)), view.public);
   const scoped = choice.many && choice.chosen ? choice.chosen : null;
-  const strategies = useQuery({
-    queryKey: ["strategies", instanceId],
-    queryFn: () => get<StrategyRow[]>(`/strategies?instance=${encodeURIComponent(instanceId!)}`),
-    enabled: !!instanceId,
-  });
+  const strategies = useStrategies(instanceId, false);
   // an account's tab compares the strategies that closed on it: the same roll-up Home reads for that tab
   const accountParam = scoped ? `&account=${encodeURIComponent(accountKey(scoped.account))}` : "";
   const scopedSummary = useQuery({
@@ -121,17 +117,23 @@ export default function Equity({ instanceId }: { instanceId: string | null }) {
     return accountName(g ? g.account : { broker: accountLabel.get(key) ?? key }, view.public);
   };
   const shownCurve = scoped ? curveKeyOf(scoped) : null;
-  // one hue rule: real venue accounts take the series colours, paper accounts stay grey
+  // one hue per account from the series set: real venue accounts first at full strength (the first is the stand-out),
+  // paper accounts after them, thinner and softened, so each legend entry still maps to a line of its own
   const isPaperKey = (key: string) => {
     const g = choice.accounts.find((a) => curveKeyOf(a) === key);
     return g != null && (g.account.connector === "paper" || g.account.adapter === "paper");
   };
-  let venueIdx = 0;
-  const accountSeries: ComparisonSeries[] = [...accountByBroker.entries()].map(([key, pts]) => ({
-    name: nameOf(key),
-    color: isPaperKey(key) ? chartColors.muted : PALETTE[venueIdx++ % PALETTE.length]!,
-    points: pts.length > 0 ? pts.map((p) => ({ ts: p.ts, pct: (p.equity / pts[0]!.equity - 1) * 100 })) : [],
-  }));
+  const accountKeys = [...accountByBroker.keys()].sort((a, b) => Number(isPaperKey(a)) - Number(isPaperKey(b)));
+  const accountSeries: ComparisonSeries[] = accountKeys.map((key, i) => {
+    const pts = accountByBroker.get(key)!;
+    const paper = isPaperKey(key);
+    return {
+      name: nameOf(key),
+      color: paper ? tok(`s${(i % PALETTE.length) + 1}`, 0.75) : PALETTE[i % PALETTE.length]!,
+      width: paper ? 1.5 : 2,
+      points: pts.length > 0 ? pts.map((p) => ({ ts: p.ts, pct: (p.equity / pts[0]!.equity - 1) * 100 })) : [],
+    };
+  });
 
   const periods = performance.data?.drawdownPeriods ?? [];
   const ddSelect = (

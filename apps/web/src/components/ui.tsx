@@ -1,7 +1,7 @@
 import { useEffect, useLayoutEffect, useRef, useState, type ReactNode } from "react";
 import { createPortal } from "react-dom";
 import { useOrigin, useSearchParam } from "../router";
-import { DASH, glyph, pnl, signedMoney, signedPct, toneClass, tsDay, tsShort } from "../format";
+import { DASH, DAY_MS, elapsed, glyph, pnl, signedMoney, signedPct, toneClass, tsDay, tsShort } from "../format";
 
 /*
  * The component kit every page is built from. Pages compose these and never
@@ -19,12 +19,6 @@ export function Card({ children, className = "" }: { children: ReactNode; classN
 }
 
 /**
- * Page title (20px, 650) with a one-line muted hint, the journal's section header. `scope` is the
- * row under the title reserved for the page's scope bar: the query box with its chips on the left,
- * the live count ("Showing k of n") and page controls on the right. It takes the full width so the
- * box can grow; the header keeps the same rhythm with or without it.
- */
-/**
  * "‹ Calendar · Oct 7": the way back to where a drill-down began, exactly as it was left (page,
  * month, tab, range, query, scroll). Nothing on a direct visit.
  */
@@ -39,14 +33,18 @@ export function OriginBack({ className = "", iconOnly = false }: { className?: s
       aria-label={`Back to ${origin.label}`}
       className={`inline-flex h-7 min-w-0 max-w-full shrink-0 items-center gap-1 rounded-md border border-line bg-raised text-xs ${iconOnly ? "w-7 justify-center" : "pl-1.5 pr-2"} font-medium text-body transition hover:border-line-strong hover:text-bright ${className}`}
     >
-      <svg viewBox="0 0 24 24" className="h-3.5 w-3.5 shrink-0" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" aria-hidden>
-        <path d="M15 18l-6-6 6-6" />
-      </svg>
+      <Icon d="M15 18l-6-6 6-6" className="h-3.5 w-3.5" strokeWidth={2} />
       {!iconOnly && <span className="truncate">{origin.label}</span>}
     </button>
   );
 }
 
+/**
+ * Page title (20px, 650) with a one-line muted hint, the journal's section header. `scope` is the
+ * row under the title reserved for the page's scope bar: the query box with its chips on the left,
+ * the live count ("Showing k of n") and page controls on the right. It takes the full width so the
+ * box can grow; the header keeps the same rhythm with or without it.
+ */
 export function PageHeader({ title, sub, right, scope }: { title: string; sub?: ReactNode; right?: ReactNode; scope?: ReactNode }) {
   return (
     <header>
@@ -220,10 +218,17 @@ export function IconButton({ label, onClick, d, disabled }: { label: string; onC
       disabled={disabled}
       className="inline-flex h-8 w-8 items-center justify-center rounded-lg border border-line-strong bg-raised text-muted transition hover:bg-well hover:text-bright disabled:cursor-not-allowed disabled:opacity-40 disabled:hover:bg-raised disabled:hover:text-muted"
     >
-      <svg viewBox="0 0 24 24" className="h-3.5 w-3.5" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
-        <path d={d} />
-      </svg>
+      <Icon d={d} className="h-3.5 w-3.5" strokeWidth={2} />
     </button>
+  );
+}
+
+/** A one-path stroke icon on the 24px grid; decorative (the control around it carries the label). */
+export function Icon({ d, className = "h-[15px] w-[15px]", strokeWidth = 1.75 }: { d: string; className?: string; strokeWidth?: number }) {
+  return (
+    <svg viewBox="0 0 24 24" className={`shrink-0 ${className}`} fill="none" stroke="currentColor" strokeWidth={strokeWidth} strokeLinecap="round" strokeLinejoin="round" aria-hidden>
+      <path d={d} />
+    </svg>
   );
 }
 
@@ -261,7 +266,6 @@ export function Stat({
   signed,
   tone = "neutral",
   sub,
-  expand,
 }: {
   label: string;
   /** The figure as text; omit it and pass `signed` for a P&L figure. */
@@ -270,34 +274,23 @@ export function Stat({
   signed?: number | null;
   tone?: Tone;
   sub?: string;
-  /** Breakdown shown in a modal, opened by a visible "explain" button (click or tap, never hover-only). */
-  expand?: { hint?: string; width?: string; content: ReactNode };
 }) {
-  const [open, setOpen] = useState(false);
   return (
-    <>
-      <Card className="relative min-w-0 p-4">
-        <div className={`truncate text-sm font-medium text-muted ${expand ? "pr-8" : ""}`}>{label}</div>
-        {value === undefined ? (
-          <div className="mt-1.5 truncate text-xl font-headline">
-            <Pnl value={signed} />
-          </div>
-        ) : (
-          // status tones read as a dot beside a plain figure, never as a coloured number that could pass for P&L
-          <div className={`mt-1.5 flex items-center gap-2 truncate text-xl font-headline ${tone === "ok" || STATUS_DOT[tone] ? "text-bright" : TONE_TEXT[tone]}`}>
-            {STATUS_DOT[tone] && <span className={`inline-block h-2 w-2 shrink-0 rounded-full ${STATUS_DOT[tone]}`} aria-hidden />}
-            {value}
-          </div>
-        )}
-        {sub && <div className="mt-1 text-xs text-muted">{sub}</div>}
-        {expand && <ExplainButton label={`Explain ${label}`} onClick={() => setOpen(true)} />}
-      </Card>
-      {expand && (
-        <Modal open={open} onClose={() => setOpen(false)} title={label} hint={expand.hint} width={expand.width ?? "min(94vw, 760px)"}>
-          {expand.content}
-        </Modal>
+    <Card className="relative min-w-0 p-4">
+      <div className="truncate text-sm font-medium text-muted">{label}</div>
+      {value === undefined ? (
+        <div className="mt-1.5 truncate text-xl font-headline">
+          <Pnl value={signed} />
+        </div>
+      ) : (
+        // status tones read as a dot beside a plain figure, never as a coloured number that could pass for P&L
+        <div className={`mt-1.5 flex items-center gap-2 truncate text-xl font-headline ${tone === "ok" || STATUS_DOT[tone] ? "text-bright" : TONE_TEXT[tone]}`}>
+          {STATUS_DOT[tone] && <span className={`inline-block h-2 w-2 shrink-0 rounded-full ${STATUS_DOT[tone]}`} aria-hidden />}
+          {value}
+        </div>
       )}
-    </>
+      {sub && <div className="mt-1 text-xs text-muted">{sub}</div>}
+    </Card>
   );
 }
 
@@ -306,29 +299,11 @@ export function Stat({
  * remounts the span, restarting the .value-flash CSS animation. Wrap live
  * numbers so a WS tick is visible, e.g. <FlashValue value={a.equity}>{money(a.equity)}</FlashValue>.
  */
-export function FlashValue({ value, children, className = "" }: { value: unknown; children: ReactNode; className?: string }) {
+export function FlashValue({ value, children }: { value: unknown; children: ReactNode }) {
   return (
-    <span key={String(value)} className={`value-flash ${className}`}>
+    <span key={String(value)} className="value-flash">
       {children}
     </span>
-  );
-}
-
-/** Always-visible "what does this mean" control in a card corner; opens on click or tap. */
-function ExplainButton({ label, onClick }: { label: string; onClick: () => void }) {
-  return (
-    <button
-      type="button"
-      aria-label={label}
-      title={label}
-      onClick={(e) => {
-        e.stopPropagation();
-        onClick();
-      }}
-      className="absolute right-2 top-2 inline-flex h-7 w-7 items-center justify-center rounded-md text-faint transition hover:bg-hover hover:text-bright"
-    >
-      <InfoIcon />
-    </button>
   );
 }
 
@@ -498,11 +473,11 @@ export function Pill({ tone = "neutral", children }: { tone?: Tone; children: Re
 
 /**
  * Signed money with its direction glyph, "▲ +1,234.50" / "▼ −56.00", in the gain or loss tone.
- * `dim` greys it when the live source is stale. Every P&L figure renders through this.
+ * Every P&L figure renders through this.
  */
-export function Pnl({ value, dim, className = "", glyphs = true }: { value: number | null | undefined; dim?: boolean; className?: string; glyphs?: boolean }) {
+export function Pnl({ value, className = "", glyphs = true }: { value: number | null | undefined; className?: string; glyphs?: boolean }) {
   return (
-    <span className={`whitespace-nowrap ${dim ? "text-faint" : toneClass(value)} ${className}`}>
+    <span className={`whitespace-nowrap ${toneClass(value)} ${className}`}>
       {glyphs ? pnl(value) : signedMoney(value)}
     </span>
   );
@@ -518,11 +493,11 @@ export function CurrencyMix({ mix }: { mix: { label: string; title: string } | n
  * The signed return on base as "▲ +12.3%", paired with a money headline so the percentage is not a
  * second copy of the amount. A null base (no notional) renders a dash.
  */
-export function ReturnPct({ net, base, dim }: { net: number | null | undefined; base?: number | null; dim?: boolean }) {
+export function ReturnPct({ net, base }: { net: number | null | undefined; base?: number | null }) {
   if (net == null || !base) return <span className="text-faint">{DASH}</span>;
   const r = (net / base) * 100;
   return (
-    <span className={`text-sm font-semibold ${dim ? "text-faint" : toneClass(r, 1)}`}>
+    <span className={`text-sm font-semibold ${toneClass(r, 1)}`}>
       {glyph(r, 1)} {signedPct(r, 1)}
     </span>
   );
@@ -553,11 +528,10 @@ export function StatusDot({ state }: { state: "stale" | "down" }) {
  * The one loading mark: a 2px ring with a quarter arc that turns (0.8s, linear). Under reduced motion it stands
  * still and the label is printed. `label` names what is loading for screen readers; `show` prints it beside the ring.
  */
-export function Spinner({ size = "sm", label = "Loading", show = false, className = "" }: { size?: "sm" | "md"; label?: string; show?: boolean; className?: string }) {
-  const px = size === "md" ? 20 : 16;
+export function Spinner({ label = "Loading", show = false, className = "" }: { label?: string; show?: boolean; className?: string }) {
   return (
     <span role="status" aria-label={label} className={`inline-flex items-center gap-2 text-muted ${className}`}>
-      <svg viewBox="0 0 16 16" width={px} height={px} className="spinner shrink-0" aria-hidden>
+      <svg viewBox="0 0 16 16" width={16} height={16} className="spinner shrink-0" aria-hidden>
         <circle cx="8" cy="8" r="7" fill="none" stroke="currentColor" strokeOpacity="0.2" strokeWidth="2" />
         <path d="M8 1a7 7 0 0 1 7 7" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" />
       </svg>
@@ -586,10 +560,9 @@ export function Table({ head, children }: { head?: string[]; children: ReactNode
 }
 
 /**
- * A table row; with `onClick` the whole row is the control: pointer, Enter, a visible focus ring,
- * and with `chevron` the fade-in "opens" cue in a last cell (give the table an empty last header).
+ * A table row; with `onClick` the whole row is the control: pointer, Enter, a visible focus ring.
  */
-export function Row({ children, onClick, chevron = false, label }: { children: ReactNode; onClick?: () => void; chevron?: boolean; label?: string }) {
+export function Row({ children, onClick, label }: { children: ReactNode; onClick?: () => void; label?: string }) {
   return (
     <tr
       onClick={onClick}
@@ -599,7 +572,6 @@ export function Row({ children, onClick, chevron = false, label }: { children: R
       className={`group border-b border-line text-bright transition-colors last:border-b-0 hover:bg-hover ${onClick ? "cursor-pointer focus-visible:bg-hover focus-visible:outline-2 focus-visible:-outline-offset-2 focus-visible:outline-accent-hi" : ""}`}
     >
       {children}
-      {chevron && <td className="w-8 pr-2"><RowChevron /></td>}
     </tr>
   );
 }
@@ -699,8 +671,6 @@ export function LoadMore({ shown, total, onMore }: { shown: number; total: numbe
     </div>
   );
 }
-
-const DAY_MS = 86_400_000;
 
 /** Date ranges: rolling windows (24h, 30D), and calendar spans that begin at a UTC midnight (Today, 7D, MTD, YTD). */
 const RANGES = [
@@ -839,9 +809,9 @@ export function Button({
 }
 
 /** One label/value pair inside a detail modal. */
-export function Field({ label, children, wide }: { label: string; children: ReactNode; wide?: boolean }) {
+export function Field({ label, children }: { label: string; children: ReactNode }) {
   return (
-    <div className={`rounded-lg border border-line bg-raised px-3 py-2.5 ${wide ? "sm:col-span-2" : ""}`}>
+    <div className="rounded-lg border border-line bg-raised px-3 py-2.5">
       <div className="eyebrow">{label}</div>
       <div className="mt-1 break-all text-sm text-bright">{children}</div>
     </div>
@@ -851,13 +821,13 @@ export function Field({ label, children, wide }: { label: string; children: Reac
 /** What a panel will hold, so its placeholder takes the same shape: rows of a table, an axis frame, figures, text. */
 export type PlaceholderShape = "table" | "chart" | "kpis" | "lines";
 
-/** A spinner that appears only after `afterMs`, so a fast load never flashes one. */
-function LateSpinner({ afterMs = 1000, label }: { afterMs?: number; label: string }) {
+/** A spinner that appears only after a second, so a fast load never flashes one. */
+function LateSpinner({ label }: { label: string }) {
   const [late, setLate] = useState(false);
   useEffect(() => {
-    const id = window.setTimeout(() => setLate(true), afterMs);
+    const id = window.setTimeout(() => setLate(true), 1000);
     return () => window.clearTimeout(id);
-  }, [afterMs]);
+  }, []);
   return late ? <Spinner label={label} className="absolute right-4 top-3" /> : null;
 }
 
@@ -979,20 +949,7 @@ export function PageFallback({ title }: { title?: string }) {
 
 /** The row's "this opens" cue: fades in on hover and focus, always faint on touch screens. */
 export function RowChevron({ className = "" }: { className?: string }) {
-  return (
-    <svg
-      viewBox="0 0 24 24"
-      className={`h-4 w-4 shrink-0 text-faint opacity-0 transition-opacity group-hover:opacity-100 group-focus-visible:opacity-100 group-focus-within:opacity-100 [@media(hover:none)]:opacity-60 ${className}`}
-      fill="none"
-      stroke="currentColor"
-      strokeWidth="1.75"
-      strokeLinecap="round"
-      strokeLinejoin="round"
-      aria-hidden
-    >
-      <path d="M9 18l6-6-6-6" />
-    </svg>
-  );
+  return <Icon d="M9 18l6-6-6-6" className={`h-4 w-4 text-faint opacity-0 transition-opacity group-hover:opacity-100 group-focus-visible:opacity-100 group-focus-within:opacity-100 [@media(hover:none)]:opacity-60 ${className}`} />;
 }
 
 /** The clock, re-read every `everyMs` so an age ("stale · 4m") keeps up. */
@@ -1016,20 +973,12 @@ export function Freshness({ at, stale, quiet = false, className = "" }: { at: nu
     return (
       <span className={`inline-flex items-center gap-1.5 text-xs font-medium text-warn ${className}`} role="status" title={`last broker update ${new Date(at).toISOString().slice(11, 19)} UTC`}>
         <StatusDot state="stale" />
-        stale · {ageSince(at, now).replace(/ ago$/, "")}
+        stale · {elapsed(now - at)}
       </span>
     );
   }
   if (quiet) return null;
   return <span className={`text-xs text-muted ${className}`}>as of {new Date(at).toISOString().slice(11, 19)} UTC</span>;
-}
-
-function ageSince(at: number, now: number): string {
-  const s = Math.max(0, Math.floor((now - at) / 1000));
-  if (s < 60) return `${s}s ago`;
-  if (s < 3600) return `${Math.floor(s / 60)}m ago`;
-  if (s < 86400) return `${Math.floor(s / 3600)}h ago`;
-  return `${Math.floor(s / 86400)}d ago`;
 }
 
 /**

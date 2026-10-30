@@ -3,6 +3,7 @@ import { listInstances, listStrategies, listTrades, searchEvents, equityCurve, i
 import { CONTRACT_VERSION, SUPPORTED_MAJORS } from "@qkt-insights/contract";
 import { UNATTRIBUTED_STRATEGY } from "@qkt-insights/contract/query";
 import { requireSession } from "./auth.js";
+import { registerBrowserRedirects } from "./browser.js";
 import { TtlCache } from "./cache.js";
 import { performanceBundle } from "./performance.js";
 import { Revalidated } from "./revalidate.js";
@@ -15,6 +16,8 @@ export interface RestDeps {
 }
 
 const LIMIT = (q: Record<string, string | undefined>) => Math.min(Number(q.limit ?? 200), 1000);
+/** A comma-separated parameter as its parts: "WARN,ERROR" → ["WARN", "ERROR"]. */
+const list = (v: string | undefined): string[] | undefined => v?.split(",").map((x) => x.trim()).filter((x) => x.length > 0);
 
 /** Points /account/equity returns unless the caller asks for more (`points`) or every minute (`resolution=full`). */
 export const ACCOUNT_EQUITY_POINTS = 2000;
@@ -27,6 +30,7 @@ function accountEquityPoints(q: Record<string, string | undefined>): number | un
 }
 
 export function registerRest(app: FastifyInstance, deps: RestDeps): void {
+  registerBrowserRedirects(app);
   const guard = { preHandler: requireSession };
   // Hot reads only — /live/state must stay uncached so WS reconciliation sees broker truth.
   const cache = new TtlCache();
@@ -84,11 +88,13 @@ export function registerRest(app: FastifyInstance, deps: RestDeps): void {
     return searchEvents(deps.db, { q: q.q, instanceId: q.instance, limit: LIMIT(q) });
   });
 
+  // level is one level or several, comma-separated (WARN,ERROR); orLogger (logger last names, comma-separated) adds
+  // those loggers' lines at any level beside them (contract LOG_ATTENTION)
   app.get<{ Querystring: Record<string, string> }>("/logs", guard, async (req, reply) => {
     const q = req.query; const i = q.instance; if (!need(reply, i, "instance")) return;
     // logger (part of the name), from and to (ms, [from, to)) narrow further; all optional
     const ms = (v: string | undefined) => (v != null && Number.isFinite(Number(v)) ? Number(v) : undefined);
-    return cache.get(req.url, () => searchLogs(deps.db, { instanceId: i, strategyId: logStrategy(q.strategy), level: q.level, q: q.q, logger: q.logger,
+    return cache.get(req.url, () => searchLogs(deps.db, { instanceId: i, strategyId: logStrategy(q.strategy), levels: list(q.level), orLoggers: list(q.orLogger), q: q.q, logger: q.logger,
       from: ms(q.from), to: ms(q.to), limit: LIMIT(q) }));
   });
 
@@ -97,7 +103,7 @@ export function registerRest(app: FastifyInstance, deps: RestDeps): void {
   app.get<{ Querystring: Record<string, string> }>("/logs/page", guard, async (req, reply) => {
     const q = req.query; const i = q.instance; if (!need(reply, i, "instance")) return;
     const ms = (v: string | undefined) => (v != null && Number.isFinite(Number(v)) ? Number(v) : undefined);
-    return cache.get(req.url, () => logPage(deps.db, { instanceId: i, strategyId: logStrategy(q.strategy), level: q.level, q: q.q, logger: q.logger,
+    return cache.get(req.url, () => logPage(deps.db, { instanceId: i, strategyId: logStrategy(q.strategy), levels: list(q.level), orLoggers: list(q.orLogger), q: q.q, logger: q.logger,
       from: ms(q.from), to: ms(q.to), limit: LIMIT(q), cursor: q.cursor }));
   });
 

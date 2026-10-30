@@ -1,9 +1,9 @@
 import { useMemo } from "react";
-import { chartColors, EChart, qktChartAxis, qktChartGrid, qktChartTooltip, qktXAxis, tipHtml, tok, zeroLine, type QktChartOption } from "../components/EChart";
+import { EChart, qktBarTooltip, qktChartAxis, qktChartGrid, type QktChartOption, qktXAxis, signedBar, tipHtml, zeroLine } from "../components/EChart";
 import { count, DASH, duration, num, pnl, polarity, signedMoney, toneClass, winPct } from "../format";
 import type { TripBucket } from "../trades/analytics";
 import { rMultiple } from "../trades/format";
-import { chipOf, MIN_SAMPLE } from "./journal";
+import { chipOf, MIN_SAMPLE, winRate } from "./journal";
 import type { SectionProps } from "./StrategyPage";
 import { ICON, SignedBars, StatRow, Widget } from "./widgets";
 
@@ -12,8 +12,6 @@ import { ICON, SignedBars, StatRow, Widget } from "./widgets";
  * faded), how its trades end, how long it holds, which side pays, how much it risks (R) and how
  * it streaks. Every bucket narrows the query to its trades; a second click clears it.
  */
-
-const winRate = (b: { wins: number; losses: number }) => (b.wins + b.losses > 0 ? (b.wins / (b.wins + b.losses)) * 100 : null);
 
 function bucketRows(buckets: TripBucket[], q: string, key: Parameters<typeof chipOf>[1], toggle: (t: string) => void, fadeThin = false) {
   const active = chipOf(q, key);
@@ -35,8 +33,7 @@ export function TimeRiskSection({ q, toggle, a, busy, openTrade }: SectionProps)
   const hourOption = useMemo<QktChartOption>(() => ({
     grid: { ...qktChartGrid, top: 12 },
     tooltip: {
-      ...qktChartTooltip(),
-      axisPointer: { type: "shadow", shadowStyle: { color: tok("hover") } },
+      ...qktBarTooltip(),
       formatter: (params: unknown) => {
         const b = hours[(params as Array<{ dataIndex: number }>)[0]?.dataIndex ?? 0];
         if (!b) return "";
@@ -52,11 +49,7 @@ export function TimeRiskSection({ q, toggle, a, busy, openTrade }: SectionProps)
       name: "P&L", type: "bar", barCategoryGap: "25%",
       data: hours.map((b) => ({
         value: b.n ? b.pnl : null,
-        itemStyle: {
-          color: b.pnl >= 0 ? chartColors.gain : chartColors.loss,
-          opacity: hourChip ? (hourChip === b.filter ? 1 : 0.35) : b.n < MIN_SAMPLE ? 0.35 : 1,
-          borderRadius: b.pnl >= 0 ? [3, 3, 0, 0] : [0, 0, 3, 3],
-        },
+        itemStyle: signedBar(b.pnl, hourChip ? (hourChip === b.filter ? 1 : 0.35) : b.n < MIN_SAMPLE ? 0.35 : 1),
       })),
       markLine: zeroLine(),
     }],
@@ -106,7 +99,7 @@ export function TimeRiskSection({ q, toggle, a, busy, openTrade }: SectionProps)
         <StatRow label="Trades with a known stop">{count(a.r.n)} of {count(a.closed)}</StatRow>
         <StatRow label="Average R"><span className={toneClass(a.r.avg)}>{a.r.n ? rMultiple(a.r.avg) : "no stop"}</span>{a.r.n > 0 && a.r.n < a.closed && <span className="text-muted"> · {count(a.r.n)} of {count(a.closed)}</span>}</StatRow>
         <StatRow label="Total R"><span className={toneClass(a.r.total)}>{a.r.n ? rMultiple(a.r.total) : "no stop"}</span>{a.r.n > 0 && a.r.n < a.closed && <span className="text-muted"> · {count(a.r.n)} of {count(a.closed)}</span>}</StatRow>
-        <StatRow label="Payoff ratio">{num(a.payoff)}</StatRow>
+        <StatRow label="Win/loss ratio">{num(a.payoff)}</StatRow>
         <StatRow label="Average hold">{a.avgHoldMs == null ? DASH : duration(a.avgHoldMs)}</StatRow>
       </Widget>
       <Widget icon={ICON.streak} title="Streaks and extremes" busy={busy}

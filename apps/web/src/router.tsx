@@ -164,7 +164,7 @@ export function useSearchParam(key: string, fallback = ""): [string, (value: str
 }
 
 /** In-app link: a real href (open in a new tab works) that navigates without a reload on a plain click. */
-export function Link({ to, replace, from, children, onClick, ...rest }: { to: string; replace?: boolean; from?: string; children: ReactNode } & Omit<AnchorHTMLAttributes<HTMLAnchorElement>, "href">) {
+export function Link({ to, from, children, onClick, ...rest }: { to: string; from?: string; children: ReactNode } & Omit<AnchorHTMLAttributes<HTMLAnchorElement>, "href">) {
   const { navigate, href } = useRoute();
   return (
     <a
@@ -174,7 +174,7 @@ export function Link({ to, replace, from, children, onClick, ...rest }: { to: st
         onClick?.(e);
         if (e.defaultPrevented || e.button !== 0 || e.metaKey || e.ctrlKey || e.shiftKey || e.altKey) return;
         e.preventDefault();
-        navigate(to, { replace, from });
+        navigate(to, { from });
       }}
     >
       {children}

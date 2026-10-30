@@ -81,6 +81,11 @@ export function withCumulative<T extends { pnl: number }>(rows: readonly T[]): A
   return rows.map((r) => ({ ...r, cum: (cum += r.pnl) }));
 }
 
+/** A bucket's win rate in percent over its decided trades; null when none was decided. */
+export function winRate(b: { wins: number; losses: number }): number | null {
+  return b.wins + b.losses > 0 ? (b.wins / (b.wins + b.losses)) * 100 : null;
+}
+
 /** Profit factor as text: "∞" with no losses, a dash with nothing decided. */
 export function profitFactorText(pf: number | "inf" | null): string {
   if (pf === "inf") return "∞";
@@ -112,8 +117,3 @@ export function todayParts(today: { closed: number; wins: number; ended: readonl
   return parts;
 }
 
-/** A line that tells the strategy's story: a warning or error, or an order, fill, trade, stop or rejection. */
-export function importantLog(l: { level: string; message: string; logger: string }): boolean {
-  if (l.level === "ERROR" || l.level === "WARN") return !/StateFileWriter|scheduled break/iu.test(`${l.logger} ${l.message}`);
-  return /\b(order|fill(ed)?|trade|position|stop|target|reject(ed)?|entry|exit)\b/iu.test(l.message);
-}

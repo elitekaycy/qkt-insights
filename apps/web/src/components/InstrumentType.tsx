@@ -1,5 +1,5 @@
 import type { ReactNode } from "react";
-import { GLOSSARY, legInstrument, TYPE_LABEL, TYPE_SHORT, type CostKind, type InstrumentType, type Leg } from "../instruments";
+import { GLOSSARY, legsLine, TYPE_LABEL, TYPE_SHORT, type CostKind, type InstrumentType, type Leg } from "../instruments";
 import { Popover } from "./ui";
 
 /*
@@ -10,20 +10,11 @@ import { Popover } from "./ui";
 
 const BADGE = "inline-flex h-5 shrink-0 items-center whitespace-nowrap rounded-md border border-line bg-raised px-1.5 text-[10.5px] font-medium text-body";
 
-/**
- * The type's name in a badge; `explain` adds the glossary on hover or tap, otherwise its tooltip carries it.
- * `short` names it in a word or two for dense tables.
- */
-export function TypeBadge({ type, explain = false, short = false }: { type: InstrumentType | null | undefined; explain?: boolean; short?: boolean }) {
+/** The type's name in a badge, what it is on its tooltip. `short` names it in a word or two for dense tables. */
+export function TypeBadge({ type, short = false }: { type: InstrumentType | null | undefined; short?: boolean }) {
   if (!type) return null;
   const g = GLOSSARY[type];
-  if (!explain) return <span className={BADGE} title={`${g.term}: ${g.text}`}>{short ? TYPE_SHORT[type] : TYPE_LABEL[type]}</span>;
-  return (
-    <Popover hover label={`What a ${g.term} is`} trigger={<span className={`${BADGE} cursor-help`}>{TYPE_LABEL[type]}</span>}>
-      <p className="font-medium text-bright">{g.term}</p>
-      <p className="mt-1">{g.text}</p>
-    </Popover>
-  );
+  return <span className={BADGE} title={`${g.term}: ${g.text}`}>{short ? TYPE_SHORT[type] : TYPE_LABEL[type]}</span>;
 }
 
 /** A cost's name with its explanation on hover or tap: "Swap", "Funding", ... */
@@ -38,39 +29,15 @@ export function CostTerm({ kind, children }: { kind: CostKind; children?: ReactN
 }
 
 /**
- * A strategy's legs on one line for a card: the first leg's instrument and venue ("XAUUSD · Exness"), then "+1 more";
- * every leg in full (type included, or that qkt did not state it) on hover.
+ * What a strategy trades as one short line, "XAUUSD · Exness" or "BTC perp + options · Paper", cut with an ellipsis
+ * when it does not fit; every leg in full (type, instrument, venue) on hover.
  */
 export function LegLine({ legs, className = "" }: { legs: readonly Leg[]; className?: string }) {
   if (legs.length === 0) return null;
-  const first = legs[0]!;
-  const title = legs.map((l) => `${l.type ? TYPE_LABEL[l.type] : "type not stated"} ${legInstrument(l)}${l.venue ? ` · ${l.venue}` : ""}`).join("\n");
+  const { text, title } = legsLine(legs);
   return (
-    <div className={`flex min-w-0 items-center gap-1.5 whitespace-nowrap text-xs ${className}`} title={title} aria-label={`What it trades: ${title.replace(/\n/g, "; ")}`}>
-      <span className="shrink-0 font-medium text-bright">{legInstrument(first)}</span>
-      {first.venue && <span className="min-w-0 truncate text-muted">· {first.venue}</span>}
-      {legs.length > 1 && <span className="shrink-0 text-muted">+{legs.length - 1} more</span>}
+    <div className={`truncate text-muted ${className}`} title={title} aria-label={`What it trades: ${title.replace(/\n/g, "; ")}`}>
+      {text}
     </div>
-  );
-}
-
-/**
- * A strategy's legs as one line for its page: each instrument with its short type ("Perp BTC_USDC_PERPETUAL ·
- * Option BTC 80500 call, 29 Oct"), then the venues once ("· Paper (Deribit prices)"). Each leg in full on hover.
- */
-export function LegSummary({ legs, className = "" }: { legs: readonly Leg[]; className?: string }) {
-  if (legs.length === 0) return null;
-  const venues = [...new Set(legs.map((l) => l.venue).filter((v): v is string => !!v))];
-  return (
-    <p className={`text-sm ${className}`} aria-label="What it trades">
-      {legs.map((l, i) => (
-        <span key={l.symbol} title={`${l.type ? TYPE_LABEL[l.type] : "type not stated"} · ${l.symbol}`}>
-          {i > 0 && <span className="text-muted"> · </span>}
-          {l.type && <span className="text-muted">{TYPE_SHORT[l.type]} </span>}
-          <span className="font-medium text-bright">{legInstrument(l)}</span>
-        </span>
-      ))}
-      {venues.length > 0 && <span className="text-muted"> · {venues.join(", ")}</span>}
-    </p>
   );
 }

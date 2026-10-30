@@ -1,5 +1,5 @@
 import type { AccountRiskRow, LiveAccount, LivePositionRow, StrategyRow } from "./api";
-import { age, DASH, instrumentOf, money, openPnl, pctValue, signedMoney, ts } from "./format";
+import { age, DASH, DAY_MS, instrumentOf, money, openPnl, pctValue, signedMoney, ts } from "./format";
 import { roundMoney } from "@qkt-insights/contract/money";
 
 /*
@@ -7,7 +7,6 @@ import { roundMoney } from "@qkt-insights/contract/money";
  * its risk row (limits, day basis), and every close on the account. Nothing here reads React.
  */
 
-const DAY_MS = 86_400_000;
 
 /** The account's risk row for a live account: by its account id, then by label, then the only one. */
 export function riskRowFor(account: Pick<LiveAccount, "broker" | "accountId">, rows: AccountRiskRow[]): AccountRiskRow | null {
@@ -85,29 +84,29 @@ export interface TodayPart {
 }
 
 /**
- * Home's headline, "Today +18.35 USD qkt · −767.77 USD other system on Exness •••2618": qkt's Today summed per
- * currency (never across currencies), then each account's other-system floating. Zero parts are left out, except a
- * qkt total of zero when nothing else is to say. Accounts whose Today is not known yet (no risk row) are skipped and
- * counted in `missing`, so the line never passes a partial sum off as the whole.
+ * Home's headline and what sits beside it: `parts` is the strategies' Today summed per currency (never across
+ * currencies), "Today +18.35 USD · −0.04 USDC"; `others` is each account's other activity (another system's floating on
+ * the same login), for a quieter chip of its own. Zero parts are left out, except one zero when nothing else is to
+ * say. Accounts whose Today is not known yet (no risk row) are skipped and counted in `missing`, so the line never
+ * passes a partial sum off as the whole.
  */
-export function todayHeadline(items: ReadonlyArray<{ key: string; name: string; currency: string; split: TodaySplit | null }>): { parts: TodayPart[]; missing: number } {
+export function todayHeadline(items: ReadonlyArray<{ key: string; name: string; currency: string; split: TodaySplit | null }>): { parts: TodayPart[]; others: TodayPart[]; missing: number } {
   const qkt = new Map<string, number>();
-  const other: TodayPart[] = [];
+  const others: TodayPart[] = [];
   let missing = 0;
   for (const it of items) {
     if (!it.split) { missing++; continue; }
     qkt.set(it.currency, roundMoney((qkt.get(it.currency) ?? 0) + it.split.qkt, 2));
-    if (it.split.other != null && it.split.other !== 0) other.push({ kind: "other", value: it.split.other, currency: it.currency, account: { key: it.key, name: it.name } });
+    if (it.split.other != null && it.split.other !== 0) others.push({ kind: "other", value: it.split.other, currency: it.currency, account: { key: it.key, name: it.name } });
   }
   const own: TodayPart[] = [...qkt].map(([currency, value]) => ({ kind: "qkt", value, currency }));
   const nonZero = own.filter((p) => p.value !== 0);
-  const parts = [...(nonZero.length > 0 || other.length > 0 ? nonZero : own.slice(0, 1)), ...other];
-  return { parts, missing };
+  return { parts: nonZero.length > 0 ? nonZero : own.slice(0, 1), others, missing };
 }
 
 /** One thing on Home that needs the owner, and where it lives. */
 export type AttentionItem =
-  | { kind: "halted"; strategyId: string; name: string }
+  | { kind: "halted"; strategyId: string; name: string; why?: string }
   | { kind: "halted-many"; count: number }
   | { kind: "account"; key: string; name: string; state: "stale" | "stopped"; since: number }
   | { kind: "no-stop"; count: number };
@@ -118,14 +117,14 @@ export type AttentionItem =
  * floating is not here: Home's headline names it beside qkt's own figure.
  */
 export function attentionItems(input: {
-  strategies: ReadonlyArray<{ strategyId: string; name: string; active: boolean; halted?: boolean }>;
+  strategies: ReadonlyArray<{ strategyId: string; name: string; active: boolean; halted?: boolean; why?: string }>;
   accounts: ReadonlyArray<{ key: string; name: string; stale: boolean; stopped?: boolean; lastSeen: number }>;
   noStop: number;
 }): AttentionItem[] {
   const out: AttentionItem[] = [];
   const halted = input.strategies.filter((s) => s.active && s.halted);
   if (halted.length > 2) out.push({ kind: "halted-many", count: halted.length });
-  else for (const s of halted) out.push({ kind: "halted", strategyId: s.strategyId, name: s.name });
+  else for (const s of halted) out.push({ kind: "halted", strategyId: s.strategyId, name: s.name, ...(s.why ? { why: s.why } : {}) });
   for (const a of input.accounts) {
     if (a.stale) out.push({ kind: "account", key: a.key, name: a.name, state: a.stopped ? "stopped" : "stale", since: a.lastSeen });
   }

@@ -7,7 +7,6 @@ export function ChartCard({
   description,
   meta,
   value,
-  toolbar,
   children,
   className = "",
 }: {
@@ -15,7 +14,6 @@ export function ChartCard({
   description?: string;
   meta?: string;
   value?: ReactNode;
-  toolbar?: ReactNode;
   children: ReactNode;
   className?: string;
 }) {
@@ -37,7 +35,6 @@ export function ChartCard({
         <div className="flex items-start gap-3 border-b border-line/70 px-4 py-3.5 sm:px-5">
           {header}
           <div className="flex shrink-0 items-center gap-2">
-            {toolbar}
             <IconButton
               label={`Expand ${title}`}
               onClick={() => setExpanded(true)}
@@ -47,7 +44,7 @@ export function ChartCard({
         </div>
         {children}
       </Card>
-      <Modal open={expanded} onClose={() => setExpanded(false)} title={title} hint={meta} toolbar={toolbar}>
+      <Modal open={expanded} onClose={() => setExpanded(false)} title={title} hint={meta}>
         <div className="min-h-[420px]">{children}</div>
       </Modal>
     </>

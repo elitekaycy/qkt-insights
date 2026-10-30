@@ -94,7 +94,7 @@ const SUN = "M12 3v1.5M12 19.5V21M4.6 4.6l1.1 1.1M18.3 18.3l1.1 1.1M3 12h1.5M19.
 const MOON = "M21 12.8A9 9 0 1 1 11.2 3a7 7 0 0 0 9.8 9.8z";
 
 /** Dark mode on or off, as a toggle that says what it does; the choice is remembered per viewer. */
-export function ThemeToggle({ iconsOnly = false, className = "" }: { iconsOnly?: boolean; className?: string }) {
+export function ThemeToggle({ iconsOnly = false }: { iconsOnly?: boolean }) {
   const theme = useTheme();
   const next = theme === "dark" ? "light" : "dark";
   return (
@@ -106,7 +106,7 @@ export function ThemeToggle({ iconsOnly = false, className = "" }: { iconsOnly?:
       aria-label="Dark mode"
       className={`flex h-9 w-full items-center gap-3 rounded-lg px-3 text-sm font-medium text-body transition hover:bg-hover hover:text-bright ${
         iconsOnly ? "justify-center px-0" : ""
-      } ${className}`}
+      }`}
     >
       <NavIcon d={theme === "dark" ? MOON : SUN} big />
       {!iconsOnly && "Dark mode"}

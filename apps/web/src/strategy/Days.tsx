@@ -1,11 +1,12 @@
 import { useMemo, useState } from "react";
 import { withTokens } from "@qkt-insights/contract/query";
+import { shade } from "../calendar";
 import { CalendarView } from "../components/Calendar";
-import { chartColors, EChart, qktChartAxis, qktChartGrid, qktChartTooltip, qktXAxis, tipHtml, tok, zeroLine, type QktChartOption } from "../components/EChart";
-import { compactPnl, count, DASH, monthName, pnl, polarity, returnPct, signedMoney, toneClass, winPct } from "../format";
+import { EChart, qktBarTooltip, qktChartAxis, qktChartGrid, type QktChartOption, qktXAxis, signedBar, tipHtml, zeroLine } from "../components/EChart";
+import { compactPnl, count, DASH, monthName, MONTHS, pnl, polarity, returnPct, signedMoney, toneClass, weekday, winPct } from "../format";
 import type { TripDay, TripMonth } from "../trades/analytics";
 import { RoundTripTable } from "../trades/RoundTripTable";
-import { emptyHint, pickedSpan, profitFactorText, windowTotals, withCumulative, without } from "./journal";
+import { emptyHint, pickedSpan, profitFactorText, windowTotals, winRate, withCumulative, without } from "./journal";
 import type { SectionProps } from "./StrategyPage";
 import { ICON, Widget } from "./widgets";
 
@@ -14,16 +15,6 @@ import { ICON, Widget } from "./widgets";
  * period on screen (the query without its exit day or month) while a click picks a day or month,
  * which narrows the query; the trades behind the pick are listed under it.
  */
-
-const WEEKDAY = ["Sun", "Mon", "Tue", "Wed", "Thu", "Fri", "Sat"];
-const MONTHS = ["Jan", "Feb", "Mar", "Apr", "May", "Jun", "Jul", "Aug", "Sep", "Oct", "Nov", "Dec"];
-const weekday = (d: string) => WEEKDAY[new Date(`${d}T00:00:00Z`).getUTCDay()]!;
-const winRate = (d: { wins: number; losses: number }) => (d.wins + d.losses > 0 ? (d.wins / (d.wins + d.losses)) * 100 : null);
-
-function shade(net: number, maxAbs: number): string {
-  const k = Math.min(1, Math.abs(net) / (maxAbs || 1));
-  return `color-mix(in srgb, ${net >= 0 ? "var(--color-gain-fill)" : "var(--color-loss-fill)"} ${Math.round(9 + 46 * k)}%, var(--color-panel))`;
-}
 
 function Empty({ q, from }: { q: string; from: number | undefined }) {
   return (
@@ -70,8 +61,7 @@ export function DailySection({ scope, q, toggle, base, busy }: SectionProps) {
   const option = useMemo<QktChartOption>(() => ({
     grid: { ...qktChartGrid, top: 12 },
     tooltip: {
-      ...qktChartTooltip(),
-      axisPointer: { type: "shadow", shadowStyle: { color: tok("hover") } },
+      ...qktBarTooltip(),
       formatter: (params: unknown) => {
         const d = days[(params as Array<{ dataIndex: number }>)[0]?.dataIndex ?? 0];
         if (!d) return "";
@@ -86,7 +76,7 @@ export function DailySection({ scope, q, toggle, base, busy }: SectionProps) {
       name: "P&L", type: "bar", barMaxWidth: 22, barCategoryGap: "25%",
       data: days.map((d) => ({
         value: d.pnl,
-        itemStyle: { color: d.pnl >= 0 ? chartColors.gain : chartColors.loss, opacity: picked && picked !== d.day ? 0.35 : 1, borderRadius: d.pnl >= 0 ? [3, 3, 0, 0] : [0, 0, 3, 3] },
+        itemStyle: signedBar(d.pnl, picked && picked !== d.day ? 0.35 : 1),
       })),
       markLine: zeroLine(),
     }],
@@ -148,8 +138,7 @@ export function MonthlySection({ scope, q, toggle, base, busy, capital, goTab }:
   const option = useMemo<QktChartOption>(() => ({
     grid: { ...qktChartGrid, top: 12 },
     tooltip: {
-      ...qktChartTooltip(),
-      axisPointer: { type: "shadow", shadowStyle: { color: tok("hover") } },
+      ...qktBarTooltip(),
       formatter: (params: unknown) => {
         const m = months[(params as Array<{ dataIndex: number }>)[0]?.dataIndex ?? 0];
         if (!m) return "";
@@ -164,7 +153,7 @@ export function MonthlySection({ scope, q, toggle, base, busy, capital, goTab }:
       name: "P&L", type: "bar", barMaxWidth: 48, barCategoryGap: "30%",
       data: months.map((m) => ({
         value: m.pnl,
-        itemStyle: { color: m.pnl >= 0 ? chartColors.gain : chartColors.loss, opacity: picked && picked !== m.day ? 0.35 : 1, borderRadius: m.pnl >= 0 ? [3, 3, 0, 0] : [0, 0, 3, 3] },
+        itemStyle: signedBar(m.pnl, picked && picked !== m.day ? 0.35 : 1),
       })),
       markLine: zeroLine(),
     }],

@@ -5,7 +5,13 @@ export interface LogSearch {
   instanceId: string;
   /** A strategy's lines; null: the lines no strategy wrote. */
   strategyId?: string | null;
-  level?: string;
+  /** Lines at any of these levels (each exact, e.g. ["WARN", "ERROR"]); every level when absent or empty. */
+  levels?: readonly string[];
+  /**
+   * With `levels`: a line of one of these loggers matches too, at any level (the order flow beside the warnings).
+   * Each is a logger's last name part, exact: `OrderManager` is `com.qkt.engine.OrderManager`.
+   */
+  orLoggers?: readonly string[];
   /** Part of the logger name, any case: `MT5Broker` finds `com.qkt.connector.mt5.MT5Broker`. */
   logger?: string;
   /**
@@ -67,14 +73,25 @@ function where(f: LogSearch): { from: string; clauses: string[]; params: Record<
   const cl: string[] = ["l.instance_id=@instanceId"];
   if (f.strategyId === null) cl.push("l.strategy_id IS NULL");
   else if (f.strategyId) cl.push("l.strategy_id=@strategyId");
-  if (f.level) cl.push("l.level=@level");
+  const params: Record<string, unknown> = {};
+  const levels = f.levels ?? [];
+  if (levels.length > 0) {
+    levels.forEach((v, i) => { params[`lv${i}`] = v; });
+    const loggers = f.orLoggers ?? [];
+    loggers.forEach((v, i) => { params[`lg${i}`] = v; params[`lgs${i}`] = `%.${v.replace(/[\\%_]/g, (c) => `\\${c}`)}`; });
+    const any = [
+      `l.level IN (${levels.map((_, i) => `@lv${i}`).join(",")})`,
+      ...loggers.map((_, i) => `l.logger=@lg${i} OR l.logger LIKE @lgs${i} ESCAPE '\\'`),
+    ];
+    cl.push(any.length > 1 ? `(${any.join(" OR ")})` : any[0]!);
+  }
   if (f.logger) cl.push("lower(l.logger) LIKE @logger ESCAPE '\\'");
   if (f.from != null) cl.push("l.ts>=@from");
   if (f.to != null) cl.push("l.ts<@to");
-  const params: Record<string, unknown> = {
-    instanceId: f.instanceId, strategyId: f.strategyId, level: f.level, from: f.from, to: f.to,
+  Object.assign(params, {
+    instanceId: f.instanceId, strategyId: f.strategyId, from: f.from, to: f.to,
     logger: f.logger ? `%${f.logger.toLowerCase().replace(/[\\%_]/g, (c) => `\\${c}`)}%` : undefined,
-  };
+  });
   if (!f.q?.trim()) return { from: "logs l", clauses: cl, params };
   const words = ftsWords(f.q);
   if (!words) return null;
@@ -84,7 +101,7 @@ function where(f: LogSearch): { from: string; clauses: string[]; params: Record<
 const COLUMNS = "l.id, l.strategy_id strategyId, l.level, l.logger, l.message, l.ts";
 
 /**
- * One page of log lines, newest first, filtered by strategy, level, logger, words and time, and
+ * One page of log lines, newest first, filtered by strategy, levels (with the loggers that also match), logger, words and time, and
  * the number of lines the whole query matches (first page). Pages by (ts, rowid), so a page is
  * stable while new lines arrive and every matching line in the range is reachable. Text goes
  * through the FTS index; everything else narrows the instance's lines by an (instance_id, ...) index.
