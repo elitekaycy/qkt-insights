@@ -1,5 +1,5 @@
 import type { AccountReconciliation, ReconciledDayReason, ReconciledLedger, ReconciledPositions } from "./api";
-import { clock, count, MONTHS, pnl, quantity, signedMoney, tsShort } from "./format";
+import { clock, count, MONTHS, quantity, signedMoney, tsShort } from "./format";
 import { PAGE_PATHS } from "./routes";
 
 /*
@@ -80,7 +80,7 @@ export function positionIssues(p: ReconciledPositions): string[] {
 /** The ledger result on one line. */
 export function ledgerLine(l: ReconciledLedger, digits = 2): { tone: ReconciliationTone; text: string } {
   const trips = `${count(l.trips)} closed round ${l.trips === 1 ? "trip" : "trips"}`;
-  if (l.status === "ok") return { tone: "ok", text: `Ledger ✓ ${trips} ${l.trips === 1 ? "adds up to its" : "add up to their"} deals (${pnl(l.tripsNet, digits)})` };
+  if (l.status === "ok") return { tone: "ok", text: `Ledger ✓ ${trips} ${l.trips === 1 ? "adds up to its" : "add up to their"} deals (${signedMoney(l.tripsNet, digits)})` };
   return { tone: "bad", text: `Ledger: ${trips} ${l.trips === 1 ? "sums" : "sum"} to ${signedMoney(l.tripsNet, digits)}, ${l.trips === 1 ? "its" : "their"} deals to ${signedMoney(l.dealsNet, digits)}` };
 }
 

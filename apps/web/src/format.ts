@@ -48,22 +48,9 @@ export function polarity(v: number | null | undefined, digits = 2): Polarity {
   return v > 0 ? "gain" : "loss";
 }
 
-/** Direction glyph so the sign never rests on colour alone. */
-export function glyph(v: number | null | undefined, digits = 2): string {
-  const p = polarity(v, digits);
-  return p === "gain" ? "▲" : p === "loss" ? "▼" : "";
-}
-
-/** Signed money with its glyph: "▲ +1,234.50", "▼ −56.00", "0.00". */
-export function pnl(v: number | null | undefined, digits = 2): string {
-  if (missing(v)) return DASH;
-  const g = glyph(v, digits);
-  return g ? `${g} ${signedMoney(v, digits)}` : signedMoney(v, digits);
-}
-
 /** Text-colour class for a signed figure: gains green, losses red, flat muted. */
 export function toneClass(v: number | null | undefined, digits = 2): string {
-  if (missing(v)) return "text-faint";
+  if (missing(v)) return "text-muted";
   const p = polarity(v, digits);
   return p === "gain" ? "text-gain" : p === "loss" ? "text-loss" : "text-muted";
 }
@@ -115,8 +102,8 @@ export function axisTick(v: number): string {
 }
 
 /**
- * Compact signed money with its glyph for narrow cells, about three significant figures so a cell agrees with the
- * total beside it: "▼ −5.94", "▲ +14.8", "▼ −0.40", "▲ +1.23k", "0". Tooltips keep full precision.
+ * Compact signed money for narrow cells, about three significant figures so a cell agrees with the
+ * total beside it: "−5.94", "+14.8", "−0.40", "+1.23k", "0". Tooltips keep full precision.
  */
 export function compactPnl(v: number): string {
   const abs = Math.abs(v);
@@ -127,7 +114,7 @@ export function compactPnl(v: number): string {
     : abs >= 100 ? abs.toFixed(0)
     : abs >= 10 ? abs.toFixed(1)
     : abs.toFixed(2);
-  return `${glyph(v)} ${v > 0 ? "+" : MINUS}${body}`;
+  return `${v > 0 ? "+" : MINUS}${body}`;
 }
 
 /** A signed return in percent units that never prints a non-zero return as "0.00%": "−0.06%", "<0.01%", "−<0.01%". */
@@ -246,17 +233,6 @@ export function duration(ms: number | null | undefined): string {
   if (h < 24) return `${h}h${m % 60 ? ` ${m % 60}m` : ""}`;
   const d = Math.floor(h / 24);
   return `${d}d${h % 24 ? ` ${h % 24}h` : ""}`;
-}
-
-/** A holding time for a narrow column, the two largest units without seconds past a minute: 45s, 25m, 1h 1m, 2d 4h. */
-export function compactDuration(ms: number | null | undefined): string {
-  if (missing(ms) || ms < 0) return DASH;
-  const m = Math.floor(ms / 60_000);
-  if (m < 1) return `${Math.floor(ms / 1000)}s`;
-  if (m < 60) return `${m}m`;
-  const h = Math.floor(m / 60);
-  if (h < 24) return `${h}h${m % 60 ? ` ${m % 60}m` : ""}`;
-  return `${Math.floor(h / 24)}d${h % 24 ? ` ${h % 24}h` : ""}`;
 }
 
 /** A span in its largest whole unit: "45s", "12m", "3h", "2d". */

@@ -1,6 +1,6 @@
 import { useEffect, useMemo, useState } from "react";
 import type { DayNet } from "../api";
-import { compactPnl, count, DASH, day as utcDay, human, monthName, pct, pnl, returnPct, shortDay, signedMoney } from "../format";
+import { compactPnl, count, DASH, day as utcDay, human, monthName, pct, returnPct, shortDay, signedMoney } from "../format";
 import { Card, Cell, CurrencyMix, Empty, Field, IconButton, Modal, Pnl, Row, Table } from "./ui";
 import { Link, PAGE_PATHS, routePath, useSearchParam } from "../router";
 import { RoundTripTable } from "../trades/RoundTripTable";
@@ -110,7 +110,6 @@ export function CalendarView({
   };
   const hasBase = monthly.some(([k]) => returnBase(k) != null);
   const ytd = monthly.filter(([k]) => k.startsWith(year)).reduce((a, [, v]) => a + v.net, 0);
-  const monthlyMaxAbs = Math.max(0, ...monthly.map(([, v]) => Math.abs(v.net)));
 
   const dayInfo = openDay ? byDay.get(openDay) : null;
   const openMonthDays = openMonth ? days.filter((d) => monthKey(d.day) === openMonth).sort((a, b) => (a.day < b.day ? -1 : 1)) : [];
@@ -121,13 +120,9 @@ export function CalendarView({
   return (
     <div className="@container grid gap-4">
       <Card className="p-4">
-        <div className="flex flex-wrap items-center gap-2 text-sm">
-          <span className="font-medium text-body">P&L calendar</span>
-          <span className="ml-auto text-xs text-muted" title="Each trade counts on the UTC day it closed; retired strategies and unattributed deals included">UTC close days</span>
-        </div>
-        <div className="mt-3 flex flex-wrap items-center gap-x-3 gap-y-2">
+        <div className="flex flex-wrap items-center gap-x-3 gap-y-2">
           <IconButton label="Previous month" disabled={idx <= 0} onClick={() => idx > 0 && setMonth(months[idx - 1]!)} d="M15 18l-6-6 6-6" />
-          <span className="min-w-[9.5rem] text-center text-[15px] font-headline text-bright">{monthName(month)}</span>
+          <span className="min-w-[8rem] text-center text-sm font-medium text-bright" title="Each trade counts on the UTC day it closed; retired strategies and unattributed deals included">{monthName(month)}</span>
           <IconButton
             label="Next month"
             disabled={idx >= months.length - 1}
@@ -136,22 +131,12 @@ export function CalendarView({
           />
           <span className="flex-1" />
           <span><Pnl value={monthNet} className="font-headline" /><CurrencyMix mix={mix} /></span>
-          <span className="text-muted">
-            {count(monthTrades)} trades · {monthDays.length ? pct(greenDays / monthDays.length, 0) : DASH} green days
+          <span className="text-muted" title={`${monthDays.length ? pct(greenDays / monthDays.length, 0) : DASH} of trading days were green${best && best.net > 0 ? ` · best ${signedMoney(best.net)}` : ""}${worst && worst.net < 0 ? ` · worst ${signedMoney(worst.net)}` : ""}`}>
+            {count(monthTrades)} trades · UTC days
           </span>
-          {best && best.net > 0 && (
-            <span className="hidden text-muted @2xl:inline">
-              best <b className="font-semibold text-gain">{signedMoney(best.net)}</b>
-            </span>
-          )}
-          {worst && worst.net < 0 && (
-            <span className="hidden text-muted @2xl:inline">
-              worst <b className="font-semibold text-loss">{signedMoney(worst.net)}</b>
-            </span>
-          )}
         </div>
 
-        <div role="grid" aria-label={`P&L calendar for ${monthName(month)}`} className="mt-3 grid grid-cols-7 gap-1 @xl:grid-cols-[repeat(7,minmax(0,1fr))_96px] @xl:gap-1.5">
+        <div role="grid" aria-label={`P&L calendar for ${monthName(month)}`} title="Green is a profit day, red a loss day; the stronger the colour, the larger the day" className="mt-3 grid grid-cols-7 gap-1 @xl:grid-cols-[repeat(7,minmax(0,1fr))_96px] @xl:gap-1.5">
           <div role="row" className="contents">
             {WEEKDAYS.map((w) => (
               <div key={w} role="columnheader" className="eyebrow pb-1 text-center">
@@ -177,12 +162,12 @@ export function CalendarView({
                       <div
                         key={c.day}
                         role="gridcell"
-                        className={`flex min-h-12 flex-col justify-between rounded-lg border px-1.5 py-1 @xl:min-h-[78px] @xl:px-2 @xl:py-1.5 ${
-                          c.inMonth ? "border-line bg-panel" : "border-dashed border-line-strong"
-                        } ${isToday ? "border-accent-hi" : ""}`}
+                        className={`flex min-h-12 flex-col justify-between rounded-lg px-1.5 py-1 @xl:min-h-[72px] @xl:px-2 @xl:py-1.5 ${
+                          !c.inMonth ? "" : isToday ? "border border-accent-hi bg-raised" : "bg-raised"
+                        }`}
                       >
-                        <span className={`text-[11px] ${c.inMonth ? "text-muted" : "text-faint"}`}>{n}</span>
-                        {isToday && <span className="hidden text-[11px] text-accent-ink @xl:block">today</span>}
+                        {c.inMonth && <span className="text-xs text-muted">{n}</span>}
+                        {isToday && <span className="hidden text-xs text-muted @xl:block">today</span>}
                       </div>
                     );
                   }
@@ -195,27 +180,27 @@ export function CalendarView({
                       style={{ background: shade(d.net, maxAbs) }}
                       aria-label={`${c.day}: ${signedMoney(d.net)}, ${d.trades} trades`}
                       aria-pressed={onDay ? c.day === selectedDay : undefined}
-                      className={`flex min-h-12 min-w-0 flex-col justify-between rounded-lg border px-1.5 py-1 text-left transition hover:-translate-y-px hover:border-faint @xl:min-h-[78px] @xl:px-2 @xl:py-1.5 ${
-                        c.day === selectedDay ? "border-accent-hi ring-2 ring-accent-soft" : isToday ? "border-accent-hi" : "border-line"
+                      className={`flex min-h-12 min-w-0 flex-col justify-between rounded-lg border px-0.5 py-1 text-left transition hover:border-line-strong @xl:min-h-[72px] @xl:px-2 @xl:py-1.5 ${
+                        c.day === selectedDay ? "border-accent-hi ring-2 ring-accent-soft" : isToday ? "border-accent-hi" : "border-transparent"
                       }`}
                     >
-                      <span className="flex items-center justify-between text-[11px] text-bright">
+                      <span className="flex items-center justify-between text-xs text-bright">
                         {n}
-                        {isToday && <span className="hidden text-accent-ink @xl:inline">in progress</span>}
+                        {isToday && <span className="hidden text-muted @xl:inline">today</span>}
                       </span>
-                      <span className="truncate text-[10px] font-headline text-bright @xl:hidden">{compactSigned(d.net)}</span>
-                      <span className="hidden truncate text-sm font-headline text-bright @xl:block">{compactPnl(d.net)}</span>
-                      <span className="hidden text-[11px] text-bright @xl:block">
+                      <span className="text-xs font-medium tracking-tighter text-bright @xl:hidden">{compactSigned(d.net)}</span>
+                      <span className="hidden truncate text-sm font-medium text-bright @xl:block">{compactPnl(d.net)}</span>
+                      <span className="hidden text-xs text-bright @xl:block">
                         {d.trades} trade{d.trades === 1 ? "" : "s"}
                       </span>
                     </button>
                   );
                 })}
-                <div role="gridcell" className="hidden flex-col justify-center gap-0.5 rounded-lg border border-dashed border-line-strong px-2 py-1.5 text-[11px] text-muted @xl:flex">
+                <div role="gridcell" className="hidden flex-col justify-center gap-0.5 px-2 py-1.5 text-xs text-muted @xl:flex">
                   {wTrades > 0 && (
                     <>
                       <span>Week {wi + 1}</span>
-                      <b className={`text-sm font-semibold ${wNet >= 0 ? "text-gain" : "text-loss"}`} title={mix?.title}>{signedMoney(wNet)}</b>
+                      <b className={`text-sm font-medium ${wNet >= 0 ? "text-gain" : "text-loss"}`} title={mix?.title}>{signedMoney(wNet)}</b>
                       <span>{wTrades} trades</span>
                     </>
                   )}
@@ -224,24 +209,13 @@ export function CalendarView({
             );
           })}
         </div>
-        <div className="mt-3 flex flex-wrap items-center gap-x-4 gap-y-1 text-sm text-body">
-          <span className="inline-flex items-center gap-1.5">
-            <i className="inline-block h-2.5 w-2.5 rounded-[3px]" style={{ background: shade(1, 1) }} />
-            profit day
-          </span>
-          <span className="inline-flex items-center gap-1.5">
-            <i className="inline-block h-2.5 w-2.5 rounded-[3px]" style={{ background: shade(-1, 1) }} />
-            loss day
-          </span>
-          <span className="text-muted">Intensity follows the size of the day.</span>
-        </div>
       </Card>
 
       {monthlyTable && <Card className="overflow-hidden">
         <div className="flex flex-wrap items-baseline gap-x-3 gap-y-1 border-b border-line px-4 py-3">
-          <h3 className="text-sm font-medium text-body">Monthly returns</h3>
+          <h3 className="text-sm font-medium text-bright">Monthly returns</h3>
           <span className="text-xs text-muted" title={hasBase ? `Return on ${baseLabel}` : undefined}>
-            YTD {pnl(ytd)}
+            YTD {signedMoney(ytd)}
           </span>
         </div>
         <div className="max-h-[30rem] overflow-auto">
@@ -256,12 +230,12 @@ export function CalendarView({
               >
                 <Cell className="whitespace-nowrap">{k}</Cell>
                 <Cell>
-                  <span className="rounded px-1.5 py-0.5 font-semibold" style={{ background: shade(v.net, monthlyMaxAbs) }}>
-                    {pnl(v.net)}
+                  <span className="font-medium">
+                    {signedMoney(v.net)}
                   </span>
                 </Cell>
-                {hasBase && <Cell className="text-body">{pctOf(v.net, k)}</Cell>}
-                <Cell className="text-body">{count(v.trades)}</Cell>
+                {hasBase && <Cell className="text-muted">{pctOf(v.net, k)}</Cell>}
+                <Cell className="text-muted">{count(v.trades)}</Cell>
               </Row>
             ))}
           </Table>
@@ -354,7 +328,7 @@ function DayTrades({ day, drill }: { day: string; drill: { instanceId: string; s
   return (
     <div className="border-t border-line">
       <div className="flex items-center gap-2 px-4 py-2.5">
-        <span className="eyebrow">Round trips closed that day</span>
+        <span className="eyebrow">Trades closed that day</span>
         <Link
           to={`${to}?q=${encodeURIComponent(q)}`}
           from={`Calendar · ${shortDay(day)}`}

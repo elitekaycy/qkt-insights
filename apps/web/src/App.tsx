@@ -126,7 +126,10 @@ export default function App() {
   const selectedRow = list.find((i) => i.id === selected);
 
   const scope = (iconsOnly: boolean) =>
-    iconsOnly ? (
+    list.length <= 1 ? (
+      // one instance: its name is under the wordmark; only a problem has something to add here
+      <InstanceStatus lastSeen={selectedRow?.lastSeen} compact={iconsOnly} />
+    ) : iconsOnly ? (
       <div className="flex justify-center py-2" title={selected ?? "no instance"}>
         <InstanceStatus lastSeen={selectedRow?.lastSeen} compact />
       </div>

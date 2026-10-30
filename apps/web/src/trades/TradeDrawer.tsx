@@ -1,8 +1,9 @@
 import { useEffect, useRef, useState, type ReactNode } from "react";
 import { createPortal } from "react-dom";
-import { DASH, duration, money, pnl, quantity, signedMoney, toneClass, ts, tsShort } from "../format";
+import { DASH, duration, money, quantity, signedMoney, toneClass, ts, tsShort } from "../format";
 import { CostTerm } from "../components/InstrumentType";
-import { sizeInWords, type CostKind } from "../instruments";
+import { IconButton } from "../components/ui";
+import { instrumentType, shortInstrument, sizeInWords, TYPE_LABEL, type CostKind } from "../instruments";
 import { PAGE_PATHS, useSearchParam } from "../router";
 import { usePositionPath, useTripDetail, type RoundTripDetail, type Slippage, type TimelineStep } from "./data";
 import { latency, legCosts, preciseClock, px, rMultiple, tradeStory, tripInstrument } from "./format";
@@ -21,28 +22,11 @@ const UP = "M18 15l-6-6-6 6";
 const DOWN = "M6 9l6 6 6-6";
 const LINK = "M10 13a5 5 0 0 0 7.54.54l3-3a5 5 0 0 0-7.07-7.07l-1.72 1.71M14 11a5 5 0 0 0-7.54-.54l-3 3a5 5 0 0 0 7.07 7.07l1.71-1.71";
 
-function IconButton({ label, d, onClick, disabled }: { label: string; d: string; onClick: () => void; disabled?: boolean }) {
-  return (
-    <button
-      type="button"
-      aria-label={label}
-      title={label}
-      onClick={onClick}
-      disabled={disabled}
-      className="inline-flex h-8 w-8 items-center justify-center rounded-lg text-muted transition hover:bg-hover hover:text-bright disabled:opacity-35 disabled:hover:bg-transparent"
-    >
-      <svg viewBox="0 0 24 24" className="h-4 w-4" fill="none" stroke="currentColor" strokeWidth="1.75" strokeLinecap="round" strokeLinejoin="round" aria-hidden>
-        <path d={d} />
-      </svg>
-    </button>
-  );
-}
-
 /** A labelled block inside Details. */
 function Section({ title, children }: { title: string; children: ReactNode }) {
   return (
     <section className="pt-4">
-      <h4 className="mb-2 text-sm font-medium text-body">{title}</h4>
+      <h4 className="mb-2 text-sm font-medium text-bright">{title}</h4>
       {children}
     </section>
   );
@@ -51,20 +35,20 @@ function Section({ title, children }: { title: string; children: ReactNode }) {
 function Stat({ label, children, title }: { label: string; children: ReactNode; title?: string }) {
   return (
     <div className="min-w-0" title={title}>
-      <div className="text-[11px] text-muted">{label}</div>
+      <div className="text-xs text-muted">{label}</div>
       <div className="mt-0.5 truncate text-sm text-bright">{children}</div>
     </div>
   );
 }
 
 function SlippageLine({ label, s, digits }: { label: string; s: Slippage | null; digits: number }) {
-  if (!s) return <Stat label={label}><span className="text-faint">{DASH}</span></Stat>;
+  if (!s) return <Stat label={label}><span className="text-muted">{DASH}</span></Stat>;
   // points are against the trade: positive filled worse than expected
   const pts = Number(Math.abs(s.points).toFixed(digits));
   return (
     <Stat label={label} title={`Filled ${px(s.fill, digits)} against the ${s.basis} ${px(s.reference, digits)}`}>
       {pts === 0 ? (
-        <span className="text-body">at the {s.basis}</span>
+        <span className="text-muted">at the {s.basis}</span>
       ) : (
         <>
           <span className={toneClass(-s.points, 6)}>
@@ -79,7 +63,7 @@ function SlippageLine({ label, s, digits }: { label: string; s: Slippage | null;
 }
 
 const KIND_DOT: Record<string, string> = {
-  signal: "bg-accent-hi", decision: "bg-faint", submit: "bg-accent-hi", accepted: "bg-ok", rejected: "bg-danger", cancelled: "bg-warn",
+  signal: "bg-accent-hi", decision: "bg-muted", submit: "bg-accent-hi", accepted: "bg-ok", rejected: "bg-danger", cancelled: "bg-warn",
   modified: "bg-warn", fill: "bg-ok", deal: "bg-bright", closed: "bg-ok", bot: "bg-warn",
 };
 
@@ -89,18 +73,18 @@ function Timeline({ steps }: { steps: TimelineStep[] }) {
     <ol className="relative">
       {steps.map((s, i) => (
         <li key={`${s.ts}-${i}`} className="relative grid grid-cols-[6.5rem_1rem_1fr] gap-2 pb-3 last:pb-0">
-          <div className="text-right font-mono text-[11px] leading-5 text-muted">
+          <div className="text-right font-mono text-xs leading-5 text-muted">
             {preciseClock(s.ts)}
-            {s.sinceMs != null && <div className="text-faint">{latency(s.sinceMs)}</div>}
+            {s.sinceMs != null && <div className="text-muted">{latency(s.sinceMs)}</div>}
           </div>
           <div className="relative flex justify-center">
             {i < steps.length - 1 && <span aria-hidden className="absolute bottom-[-0.75rem] top-3 w-px bg-line-strong" />}
-            <span aria-hidden className={`relative mt-1.5 h-2 w-2 rounded-full ${s.source === "venue" ? "ring-2 ring-line-strong" : ""} ${KIND_DOT[s.kind] ?? "bg-faint"}`} />
+            <span aria-hidden className={`relative mt-1.5 h-2 w-2 rounded-full ${s.source === "venue" ? "ring-2 ring-line-strong" : ""} ${KIND_DOT[s.kind] ?? "bg-muted"}`} />
           </div>
           <div className="min-w-0 leading-5">
             <div className="text-sm text-bright">
               {s.title}
-              {s.source === "venue" && <span className="ml-1.5 text-[11px] text-muted">venue time</span>}
+              {s.source === "venue" && <span className="ml-1.5 text-xs text-muted">venue time</span>}
             </div>
             {s.detail && <div className="break-words text-xs text-muted">{s.detail}</div>}
           </div>
@@ -118,7 +102,7 @@ function Legs({ legs, digits }: { legs: RoundTripDetail["legs"]; digits: number 
         <thead>
           <tr className="text-left">
             {["Deal", "Time (UTC)", "Leg", "Qty", "Price", "Profit", "Costs", "Net"].map((h, i) => (
-              <th key={h} className={`px-1 pb-1.5 text-[11px] font-normal text-muted ${i >= 3 ? "text-right" : ""}`}>{h}</th>
+              <th key={h} className={`px-1 pb-1.5 text-xs font-normal text-muted ${i >= 3 ? "text-right" : ""}`}>{h}</th>
             ))}
           </tr>
         </thead>
@@ -127,14 +111,14 @@ function Legs({ legs, digits }: { legs: RoundTripDetail["legs"]; digits: number 
             const costs = legCosts(l);
             return (
               <tr key={l.dealTicket} className="border-t border-line" title={l.comment ?? undefined}>
-                <td className="px-1 py-1.5 font-mono text-faint">{l.dealTicket}</td>
-                <td className="whitespace-nowrap px-1 py-1.5 font-mono text-body">{new Date(l.ts).toISOString().slice(0, 19).replace("T", " ")}</td>
-                <td className="whitespace-nowrap px-1 py-1.5 text-body">{l.entry} {l.side}</td>
-                <td className="px-1 py-1.5 text-right text-body">{quantity(l.qty)}</td>
-                <td className="px-1 py-1.5 text-right text-body">{px(l.price, digits)}</td>
-                <td className="px-1 py-1.5 text-right text-body">{signedMoney(l.profit)}</td>
-                <td className="px-1 py-1.5 text-right text-body" title={costs.parts || undefined}>{signedMoney(costs.total)}</td>
-                <td className={`px-1 py-1.5 text-right font-semibold ${toneClass(l.net)}`}>{signedMoney(l.net)}</td>
+                <td className="px-1 py-1.5 font-mono text-muted">{l.dealTicket}</td>
+                <td className="whitespace-nowrap px-1 py-1.5 font-mono text-muted">{new Date(l.ts).toISOString().slice(0, 19).replace("T", " ")}</td>
+                <td className="whitespace-nowrap px-1 py-1.5 text-muted">{l.entry} {l.side}</td>
+                <td className="px-1 py-1.5 text-right text-muted">{quantity(l.qty)}</td>
+                <td className="px-1 py-1.5 text-right text-muted">{px(l.price, digits)}</td>
+                <td className="px-1 py-1.5 text-right text-muted">{signedMoney(l.profit)}</td>
+                <td className="px-1 py-1.5 text-right text-muted" title={costs.parts || undefined}>{signedMoney(costs.total)}</td>
+                <td className={`px-1 py-1.5 text-right font-medium ${toneClass(l.net)}`}>{signedMoney(l.net)}</td>
               </tr>
             );
           })}
@@ -150,7 +134,7 @@ function CostKinds({ legs }: { legs: RoundTripDetail["legs"] }) {
   const booked = (["commission", "swap", "funding", "fee"] as const).filter((k) => legs.some((l) => (l[k] ?? 0) !== 0));
   if (booked.length === 0) return null;
   return (
-    <p className="mt-2 flex flex-wrap items-center gap-x-2 gap-y-1 px-1 text-[11px] text-muted">
+    <p className="mt-2 flex flex-wrap items-center gap-x-2 gap-y-1 px-1 text-xs text-muted">
       Costs:
       {booked.map((k: CostKind, i) => <span key={k}><CostTerm kind={k} />{i < booked.length - 1 ? "," : ""}</span>)}
     </p>
@@ -162,7 +146,7 @@ function RawEvents({ events }: { events: RoundTripDetail["events"] }) {
   const json = JSON.stringify(events, null, 2);
   return (
     <details className="group">
-      <summary className="flex cursor-pointer list-none items-center gap-2 text-sm text-body hover:text-bright">
+      <summary className="flex cursor-pointer list-none items-center gap-2 text-sm text-muted hover:text-bright">
         <svg viewBox="0 0 24 24" className="h-3.5 w-3.5 transition group-open:rotate-90" fill="none" stroke="currentColor" strokeWidth="2" aria-hidden>
           <path d="M9 18l6-6-6-6" />
         </svg>
@@ -181,7 +165,7 @@ function RawEvents({ events }: { events: RoundTripDetail["events"] }) {
           {copied ? "Copied" : "Copy JSON"}
         </button>
       </summary>
-      <pre className="mt-3 max-h-80 overflow-auto rounded-lg border border-line bg-ink p-3 font-mono text-[11px] leading-relaxed text-body">{json}</pre>
+      <pre className="mt-3 max-h-80 overflow-auto rounded-lg border border-line bg-ink p-3 font-mono text-xs leading-relaxed text-muted">{json}</pre>
     </details>
   );
 }
@@ -197,7 +181,7 @@ function Story({ t }: { t: RoundTripDetail["trip"] }) {
           <span aria-hidden className={`relative h-2.5 w-2.5 translate-y-0.5 rounded-full ${s.key === "opened" ? "bg-accent-hi" : s.key === "closed" ? "bg-bright" : "border-2 border-line-strong bg-panel"}`} />
           <span className="min-w-0">
             <span className="text-sm font-medium text-bright">{s.label}</span>
-            {s.price != null && <span className="ml-2 font-mono text-sm tabular-nums text-body">{px(s.price, t.priceDigits)}</span>}
+            {s.price != null && <span className="ml-2 font-mono text-sm tabular-nums text-muted">{px(s.price, t.priceDigits)}</span>}
             {s.detail && <span className="ml-2 text-sm text-muted">· {s.detail}</span>}
           </span>
           <span className="font-mono text-xs tabular-nums text-muted">{s.ts != null ? `${tsShort(s.ts)}:${preciseClock(s.ts).slice(6, 8)}` : ""}</span>
@@ -216,7 +200,7 @@ function Body({ d, instanceId }: { d: RoundTripDetail; instanceId: string | null
         <PositionMap key={t.id} instanceId={instanceId} ticket={t.id} open={t.status === "open"} digits={t.priceDigits} realized={t.status === "closed" ? t.pnl : null} />
       </div>
       <details className="group border-t border-line px-5 py-4">
-        <summary className="flex cursor-pointer list-none items-center gap-2 text-sm font-medium text-body hover:text-bright">
+        <summary className="flex cursor-pointer list-none items-center gap-2 text-sm text-muted hover:text-bright">
           <svg viewBox="0 0 24 24" className="h-3.5 w-3.5 transition group-open:rotate-90" fill="none" stroke="currentColor" strokeWidth="2" aria-hidden>
             <path d="M9 18l6-6-6-6" />
           </svg>
@@ -305,8 +289,8 @@ export function TradeDrawer({ instanceId, order = [] }: { instanceId: string | n
           <div aria-hidden className="mx-auto mb-2 h-1 w-10 rounded-full bg-well sm:hidden" />
           <div className="flex items-center gap-1">
             {t ? (
-              <h2 className="min-w-0 truncate text-lg font-headline text-bright">
-                {tripInstrument(t)} <span className="font-sans text-base font-medium text-body">{t.side === "long" ? "Long" : "Short"} · {sizeInWords(t.qty, t)}</span>
+              <h2 className="min-w-0 truncate text-sm font-medium text-bright" title={[tripInstrument(t), instrumentType(t.kind, t.category) ? TYPE_LABEL[instrumentType(t.kind, t.category)!] : null].filter(Boolean).join(" · ")}>
+                {shortInstrument(t.instrument, instrumentType(t.kind, t.category))} <span className="font-normal text-muted">{t.side === "long" ? "Long" : "Short"} · {sizeInWords(t.qty, t)}</span>
               </h2>
             ) : <span className="h-6 w-40 rounded bg-raised" />}
             <span className="ml-auto flex shrink-0 items-center">
@@ -337,11 +321,11 @@ export function TradeDrawer({ instanceId, order = [] }: { instanceId: string | n
             <>
               <div className="mt-2 flex flex-wrap items-baseline gap-x-4 gap-y-1">
                 {open_ ? (
-                  <span className={`text-3xl font-headline ${toneClass(floating)}`} title={lastMark ? `Open, as the venue priced it at ${preciseClock(lastMark.ts).slice(0, 8)} UTC (swap included)` : undefined}>{floating == null ? DASH : pnl(floating)}</span>
+                  <span className={`text-2xl font-headline ${toneClass(floating)}`} title={lastMark ? `Open, as the venue priced it at ${preciseClock(lastMark.ts).slice(0, 8)} UTC (swap included)` : undefined}>{floating == null ? DASH : signedMoney(floating)}</span>
                 ) : (
-                  <span className={`text-3xl font-headline ${toneClass(t.pnl)}`} title="After commission, swap and fees">{pnl(t.pnl)}</span>
+                  <span className={`text-2xl font-headline ${toneClass(t.pnl)}`} title="After commission, swap and fees">{signedMoney(t.pnl)}</span>
                 )}
-                {t.r != null && <span className={`text-base font-semibold ${toneClass(t.r)}`} title="P&L over the money at risk to the initial stop">{rMultiple(t.r)}</span>}
+                {t.r != null && <span className={`text-sm font-medium ${toneClass(t.r)}`} title="P&L over the money at risk to the initial stop">{rMultiple(t.r)}</span>}
               </div>
               <div className="mt-1 text-sm text-muted">
                 {open_ ? "Open" : `Held ${duration(t.holdMs)}`}

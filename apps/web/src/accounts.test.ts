@@ -49,18 +49,18 @@ describe("maskLogin", () => {
 
 describe("accountName", () => {
   it("names an account by its venue and masked login, never by the broker profile that reported it", () => {
-    expect(accountName({ broker: "EXNESS_O13", connector: "mt5", adapter: "exness", login: "•••2618" })).toBe("Exness •••2618");
-    expect(accountName({ broker: "EXNESS_O12", connector: "mt5", adapter: "exness", login: "277312618" })).toBe("Exness •••2618");
-    expect(accountName({ broker: "ICMARKETS", connector: "mt5", adapter: "icmarketssc", login: "•••0042" })).toBe("IC Markets •••0042");
-    expect(accountName({ broker: "DERIBIT", connector: "vgp", adapter: "deribit", login: "•••7781" })).toBe("Deribit •••7781");
+    expect(accountName({ broker: "EXNESS_O13", connector: "mt5", adapter: "exness", login: "•••2618", tradeMode: "demo" })).toBe("Exness demo");
+    expect(accountName({ broker: "EXNESS_O12", connector: "mt5", adapter: "exness", login: "277312618" })).toBe("Exness ·2618");
+    expect(accountName({ broker: "ICMARKETS", connector: "mt5", adapter: "icmarketssc", login: "•••0042", tradeMode: "real" })).toBe("IC Markets live");
+    expect(accountName({ broker: "DERIBIT", connector: "vgp", adapter: "deribit", login: "•••7781" })).toBe("Deribit ·7781");
   });
 
   it("calls a gateway paper account Paper, and qkt's own paper broker qkt paper", () => {
     expect(accountName({ broker: "PAPER_DERIBIT_B", connector: "vgp", adapter: "paper", login: "•••er-b" })).toBe("Paper B");
     expect(accountName({ broker: "PAPER_H", connector: "vgp", adapter: "paper", login: "paper-h" })).toBe("Paper H");
     // a paper login without a label suffix keeps its mask; a real venue's login is always masked
-    expect(accountName({ broker: "PAPER_X", connector: "vgp", adapter: "paper", login: "•••7781" })).toBe("Paper •••7781");
-    expect(accountName({ broker: "DERIBIT", connector: "vgp", adapter: "deribit", login: "acct-b" })).toBe("Deribit •••ct-b");
+    expect(accountName({ broker: "PAPER_X", connector: "vgp", adapter: "paper", login: "•••7781" })).toBe("Paper ·7781");
+    expect(accountName({ broker: "DERIBIT", connector: "vgp", adapter: "deribit", login: "acct-b" })).toBe("Deribit ·ct-b");
     expect(accountName({ broker: "PAPER", connector: "paper", adapter: "paper" })).toBe("qkt paper PAPER");
   });
 
@@ -76,10 +76,22 @@ describe("accountName", () => {
   });
 });
 
+describe("accountName among peers", () => {
+  it("adds the login's last four only when two accounts would read the same", () => {
+    const a = { broker: "EXNESS_A", connector: "mt5", adapter: "exness", login: "•••2618", tradeMode: "demo" };
+    const b = { broker: "EXNESS_B", connector: "mt5", adapter: "exness", login: "•••9931", tradeMode: "demo" };
+    const c = { broker: "EXNESS_C", connector: "mt5", adapter: "exness", login: "•••4444", tradeMode: "real" };
+    expect(accountName(a, false, [a, c])).toBe("Exness demo");
+    expect(accountName(a, false, [a, b, c])).toBe("Exness demo ·2618");
+    expect(accountName(b, false, [a, b])).toBe("Exness demo ·9931");
+    expect(accountName(a, true, [a, b])).toBe("Exness");
+  });
+});
+
 describe("accountTitle", () => {
   it("starts with the account's name, then the venue in full when it differs, the environment and currency", () => {
     expect(accountTitle({ broker: "EXNESS_O12", connector: "mt5", adapter: "exness", tradeMode: "demo", login: "•••4821", currency: "USD" }))
-      .toBe("Exness •••4821 · demo · USD");
+      .toBe("Exness demo · login •••4821 · USD");
     expect(accountTitle({ broker: "PAPER_DERIBIT_B", connector: "vgp", adapter: "paper", tradeMode: "demo", login: "•••er-b", currency: "USDC" }))
       .toBe("Paper B · Paper (Deribit prices) · USDC");
     expect(accountTitle({ broker: "PAPER_F", connector: "vgp", adapter: "paper", currency: "USDC", stopped: true }))
@@ -117,15 +129,15 @@ describe("account switcher", () => {
   const paperA = acct("PAPER_DERIBIT", 7_000, { accountId: "vgp:932e246860ee1284", connector: "vgp", adapter: "paper", login: "paper-a", currency: "USDC" });
 
   it("names a tab by venue and masked login, with environment and currency as its hint", () => {
-    expect(accountTab(exness)).toEqual({ name: "Exness •••2618", hint: "demo · USD", title: "Exness •••2618 · demo · USD" });
-    expect(accountTab(paperA)).toEqual({ name: "Paper A", hint: "USDC", title: "Paper A · Paper (Deribit prices) · USDC" });
+    expect(accountTab(exness)).toEqual({ name: "Exness demo", title: "Exness demo · login •••2618 · USD" });
+    expect(accountTab(paperA)).toEqual({ name: "Paper A", title: "Paper A · Paper (Deribit prices) · USDC" });
     // a shared link carries neither login nor venue: the account's public name
-    expect(accountTab(acct("Account 2", 1, { currency: "USDC" }), true)).toEqual({ name: "Account 2", hint: "USDC", title: "Account 2 · USDC" });
+    expect(accountTab(acct("Account 2", 1, { currency: "USDC" }), true)).toEqual({ name: "Account 2", title: "Account 2 · USDC" });
   });
 
   it("keeps the tabs in one order whichever account reported last", () => {
     const order = (list: LiveAccount[]) => switcherOrder(groupAccounts(list)).map((g) => accountTab(g.account).name);
-    expect(order([paperB, exness, paperA])).toEqual(["Exness •••2618", "Paper A", "Paper B"]);
+    expect(order([paperB, exness, paperA])).toEqual(["Exness demo", "Paper A", "Paper B"]);
     expect(order([paperA, paperB, exness])).toEqual(order([exness, paperA, paperB]));
   });
 

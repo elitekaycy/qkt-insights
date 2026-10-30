@@ -22,6 +22,7 @@ function accountIdentity(a: Pick<LiveAccount, "accountId">): string | null {
 
 /** A login with all but its last four characters hidden, e.g. "•••4821". */
 export function maskLogin(login: string): string {
+  if (login.startsWith("•")) return login;
   return login.length <= 4 ? login : `•••${login.slice(-4)}`;
 }
 
@@ -83,24 +84,48 @@ function isPaper(a: Pick<LiveAccount, "connector" | "adapter">): boolean {
   return a.connector === "paper" || (a.connector === "vgp" && a.adapter === "paper");
 }
 
-/**
- * THE name of a venue account, the one every page, table, legend, tooltip and drill-down shows: the venue in short
- * and the login masked to its last four characters ("Exness •••2618", "IC Markets •••0042"). A gateway paper
- * account's login is a label, not a secret: "paper-a" (masked "•••er-a") reads "Paper A". An
- * account whose login was never stated keeps its broker label beside the venue ("Paper PAPER_F"); one whose venue
- * was never stated is named by its label alone. Shared links leave the login out (their labels are "Account 2").
- * Never a broker profile such as EXNESS_O13 when the venue is known: several profiles share one account.
- */
-export function accountName(a: Pick<LiveAccount, "broker" | "connector" | "adapter" | "login">, isPublic = false): string {
+type NameFacts = Pick<LiveAccount, "broker" | "connector" | "adapter" | "login" | "tradeMode">;
+
+/** The login's last four characters, whether or not the collector already masked it. */
+function loginTail(login: string | null | undefined): string | null {
+  return login ? login.slice(-4) : null;
+}
+
+/** The venue's environment as a word: a real-money account reads "live". */
+function environmentWord(a: Pick<LiveAccount, "tradeMode">): string | null {
+  if (!a.tradeMode) return null;
+  return a.tradeMode === "real" ? "live" : a.tradeMode;
+}
+
+function baseName(a: NameFacts, isPublic: boolean): string {
   const venue = shortVenue(a);
   if (!venue) return profileName(a);
   if (isPublic) return venue;
   const paper = a.connector === "vgp" && a.adapter === "paper" ? paperLabel(a.login) : null;
   if (paper) return `${venue} ${paper}`;
-  if (a.login) return `${venue} ${maskLogin(a.login)}`;
+  const env = isPaper(a) ? null : environmentWord(a);
+  if (env) return `${venue} ${env}`;
+  if (a.login) return `${venue} ·${loginTail(a.login)}`;
   // a gateway label names one account (one gateway per venue account); an MT5 label can be one of many profiles
   const label = a.connector === "vgp" ? a.broker : profileName(a);
   return label.toUpperCase() === venue.toUpperCase().replace(/\s+/gu, "") ? venue : `${venue} ${label}`;
+}
+
+/**
+ * THE name of a venue account, the one every page, table, legend, tooltip and drill-down shows: short, human and on
+ * one line. The venue and its environment ("Exness demo", "Exness live"), or "Paper A" for a gateway paper account,
+ * whose login is a label and not a secret. Without an environment the login's last characters tell it apart
+ * ("Deribit ·7781"); an account whose login was never stated keeps its broker label ("Paper PAPER_F"); one whose venue
+ * was never stated is named by its label alone. Shared links show the venue alone (their labels are "Account 2").
+ * `peers` are the accounts it is shown beside: when two would read the same, the login's last four tell them apart
+ * ("Exness demo ·2618"). Never a broker profile such as EXNESS_O13 when the venue is known: several profiles share one account.
+ */
+export function accountName(a: NameFacts, isPublic = false, peers: readonly NameFacts[] = []): string {
+  const name = baseName(a, isPublic);
+  if (isPublic) return name;
+  const tail = loginTail(a.login);
+  const clash = tail != null && peers.some((p) => baseName(p, isPublic) === name && loginTail(p.login) !== tail);
+  return clash ? `${name} ·${tail}` : name;
 }
 
 /** The letter or number a gateway paper login ends in ("paper-a", masked "•••er-a" -> "A"); null for any other login. */
@@ -114,18 +139,17 @@ function shortVenue(a: Pick<LiveAccount, "connector" | "adapter">): string | nul
   return a.connector === "vgp" && a.adapter === "paper" ? "Paper" : venueName(a);
 }
 
-/** The muted detail beside an account's name: its environment (not for paper) and currency ("demo · USD"). */
-export function accountHint(a: Pick<LiveAccount, "connector" | "adapter" | "tradeMode"> & { currency?: string }): string {
-  return [!isPaper(a) ? a.tradeMode : undefined, a.currency].filter(Boolean).join(" · ");
-}
-
 /**
- * An account's hover title: its name, then what the venue is in full, the environment and currency, and whether it
- * stopped reporting, e.g. "Exness •••4821 · Exness · demo · USD" or "Paper •••er-b · Paper (Deribit prices) · USDC".
+ * An account's hover title: its name, then what the venue is in full, the masked login, the environment where the name
+ * leaves it out, the currency, and whether it stopped reporting, e.g. "Exness demo · login •••4821 · USD" or
+ * "Paper B · Paper (Deribit prices) · USDC". Shared links never carry a login.
  */
-export function accountTitle(a: Pick<LiveAccount, "broker" | "connector" | "adapter" | "tradeMode" | "login"> & { currency?: string; stopped?: boolean }, isPublic = false): string {
+export function accountTitle(a: NameFacts & { currency?: string; stopped?: boolean }, isPublic = false, peers: readonly NameFacts[] = []): string {
   const full = venueName(a);
-  const parts = [accountName(a, isPublic), full !== shortVenue(a) ? full : undefined, accountHint(a), a.stopped ? "stopped reporting" : undefined];
+  const name = accountName(a, isPublic, peers);
+  const paperName = a.connector === "vgp" && a.adapter === "paper" && paperLabel(a.login) != null;
+  const env = !isPaper(a) && a.tradeMode && !name.includes(environmentWord(a)!) ? a.tradeMode : undefined;
+  const parts = [name, full !== shortVenue(a) ? full : undefined, !isPublic && a.login && !paperName ? `login ${maskLogin(a.login)}` : undefined, env, a.currency, a.stopped ? "stopped reporting" : undefined];
   return parts.filter((p): p is string => !!p).join(" · ");
 }
 
@@ -155,14 +179,15 @@ export function accountKey(a: Pick<LiveAccount, "accountId" | "broker">): string
   return a.accountId ?? a.broker;
 }
 
-/** One account as a tab or table row shows it: its name (accountName), the muted hint, and the title on hover. */
-export function accountTab(a: LiveAccount, isPublic = false): { name: string; hint: string; title: string } {
-  return { name: accountName(a, isPublic), hint: accountHint(a), title: accountTitle(a, isPublic) };
+/** One account as a tab or table row shows it: its name (accountName) and the title on hover. */
+export function accountTab(a: LiveAccount, isPublic = false, peers: readonly NameFacts[] = []): { name: string; title: string } {
+  return { name: accountName(a, isPublic, peers), title: accountTitle(a, isPublic, peers) };
 }
 
 /** The instance's accounts in the switcher's order: by name, so a tab never moves when another account reports. */
 export function switcherOrder(groups: readonly AccountGroup[], isPublic = false): AccountGroup[] {
-  const name = (g: AccountGroup) => accountTab(g.account, isPublic).name;
+  const peers = groups.map((g) => g.account);
+  const name = (g: AccountGroup) => accountName(g.account, isPublic, peers);
   return [...groups].sort((x, y) => name(x).localeCompare(name(y), "en", { numeric: true }) || accountKey(x.account).localeCompare(accountKey(y.account)));
 }
 

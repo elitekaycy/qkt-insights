@@ -73,7 +73,7 @@ export function Edge({ instanceId }: { instanceId: string | null }) {
             <thead><tr><th className="eyebrow pb-1.5 text-left">Weekday</th><th className="eyebrow pb-1.5 text-right">Trades</th><th className="eyebrow pb-1.5 text-right">Net</th></tr></thead>
             <tbody>
               {byDow.filter((r) => r.trades > 0).map((r) => (
-                <tr key={r.key} className="border-t border-line"><td className="py-1.5">{r.key}</td><td className="py-1.5 text-right">{r.trades}</td><td className="py-1.5 text-right"><Pnl value={r.net} glyphs={false} /></td></tr>
+                <tr key={r.key} className="border-t border-line"><td className="py-1.5">{r.key}</td><td className="py-1.5 text-right">{r.trades}</td><td className="py-1.5 text-right"><Pnl value={r.net} /></td></tr>
               ))}
             </tbody>
           </table>

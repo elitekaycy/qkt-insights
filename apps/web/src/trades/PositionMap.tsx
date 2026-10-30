@@ -36,7 +36,7 @@ export function PositionMap({ instanceId, ticket, open, digits, realized }: {
   return (
     <section className="px-5 py-4" aria-label="How the price moved">
       <div className="mb-3 flex flex-wrap items-center gap-x-3 gap-y-2">
-        <h3 className="text-sm font-medium text-body">How the price moved</h3>
+        <h3 className="text-sm font-medium text-bright">How the price moved</h3>
         {path && path.status === "open" && path.last && <Freshness at={path.last.ts} stale={Date.now() - path.last.ts > STALE_MARK_MS} quiet />}
         {path && path.candles.length > 0 && (
           <div className="flex w-full flex-wrap items-center justify-between gap-2 sm:ml-auto sm:w-auto sm:justify-end">
@@ -115,7 +115,7 @@ function PathChart({ path, view, digits, realized, narrow, hover, setHover, pinn
         />
       </div>
 
-      <ul className="grid grid-cols-2 gap-2 sm:grid-cols-4" aria-label="Key moments">
+      <ul className="divide-y divide-line" aria-label="Key moments">
         {ms.map((m) => (
           <li key={m.key}>
             <MomentCard
@@ -154,22 +154,16 @@ function MomentCard({ m, digits, selected, plotted, onHover, onSelect }: {
       onFocus={() => onHover(true)}
       onBlur={() => onHover(false)}
       onClick={onSelect}
-      className={`group w-full rounded-lg border px-3 py-2 text-left transition focus-visible:outline-2 focus-visible:outline-offset-1 focus-visible:outline-accent-hi ${
-        selected ? "border-line-strong bg-well" : "border-line bg-raised hover:border-line-strong hover:bg-well"
+      className={`flex w-full items-center gap-2 px-1 py-1.5 text-left text-xs transition focus-visible:outline-2 focus-visible:outline-offset-1 focus-visible:outline-accent-hi ${
+        selected ? "bg-well" : "hover:bg-hover"
       } disabled:cursor-default disabled:opacity-60`}
     >
-      <div className="flex items-center gap-1.5">
-        <MomentGlyph k={m.key} />
-        <span className="text-[11px] font-medium text-muted">{m.label}</span>
-        {m.afterEntryMs != null && m.key !== "entry" && <span className="ml-auto font-mono text-[10px] text-faint">{latency(m.afterEntryMs)}</span>}
-      </div>
-      <div className={`mt-1 font-mono text-sm font-semibold tabular-nums ${tone}`}>
-        {m.key === "entry" ? px(m.price, digits) : m.pnl == null ? DASH : signedMoney(m.pnl)}
-      </div>
-      {m.key !== "entry" && <div className="mt-0.5 truncate font-mono text-[11px] tabular-nums text-muted">@ {px(m.price, digits)}</div>}
-      <div className="mt-0.5 truncate font-mono text-[11px] tabular-nums text-faint">
-        {tsShort(m.ts)}:{preciseClock(m.ts).slice(6, 8)}
-      </div>
+      <MomentGlyph k={m.key} />
+      <span className="w-14 shrink-0 text-muted">{m.label}</span>
+      <span className={`w-20 shrink-0 text-right font-mono font-medium tabular-nums ${tone}`}>{m.key === "entry" ? "" : m.pnl == null ? DASH : signedMoney(m.pnl)}</span>
+      <span className="min-w-0 flex-1 truncate text-right font-mono tabular-nums text-muted">{px(m.price, digits)}</span>
+      <span className="shrink-0 text-right font-mono tabular-nums text-muted">{tsShort(m.ts)}:{preciseClock(m.ts).slice(6, 8)}</span>
+      <span className="hidden w-16 shrink-0 text-right font-mono tabular-nums text-muted sm:block">{m.afterEntryMs != null && m.key !== "entry" ? latency(m.afterEntryMs) : ""}</span>
     </button>
   );
 }

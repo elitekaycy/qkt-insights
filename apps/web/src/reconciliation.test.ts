@@ -54,7 +54,7 @@ describe("reconciliation wording", () => {
       "#877 XAUUSD SELL 0.25: open in insights, gone at the venue",
       "#650 XAUUSD: qty is 0.3 at the venue, 0.1 in insights",
     ]);
-    expect(ledgerLine(ledger())).toEqual({ tone: "ok", text: "Ledger ✓ 412 closed round trips add up to their deals (▲ +1,234.50)" });
+    expect(ledgerLine(ledger())).toEqual({ tone: "ok", text: "Ledger ✓ 412 closed round trips add up to their deals (+1,234.50)" });
     expect(ledgerLine(ledger({ status: "diff", trips: 1, tripsNet: -10, dealsNet: -11 }))).toEqual({ tone: "bad", text: "Ledger: 1 closed round trip sums to −10.00, its deals to −11.00" });
   });
 

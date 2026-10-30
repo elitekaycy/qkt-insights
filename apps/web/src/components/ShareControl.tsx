@@ -66,12 +66,11 @@ export function ShareControl({ instanceId, kind, subject = "" }: { instanceId: s
 
   const trigger = (
     <span
-      className={`inline-flex h-9 items-center gap-1.5 rounded-lg border px-2.5 text-xs font-semibold transition ${
-        state.effective ? "border-accent/50 bg-accent/10 text-accent-ink" : "border-ctl bg-raised text-body hover:border-line-strong hover:text-bright"
-      }`}
+      title={state.effective ? "Public: anyone with the link can see this" : "Share this page"}
+      className={`inline-flex h-8 items-center gap-1.5 rounded-lg px-2 text-sm transition hover:bg-hover ${state.effective ? "font-medium text-accent-ink" : "text-muted hover:text-bright"}`}
     >
       <Icon d={state.effective ? GLOBE : LOCK} className="h-4 w-4" strokeWidth={2} />
-      {state.effective ? "Public…" : "Share…"}
+      {state.effective ? "Public" : "Share"}
     </span>
   );
 
@@ -94,7 +93,7 @@ export function ShareControl({ instanceId, kind, subject = "" }: { instanceId: s
               <p className="text-muted">Anyone with the link sees it, {delay} minutes behind.</p>
               {url && (
                 <div className="flex items-center gap-1.5">
-                  <input readOnly value={url} onFocus={(e) => e.currentTarget.select()} aria-label="Public link" className="h-8 min-w-0 flex-1 rounded-lg border border-ctl bg-panel px-2 font-mono text-[11px] text-body" />
+                  <input readOnly value={url} onFocus={(e) => e.currentTarget.select()} aria-label="Public link" className="h-8 min-w-0 flex-1 rounded-lg border border-ctl bg-panel px-2 font-mono text-xs text-muted" />
                   <button type="button" onClick={() => void copy()} className={QUIET}>{copied ? "Copied" : "Copy"}</button>
                 </div>
               )}
@@ -118,7 +117,7 @@ export function ShareControl({ instanceId, kind, subject = "" }: { instanceId: s
             </>
           ) : confirming ? (
             <>
-              <p className="text-body">Anyone with the link sees {subjectWords(kind)}, {delay} minutes behind.</p>
+              <p className="text-muted">Anyone with the link sees {subjectWords(kind)}, {delay} minutes behind.</p>
               <div className="flex gap-1.5">
                 <button type="button" disabled={busy} onClick={() => toggle.mutate("public")} className={`${SMALL} border-transparent bg-accent text-on-accent hover:bg-accent-hi`}>
                   Make public

@@ -58,7 +58,7 @@ export default function PublicApp() {
     return (
       <Centered>
         <Mark />
-        <div className="text-[15px] font-headline text-bright">Temporarily unavailable</div>
+        <div className="text-sm font-headline text-bright">Temporarily unavailable</div>
         <div className="max-w-sm text-sm leading-relaxed text-muted">The dashboard is busy or unreachable. Try again in a minute.</div>
         <button type="button" onClick={() => void meta.refetch()} className="h-9 rounded-lg bg-accent px-5 text-sm font-medium text-on-accent hover:bg-accent-hi">
           Retry
@@ -70,7 +70,7 @@ export default function PublicApp() {
     return (
       <Centered>
         <Mark />
-        <div className="text-[15px] font-headline text-bright">This link is not available</div>
+        <div className="text-sm font-headline text-bright">This link is not available</div>
         <div className="max-w-sm text-sm leading-relaxed text-muted">It may have been made private or replaced by a new link. Ask whoever shared it for a current one.</div>
       </Centered>
     );

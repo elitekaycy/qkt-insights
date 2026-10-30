@@ -3,7 +3,7 @@ import { useQuery } from "@tanstack/react-query";
 import { get, type ViewBreakdown, type ViewRow, type ViewSummary } from "../api";
 import { ChartCard } from "../components/ChartCard";
 import { ViewsChart } from "../components/ViewsChart";
-import { Card, Cell, DataList, Loadable, LoadMore, PageHeader, Panel, Pill, SearchInput, Select, Stat, TimeCell } from "../components/ui";
+import { Card, Cell, DataList, Loadable, LoadMore, PageHeader, Panel, SearchInput, Select, Stat, TimeCell } from "../components/ui";
 import { pct, tsShort } from "../format";
 import { strategyDisplayName } from "../portfolio";
 import { fillDays, linkLabel, withShares } from "../viewership";
@@ -51,14 +51,14 @@ function BreakdownPanel({
   return (
     <Panel title={title} hint={hint}>
       {shares.length === 0 ? (
-        <div className="px-4 py-8 text-center text-sm text-faint">{empty}</div>
+        <div className="px-4 py-8 text-center text-sm text-muted">{empty}</div>
       ) : (
         <ul className="divide-y divide-line">
           {shares.slice(0, 10).map((r) => (
             <li key={r.key ?? "(none)"} className="relative px-4 py-2.5">
               <div className="absolute inset-y-1 left-0 rounded-r bg-accent/10" style={{ width: `${Math.max(2, r.share * 100)}%` }} aria-hidden />
               <div className="relative flex items-baseline justify-between gap-3 text-sm">
-                <span className={`min-w-0 truncate ${r.key == null ? "text-faint" : "text-body"}`}>{label(r.key)}</span>
+                <span className={`min-w-0 truncate ${r.key == null ? "text-muted" : "text-muted"}`}>{label(r.key)}</span>
                 <span className="shrink-0 text-xs text-muted">
                   {r.views} · {pct(r.share, r.share < 0.1 ? 1 : 0)}
                 </span>
@@ -100,7 +100,7 @@ export default function Viewership({ instanceId }: { instanceId: string | null }
   });
 
   const names = useMemo(() => new Map((strategies.data ?? []).map((s) => [s.strategyId, strategyDisplayName(s)])), [strategies.data]);
-  if (!instanceId) return <Card className="p-8 text-center text-faint">No instance selected.</Card>;
+  if (!instanceId) return <Card className="p-8 text-center text-muted">No instance selected.</Card>;
 
   const s = summary.data;
   const total = s?.views ?? 0;
@@ -230,10 +230,10 @@ export default function Viewership({ instanceId }: { instanceId: string | null }
               <>
                 <div className="flex items-baseline gap-2">
                   <span className="min-w-0 truncate font-semibold text-bright">{linkLabel(r.kind, r.subject, names)}</span>
-                  <Pill>{PAGE_LABELS[r.page] ?? r.page}</Pill>
-                  <span className="ml-auto shrink-0 text-xs text-faint">{tsShort(r.ts)} UTC</span>
+                  <span className="text-muted">{PAGE_LABELS[r.page] ?? r.page}</span>
+                  <span className="ml-auto shrink-0 text-xs text-muted">{tsShort(r.ts)} UTC</span>
                 </div>
-                <div className="mt-1 text-xs text-faint">{[r.browser, r.os, r.device, r.country, r.referrer ?? "direct"].filter(Boolean).join(" · ")}</div>
+                <div className="mt-1 text-xs text-muted">{[r.browser, r.os, r.device, r.country, r.referrer ?? "direct"].filter(Boolean).join(" · ")}</div>
               </>
             )}
           />

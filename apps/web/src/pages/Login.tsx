@@ -31,13 +31,6 @@ export default function Login({ onLoggedIn }: { onLoggedIn: () => void }) {
 
   return (
     <div className="relative flex h-screen items-center justify-center overflow-hidden bg-ink">
-      <div
-        className="pointer-events-none absolute inset-0"
-        style={{
-          background:
-            "radial-gradient(60rem 30rem at 70% -10%, color-mix(in srgb, var(--color-accent) 7%, transparent), transparent), radial-gradient(40rem 24rem at 10% 110%, color-mix(in srgb, var(--color-brand-violet) 6%, transparent), transparent)",
-        }}
-      />
       <form onSubmit={submit} className="relative w-[22rem] rounded-card border border-line bg-panel p-7">
         <div className="wordmark text-xl text-bright">
           qkt<span className="text-tittle">·</span>insights

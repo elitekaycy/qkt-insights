@@ -56,7 +56,7 @@ export const chartColors = {
   loss: tok("loss-fill"),
   gainInk: tok("gain"),
   lossInk: tok("loss"),
-  muted: tok("faint"),
+  muted: tok("muted"),
   warn: tok("warn"),
   axis: tok("axis"),
   grid: tok("grid"),
@@ -129,7 +129,7 @@ export function useNarrowChart(): boolean {
   return narrow;
 }
 
-const LEGEND_TEXT = { color: tok("body"), fontFamily: FONT, fontSize: 11 };
+const LEGEND_TEXT = { color: tok("muted"), fontFamily: FONT, fontSize: 11 };
 
 /** Compact legend at the top right, the journal's placement. */
 export function qktLegend() {
@@ -429,7 +429,7 @@ export function EChart({
     >
       <div ref={el} style={{ height, width: "100%", minHeight: typeof height === "string" ? 220 : undefined }} />
       {zoomable && (
-        <div className="pointer-events-none absolute right-1 top-0 flex items-center gap-2 text-[11px] text-muted">
+        <div className="pointer-events-none absolute right-1 top-0 flex items-center gap-2 text-xs text-muted">
           <span className={`hidden sm:inline ${focused ? "" : "opacity-0 transition-opacity group-hover/chart:opacity-100"}`}>
             {focused ? "scroll to zoom · drag to pan · Esc to release" : "click to zoom · or Ctrl/⌘ + scroll"}
           </span>
@@ -437,7 +437,7 @@ export function EChart({
             <button
               type="button"
               onClick={reset}
-              className="pointer-events-auto h-6 rounded-md border border-line-strong bg-panel px-2 text-[11px] font-medium text-bright transition hover:bg-raised"
+              className="pointer-events-auto h-6 rounded-md border border-line-strong bg-panel px-2 text-xs font-medium text-bright transition hover:bg-raised"
             >
               Reset zoom
             </button>
