@@ -435,6 +435,12 @@ export function strategyPeriods(
   return result;
 }
 
+/** Strategies whose every open position lacks a venue price: their open P&L is unknown, not zero. */
+export function unpricedStrategies(positions: LivePositionRow[]): Set<string | null> {
+  const priced = new Set(positions.filter((p) => p.profit != null).map((p) => p.strategyId ?? null));
+  return new Set(positions.filter((p) => p.profit == null).map((p) => p.strategyId ?? null).filter((k) => !priced.has(k)));
+}
+
 /** Open P&L (swap included) per strategy id, null for positions no strategy claimed. */
 export function floatingByStrategy(positions: LivePositionRow[]): Map<string | null, number> {
   const out = new Map<string | null, number>();
