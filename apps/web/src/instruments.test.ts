@@ -1,7 +1,7 @@
 import { describe, expect, it } from "vitest";
 import { INSTRUMENT_TYPES } from "@qkt-insights/contract/query";
 import type { LiveAccount } from "./api";
-import { distinctLegs, GLOSSARY, legLabel, legsLine, optionFromSymbol, optionLine, shortInstrument, sizeInWords, strategyCurrencies, strategyEnvironment, strategyLegs, TYPE_LABEL, type InstrumentType, type Leg } from "./instruments";
+import { distinctLegs, GLOSSARY, legLabel, legsLine, optionFromSymbol, optionLine, shortInstrument, sizeInWords, strategyCurrencies, strategyLegs, TYPE_LABEL, type InstrumentType, type Leg } from "./instruments";
 
 const NOW = Date.UTC(2026, 9, 29);
 
@@ -105,22 +105,6 @@ describe("strategyCurrencies", () => {
     expect(strategyCurrencies({ metadata: { streams: [{ broker: "GONE" }] } }, accounts, "soak")).toEqual([]);
     expect(strategyCurrencies({ metadata: null }, accounts, "soak")).toEqual([]);
     expect(strategyCurrencies(null, accounts, "soak")).toEqual([]);
-  });
-});
-
-describe("strategyEnvironment", () => {
-  const stream = (venue: Record<string, unknown> | null) => ({ broker: "X", symbol: "Y", venue });
-  it("says paper, demo or live from each stream's venue facts", () => {
-    const row = { metadata: { streams: [stream({ connector: "mt5", adapter: "exness", tradeMode: "demo" }), stream({ connector: "vgp", adapter: "paper", tradeMode: "demo" })] } };
-    expect(strategyEnvironment(row).map((e) => e.label)).toEqual(["Demo", "Paper"]);
-    expect(strategyEnvironment({ metadata: { streams: [stream({ connector: "mt5", adapter: "icmarkets", tradeMode: "real" })] } }).map((e) => e.label)).toEqual(["Live"]);
-    expect(strategyEnvironment({ metadata: { streams: [stream({ connector: "paper" })] } }).map((e) => e.label)).toEqual(["Paper"]);
-  });
-
-  it("shows nothing when qkt states no venue", () => {
-    expect(strategyEnvironment({ metadata: { streams: [stream(null)] } })).toEqual([]);
-    expect(strategyEnvironment({ metadata: null })).toEqual([]);
-    expect(strategyEnvironment(null)).toEqual([]);
   });
 });
 

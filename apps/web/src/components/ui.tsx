@@ -1,7 +1,7 @@
 import { useEffect, useLayoutEffect, useRef, useState, type ReactNode } from "react";
 import { createPortal } from "react-dom";
 import { useOrigin, useSearchParam } from "../router";
-import { DASH, DAY_MS, elapsed, glyph, pnl, signedMoney, signedPct, toneClass, tsDay, tsShort } from "../format";
+import { DASH, DAY_MS, elapsed, signedMoney, signedPct, toneClass, tsDay, tsShort } from "../format";
 
 /*
  * The component kit every page is built from. Pages compose these and never
@@ -9,10 +9,10 @@ import { DASH, DAY_MS, elapsed, glyph, pnl, signedMoney, signedPct, toneClass, t
  * tokens in index.css) and nowhere else.
  */
 
-/** A widget surface: hairline border that strengthens on hover, no shadow. */
+/** A widget surface: a hairline border, no shadow. */
 export function Card({ children, className = "" }: { children: ReactNode; className?: string }) {
   return (
-    <div className={`@container rounded-card border border-line bg-panel transition-colors hover:border-line-strong ${className}`}>
+    <div className={`@container rounded-card border border-line bg-panel ${className}`}>
       {children}
     </div>
   );
@@ -31,7 +31,7 @@ export function OriginBack({ className = "", iconOnly = false }: { className?: s
       onClick={origin.back}
       title={`Back to ${origin.label}`}
       aria-label={`Back to ${origin.label}`}
-      className={`inline-flex h-7 min-w-0 max-w-full shrink-0 items-center gap-1 rounded-md border border-line bg-raised text-xs ${iconOnly ? "w-7 justify-center" : "pl-1.5 pr-2"} font-medium text-body transition hover:border-line-strong hover:text-bright ${className}`}
+      className={`inline-flex h-7 min-w-0 max-w-full shrink-0 items-center gap-1 rounded-md border border-line bg-raised text-xs ${iconOnly ? "w-7 justify-center" : "pl-1.5 pr-2"} font-medium text-muted transition hover:border-line-strong hover:text-bright ${className}`}
     >
       <Icon d="M15 18l-6-6 6-6" className="h-3.5 w-3.5" strokeWidth={2} />
       {!iconOnly && <span className="truncate">{origin.label}</span>}
@@ -112,7 +112,7 @@ export function Modal({
       >
         <SheetHeader onClose={onClose}>
           <div className="flex min-w-0 flex-col gap-0.5 sm:flex-row sm:items-baseline sm:gap-2.5">
-            <h2 className="text-[15px] font-headline text-bright">{title}</h2>
+            <h2 className="text-sm font-headline text-bright">{title}</h2>
             {hint && <span className="truncate text-xs text-muted">{hint}</span>}
           </div>
           <div className="ml-auto flex shrink-0 flex-wrap items-center justify-end gap-2">
@@ -185,7 +185,7 @@ export function Panel({
             expand button share the first line and the toolbar takes a full line under them */}
         <div className="flex flex-wrap items-center gap-2 border-b border-line px-4 py-3">
           <div className="flex min-w-0 flex-1 basis-[60%] flex-col items-start gap-0.5 @3xl:basis-0 @3xl:flex-row @3xl:items-baseline @3xl:gap-2.5">
-            <h3 className="shrink-0 text-sm font-medium text-body">{title}</h3>
+            <h3 className="shrink-0 text-sm font-medium text-muted">{title}</h3>
             {hint && <span className={`text-xs text-muted ${hintTitle ? "cursor-help underline decoration-dotted underline-offset-4" : ""}`} title={hintTitle}>{hint}</span>}
           </div>
           {(toolbar || right) && (
@@ -216,7 +216,7 @@ export function IconButton({ label, onClick, d, disabled }: { label: string; onC
       title={label}
       onClick={onClick}
       disabled={disabled}
-      className="inline-flex h-8 w-8 items-center justify-center rounded-lg border border-line-strong bg-raised text-muted transition hover:bg-well hover:text-bright disabled:cursor-not-allowed disabled:opacity-40 disabled:hover:bg-raised disabled:hover:text-muted"
+      className="inline-flex h-8 w-8 items-center justify-center rounded-lg text-muted transition hover:bg-hover hover:text-bright disabled:cursor-not-allowed disabled:opacity-40 disabled:hover:bg-transparent disabled:hover:text-muted"
     >
       <Icon d={d} className="h-3.5 w-3.5" strokeWidth={2} />
     </button>
@@ -250,7 +250,7 @@ const TONE_TEXT: Record<Tone, string> = {
 const STATUS_DOT: Partial<Record<Tone, string>> = { bad: "bg-danger", warn: "bg-warn" };
 
 const TONE_PILL: Record<Tone, string> = {
-  neutral: "border-line bg-raised text-body",
+  neutral: "border-line bg-raised text-muted",
   up: "border-transparent bg-gain-fill/15 text-gain",
   down: "border-transparent bg-loss-fill/15 text-loss",
   ok: "border-ok/40 bg-transparent text-ok",
@@ -270,7 +270,7 @@ export function Stat({
   label: string;
   /** The figure as text; omit it and pass `signed` for a P&L figure. */
   value?: ReactNode;
-  /** A signed money figure: rendered "▲ +1,234.50" in the gain or loss tone. */
+  /** A signed money figure: rendered "+1,234.50" in the gain or loss tone. */
   signed?: number | null;
   tone?: Tone;
   sub?: string;
@@ -414,7 +414,7 @@ export function Popover({ trigger, label, children, align = "left", hover = fals
             e.stopPropagation();
           }}
           style={{ top: at?.top ?? 0, left: at?.left ?? 0, visibility: at ? "visible" : "hidden" }}
-          className="pop-in fixed z-[70] w-max max-w-[min(20rem,calc(100vw-1rem))] rounded-xl border border-line-strong bg-panel p-3 text-left text-xs font-normal normal-case leading-relaxed tracking-normal text-body shadow-pop"
+          className="pop-in fixed z-[70] w-max max-w-[min(20rem,calc(100vw-1rem))] rounded-xl border border-line-strong bg-panel p-3 text-left text-xs font-normal normal-case leading-relaxed tracking-normal text-muted shadow-pop"
         >
           {children}
         </span>,
@@ -451,7 +451,7 @@ export function Segmented<T extends string>({
           aria-selected={value === o.key}
           onClick={() => onChange(o.key)}
           className={`h-7 shrink-0 whitespace-nowrap rounded-md font-medium transition ${dense ? "px-1.5 text-xs sm:px-3 sm:text-sm" : "px-3 text-sm"} ${
-            value === o.key ? "bg-well text-bright" : "text-body hover:bg-hover hover:text-bright"
+            value === o.key ? "bg-well text-bright" : "text-muted hover:bg-hover hover:text-bright"
           }`}
         >
           {o.label}
@@ -464,23 +464,16 @@ export function Segmented<T extends string>({
 export function Pill({ tone = "neutral", children }: { tone?: Tone; children: ReactNode }) {
   return (
     <span
-      className={`inline-flex h-5 items-center gap-1 whitespace-nowrap rounded-full border px-2 font-sans text-[11px] font-medium ${TONE_PILL[tone]}`}
+      className={`inline-flex h-5 items-center gap-1 whitespace-nowrap rounded-full border px-2 font-sans text-xs font-medium ${TONE_PILL[tone]}`}
     >
       {children}
     </span>
   );
 }
 
-/**
- * Signed money with its direction glyph, "▲ +1,234.50" / "▼ −56.00", in the gain or loss tone.
- * Every P&L figure renders through this.
- */
-export function Pnl({ value, className = "", glyphs = true }: { value: number | null | undefined; className?: string; glyphs?: boolean }) {
-  return (
-    <span className={`whitespace-nowrap ${toneClass(value)} ${className}`}>
-      {glyphs ? pnl(value) : signedMoney(value)}
-    </span>
-  );
+/** Signed money, "+1,234.50" / "−56.00", in the gain or loss tone. Every P&L figure renders through this. */
+export function Pnl({ value, className = "" }: { value: number | null | undefined; className?: string }) {
+  return <span className={`whitespace-nowrap ${toneClass(value)} ${className}`}>{signedMoney(value)}</span>;
 }
 
 /** The grey "USD+USDC" after a total that adds currencies 1:1; what that means on hover or focus. */
@@ -490,23 +483,21 @@ export function CurrencyMix({ mix }: { mix: { label: string; title: string } | n
 }
 
 /**
- * The signed return on base as "▲ +12.3%", paired with a money headline so the percentage is not a
+ * The signed return on base as "+12.3%", paired with a money headline so the percentage is not a
  * second copy of the amount. A null base (no notional) renders a dash.
  */
 export function ReturnPct({ net, base }: { net: number | null | undefined; base?: number | null }) {
-  if (net == null || !base) return <span className="text-faint">{DASH}</span>;
+  if (net == null || !base) return <span className="text-muted">{DASH}</span>;
   const r = (net / base) * 100;
   return (
-    <span className={`text-sm font-semibold ${toneClass(r, 1)}`}>
-      {glyph(r, 1)} {signedPct(r, 1)}
-    </span>
+    <span className={`text-sm font-semibold ${toneClass(r, 1)}`}>{signedPct(r, 1)}</span>
   );
 }
 
-/** Order side as a neutral tag: colour is reserved for P&L, so direction reads from the word. */
-export function SideTag({ side }: { side: string | null | undefined }) {
-  if (!side) return <span className="text-faint">{DASH}</span>;
-  return <Pill>{side}</Pill>;
+/** A position's direction as a plain word: colour is reserved for P&L. Venues say BUY/SELL, trades long/short; the word is one. */
+export function SideWord({ side }: { side: string | null | undefined }) {
+  if (!side) return <span className="text-muted">{DASH}</span>;
+  return <span className="whitespace-nowrap text-muted">{/^(buy|long)$/iu.test(side) ? "Long" : "Short"}</span>;
 }
 
 export const LEVEL_TONE: Record<string, Tone> = {
@@ -658,7 +649,7 @@ export function LoadMore({ shown, total, onMore }: { shown: number; total: numbe
   if (total <= shown) return null;
   return (
     <div className="flex items-center justify-center gap-3 border-t border-line px-4 py-2.5">
-      <span className="text-xs text-faint">
+      <span className="text-xs text-muted">
         showing {shown} of {total}
       </span>
       <button
@@ -949,7 +940,7 @@ export function PageFallback({ title }: { title?: string }) {
 
 /** The row's "this opens" cue: fades in on hover and focus, always faint on touch screens. */
 export function RowChevron({ className = "" }: { className?: string }) {
-  return <Icon d="M9 18l6-6-6-6" className={`h-4 w-4 text-faint opacity-0 transition-opacity group-hover:opacity-100 group-focus-visible:opacity-100 group-focus-within:opacity-100 [@media(hover:none)]:opacity-60 ${className}`} />;
+  return <Icon d="M9 18l6-6-6-6" className={`h-4 w-4 text-muted opacity-0 transition-opacity group-hover:opacity-100 group-focus-visible:opacity-100 group-focus-within:opacity-100 [@media(hover:none)]:opacity-60 ${className}`} />;
 }
 
 /** The clock, re-read every `everyMs` so an age ("stale · 4m") keeps up. */
@@ -988,8 +979,8 @@ export function Freshness({ at, stale, quiet = false, className = "" }: { at: nu
  */
 export function StatusWord({ tone, children, wrap = false }: { tone: Tone; children: ReactNode; wrap?: boolean }) {
   return (
-    <span className={`${wrap ? "flex min-w-0 items-start" : "inline-flex items-center whitespace-nowrap"} gap-1.5 text-xs font-medium text-body`}>
-      <span className={`inline-block h-1.5 w-1.5 shrink-0 rounded-full ${wrap ? "mt-[0.4em]" : ""} ${tone === "ok" ? "" : (STATUS_DOT[tone] ?? "bg-faint")}`} aria-hidden />
+    <span className={`${wrap ? "flex min-w-0 items-start" : "inline-flex items-center whitespace-nowrap"} gap-1.5 text-xs font-medium text-muted`}>
+      <span className={`inline-block h-1.5 w-1.5 shrink-0 rounded-full ${wrap ? "mt-[0.4em]" : ""} ${tone === "ok" ? "" : (STATUS_DOT[tone] ?? "bg-muted")}`} aria-hidden />
       {wrap ? <span className="min-w-0">{children}</span> : children}
     </span>
   );

@@ -10,22 +10,19 @@ import { Link, useRoute, useSearchParam } from "../router";
 import { Card, CurrencyMix, Pill, Pnl, Popover, RowChevron } from "./ui";
 
 /*
- * The strategy table: one row per strategy with Today, 7D, MTD and all-time P&L, its deepest
- * realized drawdown, trades, win rate and last close. Sortable; a row opens the strategy. Closes
- * no strategy claimed are their own row so the column sums equal the account.
+ * The strategy table: one line per strategy with Today, Open, 7D and all-time P&L, win rate and last close; month to
+ * date, trades and the deepest realized drawdown are on the all-time figure's tooltip. Sortable; a row opens the
+ * strategy. Closes no strategy claimed are their own row so the column sums equal the account.
  */
 
-type SortKey = "name" | "today" | "open" | "d7" | "mtd" | "all" | "maxDd" | "trades" | "winRate" | "lastTs";
+type SortKey = "name" | "today" | "open" | "d7" | "all" | "winRate" | "lastTs";
 
 const COLUMNS: ReadonlyArray<{ key: SortKey; label: string; hint?: string }> = [
   { key: "name", label: "Strategy" },
   { key: "today", label: "Today", hint: "realized since the account's trading day began" },
   { key: "open", label: "Open", hint: "floating on its open positions now, swap included" },
   { key: "d7", label: "7D", hint: "realized, today and the 6 UTC days before" },
-  { key: "mtd", label: "MTD", hint: "realized since the UTC month began" },
   { key: "all", label: "All-time", hint: "realized, every stored close" },
-  { key: "maxDd", label: "Max DD", hint: "deepest fall of cumulative realized P&L from its peak" },
-  { key: "trades", label: "Trades" },
   { key: "winRate", label: "Win rate", hint: "wins over decided closes; breakeven excluded" },
   { key: "lastTs", label: "Last close" },
 ];
@@ -38,7 +35,6 @@ export interface StrategyLine {
 
 function sortValue(l: StrategyLine, key: SortKey): number | string {
   if (key === "name") return l.row ? strategyDisplayName(l.row).toLowerCase() : "~";
-  if (key === "maxDd") return -l.periods.maxDd;
   if (key === "today") return l.periods.todayRealized;
   if (key === "open") return l.periods.floating;
   const v = l.periods[key];
@@ -59,7 +55,7 @@ function RowState({ row }: { row: StrategyRow | null }) {
       </Popover>
     );
   }
-  return row.active ? null : <span className="text-xs text-faint">Retired</span>;
+  return row.active ? null : <span className="text-xs text-muted">Retired</span>;
 }
 
 const retired = (row: StrategyRow | null) => row != null && !row.active;
@@ -114,13 +110,10 @@ export function StrategyTable({
   const cell = (l: StrategyLine, k: SortKey) => {
     const p = l.periods;
     switch (k) {
-      case "today": return <Pnl value={p.todayRealized} glyphs={false} />;
-      case "open": return unpriced.has(l.key) ? <span className="text-faint" title="No price from the venue for its open position">—</span> : <Pnl value={p.floating} glyphs={false} />;
-      case "d7": return <Pnl value={p.d7} glyphs={false} />;
-      case "mtd": return <Pnl value={p.mtd} glyphs={false} />;
-      case "all": return <Pnl value={p.all} glyphs={false} className="font-semibold" />;
-      case "maxDd": return p.maxDd > 0 ? <span className="text-loss">{money(-p.maxDd)}</span> : <span className="text-faint">{money(0)}</span>;
-      case "trades": return count(p.trades);
+      case "today": return <Pnl value={p.todayRealized} />;
+      case "open": return unpriced.has(l.key) ? <span className="text-muted" title="No price from the venue for its open position">—</span> : <Pnl value={p.floating} />;
+      case "d7": return <Pnl value={p.d7} />;
+      case "all": return <span title={`${signedMoney(p.mtd)} month to date · ${count(p.trades)} trades · deepest fall ${money(-p.maxDd)}`}><Pnl value={p.all} className="font-medium" /></span>;
       case "winRate": return pct(p.winRate);
       case "lastTs": return p.lastTs == null ? DASH : <span title={`${ts(p.lastTs)} UTC`}>{age(p.lastTs)}</span>;
       default: return null;
@@ -131,7 +124,7 @@ export function StrategyTable({
   return (
     <Card className="overflow-hidden">
       <div className="flex flex-wrap items-center gap-x-2.5 gap-y-2 border-b border-line px-4 py-3">
-        <h2 className="text-sm font-medium text-body">Strategies</h2>
+        <h2 className="text-sm font-medium text-bright">Strategies</h2>
         {hint && <span className="text-xs text-muted">{hint}</span>}
         {search && <StrategySearch className="ml-auto" />}
         {hiddenCount > 0 && !asksForRetired(find) && (
@@ -151,10 +144,10 @@ export function StrategyTable({
               <thead>
                 <tr className="border-b border-line text-left">
                   {COLUMNS.map((c) => (
-                    <th key={c.key} className={`whitespace-nowrap px-3 py-2 ${c.key === "name" ? "" : "text-right"}`} aria-sort={c.key === key ? (desc ? "descending" : "ascending") : "none"}>
+                    <th key={c.key} className={`whitespace-nowrap px-4 py-2 ${c.key === "name" ? "" : "text-right"}`} aria-sort={c.key === key ? (desc ? "descending" : "ascending") : "none"}>
                       <button type="button" onClick={() => toggleSort(c.key)} title={c.hint} className={`eyebrow inline-flex items-center gap-1 hover:text-bright ${c.key === key ? "text-bright" : ""}`}>
                         {c.label}
-                        <span aria-hidden className="w-2">{c.key === key ? (desc ? "↓" : "↑") : ""}</span>
+                        {c.key === key && <span aria-hidden>{desc ? "↓" : "↑"}</span>}
                       </button>
                     </th>
                   ))}
@@ -171,7 +164,7 @@ export function StrategyTable({
                     aria-label={l.key ? `Open ${name(l)}` : undefined}
                     className={`group border-b border-line last:border-b-0 ${l.key ? "cursor-pointer transition-colors hover:bg-hover focus-visible:bg-hover focus-visible:outline-2 focus-visible:-outline-offset-2 focus-visible:outline-accent-hi" : ""}`}
                   >
-                    <td className="px-3 py-2.5">
+                    <td className="px-4 py-[7px]">
                       <span className="flex items-center gap-2" onClick={(e) => e.stopPropagation()}>
                         <span className={`break-words font-medium ${l.key == null ? "italic text-muted" : retired(l.row) ? "text-muted" : "text-bright"}`} title={l.key ?? "closes and positions no strategy claimed"}>
                           {name(l)}
@@ -180,7 +173,7 @@ export function StrategyTable({
                       </span>
                     </td>
                     {COLUMNS.slice(1).map((c) => (
-                      <td key={c.key} className={`whitespace-nowrap px-3 py-2.5 text-right font-mono ${c.key === "trades" || c.key === "winRate" || c.key === "lastTs" ? "text-body" : ""}`}>
+                      <td key={c.key} className={`whitespace-nowrap px-4 py-[7px] text-right font-mono ${c.key === "winRate" || c.key === "lastTs" ? "text-muted" : ""}`}>
                         {cell(l, c.key)}
                       </td>
                     ))}
@@ -197,19 +190,14 @@ export function StrategyTable({
                   <div className="flex items-center gap-2">
                     <span className={`min-w-0 break-words font-medium ${l.key == null ? "italic text-muted" : retired(l.row) ? "text-muted" : "text-bright"}`}>{name(l)}</span>
                     <RowState row={l.row} />
-                    <span className="ml-auto shrink-0 text-xs text-muted">Today</span>
-                    <span className="shrink-0 font-semibold">{cell(l, "today")}</span>
+                    <span className="ml-auto" />
+                    <span className="shrink-0 font-mono font-medium">{cell(l, "today")}</span>
                     {l.key && <RowChevron className="-mr-1" />}
                   </div>
-                  <div className="mt-1.5 grid grid-cols-5 gap-x-2 text-xs tabular-nums">
-                    <Mini k="Open">{cell(l, "open")}</Mini>
-                    <Mini k="7D">{cell(l, "d7")}</Mini>
-                    <Mini k="MTD">{cell(l, "mtd")}</Mini>
-                    <Mini k="All-time">{cell(l, "all")}</Mini>
-                    <Mini k="Max DD">{cell(l, "maxDd")}</Mini>
-                  </div>
-                  <div className="mt-1 text-[11px] text-faint">
-                    {count(l.periods.trades)} trades · win {pct(l.periods.winRate)} · last {l.periods.lastTs == null ? DASH : age(l.periods.lastTs)}
+                  <div className="mt-1 flex items-center gap-x-3 text-xs text-muted">
+                    <span>open <span className="font-mono">{cell(l, "open")}</span></span>
+                    <span>all-time <span className="font-mono">{cell(l, "all")}</span></span>
+                    <span className="ml-auto">{l.periods.lastTs == null ? DASH : age(l.periods.lastTs)}</span>
                   </div>
                 </>
               );
@@ -228,7 +216,7 @@ export function StrategyTable({
       )}
       {idle.length > 0 && (
         <p className="border-t border-line px-4 py-2 text-xs text-muted">
-          Not traded yet ({idle.length}): {idle.map((l, i) => <span key={l.key}>{i > 0 && ", "}<Link to={`/s/${encodeURIComponent(l.key!)}`} from={origin} className="text-body hover:underline">{name(l)}</Link></span>)}
+          Not traded yet ({idle.length}): {idle.map((l, i) => <span key={l.key}>{i > 0 && ", "}<Link to={`/s/${encodeURIComponent(l.key!)}`} from={origin} className="text-muted hover:underline">{name(l)}</Link></span>)}
         </p>
       )}
       <TotalLine lines={shown} account={account} mix={mix} hidden={lines.length - shown.length - idle.length} />
@@ -259,15 +247,6 @@ export function StrategySearch({ className = "" }: { className?: string }) {
   );
 }
 
-function Mini({ k, children }: { k: string; children: ReactNode }) {
-  return (
-    <div className="min-w-0">
-      <div className="text-faint">{k}</div>
-      <div className="truncate">{children}</div>
-    </div>
-  );
-}
-
 /**
  * The table's total from the rows shown, today's closes plus what is open: "Total incl. open +18.35"; on one account,
  * set against the account's own Today ("· other system −767.77 · account −749.42"), with whatever else it holds named
@@ -275,14 +254,14 @@ function Mini({ k, children }: { k: string; children: ReactNode }) {
  */
 function TotalLine({ lines, account, mix, hidden }: { lines: StrategyLine[]; account: TodaySplit | null; mix: { label: string; title: string } | null; hidden: number }) {
   const total = strategyTotal(lines.map((l) => l.periods.today), account);
-  const figure = (v: number) => <span className="font-mono tabular-nums text-body">{signedMoney(v)}</span>;
+  const figure = (v: number) => <span className="text-bright">{signedMoney(v)}</span>;
   const parts: ReactNode[] = [<>Total incl. open {figure(total.rows)}{total.account == null && <CurrencyMix mix={mix} />}</>];
   if (total.other != null) parts.push(<>other system {figure(total.other)}</>);
   if (total.account != null && total.rest !== 0) parts.push(<>{hidden > 0 ? "rows not shown" : "not in a row"} {figure(total.rest)}</>);
   if (total.account != null) parts.push(<>account {figure(total.account)}</>);
   return (
     <div className="flex flex-wrap items-center gap-x-1.5 gap-y-0.5 border-t border-line px-4 py-2 text-xs text-muted">
-      {parts.map((p, i) => <span key={i} className="inline-flex items-center gap-1.5 whitespace-nowrap">{i > 0 && <span className="text-faint">·</span>}<span>{p}</span></span>)}
+      {parts.map((p, i) => <span key={i} className="inline-flex items-center gap-1.5 whitespace-nowrap">{i > 0 && <span className="text-muted">·</span>}<span>{p}</span></span>)}
     </div>
   );
 }

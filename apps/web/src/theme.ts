@@ -34,7 +34,7 @@ export function setTheme(theme: Theme): void {
     // private mode or blocked storage: the choice lasts for this page only
   }
   const meta = document.querySelector('meta[name="theme-color"]');
-  meta?.setAttribute("content", theme === "light" ? "#ffffff" : "#17181b");
+  meta?.setAttribute("content", theme === "light" ? "#f6f7f9" : "#0e0f12");
   listeners.forEach((l) => l());
 }
 

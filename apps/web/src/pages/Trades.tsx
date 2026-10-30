@@ -8,9 +8,6 @@ import { RoundTripTable } from "../trades/RoundTripTable";
 import { TripCount, useSortParams } from "../trades/scope";
 import { usePublicPageView, useView } from "../view";
 
-/** The ticket is in each trade's drawer; the list gives its width to the symbol. */
-const TRADES_HIDDEN = ["id"];
-
 export default function Trades({ instanceId }: { instanceId: string | null }) {
   usePublicPageView("trades");
   const view = useView();
@@ -36,7 +33,7 @@ export default function Trades({ instanceId }: { instanceId: string | null }) {
     [facets.data],
   );
 
-  if (!instanceId) return <Card className="p-8 text-center text-faint">No instance selected.</Card>;
+  if (!instanceId) return <Card className="p-8 text-center text-muted">No instance selected.</Card>;
 
   const exportHref = scope ? `/round-trips/export?${tripParams(scope, q, sort, dir)}` : "#";
 
@@ -47,20 +44,17 @@ export default function Trades({ instanceId }: { instanceId: string | null }) {
         sub={view.public ? `${view.meta.delayMinutes} minutes behind` : undefined}
         right={
           !view.public && (
-            <span className="flex items-center gap-2">
-            <span className="hidden h-8 w-8 cursor-help items-center justify-center rounded-lg border border-line text-sm text-muted [@media(pointer:fine)]:inline-flex" title="Keys: / search · j and k move · Enter opens a trade" aria-label="Keyboard shortcuts: / search, j and k move, Enter opens a trade">?</span>
             <a
               href={exportHref}
               download
-              className="inline-flex h-8 items-center gap-1.5 rounded-lg border border-ctl bg-raised px-3 text-sm font-medium text-bright transition hover:bg-well"
-              title="Every round trip the query matches, as CSV"
+              className="inline-flex h-8 items-center gap-1.5 rounded-lg px-2 text-sm text-muted transition hover:bg-hover hover:text-bright max-sm:hidden"
+              title="Every trade the search matches, as CSV"
             >
               <svg viewBox="0 0 24 24" className="h-3.5 w-3.5" fill="none" stroke="currentColor" strokeWidth="1.75" strokeLinecap="round" strokeLinejoin="round" aria-hidden>
                 <path d="M12 3v12M7 10l5 5 5-5M5 21h14" />
               </svg>
-              Export CSV
+              Export
             </a>
-            </span>
           )
         }
         scope={
@@ -71,7 +65,7 @@ export default function Trades({ instanceId }: { instanceId: string | null }) {
                 aria-label="Search trades"
                 aria-expanded={searchOpen}
                 onClick={openSearch}
-                className={`inline-flex h-8 w-8 shrink-0 items-center justify-center rounded-lg border transition ${searchOpen || q ? "border-accent-hi bg-accent-soft text-bright" : "border-ctl bg-raised text-body"}`}
+                className={`inline-flex h-8 w-8 shrink-0 items-center justify-center rounded-lg border transition ${searchOpen || q ? "border-accent-hi bg-accent-soft text-bright" : "border-ctl bg-raised text-muted"}`}
               >
                 <svg viewBox="0 0 24 24" className="h-4 w-4" fill="none" stroke="currentColor" strokeWidth="1.75" strokeLinecap="round" aria-hidden><path d="M11 19a8 8 0 1 0 0-16 8 8 0 0 0 0 16zM21 21l-4.35-4.35" /></svg>
               </button>
@@ -99,8 +93,8 @@ export default function Trades({ instanceId }: { instanceId: string | null }) {
           </div>
         }
       />
-      <Card className="mt-5 overflow-hidden">
-        <RoundTripTable scope={scope} q={q} sort={sort} dir={dir} onSort={setSort} onTotals={onTotals} hide={TRADES_HIDDEN} height="calc(100dvh - 19rem)" />
+      <Card className="mt-4 overflow-hidden">
+        <RoundTripTable scope={scope} q={q} sort={sort} dir={dir} onSort={setSort} onTotals={onTotals} height="calc(100dvh - 15rem)" />
       </Card>
     </div>
   );

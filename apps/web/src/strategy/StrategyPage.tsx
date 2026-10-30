@@ -6,7 +6,7 @@ import { LogLine } from "../components/LogLine";
 import { groupLogs } from "../logs";
 import { ShareControl } from "../components/ShareControl";
 import { Card, Icon, Loadable, OriginBack, Pill, Popover, RangeChips, rangeStart, ReturnPct, Segmented, Skeleton, useRangeParam } from "../components/ui";
-import { age, DASH, glyph, money, openPnl, signedMoney, toneClass } from "../format";
+import { age, DASH, money, openPnl, signedMoney, toneClass } from "../format";
 import { haltSince, haltWords, resumeCommand } from "../halt";
 import { metaString, strategyCapital, strategyDisplayName } from "../portfolio";
 import { QueryBar, TRADE_PRESETS, useSearchToggle } from "../query/QueryBar";
@@ -17,14 +17,14 @@ import { RoundTripTable } from "../trades/RoundTripTable";
 import { TripCount, useSortParams } from "../trades/scope";
 import { TradeDrawer, useOpenTrade } from "../trades/TradeDrawer";
 import { LegLine } from "../components/InstrumentType";
-import { strategyEnvironment, strategyLegs } from "../instruments";
+import { strategyLegs } from "../instruments";
 import { useLiveState } from "../useLiveState";
 import { usePublicPageView, useView } from "../view";
 import { CalendarSection, DailySection, MonthlySection } from "./Days";
 import { chipOf, toggleToken, without } from "./journal";
 import { OverviewSection } from "./Overview";
 import { TimeRiskSection } from "./TimeRisk";
-import { BigPnl, ICON, Widget } from "./widgets";
+import { BigPnl, Widget } from "./widgets";
 import { useStrategies } from "../hooks/useStrategies";
 
 // The highlighter and its grammar load only when the Code section opens.
@@ -45,7 +45,7 @@ const TAB_LABEL: Record<StrategyTab, string> = {
 const PERIOD_LABEL: Record<PeriodView, string> = { calendar: "Calendar", days: "Days", months: "Months" };
 
 /** A strategy page leaves its own name out of each row. */
-const STRATEGY_HIDDEN = ["strategy", "id"];
+const STRATEGY_HIDDEN = ["strategy"];
 const RECENT_LOGS = 50;
 
 /** Open P&L and open positions of one strategy from the live broker state (shared links: the delayed sum). */
@@ -118,7 +118,7 @@ export function StrategyDetail({ instanceId, strategyId }: { instanceId: string;
   const row = (strategies.data ?? []).find((r) => r.strategyId === strategyId) ?? null;
   const capital = row ? strategyCapital(row) : { amount: stats.data?.startingBalance ?? null, source: null };
   const capitalLabel = capital.amount == null ? "no capital known" : `on ${money(capital.amount, 0)} ${capital.source === "defined" ? "defined capital" : capital.source ?? "capital"}`;
-  const env = strategyEnvironment(row);
+  const legs = strategyLegs(row, liveAccounts, instanceId);
   const realized = stats.data?.realizedPnl ?? row?.realizedNet ?? null;
   const net = realized == null && open.pnl == null ? null : (realized ?? 0) + (open.pnl ?? 0);
 
@@ -161,53 +161,48 @@ export function StrategyDetail({ instanceId, strategyId }: { instanceId: string;
       <div>
         <div className="flex min-w-0 items-center gap-1.5 sm:hidden">
           <OriginBack iconOnly />
-          <h1 className="min-w-0 truncate text-base font-headline text-bright" title={strategyId}>{row ? strategyDisplayName(row) : strategyId}</h1>
-          <Status row={row} isPublic={view.public} compact />
+          <h1 className="min-w-0 truncate text-sm font-headline text-bright" title={strategyId}>{row ? strategyDisplayName(row) : strategyId}</h1>
+          <Status row={row} />
           <span className={`ml-auto shrink-0 text-sm font-semibold tabular-nums ${toneClass(net)}`}>
-            {net == null ? DASH : `${glyph(net)} ${signedMoney(net)}`}
+            {net == null ? DASH : signedMoney(net)}
           </span>
           <button
             type="button"
             aria-label={details ? "Hide strategy details" : "Show strategy details"}
             aria-expanded={details}
             onClick={() => setDetails((d) => !d)}
-            className="inline-flex h-8 w-7 shrink-0 items-center justify-center rounded-md text-muted transition hover:text-body"
+            className="inline-flex h-8 w-7 shrink-0 items-center justify-center rounded-md text-muted transition hover:text-muted"
           >
             <Icon d={details ? "M18 15l-6-6-6 6" : "M6 9l6 6 6-6"} className="h-4 w-4" />
           </button>
         </div>
-        {row?.halted && <HaltBanner row={row} />}
-        <header className={`${details ? "mt-2 flex" : "hidden"} sm:mt-0 flex-wrap items-start justify-between gap-x-6 gap-y-3 sm:flex`}>
+        <header className={`${details ? "mt-2 flex" : "hidden"} flex-wrap items-start justify-between gap-x-6 gap-y-3 sm:mt-0 sm:flex`}>
           <div className="min-w-0">
-            <div className="flex flex-wrap items-center gap-2">
+            <div className="flex flex-wrap items-center gap-x-2.5 gap-y-1">
               {/* phones show the name, status and net in the one-line header above */}
               <OriginBack className="max-sm:hidden" />
-              <h1 className="min-w-0 break-words text-xl font-headline text-bright max-sm:hidden">{row ? strategyDisplayName(row) : strategyId}</h1>
-              {row && strategyDisplayName(row) !== strategyId && <span className="font-mono text-xs text-muted max-sm:hidden">{strategyId}</span>}
-              <span className="contents max-sm:hidden"><Status row={row} isPublic={view.public} /></span>
-              {env.map((e) => <span key={e.label} title={e.title}><Pill>{e.label}</Pill></span>)}
+              <h1 className="min-w-0 break-words text-xl font-headline text-bright max-sm:hidden" title={strategyId}>{row ? strategyDisplayName(row) : strategyId}</h1>
+              <span className="contents max-sm:hidden"><Status row={row} /></span>
+              <LegLine legs={legs} className="min-w-0 text-sm" />
               {metaString(row?.metadata, "portfolioId") && (
-                <Link to={routePath({ page: "strategies", portfolio: metaString(row?.metadata, "portfolioId")!.replace(/_\d+$/u, "") })} from={strategyId} className="hover:opacity-80">
-                  <Pill tone="info">in {metaString(row?.metadata, "portfolioName") ?? metaString(row?.metadata, "portfolioId")} ›</Pill>
+                <Link to={routePath({ page: "strategies", portfolio: metaString(row?.metadata, "portfolioId")!.replace(/_\d+$/u, "") })} from={strategyId} className="text-sm text-accent-ink hover:underline">
+                  in {metaString(row?.metadata, "portfolioName") ?? metaString(row?.metadata, "portfolioId")} ›
                 </Link>
               )}
             </div>
-            <div className="mt-2 text-xs text-muted">Net (incl. open)</div>
-            <div className="flex flex-wrap items-baseline gap-x-3 gap-y-1">
+            <div className="mt-2 flex flex-wrap items-baseline gap-x-3 gap-y-1">
               <BigPnl value={net} className="max-sm:hidden" />
               <span title={capital.amount == null ? "no capital known" : `Return ${capitalLabel}`}><ReturnPct net={net} base={capital.amount} /></span>
-            </div>
-            <div className="mt-1 text-xs text-muted">
-              realized <span className="font-mono">{signedMoney(realized)}</span> · open <span className="font-mono">{open.pnl == null ? DASH : signedMoney(open.pnl)}</span>
-              {open.positions > 0 && ` on ${open.positions} position${open.positions === 1 ? "" : "s"}`}
-              {open.stale && <span className="ml-1.5 font-medium text-warn">· open P&L from stale broker state</span>}
+              <span className="text-sm text-muted">
+                net incl. open · realized {signedMoney(realized)} · open {open.pnl == null ? DASH : signedMoney(open.pnl)}
+                {open.positions > 0 && ` on ${open.positions} position${open.positions === 1 ? "" : "s"}`}
+                {open.stale && <span className="ml-1.5 font-medium text-warn">· open P&L from stale broker state</span>}
+              </span>
             </div>
           </div>
-          <div className="flex flex-wrap items-center gap-2">
-            <ShareControl instanceId={instanceId} kind="strategy" subject={strategyId} />
-          </div>
+          <ShareControl instanceId={instanceId} kind="strategy" subject={strategyId} />
         </header>
-        <LegLine legs={strategyLegs(row, liveAccounts, instanceId)} className="mt-3 text-sm" />
+        {row?.halted && <HaltBanner row={row} />}
       </div>
 
       <nav aria-label="Strategy sections" className="-mx-4 flex gap-1.5 overflow-x-auto px-4 sm:hidden">
@@ -217,8 +212,8 @@ export function StrategyDetail({ instanceId, strategyId }: { instanceId: string;
             type="button"
             aria-current={tab === t ? "page" : undefined}
             onClick={() => switchTab(t)}
-            className={`h-7 shrink-0 whitespace-nowrap rounded-full border px-3 text-[13px] font-medium transition ${
-              tab === t ? "border-accent-hi/50 bg-accent-soft text-bright" : "border-line bg-raised text-body"
+            className={`h-7 shrink-0 whitespace-nowrap rounded-full border px-3 text-sm font-medium transition ${
+              tab === t ? "border-accent-hi/50 bg-accent-soft text-bright" : "border-line bg-raised text-muted"
             }`}
           >
             {TAB_LABEL[t]}
@@ -250,11 +245,11 @@ export function StrategyDetail({ instanceId, strategyId }: { instanceId: string;
               aria-label={filterCount ? `Search and filter, ${filterCount} active` : "Search and filter"}
               aria-expanded={searchOpen}
               onClick={openSearch}
-              className={`relative inline-flex h-8 w-8 shrink-0 items-center justify-center rounded-lg border transition ${searchOpen ? "border-accent-hi bg-accent-soft text-bright" : "border-ctl bg-raised text-body"}`}
+              className={`relative inline-flex h-8 w-8 shrink-0 items-center justify-center rounded-lg border transition ${searchOpen ? "border-accent-hi bg-accent-soft text-bright" : "border-ctl bg-raised text-muted"}`}
             >
               <Icon d="M11 19a8 8 0 1 0 0-16 8 8 0 0 0 0 16zM21 21l-4.35-4.35" className="h-4 w-4" />
               {filterCount > 0 && (
-                <span className="absolute -right-1.5 -top-1.5 inline-flex h-4 min-w-4 items-center justify-center rounded-full bg-accent px-1 text-[10px] font-semibold text-on-accent">{filterCount}</span>
+                <span className="absolute -right-1.5 -top-1.5 inline-flex h-4 min-w-4 items-center justify-center rounded-full bg-accent px-1 text-xs font-semibold text-on-accent">{filterCount}</span>
               )}
             </button>
             <RangeChips value={range} onChange={setRange} dense />
@@ -306,32 +301,27 @@ export function StrategyDetail({ instanceId, strategyId }: { instanceId: string;
   );
 }
 
-/** Status from the engine: halted (with why), retired, or running. */
-function Status({ row, isPublic, compact = false }: { row: StrategyRow | null; isPublic: boolean; compact?: boolean }) {
+/** Status from the engine, said only when it is not simply running: halted (with why) or retired. */
+function Status({ row }: { row: StrategyRow | null }) {
   if (!row) return null;
-  if (row.halted) return <span title={haltWords(row)?.label}><Pill tone="warn">halted</Pill></span>;
-  if (!row.active) return <Pill>retired</Pill>;
-  if (isPublic) return null;
-  return compact ? <span className="sr-only">running</span> : <span className="text-xs text-muted">running</span>;
+  if (row.halted) return <span title={haltWords(row)?.label}><Pill tone="warn">Halted</Pill></span>;
+  if (!row.active) return <span className="text-sm text-muted">Retired</span>;
+  return null;
 }
 
-/** The halt, at the top of the page where it cannot be missed: why and how it ends in plain words; the engine's own text under Details. */
+/** The halt, under the net where it cannot be missed: why and how it ends in plain words; the engine's own text under Details. */
 function HaltBanner({ row }: { row: StrategyRow }) {
   const command = resumeCommand(row);
   return (
-    <div role="status" className="mt-3 flex flex-wrap items-start gap-x-3 gap-y-1 rounded-card border border-warn/45 bg-warn/10 px-4 py-3 text-sm">
-      <span className="flex items-center gap-2 font-semibold text-warn">
-        <Icon d="M10.29 3.86L1.82 18a2 2 0 0 0 1.71 3h16.94a2 2 0 0 0 1.71-3L13.71 3.86a2 2 0 0 0-3.42 0zM12 9v4M12 17h.01" className="h-4 w-4" />
-        Halted
-      </span>
-      <span className="min-w-0 text-body">
+    <div role="status" className="mt-3 flex flex-wrap items-baseline gap-x-3 gap-y-1 rounded-card border border-warn/45 px-4 py-2.5 text-sm">
+      <span className="min-w-0 text-bright">
         {haltWords(row)?.sentence}
-        {row.haltedAt != null && <span className="text-muted" title={row.haltedBefore ? "re-asserted at a restart; its start is not stored" : undefined}> Halted {haltSince(row)} ({row.haltedBefore ? "at least " : ""}{age(row.haltedAt)}).</span>}
+        {row.haltedAt != null && <span className="text-muted" title={`Halted ${haltSince(row)}${row.haltedBefore ? "; re-asserted at a restart, its start is not stored" : ""}`}> Halted {row.haltedBefore ? "at least " : ""}{age(row.haltedAt)}.</span>}
       </span>
       {command && <code className="rounded bg-raised px-1.5 py-0.5 font-mono text-xs text-bright">{command}</code>}
       {row.haltReason && (
         <details className="w-full text-xs text-muted">
-          <summary className="cursor-pointer select-none">Details</summary>
+          <summary className="cursor-pointer select-none">The engine's reason</summary>
           <p className="mt-1 break-all font-mono">{row.haltReason}</p>
         </details>
       )}
@@ -356,7 +346,7 @@ function Runtime({ meta }: { meta: Record<string, unknown> }) {
       label="Runtime"
       align="right"
       trigger={
-        <span className="inline-flex h-9 items-center gap-1.5 rounded-lg border border-ctl bg-raised px-2.5 text-xs font-semibold text-bright transition hover:bg-well">
+        <span className="inline-flex h-8 items-center gap-1.5 rounded-lg px-2 text-sm text-muted transition hover:bg-hover hover:text-bright">
           <Icon d="M4 17l6-6-6-6M12 19h8" className="h-3.5 w-3.5" />
           Runtime details
         </span>
@@ -366,8 +356,8 @@ function Runtime({ meta }: { meta: Record<string, unknown> }) {
       <dl className="grid grid-cols-1 gap-2">
         {fields.map(([k, v, mono]) => (
           <div key={k}>
-            <dt className="text-[11px] text-muted">{k}</dt>
-            <dd className={`break-all text-bright ${mono ? "font-mono text-[11px]" : ""}`}>{v}</dd>
+            <dt className="text-xs text-muted">{k}</dt>
+            <dd className={`break-all text-bright ${mono ? "font-mono text-xs" : ""}`}>{v}</dd>
           </div>
         ))}
       </dl>
@@ -381,15 +371,15 @@ function StrategyTrades({ scope, q, exportHref }: { scope: TripScope; q: string;
   return (
     <Card className="overflow-hidden">
       <div className="flex items-baseline gap-2 border-b border-line px-4 py-3">
-        <h3 className="text-sm font-medium text-body">Trades</h3>
+        <h3 className="text-sm font-medium text-bright">Trades</h3>
         {exportHref && (
           <a
             href={exportHref}
             download
-            className="ml-auto inline-flex h-7 items-center rounded-lg border border-ctl bg-raised px-2.5 text-xs font-medium text-bright transition hover:bg-well"
-            title="Every round trip the query matches, as CSV"
+            className="ml-auto inline-flex h-7 items-center rounded-lg px-2 text-xs text-muted transition hover:bg-hover hover:text-bright"
+            title="Every trade the search matches, as CSV"
           >
-            Export CSV
+            Export
           </a>
         )}
       </div>
@@ -411,7 +401,6 @@ function StrategyLogs({ instanceId, strategyId }: { instanceId: string; strategy
   const rows = logs.data ?? [];
   return (
     <Widget
-      icon={ICON.logs}
       title={`Latest ${RECENT_LOGS} lines`}
       pad={false}
       hint={
@@ -428,7 +417,7 @@ function StrategyLogs({ instanceId, strategyId }: { instanceId: string; strategy
           {groupLogs(rows).map((g) => <LogLine key={g.log.id} log={g.log} group={g} showStrategy={false} />)}
           {rows.length === 0 && <div className="px-4 py-8 text-center text-sm text-muted">{all ? "No log lines yet." : "No warnings or orders in the latest lines."}</div>}
         </div>
-        <div className="border-t border-line px-4 py-2 text-[11px] text-muted sm:hidden">
+        <div className="border-t border-line px-4 py-2 text-xs text-muted sm:hidden">
           <Link to={`${PAGE_PATHS.logs}?q=${encodeURIComponent(`strategy:${strategyId}`)}`} from={`${strategyId} · Logs`} className="font-medium text-accent-ink">Full history on Logs →</Link>
         </div>
       </Loadable>

@@ -1,21 +1,10 @@
 import type { ReactNode } from "react";
-import { GLOSSARY, legsLine, TYPE_LABEL, TYPE_SHORT, type CostKind, type InstrumentType, type Leg } from "../instruments";
+import { GLOSSARY, legsLine, type CostKind, type Leg } from "../instruments";
 import { Popover } from "./ui";
 
 /*
- * What a position is, shown the same way everywhere: a quiet badge with the type's name and, on hover
- * or tap, what that type is and what holding it costs (instruments.ts GLOSSARY). In dense rows,
- * which open a drawer on click, the badge explains itself through its tooltip instead.
+ * What a cost means, on hover or tap (instruments.ts GLOSSARY), and what a strategy trades as one short line.
  */
-
-const BADGE = "inline-flex h-5 shrink-0 items-center whitespace-nowrap rounded-md border border-line bg-raised px-1.5 text-[10.5px] font-medium text-body";
-
-/** The type's name in a badge, what it is on its tooltip. `short` names it in a word or two for dense tables. */
-export function TypeBadge({ type, short = false }: { type: InstrumentType | null | undefined; short?: boolean }) {
-  if (!type) return null;
-  const g = GLOSSARY[type];
-  return <span className={BADGE} title={`${g.term}: ${g.text}`}>{short ? TYPE_SHORT[type] : TYPE_LABEL[type]}</span>;
-}
 
 /** A cost's name with its explanation on hover or tap: "Swap", "Funding", ... */
 export function CostTerm({ kind, children }: { kind: CostKind; children?: ReactNode }) {

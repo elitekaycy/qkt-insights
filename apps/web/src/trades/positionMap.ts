@@ -156,7 +156,7 @@ export function shadedSpans(path: PositionPath, xMin: number, xMax: number, narr
     {
       xAxis: g.from,
       itemStyle: { color },
-      label: { show: !narrow && (g.to - g.from) / width >= 0.07, position: "insideTop", formatter: text, color: tok("faint"), fontSize: 10, distance: 4 },
+      label: { show: !narrow && (g.to - g.from) / width >= 0.07, position: "insideTop", formatter: text, color: tok("muted"), fontSize: 10, distance: 4 },
     },
     { xAxis: g.to },
   ];
@@ -184,7 +184,6 @@ export function pathOption({ path, moments: ms, view, digits, narrow }: PathOpti
   const pad = xMin != null && xMax != null ? Math.max((xMax - xMin) * 0.03, bucket / 2) : 0;
   const mid = view === "pnl" ? 0 : range ? (range.min + range.max) / 2 : 0;
   const placed = labelPlacements(points, mid, xMin ?? 0, xMax ?? 0);
-  const multiDay = xMin != null && xMax != null && xMax - xMin > 2 * 86_400_000;
   const gapArea = shadedSpans(path, xMin ?? 0, xMax ?? 0, narrow);
 
   const markerLabel = (m: Moment & { y: number }) => {
@@ -225,7 +224,7 @@ export function pathOption({ path, moments: ms, view, digits, narrow }: PathOpti
       barMaxWidth: 14,
       barMinWidth: 1,
       // neutral candles: up hollow, down filled; green and red stay for the position's P&L
-      itemStyle: { color: tok("panel"), color0: tok("body"), borderColor: tok("body"), borderColor0: tok("body"), borderWidth: 1 },
+      itemStyle: { color: tok("panel"), color0: tok("muted"), borderColor: tok("muted"), borderColor0: tok("muted"), borderWidth: 1 },
       emphasis: { itemStyle: { borderColor: tok("bright"), borderColor0: tok("bright") } },
       markLine: priceLines.length > 0 ? { silent: true, symbol: "none", data: priceLines } : undefined,
       markArea: gapArea,
@@ -266,7 +265,7 @@ export function pathOption({ path, moments: ms, view, digits, narrow }: PathOpti
       ...qktXAxis,
       min: xMin != null ? xMin - pad : undefined,
       max: xMax != null ? xMax + pad : undefined,
-      axisLabel: { ...qktXAxis.axisLabel, formatter: (v: number) => timeTick(v, multiDay) },
+      axisLabel: { ...qktXAxis.axisLabel, formatter: (v: number) => timeTick(v) },
       splitNumber: narrow ? 3 : 5,
     },
     yAxis: {
@@ -317,10 +316,9 @@ export function priceAxisDigits(span: number, digits: number): number {
   return Math.min(digits, Math.max(0, Math.ceil(-Math.log10(span / 8))));
 }
 
-/** A time axis tick (UTC): the day at midnight, the hour inside a day ("24 Oct", "06:00"); a short window shows both. */
-export function timeTick(v: number, multiDay: boolean): string {
+/** A time axis tick (UTC): the day at midnight, the time inside a day ("24 Oct", "06:00"). The tooltip says the full stamp. */
+export function timeTick(v: number): string {
   const stamp = tsShort(v);
-  if (!multiDay) return stamp;
   return stamp.endsWith(" 00:00") ? stamp.slice(0, -6) : stamp.slice(-5);
 }
 

@@ -21,11 +21,6 @@ export const TYPE_LABEL: Record<InstrumentType, string> = {
   option: "Option",
 };
 
-/** The same names cut to one word or two, for dense tables; the badge's tooltip still says the full name. */
-export const TYPE_SHORT: Record<InstrumentType, string> = {
-  "stock-cfd": "Stock CFD", cfd: "CFD", share: "Share", coin: "Coin", perpetual: "Perpetual", future: "Future", option: "Option",
-};
-
 export type CostKind = "commission" | "swap" | "funding" | "fee" | "dividend" | "adjustment" | "settlement" | "premium";
 
 /** One sentence or two per type and cost kind: what it is and what holding it costs. Neutral, no advice. */
@@ -311,35 +306,6 @@ export function strategyCurrencies(row: Pick<StrategyRow, "metadata"> | null, ac
     if (account?.currency) out.add(account.currency);
   }
   return [...out].sort();
-}
-
-/** Where a strategy's money is: simulated (Paper), the venue's demo account (Demo), or real money (Live). */
-export interface Environment { label: "Live" | "Demo" | "Paper"; title: string }
-
-const ENV_ORDER: Environment["label"][] = ["Live", "Demo", "Paper"];
-const ENV_TITLE: Record<Environment["label"], string> = {
-  Live: "Real money at the venue",
-  Demo: "The venue's demo account: real prices, no real money",
-  Paper: "Simulated fills on the venue's prices, no account at the venue",
-};
-
-/**
- * The environments a strategy's streams run in, from the venue facts qkt states with each stream: a paper connector
- * or the gateway's paper adapter is Paper, an MT5 or gateway account in demo mode is Demo, and real is Live. A
- * stream that states nothing adds nothing, so an older engine shows no chip rather than a guess.
- */
-export function strategyEnvironment(row: Pick<StrategyRow, "metadata"> | null): Environment[] {
-  const streams = Array.isArray(row?.metadata?.streams) ? (row!.metadata!.streams as Facts[]) : [];
-  const found = new Set<Environment["label"]>();
-  for (const s of streams) {
-    const v = (s.venue && typeof s.venue === "object" ? s.venue : null) as Facts | null;
-    if (!v) continue;
-    const connector = str(v.connector), adapter = str(v.adapter), mode = str(v.tradeMode)?.toLowerCase();
-    if (connector === "paper" || adapter === "paper") found.add("Paper");
-    else if (mode === "demo" || mode === "contest") found.add("Demo");
-    else if (mode === "real" || mode === "live") found.add("Live");
-  }
-  return ENV_ORDER.filter((e) => found.has(e)).map((label) => ({ label, title: ENV_TITLE[label] }));
 }
 
 const MONTH_CODES = ["JAN", "FEB", "MAR", "APR", "MAY", "JUN", "JUL", "AUG", "SEP", "OCT", "NOV", "DEC"];

@@ -90,7 +90,7 @@ export function DowHourHeatmap({ cells }: { cells: DowHourCell[] }) {
           color: tok("bright"),
           formatter: (p: unknown) => {
             const cell = (p as { data: { cell: DowHourCell } }).data.cell;
-            return cell.n >= MIN_N ? signedMoney(cell.net, 0) : `n${cell.n}`;
+            return cell.n >= MIN_N ? signedMoney(cell.net, 0) : "";
           },
         },
         itemStyle: { borderColor: tok("panel"), borderWidth: narrow ? 1 : 2 },
@@ -148,6 +148,7 @@ export function HonestBucketBars({ rows }: { rows: BreakdownRow[] }) {
         // they live on the same axis as the net bar (mean*n = net; se*n spans it).
         name: "mean ± SE",
         type: "custom",
+        clip: true,
         renderItem: (params: unknown, api: unknown) => {
           const a = api as { value: (i: number) => number; coord: (v: [number, number]) => [number, number]; style: () => object };
           const i = a.value(0);

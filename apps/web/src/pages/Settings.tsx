@@ -24,7 +24,7 @@ export default function Settings({ instanceId, onSignedOut }: { instanceId: stri
   const section = route.section ?? "sharing";
   return (
     <div>
-      <PageHeader title="Settings" sub="Shared links, their viewers, the theme and your session." />
+      <PageHeader title="Settings" />
       <div className="mt-4">
         <Segmented label="Settings sections" value={section} options={SECTIONS} onChange={(s) => navigate(routePath({ page: "settings", section: s }))} />
       </div>
@@ -44,9 +44,9 @@ export default function Settings({ instanceId, onSignedOut }: { instanceId: stri
 
 function Row({ title, sub, info, children }: { title: string; sub?: string; info?: React.ReactNode; children: React.ReactNode }) {
   return (
-    <div className="flex flex-wrap items-center gap-3 border-b border-line px-4 py-3 last:border-b-0">
+    <div className="flex flex-wrap items-center gap-3 border-b border-line px-4 py-1.5 last:border-b-0">
       <div className="min-w-0 flex-1">
-        <div className="flex min-w-0 items-center gap-1.5 text-sm font-medium text-bright"><span className="truncate">{title}</span>{info}</div>
+        <div className="flex min-w-0 items-center gap-1.5 text-sm text-bright"><span className="truncate">{title}</span>{info}</div>
         {sub && <div className="text-xs text-muted">{sub}</div>}
       </div>
       {children}
@@ -67,7 +67,7 @@ function Sharing({ instanceId }: { instanceId: string | null }) {
           title="Overview"
           sub={`the whole ${instanceId} dashboard`}
           info={
-            <Popover label="What a public link shows" trigger={<InfoIcon className="h-3.5 w-3.5 text-faint hover:text-bright" />}>
+            <Popover label="What a public link shows" trigger={<InfoIcon className="h-3.5 w-3.5 text-muted hover:text-bright" />}>
               A public link shows the page read-only, 15 minutes behind, without tickets, logs or account logins. Strategies and portfolios follow the
               overview unless set here.
             </Popover>
@@ -99,7 +99,7 @@ function Appearance() {
         </div>
       </Row>
       <Row title="Times" sub="every time in the dashboard is UTC and labelled so">
-        <span className="text-sm text-body">UTC</span>
+        <span className="text-sm text-muted">UTC</span>
       </Row>
     </Card>
   );

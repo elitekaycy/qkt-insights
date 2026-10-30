@@ -146,9 +146,8 @@ describe("position map option", () => {
   });
 
   it("names the day at midnight and the hour inside it on a multi-day axis", () => {
-    expect(timeTick(Date.UTC(2026, 9, 24), true)).toBe("24 Oct");
-    expect(timeTick(Date.UTC(2026, 9, 24, 6), true)).toBe("06:00");
-    expect(timeTick(Date.UTC(2026, 9, 24, 6), false)).toBe("24 Oct 06:00");
+    expect(timeTick(Date.UTC(2026, 9, 24))).toBe("24 Oct");
+    expect(timeTick(Date.UTC(2026, 9, 24, 6))).toBe("06:00");
   });
 
   it("tooltips a focused marker as its moment in full", () => {

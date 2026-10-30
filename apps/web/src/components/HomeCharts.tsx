@@ -1,6 +1,6 @@
 import { useState } from "react";
 import type { DayNet } from "../api";
-import { count, day as utcDay, monthName, pnl, polarity, shortDay, signedMoney, weekday } from "../format";
+import { count, day as utcDay, monthName, polarity, shortDay, signedMoney, weekday } from "../format";
 import { HOME_RANGES, rangeFirstDay, type HomeRange } from "../home";
 import { Link, useRoute } from "../router";
 import { ChartCard } from "./ChartCard";
@@ -28,7 +28,7 @@ export function PnlChart({ days, range, onRange, now, mix = null }: { days: DayN
         const i = (params as Array<{ dataIndex: number }>)[0]?.dataIndex ?? 0;
         const row = rows[i];
         if (!row) return "";
-        return tipHtml(`${weekday(row.day)} ${row.day} · UTC day`, { text: pnl(row.net), tone: polarity(row.net) }, [
+        return tipHtml(`${weekday(row.day)} ${row.day} · UTC day`, { text: signedMoney(row.net), tone: polarity(row.net) }, [
           ["Closed trades", count(row.trades)],
           ["Running total", signedMoney(cum[i])],
         ]);
@@ -46,7 +46,7 @@ export function PnlChart({ days, range, onRange, now, mix = null }: { days: DayN
         markLine: zeroLine(),
       },
       // a neutral line, so the running total never reads as one more gain bar
-      { name: "running total", type: "line", showSymbol: false, smooth: false, data: cum, lineStyle: { color: tok("body"), width: 2 }, itemStyle: { color: tok("body") } },
+      { name: "running total", type: "line", showSymbol: false, smooth: false, data: cum, lineStyle: { color: tok("muted"), width: 2 }, itemStyle: { color: tok("muted") } },
     ],
   };
   return (
@@ -54,12 +54,10 @@ export function PnlChart({ days, range, onRange, now, mix = null }: { days: DayN
       title="Realized P&L"
       meta={`${count(trades)} closes · ${count(rows.length)} days · UTC`}
       value={<><Pnl value={total} /><CurrencyMix mix={mix} /></>}
+      controls={<Segmented label="Range" value={range} options={HOME_RANGES} onChange={onRange} />}
     >
-      <div className="flex justify-end px-3 pt-3 sm:px-4">
-        <Segmented label="Range" value={range} options={HOME_RANGES} onChange={onRange} />
-      </div>
-      {rows.length > 0 ? (
-        <div className="px-3 pb-3 sm:px-4 sm:pb-4">
+            {rows.length > 0 ? (
+        <div className="p-3 sm:p-4">
           <EChart option={option} height={230} label="Realized P&L per UTC day with the running total" />
         </div>
       ) : (
@@ -95,7 +93,7 @@ export function MonthCalendar({ days, now, mix = null }: { days: DayNet[]; now: 
       </div>
       <div className="grid grid-cols-7 gap-1 p-3">
         {WEEKDAYS.map((w) => (
-          <div key={w} className="pb-1 text-center text-[11px] font-medium text-faint">{w}</div>
+          <div key={w} className="pb-1 text-center text-xs font-medium text-muted">{w}</div>
         ))}
         {cells.map((c) => {
           const d = byDay.get(c.day);
@@ -110,16 +108,16 @@ export function MonthCalendar({ days, now, mix = null }: { days: DayNet[]; now: 
               aria-label={label}
               title={d ? `${label} · open these trades` : label}
               onClick={() => navigate(`/t?q=${encodeURIComponent(`exit:${c.day}`)}`, { from: `Home · ${shortDay(c.day)}` })}
-              className={`flex h-11 min-w-0 flex-col justify-between rounded-md border px-1 py-0.5 text-left transition ${isToday ? "border-dashed border-accent-hi" : "border-transparent"} ${d ? "hover:border-line-strong" : "cursor-default"}`}
+              className={`flex h-11 min-w-0 flex-col justify-between rounded-md border px-0.5 py-0.5 text-left transition ${isToday ? "border-dashed border-accent-hi" : "border-transparent"} ${d ? "hover:border-line-strong" : "cursor-default"}`}
               style={{ background: d ? shade(d.net, maxAbs, 10) : "var(--color-raised)" }}
             >
-              <span className="text-[10px] leading-none text-muted">{Number(c.day.slice(8))}</span>
-              {d && <span className={`truncate text-[11px] font-semibold leading-none ${d.net >= 0 ? "text-gain" : "text-loss"}`}>{compactSigned(d.net)}</span>}
+              <span className="text-xs leading-none text-muted">{Number(c.day.slice(8))}</span>
+              {d && <span className="text-xs font-medium leading-none tracking-tighter text-bright">{compactSigned(d.net)}</span>}
             </button>
           );
         })}
       </div>
-      <div className="flex items-center justify-between border-t border-line px-4 py-2 text-[11px] text-faint">
+      <div className="flex items-center justify-between border-t border-line px-4 py-2 text-xs text-muted">
         <span>UTC days</span>
         <Link to="/calendar" className="font-medium text-accent-ink hover:underline">Full calendar</Link>
       </div>

@@ -30,13 +30,13 @@ describe("applyEnvelope", () => {
     const a = next.accounts[0]!;
     expect(a).toMatchObject({ equity: 4_983_390.12, connector: "mt5", adapter: "exness", tradeMode: "demo", broker: "EXNESS_O13", lastSeen: 2 });
     expect(a.profiles).toEqual(["EXNESS_O10", "EXNESS_O11", "EXNESS_O13"]);
-    expect(accountName(a)).toBe("Exness •••2618");
+    expect(accountName(a)).toBe("Exness demo");
     expect(accountTab(a)).toEqual(accountTab(snapshot.accounts[0]!));
   });
 
   it("reads the venue from a push for an account the snapshot does not hold yet", () => {
     const a = applyEnvelope(undefined, push("EXNESS_O13", 4_983_401.47)).accounts[0]!;
-    expect(accountName(a)).toBe("Exness •••2618");
+    expect(accountName(a)).toBe("Exness demo");
     expect(a).not.toHaveProperty("venue");
   });
 
