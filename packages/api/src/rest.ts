@@ -3,6 +3,7 @@ import { listInstances, listStrategies, listTrades, searchEvents, equityCurve, i
 import { CONTRACT_VERSION, SUPPORTED_MAJORS } from "@qkt-insights/contract";
 import { UNATTRIBUTED_STRATEGY } from "@qkt-insights/contract/query";
 import { requireSession } from "./auth.js";
+import { registerBrowserRedirects } from "./browser.js";
 import { TtlCache } from "./cache.js";
 import { performanceBundle } from "./performance.js";
 import { Revalidated } from "./revalidate.js";
@@ -29,6 +30,7 @@ function accountEquityPoints(q: Record<string, string | undefined>): number | un
 }
 
 export function registerRest(app: FastifyInstance, deps: RestDeps): void {
+  registerBrowserRedirects(app);
   const guard = { preHandler: requireSession };
   // Hot reads only — /live/state must stay uncached so WS reconciliation sees broker truth.
   const cache = new TtlCache();
