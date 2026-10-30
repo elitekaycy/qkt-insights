@@ -109,16 +109,18 @@ export type AttentionItem =
   | { kind: "halted"; strategyId: string; name: string; why?: string }
   | { kind: "halted-many"; count: number }
   | { kind: "account"; key: string; name: string; state: "stale" | "stopped"; since: number }
-  | { kind: "no-stop"; count: number };
+  | { kind: "no-stop"; count: number }
+  | { kind: "other"; key: string; name: string; split: TodaySplit };
 
 /**
  * What needs a look, in the order it matters: halted strategies (named while there are two or fewer), accounts that
- * are stale or stopped reporting, then positions without a stop. Retired strategies never count. Another system's
- * floating is not here: Home's headline names it beside qkt's own figure.
+ * are stale or stopped reporting, then positions without a stop. Retired strategies never count. Last, as information
+ * and not as a problem: an account where another system's figure outweighs what the strategies made today, the one case
+ * where the account's equity moves for a reason the headline does not show. A stopped account's leftovers never count.
  */
 export function attentionItems(input: {
   strategies: ReadonlyArray<{ strategyId: string; name: string; active: boolean; halted?: boolean; why?: string }>;
-  accounts: ReadonlyArray<{ key: string; name: string; stale: boolean; stopped?: boolean; lastSeen: number }>;
+  accounts: ReadonlyArray<{ key: string; name: string; stale: boolean; stopped?: boolean; lastSeen: number; split?: TodaySplit | null }>;
   noStop: number;
 }): AttentionItem[] {
   const out: AttentionItem[] = [];
@@ -129,6 +131,9 @@ export function attentionItems(input: {
     if (a.stale) out.push({ kind: "account", key: a.key, name: a.name, state: a.stopped ? "stopped" : "stale", since: a.lastSeen });
   }
   if (input.noStop > 0) out.push({ kind: "no-stop", count: input.noStop });
+  for (const a of input.accounts) {
+    if (!a.stopped && a.split?.other != null && Math.abs(a.split.other) > Math.abs(a.split.qkt)) out.push({ kind: "other", key: a.key, name: a.name, split: a.split });
+  }
   return out;
 }
 

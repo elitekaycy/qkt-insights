@@ -1,6 +1,6 @@
 import { useQuery } from "@tanstack/react-query";
 import { get, type AccountRiskRow, type AccountSummary, type InstanceRow, type LivePositionRow, type StrategyRow } from "../api";
-import { accountKey, accountName, accountProfiles, groupAccounts } from "../accounts";
+import { accountByKey, accountKey, accountName, accountProfiles, groupAccounts } from "../accounts";
 import { AccountsTable, AccountTabs, useAccountChoice, type AccountLine } from "../components/AccountSwitch";
 import { AccountStrip, AttentionLine, TodayHeadline } from "../components/HomeAccount";
 import { MonthCalendar, PnlChart } from "../components/HomeCharts";
@@ -117,6 +117,7 @@ export default function Home({ instanceId }: { instanceId: string | null }) {
     return { group: g, risk: row, realizedToday: row?.dailyLoss.realizedToday ?? null, open: view.public ? null : openRisk(positionsOf(g)),
       note: view.public ? sharedFloatingNote(g.account) : floatingNote(g.account, positionsOf(g), outsideOf(groupsOf(g))), pending: risk.isPending };
   });
+  const lineSplit = (l: AccountLine) => (l.realizedToday == null ? null : todaySplit(l.group.account, l.realizedToday, l.note));
   const shown = choice.chosen;
   const shownName = scoped ? accountName(scoped.account, view.public, accounts) : null;
   // the shown account's Today as the strip shows it (its risk row, else the strategies' closes today)
@@ -125,12 +126,11 @@ export default function Home({ instanceId }: { instanceId: string | null }) {
   const shownSplit = shown && shownRealized != null ? todaySplit(shown.account, shownRealized, shownNote) : null;
   const headline = todayHeadline(shown
     ? [{ key: accountKey(shown.account), name: accountName(shown.account, view.public, accounts), currency: shown.account.currency, split: shownSplit }]
-    : accountLines.map((l) => ({ key: accountKey(l.group.account), name: accountName(l.group.account, view.public, accounts), currency: l.group.account.currency,
-      split: l.realizedToday == null ? null : todaySplit(l.group.account, l.realizedToday, l.note) })));
+    : accountLines.map((l) => ({ key: accountKey(l.group.account), name: accountName(l.group.account, view.public, accounts), currency: l.group.account.currency, split: lineSplit(l) })));
   const headlinePending = liveState.isPending || risk.isPending || (shown != null && shownRealized == null && summary.isPending);
   const attention = attentionItems({
     strategies: rows.map((r) => ({ strategyId: r.strategyId, name: strategyDisplayName(r), active: r.active, halted: r.halted, why: haltWords(r)?.label })),
-    accounts: choice.accounts.map((g) => ({ key: accountKey(g.account), name: accountName(g.account, false, accounts), stale: g.account.stale, stopped: g.account.stopped, lastSeen: g.account.lastSeen })),
+    accounts: accountLines.map((l) => ({ key: accountKey(l.group.account), name: accountName(l.group.account, false, accounts), stale: l.group.account.stale, stopped: l.group.account.stopped, lastSeen: l.group.account.lastSeen, split: lineSplit(l) })),
     noStop: openRisk(positions).noStop,
   });
 
@@ -154,10 +154,12 @@ export default function Home({ instanceId }: { instanceId: string | null }) {
               <div className="mt-2">
                 <AttentionLine
                   items={attention}
+                  shownKey={shown ? accountKey(shown.account) : undefined}
                   onItem={(item) => {
                     if (item.kind === "halted") navigate(`/s/${encodeURIComponent(item.strategyId)}`, { from: "Home" });
                     else if (item.kind === "halted-many") navigate(`/s?find=${encodeURIComponent("status:halted")}`, { from: "Home" });
                     else if (item.kind === "account") navigate("/status", { from: "Home" });
+                    else if (item.kind === "other") choice.choose(accountByKey(choice.accounts, item.key));
                     else {
                       setPositionsShown("nostop", { push: true });
                       window.requestAnimationFrame(() => document.getElementById("home-positions")?.scrollIntoView({ behavior: "smooth", block: "start" }));

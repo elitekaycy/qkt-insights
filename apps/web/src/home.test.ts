@@ -311,6 +311,40 @@ describe("attentionItems", () => {
       .toEqual([{ kind: "halted-many", count: 3 }]);
     expect(attentionItems({ strategies: [strategy("a")], accounts: [account("x")], noStop: 0 })).toEqual([]);
   });
+
+  describe("other activity", () => {
+    const split = (qkt: number, other: number | null) => ({ total: qkt + (other ?? 0), qkt, other, unassigned: 0 });
+    const others = (accounts: Parameters<typeof attentionItems>[0]["accounts"]) => attentionItems({ strategies: [], accounts, noStop: 0 });
+
+    it("names an account whose other system outweighs its strategies, either sign, after what needs a look", () => {
+      const big = split(18.35, -813.86);
+      expect(attentionItems({ strategies: [], accounts: [{ ...account("x"), split: big }], noStop: 1 }))
+        .toEqual([{ kind: "no-stop", count: 1 }, { kind: "other", key: "x", name: "x", split: big }]);
+      expect(others([{ ...account("x"), split: split(-18.35, 813.86) }])).toHaveLength(1);
+      expect(others([{ ...account("x"), split: split(0, -0.5) }])).toHaveLength(1);
+    });
+
+    it("stays away when the other system is smaller, equal, zero or absent, or Today is not known", () => {
+      expect(others([{ ...account("a"), split: split(100, -50) }])).toEqual([]);
+      expect(others([{ ...account("b"), split: split(-50, 50) }])).toEqual([]);
+      expect(others([{ ...account("c"), split: split(0, 0) }])).toEqual([]);
+      expect(others([{ ...account("d"), split: split(5, null) }])).toEqual([]);
+      expect(others([{ ...account("e"), split: null }])).toEqual([]);
+    });
+
+    it("judges each account on its own", () => {
+      const items = others([{ ...account("a"), split: split(100, -50) }, { ...account("b"), split: split(1, -50) }, { ...account("c"), split: split(2, 60) }]);
+      expect(items.map((i) => (i.kind === "other" ? i.key : null))).toEqual(["b", "c"]);
+    });
+
+    it("never counts a stopped account's leftovers, from the note or an explicit split", () => {
+      const stopped = { balance: 9_999.96, equity: 9_000, stopped: true };
+      const leftovers = todaySplit(stopped, 0, floatingNote(stopped, [], null));
+      expect(leftovers.other).toBeNull();
+      expect(others([{ ...account("s", { stale: true, stopped: true }), split: leftovers }]).filter((i) => i.kind === "other")).toEqual([]);
+      expect(others([{ ...account("s", { stale: true, stopped: true }), split: split(0, -500) }]).filter((i) => i.kind === "other")).toEqual([]);
+    });
+  });
 });
 
 describe("unpricedStrategies", () => {
