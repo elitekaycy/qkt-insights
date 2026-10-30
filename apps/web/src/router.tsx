@@ -136,11 +136,11 @@ function useRouter(): RouterState {
 }
 
 /** The parsed current route plus navigation. */
-export function useRoute(): { route: Route; navigate: RouterState["navigate"]; href: (to: string) => string } {
+export function useRoute(): { path: string; route: Route; navigate: RouterState["navigate"]; href: (to: string) => string } {
   const r = useRouter();
   const route = useMemo(() => parsePath(r.path), [r.path]);
   const href = useCallback((to: string) => `${r.base}${withScope(to, r.search)}`, [r.base, r.search]);
-  return { route, navigate: r.navigate, href };
+  return { path: r.path, route, navigate: r.navigate, href };
 }
 
 /**

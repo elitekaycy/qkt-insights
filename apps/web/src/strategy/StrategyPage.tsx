@@ -1,3 +1,4 @@
+import { sharedStrategyState } from "../shared";
 import { lazy, Suspense, useMemo, useState, type ReactNode } from "react";
 import { useQuery } from "@tanstack/react-query";
 import { LOG_ATTENTION, parseQuery, TRADE_KEYS } from "@qkt-insights/contract/query";
@@ -5,7 +6,7 @@ import { get, type LogRow, type StrategyRow, type StrategyStats } from "../api";
 import { LogLine } from "../components/LogLine";
 import { groupLogs } from "../logs";
 import { ShareControl } from "../components/ShareControl";
-import { Card, Icon, Loadable, OriginBack, Pill, Popover, RangeChips, rangeStart, ReturnPct, Segmented, Skeleton, useRangeParam } from "../components/ui";
+import { Card, Icon, Loadable, OriginBack, PageFallback, Pill, Popover, RangeChips, rangeStart, ReturnPct, Segmented, Skeleton, useRangeParam } from "../components/ui";
 import { age, DASH, money, openPnl, signedMoney, toneClass } from "../format";
 import { haltSince, haltWords, resumeCommand } from "../halt";
 import { metaString, strategyCapital, strategyDisplayName } from "../portfolio";
@@ -86,7 +87,36 @@ export interface SectionProps {
   goTab: (tab: StrategyTab, q?: string, period?: PeriodView) => void;
 }
 
+/** A strategy the link does not carry: the same words whether it is too new for the delay, private or unknown. */
+function NotOnThisLink({ delayMinutes, canBrowse }: { delayMinutes: number; canBrowse: boolean }) {
+  return (
+    <div className="mx-auto mt-10 grid max-w-md gap-2 rounded-card border border-line bg-panel p-6 text-center">
+      <h1 className="text-sm font-headline text-bright">Nothing to show here yet</h1>
+      <p className="text-sm leading-relaxed text-muted">
+        This strategy is not on this shared link. A strategy appears once it is older than the link's {delayMinutes}-minute delay, and only while it is shared.
+      </p>
+      {canBrowse && <Link to={PAGE_PATHS.strategies} className="text-sm font-medium text-accent-ink hover:underline">See the shared strategies</Link>}
+    </div>
+  );
+}
+
+/** On a shared link, the page reads only a strategy the link's roster carries, so a visitor never meets its refusals. */
+function SharedStrategyDetail({ instanceId, strategyId, delayMinutes, canBrowse }: { instanceId: string; strategyId: string; delayMinutes: number; canBrowse: boolean }) {
+  const roster = useStrategies(instanceId);
+  const state = sharedStrategyState(roster.data, roster.isPending, strategyId);
+  if (state === "wait") return <PageFallback />;
+  if (state === "not-on-link") return <NotOnThisLink delayMinutes={delayMinutes} canBrowse={canBrowse} />;
+  return <StrategyBody instanceId={instanceId} strategyId={strategyId} />;
+}
+
 export function StrategyDetail({ instanceId, strategyId }: { instanceId: string; strategyId: string }) {
+  const view = useView();
+  return view.public
+    ? <SharedStrategyDetail instanceId={instanceId} strategyId={strategyId} delayMinutes={view.meta.delayMinutes} canBrowse={view.meta.kind === "overview"} />
+    : <StrategyBody instanceId={instanceId} strategyId={strategyId} />;
+}
+
+function StrategyBody({ instanceId, strategyId }: { instanceId: string; strategyId: string }) {
   const view = useView();
   usePublicPageView("strategy", strategyId);
   const { route, navigate } = useRoute();

@@ -170,6 +170,20 @@ describe("public links", () => {
     expect(strategySourceText(db, "i1", "gold", "deadbeefsha")!.text).toContain(SOURCE_MARKER);
   });
 
+  it("does not carry a strategy newer than the delay, on its roster or its reads", async () => {
+    db.prepare("INSERT INTO strategies (instance_id, strategy_id, first_seen, last_seen, starting_balance, metadata) VALUES ('i1', 'young', ?, ?, 10000, '{}')").run(AFTER, NOW);
+    const tokens = [
+      (await share("overview", "", "public")).overview.token!,
+      (await share("strategy", "young", "public")).strategies.find((s) => s.id === "young")!.token!,
+    ];
+    for (const token of tokens) {
+      expect(JSON.stringify((await pub(token, "/strategies")).json())).not.toContain("young");
+      for (const path of ["/stats", "/round-trips/analytics", "/round-trips/facets"]) {
+        expect((await pub(token, `${path}?strategy=young`)).statusCode, path).toBe(404);
+      }
+    }
+  });
+
   it("never shows what a strategy runs on: no public route serves it, no public response carries it, and the admin route refuses a visitor", async () => {
     expect((await app.inject({ method: "GET", url: "/strategy-config?instance=i1&strategy=gold" })).statusCode).toBe(404);
     const tokens = [

@@ -1,10 +1,11 @@
-import { lazy, Suspense, type ReactNode } from "react";
+import { lazy, Suspense, useEffect, type ReactNode } from "react";
 import { useQuery } from "@tanstack/react-query";
 import { get, NotFound, type PublicMeta } from "./api";
 import { MAIN_NAV, Mark, Shell, ThemeToggle, Wordmark } from "./components/chrome";
 import { PageFallback, Spinner } from "./components/ui";
 import { tsShort } from "./format";
 import { useRoute, type PageKey } from "./router";
+import { sharedLandingPath } from "./shared";
 import { useBrand } from "./useBrand";
 import { ViewProvider } from "./view";
 
@@ -32,6 +33,16 @@ function DelayNote({ meta }: { meta: PublicMeta }) {
 
 function Centered({ children }: { children: ReactNode }) {
   return <div className="pad-safe-top pad-safe-bottom flex h-dvh flex-col items-center justify-center gap-4 bg-ink px-6 text-center">{children}</div>;
+}
+
+/** A private path on a shared link moves to where it belongs, without leaving a Back step to it. */
+function SharedLanding({ meta }: { meta: PublicMeta }) {
+  const { path, navigate } = useRoute();
+  const landing = sharedLandingPath(path, meta.kind);
+  useEffect(() => {
+    if (landing) navigate(landing, { replace: true });
+  }, [landing, navigate]);
+  return null;
 }
 
 /** Everything a shared link can show: an instance overview, a portfolio, or one strategy. */
@@ -79,6 +90,7 @@ export default function PublicApp() {
   const m = meta.data;
   return (
     <ViewProvider view={{ public: true, meta: m }}>
+      <SharedLanding meta={m} />
       {m.kind === "overview" ? (
         <SharedOverview meta={m} brand={brand} />
       ) : (

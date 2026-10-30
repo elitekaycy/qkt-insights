@@ -1,3 +1,5 @@
+import { SHARED_LOAD_FAILURE } from "../shared";
+import { useView } from "../view";
 import { useEffect, useLayoutEffect, useRef, useState, type ReactNode } from "react";
 import { createPortal } from "react-dom";
 import { useOrigin, useSearchParam } from "../router";
@@ -912,7 +914,15 @@ export function Loadable({
   children: ReactNode;
 }) {
   const waited = useRef(false);
+  const shared = useView().public;
   if (loading) waited.current = true;
+  if (error && shared)
+    return (
+      <div className="m-4 flex items-center justify-between gap-3 rounded-lg border border-line bg-raised px-3 py-2 text-sm text-muted">
+        <span>{SHARED_LOAD_FAILURE}</span>
+        <Button onClick={() => retry()}>Retry</Button>
+      </div>
+    );
   if (error)
     return (
       <div className="m-4 flex items-center justify-between gap-3 rounded-lg border border-danger/45 bg-danger/10 px-3 py-2 text-sm text-loss">
