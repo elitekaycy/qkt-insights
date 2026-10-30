@@ -29,3 +29,4 @@ export * from "./retiredStrategies.js";
 export * from "./currencies.js";
 export * from "./instrumentKind.js";
 export * from "./strategySources.js";
+export * from "./strategyConfigs.js";

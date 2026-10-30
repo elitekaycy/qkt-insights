@@ -17,7 +17,9 @@ const AFTER = NOW - 5 * MIN;
 /** Values that must never reach a public response. */
 /** The strategy's code: admin-only, never on a shared link. */
 const SOURCE_MARKER = "ProprietaryEdge_7731";
-const SECRETS = [SOURCE_MARKER, "EXNESS", "exness_p549", "/strategies/gold.qkt", "deadbeefsha", "stopAtr", "476422618", "Exness-MT5Trial9", "forward-test", "dsl-", "777123", "ticket-before", "pos-before"];
+/** What a strategy runs on: admin-only, never on a shared link. */
+const CONFIG_MARKERS = ["effectiveConfig", "maxOrderNotional", "4242.5", "cfgsha999"];
+const SECRETS = [...CONFIG_MARKERS, SOURCE_MARKER, "EXNESS", "exness_p549", "/strategies/gold.qkt", "deadbeefsha", "stopAtr", "476422618", "Exness-MT5Trial9", "forward-test", "dsl-", "777123", "ticket-before", "pos-before"];
 
 let hash: string;
 let app: FastifyInstance;
@@ -49,7 +51,8 @@ async function build(opts: { publicRequestsPerMinute?: number } = {}) {
     brokers: ["exness_p549"], symbols: ["EXNESS_P549:GBPUSD"], params: { stopAtr: 3 },
     risk: { maxDrawdownPct: 0.15, maxDailyDrawdownPct: 0.06, perStrategyMaxDailyLoss: 15000 },
   };
-  strategy("gold", goldMeta);
+  // A config in metadata as a collector before contract 1.5.0 would have kept it, so the allow-lists must hold on their own.
+  strategy("gold", { ...goldMeta, effectiveConfigSha256: "cfgsha999", effectiveConfig: { orders: { maxOrderNotional: { value: 4242.5 } } } });
   strategy("book:s0", { dslName: "leg_a", portfolioId: "book", portfolioWeight: 0.5, allocatedCapital: 5000 });
   strategy("book_2:s1", { dslName: "leg_b", portfolioId: "book_2", portfolioWeight: 0.5, allocatedCapital: 5000 });
   strategy("secret", { dslName: "secret_sauce" });
@@ -59,7 +62,8 @@ async function build(opts: { publicRequestsPerMinute?: number } = {}) {
     deal("secret", "s1", "pos-secret", "IN", BEFORE - 10 * MIN), deal("secret", "s2", "pos-secret", "OUT", BEFORE, 999),
     trade("gold", "before", BEFORE), trade("gold", "open", BEFORE + 10 * MIN), trade("gold", "after", AFTER), trade("secret", "secret-trade", BEFORE),
     { v: 1, instanceId: "i1", id: "started-gold", seq: 1, ts: BEFORE - MIN, strategyId: "gold", type: "strategy.started",
-      payload: { strategyId: "gold", ...goldMeta, sourceText: `STRATEGY gold_breakout VERSION 1\n-- ${SOURCE_MARKER}\n`, sourceTruncated: false } } as Envelope,
+      payload: { strategyId: "gold", ...goldMeta, sourceText: `STRATEGY gold_breakout VERSION 1\n-- ${SOURCE_MARKER}\n`, sourceTruncated: false,
+        effectiveConfigSha256: "cfgsha999", effectiveConfig: { schema: 1, orders: { maxOrderNotional: { value: 4242.5, source: "configured" } } } } } as Envelope,
   ]);
   // Engine orders linked to broker tickets: the close of pos-before, and the entry of pos-after (still open at the cutoff).
   const order = db.prepare("INSERT INTO orders (instance_id, order_id, strategy_id, symbol, side, type, state, qty, cum_qty, created_ts, updated_ts, broker_order_id) VALUES ('i1', ?, 'gold', 'EXNESS_P549:GBPUSD', 'BUY', 'MARKET', 'FILLED', 1, 1, ?, ?, ?)");
@@ -164,6 +168,38 @@ describe("public links", () => {
     const raw = JSON.stringify([listStrategies(db, "i1"), listDeals(db, { instanceId: "i1", limit: 100 })]);
     for (const s of ["EXNESS", "exness_p549", "/strategies/gold.qkt", "deadbeefsha", "stopAtr", "dsl-", "777123", "pos-before"]) expect(raw).toContain(s);
     expect(strategySourceText(db, "i1", "gold", "deadbeefsha")!.text).toContain(SOURCE_MARKER);
+  });
+
+  it("does not carry a strategy newer than the delay, on its roster or its reads", async () => {
+    db.prepare("INSERT INTO strategies (instance_id, strategy_id, first_seen, last_seen, starting_balance, metadata) VALUES ('i1', 'young', ?, ?, 10000, '{}')").run(AFTER, NOW);
+    const tokens = [
+      (await share("overview", "", "public")).overview.token!,
+      (await share("strategy", "young", "public")).strategies.find((s) => s.id === "young")!.token!,
+    ];
+    for (const token of tokens) {
+      expect(JSON.stringify((await pub(token, "/strategies")).json())).not.toContain("young");
+      for (const path of ["/stats", "/round-trips/analytics", "/round-trips/facets"]) {
+        expect((await pub(token, `${path}?strategy=young`)).statusCode, path).toBe(404);
+      }
+    }
+  });
+
+  it("never shows what a strategy runs on: no public route serves it, no public response carries it, and the admin route refuses a visitor", async () => {
+    expect((await app.inject({ method: "GET", url: "/strategy-config?instance=i1&strategy=gold" })).statusCode).toBe(404);
+    const tokens = [
+      (await share("overview", "", "public")).overview.token!,
+      (await share("strategy", "gold", "public")).strategies.find((s) => s.id === "gold")!.token!,
+    ];
+    for (const token of tokens) {
+      for (const path of ["/strategy-config?strategy=gold", "/strategy-config?instance=i1&strategy=gold"]) {
+        expect((await pub(token, path)).statusCode).toBe(404);
+      }
+      for (const path of ["/meta", "/strategies", "/stats?strategy=gold", "/performance?strategy=gold", "/trades?limit=100", "/deals?limit=100",
+        "/equity?strategy=gold", "/round-trips", "/round-trips/facets", "/round-trips/analytics", "/account/summary", "/live/state"]) {
+        const res = await pub(token, path);
+        for (const marker of CONFIG_MARKERS) expect(res.body, `${path} leaked ${marker}`).not.toContain(marker);
+      }
+    }
   });
 
   it("never shows a strategy's code: no public route serves it and no public response carries it", async () => {

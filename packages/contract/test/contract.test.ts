@@ -1,5 +1,5 @@
 import { describe, it, expect } from "vitest";
-import { EnvelopeSchema, parseEnvelope } from "../src/index.js";
+import { EffectiveConfigSchema, EnvelopeSchema, parseEnvelope } from "../src/index.js";
 
 const base = { v: 1, instanceId: "qkt-prod", id: "e1", seq: 5, ts: 1718000000000 };
 
@@ -313,6 +313,23 @@ describe("enriched qkt payloads", () => {
     const repeat = started({ sourceTextOmitted: true });
     expect(repeat.success && repeat.data.type === "strategy.started" && repeat.data.payload).toMatchObject({ sourceTextOmitted: true });
     expect(started({ sourceText: 42 }).success).toBe(false);
+  });
+
+  it("reads a strategy.started effective config, and its omission on a repeat start", () => {
+    const started = (extra: Record<string, unknown>) => EnvelopeSchema.safeParse({ ...base, strategyId: "gold", type: "strategy.started",
+      payload: { strategyId: "gold", effectiveConfigSha256: "cf01", ...extra } });
+    const first = started({ effectiveConfig: { schema: 1, risk: { maxDailyLoss: { value: 500, source: "configured" } } } });
+    expect(first.success && first.data.type === "strategy.started" && first.data.payload).toMatchObject({ effectiveConfig: { schema: 1 } });
+    const repeat = started({ effectiveConfigOmitted: true });
+    expect(repeat.success && repeat.data.type === "strategy.started" && repeat.data.payload).toMatchObject({ effectiveConfigOmitted: true });
+  });
+
+  it("reads an effective config by naming its fields: an unknown field and a misfit are dropped alone", () => {
+    const parsed = EffectiveConfigSchema.parse({
+      schema: 1, secret: "s", kind: "strange", currency: { value: "user:pw@host", source: "configured" },
+      orders: { maxOrderQty: { value: 2, source: "default" }, token: { value: "t" } },
+    });
+    expect(parsed).toEqual({ schema: 1, currency: { source: "configured" }, orders: { maxOrderQty: { value: 2, source: "default" } } });
   });
 
   it("reads the account's trade mode on the venue of a venue envelope", () => {

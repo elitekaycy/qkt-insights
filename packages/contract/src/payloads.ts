@@ -204,6 +204,9 @@ export const payloadByType = {
    * process sends it once per strategy and sha: a later start at the same sha carries the sha with
    * sourceTextOmitted: true instead. The collector stores each (instance, strategy, sha) once and never
    * keeps the text in events or strategy metadata (store strategySources.ts).
+   * effectiveConfig (1.5.0) is qkt's allow-list of the resolved settings the strategy runs on, sent the same way:
+   * effectiveConfigSha256 names it, a repeat says effectiveConfigOmitted: true. Its shape is read by
+   * EffectiveConfigSchema, not here: a malformed config never quarantines the start it rides on.
    */
   "strategy.started": object({
     strategyId: z.string(),
@@ -214,6 +217,9 @@ export const payloadByType = {
     sourceText: z.string().optional(),
     sourceTruncated: z.boolean().optional(),
     sourceTextOmitted: z.boolean().optional(),
+    effectiveConfigSha256: z.string().optional(),
+    effectiveConfig: z.record(z.unknown()).optional(),
+    effectiveConfigOmitted: z.boolean().optional(),
     dslVersion: z.number().optional(),
     runtimeMode: z.string().optional(),
     brokers: z.array(z.string()).optional(),
@@ -316,7 +322,7 @@ export type EventType = keyof typeof payloadByType;
  * The contract this collector speaks, as semver. Minor: a new type or a new optional field. Major: a rename, a
  * removal or a change of meaning, which also takes a new envelope `v` (envelope.ts `SUPPORTED_MAJORS`).
  */
-export const CONTRACT_VERSION = "1.4.0";
+export const CONTRACT_VERSION = "1.5.0";
 
 /** When a type joined the contract and, once it is on its way out, what replaces it. */
 export interface EventTypeMeta {

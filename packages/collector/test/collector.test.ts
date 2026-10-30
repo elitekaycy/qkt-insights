@@ -64,6 +64,35 @@ describe("POST /ingest", () => {
     expect(db.prepare("SELECT text FROM strategy_sources").get()).toEqual({ text: "STRATEGY gold VERSION 1" });
   });
 
+  it("stores a strategy.started effective config in strategy_configs only, off the live bus", async () => {
+    const seen: Envelope[] = [];
+    bus.subscribe((e) => seen.push(e));
+    const res = await app.inject({
+      method: "POST", url: "/ingest",
+      headers: { authorization: "Bearer secret" },
+      payload: { instanceId: "qkt-prod", events: [
+        env({ strategyId: "gold", type: "strategy.started", payload: { strategyId: "gold", effectiveConfigSha256: "cf", effectiveConfig: { schema: 1, orders: { maxOrderQty: { value: 2, source: "default" } } } } }),
+      ] },
+    });
+    expect(res.statusCode).toBe(200);
+    expect(res.json().accepted).toBe(1);
+    expect(seen[0]!.payload).toMatchObject({ effectiveConfigSha256: "cf" });
+    expect(seen[0]!.payload).not.toHaveProperty("effectiveConfig");
+    expect(JSON.stringify(db.prepare("SELECT payload FROM events").all())).not.toContain("maxOrderQty");
+    expect(JSON.stringify(db.prepare("SELECT config FROM strategy_configs").get())).toContain("maxOrderQty");
+  });
+
+  it("accepts a strategy.started with config fields this contract does not name", async () => {
+    const res = await app.inject({
+      method: "POST", url: "/ingest",
+      headers: { authorization: "Bearer secret" },
+      payload: { instanceId: "qkt-prod", events: [
+        env({ strategyId: "gold", type: "strategy.started", payload: { strategyId: "gold", somethingFromANewerQkt: { a: 1 }, effectiveConfigSha256: "cf", effectiveConfig: { schema: 2, later: true } } }),
+      ] },
+    });
+    expect(res.json().accepted).toBe(1);
+  });
+
   it("accepts the marketdata.stale lifecycle event emitted by qkt", async () => {
     const res = await app.inject({
       method: "POST", url: "/ingest",

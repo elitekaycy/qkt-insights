@@ -9,6 +9,7 @@ import { isLiveStateType, type Envelope, type QuarantinedEnvelope } from "@qkt-i
 import { strategyFromDealComment, withoutAccountCredentials } from "./inferredVenueFacts.js";
 import { strategyFromOrderComment } from "./retiredStrategies.js";
 import { isIgnoredMagic, recordIgnoredDeal } from "./ignoredMagics.js";
+import { recordStrategyConfig, withoutEffectiveConfig } from "./strategyConfigs.js";
 import { recordStrategySource, withoutSourceText } from "./strategySources.js";
 
 /** A flat position still records one valuation this often so its holding period is visible. */
@@ -390,8 +391,8 @@ export function ingestEnvelopes(db: Db, instanceId: string, events: Envelope[], 
         upInstance.run({ id: instanceId, ts: e.ts, seq: e.seq , heardAt });
         continue;
       }
-      // A strategy's source text is kept in strategy_sources only (strategySources.ts).
-      const storedPayload = withoutSourceText(e).payload;
+      // A strategy's source text and config are kept in their own tables only (strategySources.ts, strategyConfigs.ts).
+      const storedPayload = withoutEffectiveConfig(withoutSourceText(e)).payload;
       const info = insEvent.run(e.id, instanceId, e.type, e.strategyId ?? null, e.seq, e.ts, JSON.stringify(storedPayload));
       if (info.changes === 0) {
         duplicate();
@@ -410,6 +411,7 @@ export function ingestEnvelopes(db: Db, instanceId: string, events: Envelope[], 
         if (strategyId) {
           upStrategyMetadata.run({ i: instanceId, s: strategyId, ts: e.ts, metadata: JSON.stringify(storedPayload) });
           recordStrategySource(db, instanceId, strategyId, e);
+          recordStrategyConfig(db, instanceId, strategyId, e);
           // The deploy provenance carries the configured starting balance; anchor the
           // equity curve from it when no snapshot.equity has set one yet.
           const sb = startingBalanceOf(e.payload);
