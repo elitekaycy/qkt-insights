@@ -256,9 +256,9 @@ function TotalLine({ lines, account, mix, hidden }: { lines: StrategyLine[]; acc
   const total = strategyTotal(lines.map((l) => l.periods.today), account);
   const figure = (v: number) => <span className="text-bright">{signedMoney(v)}</span>;
   const parts: ReactNode[] = [<>Total incl. open {figure(total.rows)}{total.account == null && <CurrencyMix mix={mix} />}</>];
-  if (total.other != null) parts.push(<>other system {figure(total.other)}</>);
+  if (total.other != null) parts.push(<>{account?.basis === "day" ? "other activity" : "other system open"} {figure(total.other)}</>);
   if (total.account != null && total.rest !== 0) parts.push(<>{hidden > 0 ? "rows not shown" : "not in a row"} {figure(total.rest)}</>);
-  if (total.account != null) parts.push(<>account {figure(total.account)}</>);
+  if (total.account != null) parts.push(<>{account?.basis === "day" ? "account" : "account closes plus open"} {figure(total.account)}</>);
   return (
     <div className="flex flex-wrap items-center gap-x-1.5 gap-y-0.5 border-t border-line px-4 py-2 text-xs text-muted">
       {parts.map((p, i) => <span key={i} className="inline-flex items-center gap-1.5 whitespace-nowrap">{i > 0 && <span className="text-muted">·</span>}<span>{p}</span></span>)}

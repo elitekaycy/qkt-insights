@@ -28,30 +28,55 @@ export function accountToday(account: { balance: number; equity: number }, reali
 
 /**
  * An account's Today split by who made it. qkt: closes since the day began plus what qkt's listed positions float.
- * Other system: floating on positions this instance does not list (another system on the same login), known or
- * inferred (FloatingNote outside and elsewhere). `unassigned` is the rest of the account's own figure that neither
- * part explains (listed positions without a venue mark, an outside position without a mark, the floating of an account
- * that stopped reporting), so qkt + other + unassigned is always the account's Today. Without a note the whole figure
- * is qkt's.
+ * With the day's starting equity (basis "day") and a sign of something else on the account, total is equity minus that
+ * starting equity, so another system's closes count, and other is what qkt does not explain. A listed position without
+ * a mark, or an account that stopped reporting, leaves that remainder unassigned instead. Without the starting equity
+ * (basis "open") total is closes plus floating and other is only another system's floating, not its day. With no sign
+ * of anything else the whole figure is qkt's. qkt + other + unassigned is always total.
  */
 export interface TodaySplit {
-  /** The account's own Today: realized today plus equity - balance. */
+  /** "day": total is the account's move since the day began. "open": total is closes plus floating, and other is floating only. */
+  basis: "day" | "open";
+  /** The account's own figure, on `basis`. */
   total: number;
   qkt: number;
-  /** Null when no other system floats on the account. */
+  /** Null when nothing shows another system on the account. */
   other: number | null;
   /** What neither part explains; 0 when the parts add up. */
   unassigned: number;
 }
 
-export function todaySplit(account: { balance: number; equity: number; stopped?: boolean }, realizedToday: number, note: FloatingNote | null | undefined): TodaySplit {
+/** The risk row's start of the trading day; older collectors send no starting equity. */
+export type DayStart = { dayStartEquity?: number | null; dayStartBalance?: number | null };
+
+export function todaySplit(account: { balance: number; equity: number; stopped?: boolean }, realizedToday: number, note: FloatingNote | null | undefined, day?: DayStart | null): TodaySplit {
+  const floating = account.equity - account.balance;
+  // the balance moved by more than the instance's closes: someone else closed trades, or cash moved
+  const balanceMoved = day?.dayStartBalance != null && materialGap(account.balance - day.dayStartBalance, realizedToday);
+  if (day?.dayStartEquity != null && (note || balanceMoved)) {
+    const dayTotal = roundMoney(account.equity - day.dayStartEquity, 2);
+    const qkt = roundMoney(realizedToday + (note ? note.listed : floating), 2);
+    const rest = roundMoney(dayTotal - qkt, 2);
+    const another = !account.stopped && !note?.unmarked && (balanceMoved || note?.outside != null || note?.elsewhere != null);
+    return another ? { basis: "day", total: dayTotal, qkt, other: rest, unassigned: 0 } : { basis: "day", total: dayTotal, qkt, other: null, unassigned: rest };
+  }
   const total = roundMoney(accountToday(account, realizedToday).total, 2);
-  if (!note) return { total, qkt: total, other: null, unassigned: 0 };
+  if (!note) return { basis: "open", total, qkt: total, other: null, unassigned: 0 };
   const qkt = roundMoney(realizedToday + note.listed, 2);
   // an account that stopped reporting lists no positions any more: what it floated is not another system's
   const parts = [note.outside?.floating, account.stopped ? null : note.elsewhere].filter((v): v is number => v != null);
   const other = parts.length > 0 ? roundMoney(parts.reduce((a, v) => a + v, 0), 2) : null;
-  return { total, qkt, other, unassigned: roundMoney(total - qkt - (other ?? 0), 2) };
+  return { basis: "open", total, qkt, other, unassigned: roundMoney(total - qkt - (other ?? 0), 2) };
+}
+
+/** What a split's own figure is, for a label: only the "day" basis is the account's day. */
+export function splitTotalWords(split: Pick<TodaySplit, "basis">): string {
+  return split.basis === "day" ? "Account today" : "Account closes plus open";
+}
+
+/** What a split's other figure is, for a label: another system's day, or only what it has open. */
+export function splitOtherWords(split: Pick<TodaySplit, "basis">): string {
+  return split.basis === "day" ? "from another system or cash moves on this login" : "open on another system on this login";
 }
 
 /**
@@ -68,7 +93,7 @@ export interface StrategyTotal {
   rest: number;
 }
 
-export function strategyTotal(rowsToday: readonly number[], split: TodaySplit | null): StrategyTotal {
+export function strategyTotal(rowsToday: readonly number[], split: Omit<TodaySplit, "basis"> | null): StrategyTotal {
   const rows = roundMoney(rowsToday.reduce((a, v) => a + v, 0), 2);
   if (!split) return { rows, other: null, account: null, rest: 0 };
   return { rows, other: split.other, account: split.total, rest: roundMoney(split.total - rows - (split.other ?? 0), 2) };
@@ -109,16 +134,18 @@ export type AttentionItem =
   | { kind: "halted"; strategyId: string; name: string; why?: string }
   | { kind: "halted-many"; count: number }
   | { kind: "account"; key: string; name: string; state: "stale" | "stopped"; since: number }
-  | { kind: "no-stop"; count: number };
+  | { kind: "no-stop"; count: number }
+  | { kind: "other"; key: string; name: string; split: TodaySplit };
 
 /**
  * What needs a look, in the order it matters: halted strategies (named while there are two or fewer), accounts that
- * are stale or stopped reporting, then positions without a stop. Retired strategies never count. Another system's
- * floating is not here: Home's headline names it beside qkt's own figure.
+ * are stale or stopped reporting, then positions without a stop. Retired strategies never count. Last, as information
+ * and not as a problem: an account where another system's figure outweighs what the strategies made today, the one case
+ * where the account's equity moves for a reason the headline does not show. A stopped account's leftovers never count.
  */
 export function attentionItems(input: {
   strategies: ReadonlyArray<{ strategyId: string; name: string; active: boolean; halted?: boolean; why?: string }>;
-  accounts: ReadonlyArray<{ key: string; name: string; stale: boolean; stopped?: boolean; lastSeen: number }>;
+  accounts: ReadonlyArray<{ key: string; name: string; stale: boolean; stopped?: boolean; lastSeen: number; split?: TodaySplit | null }>;
   noStop: number;
 }): AttentionItem[] {
   const out: AttentionItem[] = [];
@@ -129,6 +156,9 @@ export function attentionItems(input: {
     if (a.stale) out.push({ kind: "account", key: a.key, name: a.name, state: a.stopped ? "stopped" : "stale", since: a.lastSeen });
   }
   if (input.noStop > 0) out.push({ kind: "no-stop", count: input.noStop });
+  for (const a of input.accounts) {
+    if (!a.stopped && a.split?.other != null && Math.abs(a.split.other) > Math.abs(a.split.qkt)) out.push({ kind: "other", key: a.key, name: a.name, split: a.split });
+  }
   return out;
 }
 
