@@ -6,7 +6,7 @@ import { StrategySearch, type StrategyLine } from "../components/HomeStrategies"
 import { CardGrid, PortfolioGroup, StrategyCard } from "../components/StrategyCards";
 import { Card, Cell, CurrencyMix, Empty, Loadable, PageHeader, Panel, Pill, Pnl, Popover, Row, Select, Stat, Table } from "../components/ui";
 import { age, count, DAY_MS, money, openPnl, pct, signedMoney } from "../format";
-import { emptyPeriods, floatingByStrategy, positionRisks, riskRowFor, strategyLines, strategyPeriods } from "../home";
+import { emptyPeriods, floatingByStrategy, positionRisks, riskRowFor, strategyLines, strategyPeriods, unpricedStrategies } from "../home";
 import { Link, routePath, useRoute, useSearchParam } from "../router";
 import { asksForRetired, matchesStrategy } from "../strategyFilter";
 import { CARD_SORTS, cardGroups, cardName, cardsTotal, isFolded, mergeCurves, notTradedYet, realizedCurves, sortCards, type CardSort } from "../strategyCards";
@@ -115,6 +115,7 @@ export default function Strategies({ instanceId }: { instanceId: string | null }
   const floating = view.public
     ? new Map<string | null, number>(Object.entries(liveState.data?.openByStrategy ?? {}))
     : floatingByStrategy(positions);
+  const unpriced = unpricedStrategies(positions);
   const closes = summary.data?.closes ?? [];
   const periods = summary.data ? strategyPeriods(closes, { now, dayStart, floating }) : null;
   // an account's tab lists the strategies that traded on it (a close, or an open position there)
@@ -150,7 +151,7 @@ export default function Strategies({ instanceId }: { instanceId: string | null }
         {rows.length === 0 && lines.length === 0 ? (
           <Card className="p-8 text-center text-muted">No strategies yet. They show up here when qkt starts one.</Card>
         ) : (
-          <StrategyCardList lines={lines} closes={closes} now={now} instanceId={instanceId} noStop={noStop} mix={scoped ? null : mix} />
+          <StrategyCardList lines={lines} closes={closes} now={now} instanceId={instanceId} noStop={noStop} mix={scoped ? null : mix} unpriced={view.public ? new Set() : unpriced} />
         )}
       </Loadable>
     </div>
@@ -158,8 +159,10 @@ export default function Strategies({ instanceId }: { instanceId: string | null }
 }
 
 /** Portfolios first (each with its sleeves beneath), then standalone strategies, filtered by the search and in the chosen order. */
-function StrategyCardList({ lines, closes, now, instanceId, noStop, mix }: {
+function StrategyCardList({ lines, closes, now, instanceId, noStop, mix, unpriced }: {
   lines: StrategyLine[]; closes: AccountSummary["closes"]; now: number; instanceId: string | null; noStop: ReadonlySet<string>;
+  /** Strategies whose open positions have no venue price. */
+  unpriced: ReadonlySet<string | null>;
   /** Set when the cards add accounts in different currencies. */
   mix: { label: string; title: string } | null;
 }) {
@@ -182,7 +185,7 @@ function StrategyCardList({ lines, closes, now, instanceId, noStop, mix }: {
     sort,
   ).map((p) => p.group);
   const card = (l: StrategyLine, name?: string) => (
-    <StrategyCard key={l.key ?? "(unattributed)"} line={l} curve={curves.get(l.key) ?? []} name={name} origin="Strategies"
+    <StrategyCard key={l.key ?? "(unattributed)"} line={l} curve={curves.get(l.key) ?? []} name={name} origin="Strategies" unpriced={unpriced.has(l.key)}
       legs={strategyLegs(l.row, accounts, instanceId ?? undefined)} mix={currencyMix(strategyCurrencies(l.row, accounts, instanceId ?? undefined))} />
   );
 
