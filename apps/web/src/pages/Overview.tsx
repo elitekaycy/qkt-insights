@@ -8,7 +8,7 @@ import { OpenPositions, PublicOpenPositions } from "../components/HomePositions"
 import { StrategyTable, type StrategyLine } from "../components/HomeStrategies";
 import { ShareControl } from "../components/ShareControl";
 import { Card, Loadable, PageHeader } from "../components/ui";
-import { day as utcDay, ts } from "../format";
+import { day as utcDay, DAY_MS, ts } from "../format";
 import { attentionItems, dayBasisLabel, floatingByStrategy, floatingNote, HOME_RANGES, noAccountMessage, openRisk, riskRowFor, strategyLines, strategyPeriods, todayHeadline, todaySplit, type HomeRange } from "../home";
 import { haltWords } from "../halt";
 import { strategyDisplayName } from "../portfolio";
@@ -17,10 +17,10 @@ import { useLiveState } from "../useLiveState";
 import { useLiveStream } from "../useLiveStream";
 import { usePublicPageView, useView } from "../view";
 import { useInstanceCurrencyMix } from "../currencies";
+import { useStrategies } from "../hooks/useStrategies";
 
 // Home needs only broker state pushes for live account and position truth.
 const FEED_TYPES = ["state.account", "state.positions"];
-const DAY_MS = 86_400_000;
 
 /**
  * Home answers "am I safe right now": the account strip (balance, equity, today, open risk to the
@@ -31,12 +31,7 @@ export default function Home({ instanceId }: { instanceId: string | null }) {
   const view = useView();
   usePublicPageView("overview");
   const enc = encodeURIComponent(instanceId ?? "");
-  const strategies = useQuery({
-    queryKey: ["strategies", instanceId],
-    queryFn: () => get<StrategyRow[]>(`/strategies?instance=${enc}`),
-    enabled: !!instanceId,
-    refetchInterval: 30_000,
-  });
+  const strategies = useStrategies(instanceId);
   const live = useLiveStream(instanceId, 40, FEED_TYPES);
   const liveState = useLiveState(live);
   const accountGroups = groupAccounts((liveState.data?.accounts ?? []).filter((a) => a.instanceId === instanceId));

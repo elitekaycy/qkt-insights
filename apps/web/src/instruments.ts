@@ -1,7 +1,7 @@
-import { INSTRUMENT_TYPES, instrumentType, type InstrumentType } from "@qkt-insights/contract/query";
+import { instrumentType, type InstrumentType } from "@qkt-insights/contract/query";
 import { accountOfLabel, venueName } from "./accounts";
 import type { LiveAccount, StrategyRow } from "./api";
-import { quantity } from "./format";
+import { MONTHS, quantity } from "./format";
 
 /*
  * What a position is, said the same way everywhere a user looks: a type (stock CFD, share, perpetual
@@ -10,8 +10,6 @@ import { quantity } from "./format";
  */
 
 export { instrumentType, type InstrumentType };
-/** Every type, in the order filters list them. */
-export const INSTRUMENT_TYPE_KEYS = INSTRUMENT_TYPES;
 
 export const TYPE_LABEL: Record<InstrumentType, string> = {
   "stock-cfd": "Stock CFD",
@@ -120,7 +118,6 @@ export function sizeInWords(qty: number | null | undefined, f: SizeFacts): strin
   }
 }
 
-const MONTHS = ["Jan", "Feb", "Mar", "Apr", "May", "Jun", "Jul", "Aug", "Sep", "Oct", "Nov", "Dec"];
 
 /** "29 Nov" for a UTC expiry; the year too when it is not this year's. */
 function expiryLabel(ms: number, now = Date.now()): string {
@@ -153,7 +150,7 @@ export interface Leg {
 }
 
 /** What the leg is, in words: "BTC 70000 call, 29 Nov" for an option, "BTC, expires 26 Dec" for a dated future, else its name. */
-export function legInstrument(leg: Leg, now = Date.now()): string {
+function legInstrument(leg: Leg, now = Date.now()): string {
   // an option qkt states without its terms still names them in its symbol
   const fromSymbol = leg.type === "option" && (leg.strike == null || !leg.optionRight) ? optionFromSymbol(leg.name) : null;
   if (fromSymbol) return `${fromSymbol.base} ${quantity(fromSymbol.strike)} ${fromSymbol.right}, ${expiryLabel(fromSymbol.expiry, now)}`;
@@ -190,7 +187,7 @@ export function shortInstrument(symbol: string, type: InstrumentType | null | un
 }
 
 /** A venue without its aside: "Paper (Deribit prices)" reads "Paper". */
-export function shortVenueName(venue: string): string {
+function shortVenueName(venue: string): string {
   return venue.replace(/\s*\(.*\)$/u, "");
 }
 

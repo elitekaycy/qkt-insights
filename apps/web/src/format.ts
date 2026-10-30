@@ -7,6 +7,7 @@
 
 export const DASH = "—";
 export const MINUS = "−";
+export const DAY_MS = 86_400_000;
 
 const missing = (v: number | null | undefined): v is null | undefined => v == null || !Number.isFinite(v);
 
@@ -27,8 +28,7 @@ export function fixed(v: number, digits = 2): string {
 
 /** A money level (balance, equity, price-free amounts): grouped, 2 dp, unsigned unless negative. */
 export function money(v: number | null | undefined, digits = 2): string {
-  if (missing(v)) return DASH;
-  return minus(v.toLocaleString("en-US", { minimumFractionDigits: digits, maximumFractionDigits: digits }));
+  return num(v, digits);
 }
 
 /** A money change (P&L, cost, delta): always signed, "+1,234.50" / "−56.00", unsigned when it rounds to zero. */
@@ -180,7 +180,7 @@ export function days(v: number | null | undefined): string {
 
 const p2 = (n: number) => String(n).padStart(2, "0");
 const WEEKDAYS = ["Sun", "Mon", "Tue", "Wed", "Thu", "Fri", "Sat"];
-const MONTHS = ["Jan", "Feb", "Mar", "Apr", "May", "Jun", "Jul", "Aug", "Sep", "Oct", "Nov", "Dec"];
+export const MONTHS = ["Jan", "Feb", "Mar", "Apr", "May", "Jun", "Jul", "Aug", "Sep", "Oct", "Nov", "Dec"];
 
 /** "2026-06-11 13:26:33" (UTC). */
 export function ts(ms: number): string {
@@ -196,6 +196,11 @@ export function tsDay(ms: number): string {
 export function tsShort(ms: number): string {
   const d = new Date(ms);
   return `${p2(d.getUTCDate())} ${MONTHS[d.getUTCMonth()]} ${p2(d.getUTCHours())}:${p2(d.getUTCMinutes())}`;
+}
+
+/** "Wed" for a "YYYY-MM-DD" UTC day. */
+export function weekday(day: string): string {
+  return WEEKDAYS[new Date(`${day}T00:00:00Z`).getUTCDay()]!;
 }
 
 /** "2026-06-11" (UTC day). */
@@ -254,12 +259,15 @@ export function compactDuration(ms: number | null | undefined): string {
   return `${Math.floor(h / 24)}d${h % 24 ? ` ${h % 24}h` : ""}`;
 }
 
+/** A span in its largest whole unit: "45s", "12m", "3h", "2d". */
+export function elapsed(ms: number): string {
+  const s = Math.max(0, Math.floor(ms / 1000));
+  return s < 60 ? `${s}s` : s < 3600 ? `${Math.floor(s / 60)}m` : s < 86_400 ? `${Math.floor(s / 3600)}h` : `${Math.floor(s / 86_400)}d`;
+}
+
+/** How long ago a time was: "45s ago", "12m ago". */
 export function age(ms: number): string {
-  const s = Math.max(0, Math.floor((Date.now() - ms) / 1000));
-  if (s < 60) return `${s}s ago`;
-  if (s < 3600) return `${Math.floor(s / 60)}m ago`;
-  if (s < 86400) return `${Math.floor(s / 3600)}h ago`;
-  return `${Math.floor(s / 86400)}d ago`;
+  return `${elapsed(Date.now() - ms)} ago`;
 }
 
 /**

@@ -2,13 +2,14 @@ import { strategyDisplayName } from "../portfolio";
 import { useState } from "react";
 import { usePublicPageView } from "../view";
 import { useQuery } from "@tanstack/react-query";
-import { get, type PerformanceBundle, type StrategyRow } from "../api";
+import { get, type PerformanceBundle } from "../api";
 import { DowHourHeatmap, HonestBucketBars, MIN_N, RollingChart } from "../components/EdgeCharts";
 import {
   Card, Empty, Loadable, PageHeader, Panel, Pnl, RangeSelect, rangeStart, Select, useRangeParam,
 } from "../components/ui";
 import { useSearchParam } from "../router";
 import { edgeDefault } from "../strategyFilter";
+import { useStrategies } from "../hooks/useStrategies";
 
 /*
  * The Edge page: WHEN is this account good — day-of-week × hour heatmap,
@@ -21,12 +22,7 @@ const WINDOWS = [30, 60, 90] as const;
 
 export function Edge({ instanceId }: { instanceId: string | null }) {
   usePublicPageView("edge");
-  const strategies = useQuery({
-    queryKey: ["strategies", instanceId],
-    queryFn: () => get<StrategyRow[]>(`/strategies?instance=${encodeURIComponent(instanceId!)}`),
-    enabled: !!instanceId,
-    refetchInterval: 30000,
-  });
+  const strategies = useStrategies(instanceId);
   const list = strategies.data ?? [];
   const [chosen, setChosen] = useSearchParam("strategy");
   const strategyId = chosen || edgeDefault(list) || "";

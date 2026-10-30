@@ -1,16 +1,15 @@
-import { lazy, Suspense, useMemo, useRef, useState, type ReactNode } from "react";
-import { flushSync } from "react-dom";
+import { lazy, Suspense, useMemo, useState, type ReactNode } from "react";
 import { useQuery } from "@tanstack/react-query";
 import { parseQuery, TRADE_KEYS } from "@qkt-insights/contract/query";
 import { get, type LogRow, type StrategyRow, type StrategyStats } from "../api";
 import { LogLine } from "../components/LogLine";
 import { groupLogs } from "../logs";
 import { ShareControl } from "../components/ShareControl";
-import { Card, Loadable, OriginBack, Pill, Popover, RangeChips, rangeStart, ReturnPct, Segmented, Skeleton, useRangeParam } from "../components/ui";
+import { Card, Icon, Loadable, OriginBack, Pill, Popover, RangeChips, rangeStart, ReturnPct, Segmented, Skeleton, useRangeParam } from "../components/ui";
 import { age, DASH, glyph, money, openPnl, signedMoney, toneClass } from "../format";
 import { haltSince, haltWords, resumeCommand } from "../halt";
-import { strategyCapital, strategyDisplayName } from "../portfolio";
-import { QueryBar, TRADE_PRESETS } from "../query/QueryBar";
+import { metaString, strategyCapital, strategyDisplayName } from "../portfolio";
+import { QueryBar, TRADE_PRESETS, useSearchToggle } from "../query/QueryBar";
 import { Link, PAGE_PATHS, PERIOD_VIEWS, PRIVATE_STRATEGY_TABS, routePath, STRATEGY_TABS, useRoute, useSearchParam, type PeriodView, type StrategyTab } from "../router";
 import { useTripAnalytics, type TripAnalytics } from "../trades/analytics";
 import { tripParams, useTripFacets, type RoundTripTotals, type TripScope } from "../trades/data";
@@ -25,7 +24,8 @@ import { CalendarSection, DailySection, MonthlySection } from "./Days";
 import { chipOf, importantLog, toggleToken, without } from "./journal";
 import { OverviewSection } from "./Overview";
 import { TimeRiskSection } from "./TimeRisk";
-import { BigPnl, Icon, ICON, Widget } from "./widgets";
+import { BigPnl, ICON, Widget } from "./widgets";
+import { useStrategies } from "../hooks/useStrategies";
 
 // The highlighter and its grammar load only when the Code section opens.
 const CodeSection = lazy(() => import("./Code"));
@@ -47,11 +47,6 @@ const PERIOD_LABEL: Record<PeriodView, string> = { calendar: "Calendar", days: "
 /** A strategy page leaves its own name out of each row. */
 const STRATEGY_HIDDEN = ["strategy", "id"];
 const RECENT_LOGS = 50;
-
-function metaString(meta: Record<string, unknown> | null | undefined, key: string): string | null {
-  const v = meta?.[key];
-  return typeof v === "string" && v.length > 0 ? v : null;
-}
 
 /** Open P&L and open positions of one strategy from the live broker state (shared links: the delayed sum). */
 function useOpen(instanceId: string, strategyId: string): { pnl: number | null; positions: number; stale: boolean } {
@@ -101,11 +96,7 @@ export function StrategyDetail({ instanceId, strategyId }: { instanceId: string;
   const [, openTrade] = useOpenTrade();
   const enc = `instance=${encodeURIComponent(instanceId)}&strategy=${encodeURIComponent(strategyId)}`;
 
-  const strategies = useQuery({
-    queryKey: ["strategies", instanceId],
-    queryFn: () => get<StrategyRow[]>(`/strategies?instance=${encodeURIComponent(instanceId)}`),
-    refetchInterval: 30_000,
-  });
+  const strategies = useStrategies(instanceId);
   const stats = useQuery({
     queryKey: ["stats", instanceId, strategyId],
     queryFn: () => get<StrategyStats>(`/stats?${enc}`),
@@ -156,14 +147,7 @@ export function StrategyDetail({ instanceId, strategyId }: { instanceId: string;
   const filterCount = useMemo(() => parseQuery(q, { instruments: suggestData.instruments }).chips.length, [q, suggestData.instruments]);
   // phones: the header folds to one line and the query bar to a search button until tapped
   const [details, setDetails] = useState(false);
-  const [searchOpen, setSearchOpen] = useState(false);
-  const searchBox = useRef<HTMLDivElement>(null);
-  const openSearch = () => {
-    if (searchOpen) return setSearchOpen(false);
-    // rendered before focusing, inside the tap, so a phone raises its keyboard
-    flushSync(() => setSearchOpen(true));
-    searchBox.current?.querySelector("input")?.focus();
-  };
+  const { open: searchOpen, box: searchBox, toggle: openSearch } = useSearchToggle();
 
   const props: SectionProps = {
     instanceId, strategyId, scope, q, toggle, a, base: base.data ?? (baseQ === q ? a : undefined),

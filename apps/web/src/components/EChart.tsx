@@ -169,6 +169,11 @@ export function zeroLine() {
   return { silent: true, symbol: "none", label: { show: false }, lineStyle: { color: tok("axis"), type: "dashed" as const, width: 1 }, data: [{ yAxis: 0 }] };
 }
 
+/** A signed bar: the gain or loss fill, rounded on the end away from zero. */
+export function signedBar(v: number, opacity = 1) {
+  return { color: v >= 0 ? chartColors.gain : chartColors.loss, opacity, borderRadius: v >= 0 ? [3, 3, 0, 0] : [0, 0, 3, 3] };
+}
+
 /** Area fill from the line colour to transparent, for a single primary series. */
 export function areaFade(color: string) {
   const name = TOKEN.exec(color)?.[1];
@@ -189,6 +194,11 @@ export function qktChartTooltip(): Record<string, unknown> {
     extraCssText: "border-radius:8px;box-shadow:0 8px 24px rgba(0,0,0,.3);font-variant-numeric:tabular-nums",
     textStyle: { color: tok("bright"), fontFamily: FONT, fontSize: 12 },
   };
+}
+
+/** A bar chart's tooltip: the hovered category shaded rather than a line through it. */
+export function qktBarTooltip(): Record<string, unknown> {
+  return { ...qktChartTooltip(), axisPointer: { type: "shadow", shadowStyle: { color: tok("hover") } } };
 }
 
 const esc = (t: string) => t.replace(/[&<>"]/g, (c) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;" })[c]!);

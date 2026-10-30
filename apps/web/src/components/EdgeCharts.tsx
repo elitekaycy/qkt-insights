@@ -26,7 +26,7 @@ function symExtent(values: number[]): number {
 }
 
 /** 7×24 day-of-week × hour heatmap. Cell color = mean P&L; label = net; sub-MIN_N cells desaturate. */
-export function DowHourHeatmap({ cells, height = 320 }: { cells: DowHourCell[]; height?: number }) {
+export function DowHourHeatmap({ cells }: { cells: DowHourCell[] }) {
   const narrow = useNarrowChart();
   const ext = symExtent(cells.map((c) => c.mean));
   // A phone cannot fit 24 labelled columns plus a side legend: the legend drops
@@ -103,7 +103,7 @@ export function DowHourHeatmap({ cells, height = 320 }: { cells: DowHourCell[]; 
       },
     ],
   };
-  return <EChart option={option} height={height} />;
+  return <EChart option={option} height={320} />;
 }
 
 /**
@@ -111,7 +111,7 @@ export function DowHourHeatmap({ cells, height = 320 }: { cells: DowHourCell[]; 
  * whiskers on the mean, and sub-MIN_N buckets desaturated. `measure` picks
  * net (bar) — the whisker always describes the per-trade mean.
  */
-export function HonestBucketBars({ rows, height = 260 }: { rows: BreakdownRow[]; height?: number }) {
+export function HonestBucketBars({ rows }: { rows: BreakdownRow[] }) {
   const option: QktChartOption = {
     // room for the two-line axis label: the bucket and its n
     grid: { ...qktChartGrid, bottom: 40 },
@@ -172,11 +172,11 @@ export function HonestBucketBars({ rows, height = 260 }: { rows: BreakdownRow[];
       },
     ],
   };
-  return <EChart option={option} height={height} />;
+  return <EChart option={option} height={260} />;
 }
 
 /** Rolling Sharpe + share of winning days (net-positive UTC days, not trades) on twin axes; warmup nulls leave visible gaps. */
-export function RollingChart({ points, window, height = 260 }: { points: RollingPoint[]; window: number; height?: number }) {
+export function RollingChart({ points, window }: { points: RollingPoint[]; window: number }) {
   const narrow = useNarrowChart();
   const below = qktBottomLegend();
   const shown = rollingCoverage(points, window);
@@ -213,7 +213,7 @@ export function RollingChart({ points, window, height = 260 }: { points: Rolling
   return (
     <>
       {shown.notes.length > 0 && <p className="px-1 pb-2 text-xs text-muted">{shown.notes.join(" ")}</p>}
-      <EChart option={option} height={height} />
+      <EChart option={option} height={260} />
     </>
   );
 }

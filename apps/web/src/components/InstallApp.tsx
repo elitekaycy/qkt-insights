@@ -29,7 +29,7 @@ function InstallHint({ id, platform }: { id: string; platform: InstallPlatform }
 /** Install-to-home-screen control. Hidden only once the app is already running
  *  standalone; where the browser offers no native prompt it explains that
  *  browser's own route instead of vanishing. */
-export function InstallApp({ variant, iconsOnly }: { variant: "sidebar" | "login"; iconsOnly?: boolean }) {
+export function InstallApp({ variant }: { variant: "sidebar" | "login" }) {
   const { installed, canPrompt, promptInstall, platform } = useInstallPrompt();
   const brand = useBrand();
   const [showHint, setShowHint] = useState(false);
@@ -62,14 +62,12 @@ export function InstallApp({ variant, iconsOnly }: { variant: "sidebar" | "login
         onClick={onClick}
         {...aria}
         title={label}
-        className={`flex w-full items-center gap-3 rounded-lg px-3.5 py-2.5 text-left text-[15px] font-medium text-muted transition hover:bg-raised hover:text-body ${
-          iconsOnly ? "justify-center px-0" : ""
-        }`}
+        className="flex w-full items-center gap-3 rounded-lg px-3.5 py-2.5 text-left text-[15px] font-medium text-muted transition hover:bg-raised hover:text-body"
       >
         <DownloadIcon className="h-5 w-5" />
-        {!iconsOnly && label}
+        {label}
       </button>
-      {showHint && !canPrompt && !iconsOnly && <InstallHint id={hintId} platform={platform} />}
+      {showHint && !canPrompt && <InstallHint id={hintId} platform={platform} />}
     </div>
   );
 }

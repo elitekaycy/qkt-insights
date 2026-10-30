@@ -1,5 +1,5 @@
 import type { AccountRiskRow, LiveAccount, LivePositionRow, StrategyRow } from "./api";
-import { age, DASH, instrumentOf, money, openPnl, pctValue, signedMoney, ts } from "./format";
+import { age, DASH, DAY_MS, instrumentOf, money, openPnl, pctValue, signedMoney, ts } from "./format";
 import { roundMoney } from "@qkt-insights/contract/money";
 
 /*
@@ -7,7 +7,6 @@ import { roundMoney } from "@qkt-insights/contract/money";
  * its risk row (limits, day basis), and every close on the account. Nothing here reads React.
  */
 
-const DAY_MS = 86_400_000;
 
 /** The account's risk row for a live account: by its account id, then by label, then the only one. */
 export function riskRowFor(account: Pick<LiveAccount, "broker" | "accountId">, rows: AccountRiskRow[]): AccountRiskRow | null {

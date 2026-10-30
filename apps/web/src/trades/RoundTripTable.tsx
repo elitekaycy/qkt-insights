@@ -4,7 +4,7 @@ import { compactDuration, DASH, duration, openPnl, pnl, quantity, signedMoney, t
 import { TypeBadge } from "../components/InstrumentType";
 import { instrumentType, optionFromSymbol, optionLine, shortInstrument, sizeInWords } from "../instruments";
 import { Pill, RowChevron, Skeleton, Spinner } from "../components/ui";
-import { useStrategyNames } from "../hooks/useStrategyNames";
+import { useStrategyNames } from "../hooks/useStrategies";
 import { useView } from "../view";
 import { useLiveState } from "../useLiveState";
 import { useRoundTrips, type RoundTrip, type RoundTripTotals, type SortKey, type TripScope } from "./data";
@@ -150,12 +150,9 @@ export interface RoundTripTableProps {
   fit?: boolean;
   /** Reports the first page's totals (the whole match) and the server's reading of the query. */
   onTotals?: (t: RoundTripTotals | null, query: { canonical: string; errors: string[] } | null, loading: boolean) => void;
-  /** Whether j/k/Enter drive this table (one table per page does). */
-  keyboard?: boolean;
-  empty?: ReactNode;
 }
 
-export function RoundTripTable({ scope, q, sort, dir, onSort, hide = [], height = "min(70dvh, 46rem)", fit = false, onTotals, keyboard = true, empty }: RoundTripTableProps) {
+export function RoundTripTable({ scope, q, sort, dir, onSort, hide = [], height = "min(70dvh, 46rem)", fit = false, onTotals }: RoundTripTableProps) {
   const view = useView();
   // the open trade (?trade=) is highlighted, kept in view, and j/k continue from it
   const [openId, onOpen] = useOpenTrade();
@@ -234,7 +231,6 @@ export function RoundTripTable({ scope, q, sort, dir, onSort, hide = [], height 
   }, [openId, rows]);
 
   useEffect(() => {
-    if (!keyboard) return;
     const onKey = (e: KeyboardEvent) => {
       if (e.metaKey || e.ctrlKey || e.altKey) return;
       const t = e.target as HTMLElement | null;
@@ -256,7 +252,7 @@ export function RoundTripTable({ scope, q, sort, dir, onSort, hide = [], height 
     };
     window.addEventListener("keydown", onKey);
     return () => window.removeEventListener("keydown", onKey);
-  }, [keyboard, rows, sel, openId, onOpen, view.public]);
+  }, [rows, sel, openId, onOpen, view.public]);
 
   const clickable = !view.public;
   const header = (
@@ -355,7 +351,7 @@ export function RoundTripTable({ scope, q, sort, dir, onSort, hide = [], height 
           ) : data.isPending ? (
             <Skeleton lines={8} what="round trips" />
           ) : rows.length === 0 ? (
-            <div className="p-8 text-center text-sm text-muted">{empty ?? <><b className="font-semibold text-body">No round trips match.</b> Loosen the query above.</>}</div>
+            <div className="p-8 text-center text-sm text-muted"><b className="font-semibold text-body">No round trips match.</b> Loosen the query above.</div>
           ) : (
             <div className={`relative ${data.isPlaceholderData ? "opacity-60 transition-opacity" : ""}`} style={{ height: rows.length * rowH + (loadingMore ? rowH : 0) }}>
               {visible}
