@@ -1,4 +1,4 @@
-import { describe, it, expect, beforeEach, afterEach } from "vitest";
+import { describe, it, expect, beforeEach, afterEach, vi } from "vitest";
 import Fastify, { type FastifyInstance } from "fastify";
 import cookie from "@fastify/cookie";
 import argon2 from "argon2";
@@ -36,6 +36,8 @@ function roundTrip(strategyId: string | null, closeTs: number, profit: number, o
 }
 
 beforeEach(async () => {
+  // A fixed noon: on the real clock a run crossing the 22:00 rollover left these tests' "today" behind the server's.
+  vi.useFakeTimers({ toFake: ["Date"], now: Date.UTC(2026, 9, 14, 12) });
   now = Date.now();
   dayStart = tradingDayStart(now, 22, "UTC");
   db = openDb(":memory:");
@@ -78,7 +80,7 @@ beforeEach(async () => {
   const login = await app.inject({ method: "POST", url: "/auth/login", payload: { username: "admin", password: "pw" } });
   session = String(login.headers["set-cookie"]).split(";")[0]!;
 });
-afterEach(async () => { await app.close(); });
+afterEach(async () => { await app.close(); vi.useRealTimers(); });
 
 async function get<T>(url: string): Promise<T> {
   const res = await app.inject({ method: "GET", url, headers: { cookie: session } });

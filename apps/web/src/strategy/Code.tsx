@@ -6,6 +6,7 @@ import { age, count, tsDay } from "../format";
 import { useSearchParam } from "../router";
 import { diffCounts, lineDiff, type DiffLine } from "./code/diff";
 import { highlightQkt, type CodeToken } from "./code/highlight";
+import ConfigurationSection from "./Configuration";
 import { Widget } from "./widgets";
 import { metaString } from "../portfolio";
 
@@ -142,6 +143,9 @@ function useSourceText(instanceId: string, strategyId: string, version: Strategy
   });
 }
 
+/** Beside the code on a wide screen; above it on a narrow one, where the code would push it off the page. */
+const CONFIG_CELL = "min-w-0 xl:col-start-2 xl:row-start-1";
+
 function Missing({ children }: { children: string }) {
   return <p className="rounded-lg border border-line bg-raised px-4 py-6 text-sm text-muted">{children}</p>;
 }
@@ -216,7 +220,9 @@ export default function CodeSection({ instanceId, strategyId, meta }: {
   return (
     <Loadable loading={sources.isPending} error={sources.isError} retry={() => sources.refetch()} what="the strategy's code" shape="lines" lines={10}>
       {versions.length === 0 || !version ? (
-        <Widget title="Source">
+        <div className="grid items-start gap-4 xl:grid-cols-[minmax(0,1fr)_340px]">
+        <div className={CONFIG_CELL}><ConfigurationSection instanceId={instanceId} strategyId={strategyId} /></div>
+        <Widget title="Source" className="xl:col-start-1 xl:row-start-1">
           {metaString(meta, "sourceSha256") || metaString(meta, "sourcePath") ? (
             <div className="grid gap-3">
               <dl className="grid grid-cols-1 gap-x-6 gap-y-1.5 text-xs sm:grid-cols-[auto_1fr]">
@@ -231,10 +237,12 @@ export default function CodeSection({ instanceId, strategyId, meta }: {
             <Missing>No start reported yet. The code arrives with the strategy's next strategy.started from qkt.</Missing>
           )}
         </Widget>
+        </div>
       ) : (
-        <div className="grid gap-4 xl:grid-cols-[minmax(0,1fr)_260px]">
+        <div className="grid items-start gap-4 xl:grid-cols-[minmax(0,1fr)_340px] xl:grid-rows-[auto_1fr]">
+          <div className={CONFIG_CELL}><ConfigurationSection instanceId={instanceId} strategyId={strategyId} /></div>
           <Widget
-            
+            className="xl:col-start-1 xl:row-span-2 xl:row-start-1"
             title={version.sha256 === running ? "Running version" : `Version ${shortSha(version.sha256)}`}
             hint={version.sha256 === running ? undefined : "an earlier version, not the one running"}
           >
@@ -268,7 +276,7 @@ export default function CodeSection({ instanceId, strategyId, meta }: {
               )}
             </div>
           </Widget>
-          <Widget title={`${versions.length} version${versions.length === 1 ? "" : "s"}`} hint="newest first">
+          <Widget className="xl:col-start-2" title={`${versions.length} version${versions.length === 1 ? "" : "s"}`} hint="newest first">
             <VersionList
               versions={versions}
               running={running}
