@@ -54,6 +54,7 @@ describe("configGroups", () => {
   });
 
   it("names this strategy's own limits, or says it has none", () => {
+    expect(value(CONFIG, "These limits watch")).toBe("Every strategy in this qkt");
     expect(value(CONFIG, "This strategy's own limits")).toBe("None set");
     const own = { ...CONFIG, strategyRisk: { maxDailyLoss: set(500), maxOpenPositions: set(3) } };
     expect(value(own, "This strategy's own limits")).toBeUndefined();

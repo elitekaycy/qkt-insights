@@ -121,7 +121,7 @@ function riskGroup(c: EffectiveConfig): ConfigGroup {
   const own = "A cap on this strategy alone, on top of the limits above.";
   const key = (k: string) => `risk.per_strategy.<strategy>.${k}`;
   return { title: "Risk limits", rows: present([
-    r.appliesTo ? fact("appliesTo", "These limits watch", r.appliesTo === "book" ? "The whole book" : "This strategy", "A book's loss and drawdown halts add up all its strategies and stop them together.") : null,
+    r.appliesTo ? fact("appliesTo", "These limits watch", r.appliesTo === "book" ? "The whole book" : "Every strategy in this qkt", r.appliesTo === "book" ? "A book's loss and drawdown halts add up all its strategies and stop them together." : "The day's loss adds up every strategy this qkt runs, and any breach stops them all.") : null,
     row("maxDailyLoss", "Max daily loss", r.maxDailyLoss, amount, "Realized loss in one day that halts trading until the next day.", "risk.max_daily_loss"),
     row("maxDrawdown", "Max drawdown", r.maxDrawdownFraction, percentOf, "Total drawdown that halts trading.", "risk.max_drawdown_pct"),
     // A book's static drawdown is measured on the book's capital, which qkt states under the same basis.
