@@ -63,6 +63,20 @@ export function accountCurrency(db: Db, instanceId: string, account: { identity:
 }
 
 /**
+ * The currency of the account a broker profile trades on: the one it reported, else the one its account
+ * reported under another profile (several profiles on one venue account report as one); null when unknown.
+ */
+export function brokerCurrency(db: Db, instanceId: string, broker: string): string | null {
+  const row = statement(db,
+    `SELECT currency FROM account_currencies WHERE instance_id=@i AND (label=@broker OR account=@broker
+       OR account IN (SELECT identity FROM account_labels WHERE instance_id=@i AND broker=@broker)
+       OR account IN (SELECT account_id FROM deals WHERE instance_id=@i AND broker=@broker AND account_id IS NOT NULL))
+     ORDER BY label=@broker DESC LIMIT 1`,
+  ).get({ i: instanceId, broker }) as { currency: string } | undefined;
+  return row?.currency ?? null;
+}
+
+/**
  * SQL: the currency of round trip `t` (a round_trips row): its account's, by the account its deals state,
  * else by the label it trades under; null when no account reported one (an engine-only close, a silent account).
  */

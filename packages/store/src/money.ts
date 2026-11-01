@@ -1,9 +1,9 @@
-import { moneyDigits, roundMoney } from "@qkt-insights/contract/money";
+import { exactMoney, moneyDigits, roundMoney } from "@qkt-insights/contract/money";
 import type { Db } from "./db.js";
 import { statement } from "./statements.js";
 import { bumpEpoch } from "./versions.js";
 
-export { moneyDigits, roundMoney };
+export { exactMoney, moneyDigits, roundMoney };
 
 /** Minor-unit decimals of the instance's account currency (instances.currency); 2 when unknown. */
 export function instanceMoneyDigits(db: Db, instanceId: string): number {

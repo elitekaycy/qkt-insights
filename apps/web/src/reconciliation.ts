@@ -80,7 +80,7 @@ export function positionIssues(p: ReconciledPositions): string[] {
 /** The ledger result on one line. */
 export function ledgerLine(l: ReconciledLedger, digits = 2): { tone: ReconciliationTone; text: string } {
   const trips = `${count(l.trips)} closed round ${l.trips === 1 ? "trip" : "trips"}`;
-  if (l.status === "ok") return { tone: "ok", text: `Ledger ✓ ${trips} ${l.trips === 1 ? "adds up to its" : "add up to their"} deals (${signedMoney(l.tripsNet, digits)})` };
+  if (l.status === "ok") return { tone: "ok", text: `Ledger ✓ ${trips} ${l.trips === 1 ? "adds up to its" : "add up to their"} deals (${signedMoney(l.dealsNet, digits)})` };
   return { tone: "bad", text: `Ledger: ${trips} ${l.trips === 1 ? "sums" : "sum"} to ${signedMoney(l.tripsNet, digits)}, ${l.trips === 1 ? "its" : "their"} deals to ${signedMoney(l.dealsNet, digits)}` };
 }
 

@@ -1,6 +1,6 @@
 import type { Db } from "./db.js";
 import { statement } from "./statements.js";
-import { addMoney, instanceMoneyDigits } from "./money.js";
+import { instanceMoneyDigits, roundMoney } from "./money.js";
 
 /** Where a strategy's closes come from: broker deals (closed_trades) or the engine's trade.closed rows. */
 export type CloseSource = "deal" | "ledger";
@@ -25,7 +25,7 @@ export function parseDailyKey(key: string): { source: CloseSource; strategyId: s
  * timestamp the closes come first, as adjustmentsMerged orders them for the readers.
  */
 const DEAL_ROWS = (where: string, order: string) => `SELECT ts, realized, entryTs, trade FROM (
-    SELECT ts, realized, entry_ts entryTs, 1 trade, 0 kind, deal_rowid id FROM closed_trades
+    SELECT ts, COALESCE(realized_exact, realized) realized, entry_ts entryTs, 1 trade, 0 kind, deal_rowid id FROM closed_trades
      WHERE instance_id=@instanceId AND strategy_id=@strategyId ${where}
     UNION ALL
     SELECT ts, profit + COALESCE(commission,0) + COALESCE(swap,0) + COALESCE(fee,0), NULL, 0, 1, rowid FROM deals
@@ -37,6 +37,12 @@ const CLOSES_SINCE: Record<CloseSource, string> = {
   ledger: "SELECT ts, realized, entry_ts entryTs, 1 trade FROM trade_closes WHERE instance_id=@instanceId AND strategy_id=@strategyId AND ts>=@since ORDER BY ts ASC, rowid ASC",
 };
 
+/** The unrounded total of a strategy's closes before a day: where its running total resumes from. */
+const NET_BEFORE: Record<CloseSource, string> = {
+  deal: `SELECT COALESCE(SUM(realized), 0) net FROM (${DEAL_ROWS("AND ts<@since", "ts ASC")})`,
+  ledger: "SELECT COALESCE(SUM(realized), 0) net FROM trade_closes WHERE instance_id=@instanceId AND strategy_id=@strategyId AND ts<@since",
+};
+
 const CLOSES_NEWEST_FIRST: Record<CloseSource, string> = {
   deal: DEAL_ROWS("", "ts DESC, kind DESC, id DESC"),
   ledger: "SELECT ts, realized, entry_ts entryTs, 1 trade FROM trade_closes WHERE instance_id=@instanceId AND strategy_id=@strategyId ORDER BY ts DESC, rowid DESC",
@@ -44,44 +50,41 @@ const CLOSES_NEWEST_FIRST: Record<CloseSource, string> = {
 
 /**
  * Rewrites one strategy's days from `sinceDay` on, and its totals. The day's net and the running
- * total are summed in close order, as the readers that build them from the closes do, at the
- * account currency's minor unit (addMoney), so a figure served from here is bit-for-bit the one a
- * rebuild from the closes gives. O(closes since the day)
- * for the days; the newest-first total re-adds every close, O(closes of the strategy).
+ * total sum the closes' unrounded amounts and round once to the account currency's minor unit, as
+ * the readers that build them from the closes do, so a figure served from here is bit-for-bit the
+ * one a rebuild from the closes gives. O(closes of the strategy).
  */
 export function recomputeDaily(db: Db, instanceId: string, source: CloseSource, strategyId: string, sinceDay: string): void {
   const since = Date.parse(`${sinceDay}T00:00:00Z`);
-  const prev = statement(db,
-    "SELECT close_cum cum FROM strategy_daily WHERE instance_id=? AND strategy_id=? AND source=? AND day<? ORDER BY day DESC LIMIT 1",
-  ).get(instanceId, strategyId, source, sinceDay) as { cum: number } | undefined;
+  const from = Number.isFinite(since) ? since : Number.MIN_SAFE_INTEGER;
   statement(db, "DELETE FROM strategy_daily WHERE instance_id=? AND strategy_id=? AND source=? AND day>=?").run(instanceId, strategyId, source, sinceDay);
   const closes = statement(db, CLOSES_SINCE[source])
-    .all({ instanceId, strategyId, since: Number.isFinite(since) ? since : Number.MIN_SAFE_INTEGER }) as Array<{ ts: number; realized: number; trade: number }>;
+    .all({ instanceId, strategyId, since: from }) as Array<{ ts: number; realized: number; trade: number }>;
   const ins = statement(db,
     "INSERT INTO strategy_daily (instance_id, strategy_id, source, day, net, trades, close_cum, last_ts) VALUES (?,?,?,?,?,?,?,?)",
   );
   const digits = instanceMoneyDigits(db, instanceId);
-  const add = (a: number, b: number) => addMoney(a, b, digits);
-  let cum = prev?.cum ?? 0;
+  let cum = (statement(db, NET_BEFORE[source]).get({ instanceId, strategyId, since: from }) as { net: number }).net;
   let day: string | null = null, net = 0, trades = 0, lastTs = 0;
+  const write = () => ins.run(instanceId, strategyId, source, day, roundMoney(net, digits), trades, roundMoney(cum, digits), lastTs);
   for (const c of closes) {
     const d = utcDay(c.ts);
     if (d !== day) {
-      if (day != null) ins.run(instanceId, strategyId, source, day, net, trades, cum, lastTs);
+      if (day != null) write();
       day = d; net = 0; trades = 0;
     }
-    net = add(net, c.realized);
-    cum = add(cum, c.realized);
+    net += c.realized;
+    cum += c.realized;
     trades += c.trade;
     lastTs = c.ts;
   }
-  if (day != null) ins.run(instanceId, strategyId, source, day, net, trades, cum, lastTs);
+  if (day != null) write();
 
   let total = 0, n = 0;
   let newest: { ts: number } | null = null, oldest: { ts: number; entryTs: number | null } | null = null;
   let firstAdjustmentTs: number | null = null;
   for (const c of statement(db, CLOSES_NEWEST_FIRST[source]).iterate({ instanceId, strategyId }) as IterableIterator<{ ts: number; realized: number; entryTs: number | null; trade: number }>) {
-    total = add(total, c.realized);
+    total += c.realized;
     // The newest row of either kind: a reader cut off before it cannot be served whole days.
     newest ??= c;
     if (c.trade === 0) { firstAdjustmentTs = c.ts; continue; }
@@ -97,7 +100,7 @@ export function recomputeDaily(db: Db, instanceId: string, source: CloseSource, 
      VALUES (?,?,?,?,?,?,?,?) ON CONFLICT(instance_id, strategy_id, source) DO UPDATE SET
        closes=excluded.closes, net_newest_first=excluded.net_newest_first, first_ts=excluded.first_ts,
        first_entry_ts=excluded.first_entry_ts, last_ts=excluded.last_ts`,
-  ).run(instanceId, strategyId, source, n, total, oldest.ts, curveAnchor(oldest, firstAdjustmentTs), newest.ts);
+  ).run(instanceId, strategyId, source, n, roundMoney(total, digits), oldest.ts, curveAnchor(oldest, firstAdjustmentTs), newest.ts);
 }
 
 /**

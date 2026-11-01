@@ -1,4 +1,4 @@
-import { roundMoney } from "@qkt-insights/contract/money";
+import { exactMoney, roundMoney } from "@qkt-insights/contract/money";
 import type { StrategyRow } from "./api";
 import type { StrategyPeriods } from "./home";
 import { portfolioGroupId, strategyCapital, strategyDisplayName, summarizePortfolio } from "./portfolio";
@@ -155,23 +155,26 @@ export function cardGroups<T extends CardLine>(lines: readonly T[], digits = 2):
  * sparkline's points. Same closes and order as strategyPeriods, so the last point equals `all`.
  */
 export function realizedCurves(
-  closes: ReadonlyArray<{ strategyId: string | null; ts: number; realized: number }>,
+  closes: ReadonlyArray<{ strategyId: string | null; ts: number; realized: number; realizedExact?: number }>,
   opts: { now: number; digits?: number },
 ): Map<string | null, number[]> {
   const digits = opts.digits ?? 2;
   const out = new Map<string | null, number[]>();
+  const running = new Map<string | null, number>();
   const ordered = [...closes].filter((c) => c.ts <= opts.now).sort((a, b) => a.ts - b.ts);
   for (const c of ordered) {
     let curve = out.get(c.strategyId);
     if (!curve) out.set(c.strategyId, (curve = [0]));
-    curve.push(roundMoney(curve[curve.length - 1]! + c.realized, digits));
+    const sum = (running.get(c.strategyId) ?? 0) + exactMoney(c);
+    running.set(c.strategyId, sum);
+    curve.push(roundMoney(sum, digits));
   }
   return out;
 }
 
 /** Several curves added point by point in close order, for a portfolio's combined line. */
 export function mergeCurves(
-  closes: ReadonlyArray<{ strategyId: string | null; ts: number; realized: number }>,
+  closes: ReadonlyArray<{ strategyId: string | null; ts: number; realized: number; realizedExact?: number }>,
   keys: ReadonlySet<string | null>,
   opts: { now: number; digits?: number },
 ): number[] {

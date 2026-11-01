@@ -2,8 +2,10 @@
  * Account money at the account currency's minor unit. The venue books every deal in whole minor
  * units (cents for USD); a sum of those amounts in binary floating point lands a hair off the cent
  * (-250.2 + -0.1 is -250.29999999999998), which a comparison or a win/loss split must never see.
- * Stored figures (a closing leg, a round trip, a day) are rounded to the minor unit on write;
- * totals over them are rounded again, so a displayed total is the exact sum of the displayed rows.
+ * Stored figures (a closing leg, a round trip, a day) are rounded to the minor unit on write. A venue
+ * can book finer than that (a paper perpetual's fee is a fraction of a cent), so a total sums the rows'
+ * unrounded amounts and rounds once: it is what the deals total, which can differ from the sum of the
+ * rows as printed by a cent per few rows. Over whole-cent amounts the two are the same.
  */
 
 /** Minor-unit decimals of the ISO 4217 currencies that do not use 2. */
@@ -17,6 +19,11 @@ const MINOR_UNITS: Readonly<Record<string, number>> = {
 /** Decimals of the currency's minor unit: USD 2, JPY 0, KWD 3; 2 for an unknown or missing currency. */
 export function moneyDigits(currency: string | null | undefined): number {
   return (currency ? MINOR_UNITS[currency.trim().toUpperCase()] : undefined) ?? 2;
+}
+
+/** What a row adds to a total: its unrounded amount, its minor-unit one when the row carries no other. */
+export function exactMoney(row: { realized: number; realizedExact?: number | null }): number {
+  return row.realizedExact ?? row.realized;
 }
 
 /**

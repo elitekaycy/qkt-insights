@@ -1,6 +1,6 @@
 import { describe, it, expect } from "vitest";
 import type { Envelope } from "@qkt-insights/contract";
-import { openDb, ingestEvents, listStrategies, strategyConfigs, withoutEffectiveConfig, type Db } from "../src/index.js";
+import { openDb, ingestEvents, listStrategies, persistStateEvent, strategyConfigs, withoutEffectiveConfig, type Db } from "../src/index.js";
 
 const I = "fwd";
 const T0 = Date.UTC(2026, 9, 28, 9);
@@ -26,6 +26,40 @@ function fresh(events: Envelope[]): Db {
 }
 
 describe("strategy configs", () => {
+  describe("the currency of the accounts it runs on", () => {
+    const accounts = (...names: string[]) => ({ ...CONFIG, accounts: names.map((name) => ({ name })) });
+    const reported = (db: Db, broker: string, currency: string, accountId: string) => persistStateEvent(db, I, {
+      v: 1, instanceId: I, id: `acct-${broker}`, seq: 1, ts: T0, type: "state.account",
+      payload: { broker, balance: 100, equity: 100, currency, accountId },
+    } as Envelope);
+
+    it("states the venue's currency, also for a label that shares its account with the one that reported", () => {
+      const db = fresh([started(T0, "aa", { effectiveConfig: accounts("PAPER_H") })]);
+      expect(strategyConfigs(db, I, "gold").accountCurrencies).toEqual([]);
+      reported(db, "PAPER_H", "USDC", "vgp:00000000000000aa");
+      expect(strategyConfigs(db, I, "gold").accountCurrencies).toEqual(["USDC"]);
+
+      const shared = fresh([started(T0, "bb", { effectiveConfig: accounts("EXNESS_O04") }), {
+        v: 1, instanceId: I, id: "deal-EXNESS_O04-1", seq: 2, ts: T0, type: "broker.deal",
+        payload: { broker: "EXNESS_O04", dealTicket: "1", positionTicket: "p", symbol: "EXNESS_O04:XAUUSD", side: "BUY", entry: "IN", qty: 1, price: 1, profit: 0, accountId: "mt5:00000000000000bb", ts: T0 },
+      } as Envelope]);
+      reported(shared, "EXNESS_O08B", "USD", "mt5:00000000000000bb");
+      expect(strategyConfigs(shared, I, "gold").accountCurrencies).toEqual(["USD"]);
+    });
+
+    it("names each currency of several accounts, and none until every account has reported", () => {
+      const db = fresh([started(T0, "cc", { effectiveConfig: accounts("EXNESS", "PAPER_H") })]);
+      reported(db, "PAPER_H", "USDC", "vgp:00000000000000aa");
+      expect(strategyConfigs(db, I, "gold").accountCurrencies).toEqual([]);
+      reported(db, "EXNESS", "USD", "mt5:00000000000000bb");
+      expect(strategyConfigs(db, I, "gold").accountCurrencies).toEqual(["USD", "USDC"]);
+    });
+
+    it("is empty without a running config", () => {
+      expect(strategyConfigs(fresh([started(T0, null)]), I, "gold").accountCurrencies).toEqual([]);
+    });
+  });
+
   it("keeps each config once and moves only its last start on a repeat", () => {
     const db = fresh([
       started(T0, "aa", { effectiveConfig: CONFIG }),
@@ -56,7 +90,7 @@ describe("strategy configs", () => {
   });
 
   it("a qkt that states no config has none running, even after one that did", () => {
-    expect(strategyConfigs(fresh([started(T0, null)]), I, "gold")).toEqual({ running: null, versions: [] });
+    expect(strategyConfigs(fresh([started(T0, null)]), I, "gold")).toEqual({ running: null, versions: [], accountCurrencies: [] });
     const view = strategyConfigs(fresh([started(T0, "aa", { effectiveConfig: CONFIG }), started(T0 + H, null)]), I, "gold");
     expect(view.running).toBeNull();
     expect(view.versions.map((v) => v.sha256)).toEqual(["aa"]);
@@ -88,6 +122,6 @@ describe("strategy configs", () => {
   it("is per instance and per strategy", () => {
     const db = fresh([started(T0, "aa", { effectiveConfig: CONFIG })]);
     expect(strategyConfigs(db, "other", "gold").versions).toEqual([]);
-    expect(strategyConfigs(db, I, "silver")).toEqual({ running: null, versions: [] });
+    expect(strategyConfigs(db, I, "silver")).toEqual({ running: null, versions: [], accountCurrencies: [] });
   });
 });
