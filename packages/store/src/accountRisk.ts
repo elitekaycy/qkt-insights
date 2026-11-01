@@ -1,7 +1,7 @@
 import type { Db } from "./db.js";
 import { accountCloses, accountSummary, type AccountFilter, type AccountScope, type AccountSummary } from "./account.js";
 import { dataVersion } from "./versions.js";
-import { addMoney, instanceMoneyDigits } from "./money.js";
+import { exactMoney, instanceMoneyDigits, roundMoney } from "./money.js";
 import { NeedsScan, projectedViews, seriesViews, type AccountView } from "./accountViews.js";
 
 const HOUR = 3_600_000;
@@ -324,10 +324,10 @@ function riskRows(
       ? Math.max(dayStartBalance ?? dayStartEquity, dayStartEquity)
       : dayStartBalance;
     // Each account's own closes; with one account on the instance, every close is its.
-    const realizedToday = accountCloses(db, {
+    const realizedToday = roundMoney(accountCloses(db, {
       instanceId: f.instanceId, strategyIds: f.strategyIds, from: dayStart, to: f.now, closedPositionsOnly: f.closedPositionsOnly,
       account: accounts.length > 1 ? { identity: s.identity, labels: s.labels } : undefined,
-    }).reduce((a, c) => addMoney(a, c.realized, digits), 0);
+    }).reduce((a, c) => a + exactMoney(c), 0), digits);
     const includesFloating = profile.dailyLossIncludesFloating ?? false;
     const dailyUsed = includesFloating
       ? (dayReference != null ? Math.max(0, dayReference - last.equity) : null)

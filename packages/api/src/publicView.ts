@@ -1,5 +1,6 @@
 import { createHmac, randomBytes } from "node:crypto";
 import type { AccountSummary, AdjustmentRow, ClosedTradeRow, DealRow, StrategyRow, TripAnalytics, TripBucket, TripRow, TradeRow } from "@qkt-insights/store";
+import { exactMoney, roundMoney } from "@qkt-insights/contract/money";
 import type { PerformanceBundle } from "./performance.js";
 
 /*
@@ -46,7 +47,7 @@ function publicMetadata(meta: Record<string, unknown> | null): Record<string, un
 }
 
 /** A strategy as a public link shows it: its net is its closes' and its venue adjustments' (dividends, charges). */
-export function publicStrategy(row: StrategyRow, closes: ClosedTradeRow[], adjustments: AdjustmentRow[], cutoff: number): StrategyRow {
+export function publicStrategy(row: StrategyRow, closes: ClosedTradeRow[], adjustments: AdjustmentRow[], cutoff: number, digits: number): StrategyRow {
   return {
     strategyId: row.strategyId,
     firstSeen: row.firstSeen,
@@ -54,7 +55,7 @@ export function publicStrategy(row: StrategyRow, closes: ClosedTradeRow[], adjus
     startingBalance: row.startingBalance,
     definedCapital: row.definedCapital,
     metadata: publicMetadata(row.metadata),
-    realizedNet: closes.length > 0 ? adjustments.reduce((a, r) => a + r.realized, closes.reduce((a, c) => a + c.realized, 0)) : null,
+    realizedNet: closes.length > 0 ? roundMoney(adjustments.reduce((a, r) => a + r.realizedExact, closes.reduce((a, c) => a + exactMoney(c), 0)), digits) : null,
     dealCount: closes.length,
     active: true,
   };

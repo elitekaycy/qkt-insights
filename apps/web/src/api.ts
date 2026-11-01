@@ -457,6 +457,8 @@ export interface ClosedTradeRow {
   qty: number;
   price: number;
   realized: number;
+  /** Unrounded: what a total adds. A public view does not send it. */
+  realizedExact?: number;
   entryTs: number | null;
   orderId: string | null;
   /** Engine orders linked through broker tickets; only on deals-backed closes. */

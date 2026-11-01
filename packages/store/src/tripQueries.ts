@@ -53,6 +53,8 @@ export interface TripRow {
   qty: number;
   /** Realized money incl. commission, swap and fee (a still-open position: what it booked so far). */
   pnl: number | null;
+  /** Unrounded: what a total adds. Absent where a row was not read from the store (a public view). */
+  pnlExact?: number | null;
   /**
    * With an `exit:` window in the query: the realized of this position's closing legs inside the
    * window, when it also has closing legs outside it (closed in parts across the window's edge).
@@ -106,10 +108,13 @@ const ENTRY_WEEKDAY = "((CAST(strftime('%w', t.entry_ts / 1000, 'unixepoch') AS 
 const ENTRY_HOUR = "CAST(strftime('%H', t.entry_ts / 1000, 'unixepoch') AS INTEGER)";
 const PNL = "(CASE WHEN t.open = 1 AND t.exit_ts IS NULL THEN NULL ELSE t.realized END)";
 
+/** What a total adds for a trip: its unrounded net, null like PNL while the trip is open. */
+const PNL_EXACT = `(CASE WHEN t.open = 1 AND t.exit_ts IS NULL THEN NULL ELSE ${EXACT} END)`;
+
 const COLUMNS = `t.position_ticket id, t.broker, t.strategy_id strategyId, coalesce(t.symbol, t.instrument) symbol, upper(t.instrument) instrument,
   t.side, CASE WHEN t.open = 1 THEN 'open' ELSE 'closed' END status, t.entry_ts entryTs, t.entry_price entryPrice,
   CASE WHEN t.open = 1 THEN NULL ELSE t.exit_ts END exitTs, CASE WHEN t.open = 1 THEN NULL ELSE t.exit_price END exitPrice,
-  coalesce(t.qty, 0) qty, ${PNL} pnl, t.hold_ms holdMs, t.stop_price stopPrice, t.target_price targetPrice, ${RISK} risk, ${R} r,
+  coalesce(t.qty, 0) qty, ${PNL} pnl, ${PNL_EXACT} pnlExact, t.hold_ms holdMs, t.stop_price stopPrice, t.target_price targetPrice, ${RISK} risk, ${R} r,
   ${ENDED} ended, t.legs, t.entry_order_id entryOrderId, t.source, t.close_reason closeReason, ${TRIP_CURRENCY("t")} currency,
   (SELECT json_array(d.instrument_kind, d.contract_size, d.quantity_unit, d.instrument_category) FROM deals d
      WHERE d.instance_id=t.instance_id AND d.position_ticket=t.position_ticket
@@ -365,7 +370,7 @@ function legWindow(w: Window, sql: Sql, col: string): string {
 
 /** The realized of a trip's closing legs inside an `exit:` window (an engine close: all of it). */
 function realizedInExit(w: Window, sql: Sql): string {
-  return `(CASE WHEN t.source='ledger' THEN t.realized ELSE (SELECT COALESCE(SUM(ct.realized), 0) FROM closed_trades ct
+  return `(CASE WHEN t.source='ledger' THEN ${EXACT} ELSE (SELECT COALESCE(SUM(COALESCE(ct.realized_exact, ct.realized)), 0) FROM closed_trades ct
     WHERE ct.instance_id=t.instance_id AND ct.position_ticket=t.position_ticket AND ${legWindow(w, sql, "ct.ts")}) END)`;
 }
 
@@ -488,19 +493,19 @@ export function roundTripTotals(db: Db, q: RoundTripQuery): RoundTripTotals {
   const exit = q.filter?.exit;
   const a = db.prepare(
     `SELECT COUNT(*) matched, COALESCE(SUM(t.open=0),0) closed, COALESCE(SUM(t.open=1),0) open,
-       COALESCE(SUM(${exit ? realizedInExit(exit, sql) : "t.realized"}),0) net,
+       COALESCE(SUM(${exit ? realizedInExit(exit, sql) : EXACT}),0) net,
        COALESCE(SUM(t.open=0 AND t.realized>0),0) wins, COALESCE(SUM(t.open=0 AND t.realized<0),0) losses,
        AVG(CASE WHEN t.open=0 THEN t.realized END) avg,
        MAX(CASE WHEN t.open=0 THEN t.realized END) best, MIN(CASE WHEN t.open=0 THEN t.realized END) worst
      FROM round_trips t WHERE ${sql.where.join(" AND ")}`,
   ).get(sql.params) as Omit<RoundTripTotals, "total" | "winRate" | "netInExit">;
-  // the stored figures are at the minor unit; their float sum is brought back to it
+  // the exact sum, at the minor unit
   const digits = instanceMoneyDigits(db, q.instanceId);
   const net = roundMoney(a.net, digits);
   const known = instanceCurrencies(db, q.instanceId);
   const currencies = known.length > 1
     ? (db.prepare(
-      `SELECT ${TRIP_CURRENCY("t")} currency, COALESCE(SUM(${exit ? realizedInExit(exit, sql) : "t.realized"}),0) net, COUNT(*) n
+      `SELECT ${TRIP_CURRENCY("t")} currency, COALESCE(SUM(${exit ? realizedInExit(exit, sql) : EXACT}),0) net, COUNT(*) n
        FROM round_trips t WHERE ${sql.where.join(" AND ")} GROUP BY 1 ORDER BY n DESC, currency IS NULL, currency`,
     ).all(sql.params) as CurrencyNet[]).map((c) => ({ ...c, net: roundMoney(c.net, digits) }))
     : a.matched > 0 ? [{ currency: known[0] ?? null, net, n: a.matched }] : [];

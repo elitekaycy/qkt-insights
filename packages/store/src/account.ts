@@ -3,7 +3,7 @@ import {
   accountBinds, adjustmentRows, canonicalDeal, dealOnAccount, SWAP_ONLY, closeDealOf, closedTradeRows, fullyClosedPosition, instrumentOf, OUT_LEGS,
   type DayNet, type DealClosedTrade,
 } from "./analytics.js";
-import { addMoney, instanceMoneyDigits, roundMoney } from "./money.js";
+import { addMoney, exactMoney, instanceMoneyDigits, roundMoney } from "./money.js";
 
 /**
  * Account-level figures: every closed trade on the instance's account, whichever strategy owned it.
@@ -92,7 +92,7 @@ export function accountCloses(db: Db, f: AccountFilter): AccountClose[] {
     for (const r of ledger) {
       if (dealBacked.has(r.strategyId)) continue;
       out.push({
-        ...r, realized: roundMoney(r.realized, digits), entryPrice: null, exitPrice: r.price, holdMs: r.entryTs != null ? r.ts - r.entryTs : null,
+        ...r, realized: roundMoney(r.realized, digits), realizedExact: r.realized, entryPrice: null, exitPrice: r.price, holdMs: r.entryTs != null ? r.ts - r.entryTs : null,
         entryOrderId: null, exitOrderId: null, instrument: instrumentOf(r.symbol),
       });
     }
@@ -143,9 +143,10 @@ export interface AccountSummary {
   byStrategy: AccountBucket[];
 }
 
-function bucket(map: Map<string | null, AccountBucket>, key: string | null, c: AccountClose, digits: number): AccountBucket {
+/** Adds a close; `net` runs unrounded until accountSummary rounds it once. */
+function bucket(map: Map<string | null, AccountBucket>, key: string | null, c: AccountClose): AccountBucket {
   const b = map.get(key) ?? { key, net: 0, trades: 0, wins: 0, losses: 0 };
-  b.net = addMoney(b.net, c.realized, digits);
+  b.net += exactMoney(c);
   b.trades++;
   if (c.realized > 0) b.wins++;
   else if (c.realized < 0) b.losses++;
@@ -163,42 +164,43 @@ export function accountSummary(db: Db, f: AccountFilter): AccountSummary {
   const byStrategy = new Map<string | null, AccountBucket>();
   let totalNet = 0, wins = 0, losses = 0, sumWins = 0, sumLosses = 0;
   closes.forEach((c, i) => {
-    totalNet = addMoney(totalNet, c.realized, digits);
+    totalNet += exactMoney(c);
     if (c.realized > 0) { wins++; sumWins = addMoney(sumWins, c.realized, digits); } else if (c.realized < 0) { losses++; sumLosses = addMoney(sumLosses, -c.realized, digits); }
     const day = new Date(c.ts).toISOString().slice(0, 10);
     const d = byDay.get(day) ?? { day, net: 0, trades: 0 };
-    d.net = addMoney(d.net, c.realized, digits);
+    d.net += exactMoney(c);
     // a position closed in parts on one day is one round trip of that day; an engine close is its own
     const trips = tripsByDay.get(day) ?? new Set<string>();
     trips.add(tripOf.get(c) ?? `l:${i}`);
     tripsByDay.set(day, trips);
     d.trades = trips.size;
     byDay.set(day, d);
-    const inst = bucket(byInstrument, c.instrument, c, digits);
+    const inst = bucket(byInstrument, c.instrument, c);
     inst.venues ??= [];
     if (!inst.venues.includes(c.symbol)) inst.venues.push(c.symbol);
-    bucket(byStrategy, c.strategyId, c, digits);
+    bucket(byStrategy, c.strategyId, c);
   });
   // Venue adjustments (a stock CFD's dividend, a charge) are the account's money but no close: in the net, its day
   // and its strategy's and instrument's buckets, never in a trade count or a win.
   const ids = f.strategyIds ? JSON.stringify([...f.strategyIds]) : null;
   const account = accountFilter(db, f.instanceId, f.account);
   for (const a of adjustmentRows(db, { instanceId: f.instanceId, from: f.from, to: f.to, closedPositionsOnly: f.closedPositionsOnly, strategyIds: ids, ...account })) {
-    totalNet = addMoney(totalNet, a.realized, digits);
+    totalNet += a.realizedExact;
     const day = new Date(a.ts).toISOString().slice(0, 10);
     const d = byDay.get(day) ?? { day, net: 0, trades: 0 };
-    d.net = addMoney(d.net, a.realized, digits);
+    d.net += a.realizedExact;
     byDay.set(day, d);
     for (const [map, key] of [[byStrategy, a.strategyId], [byInstrument, instrumentOf(a.symbol)]] as const) {
       const b = map.get(key) ?? { key, net: 0, trades: 0, wins: 0, losses: 0 };
-      b.net = addMoney(b.net, a.realized, digits);
+      b.net += a.realizedExact;
       map.set(key, b);
     }
   }
+  for (const b of [...byInstrument.values(), ...byStrategy.values()]) b.net = roundMoney(b.net, digits);
   return {
     closes: [...closes].reverse(),
-    dailyNets: [...byDay.values()].sort((a, b) => (a.day < b.day ? -1 : 1)),
-    totalNet,
+    dailyNets: [...byDay.values()].sort((a, b) => (a.day < b.day ? -1 : 1)).map((d) => ({ ...d, net: roundMoney(d.net, digits) })),
+    totalNet: roundMoney(totalNet, digits),
     trades: closes.length,
     wins,
     losses,
