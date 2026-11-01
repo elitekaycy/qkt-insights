@@ -67,6 +67,15 @@ describe("riskRowFor", () => {
 });
 
 describe("strategyPeriods", () => {
+  it("totals the exact amounts, at the cent, and counts a close as it prints", () => {
+    const closes = [-0.014, -0.014, -0.014].map((realizedExact, i) => ({ strategyId: "a", ts: 1000 + i, realized: -0.01, realizedExact }));
+    const a = strategyPeriods(closes, { now: 2000, dayStart: 0 }).get("a")!;
+    expect(a).toMatchObject({ all: -0.04, todayRealized: -0.04, losses: 3, maxDd: 0.04 });
+    // a public view sends no exact amount: its rows add as they print
+    const shared = strategyPeriods(closes.map(({ realizedExact: _e, ...c }) => c), { now: 2000, dayStart: 0 }).get("a")!;
+    expect(shared.all).toBe(-0.03);
+  });
+
   it("gives a strategy with only an open position a row, and ignores closes after now", () => {
     const now = Date.UTC(2026, 9, 21, 12);
     const rows = strategyPeriods(

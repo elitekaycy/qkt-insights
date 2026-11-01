@@ -138,19 +138,24 @@ export interface AnalyzeOptions {
 export function analyzeTrips(rows: readonly TripRow[], counts: { total: number; matched: number }, opts: AnalyzeOptions = {}): Omit<TripAnalytics, "currencies"> {
   const digits = opts.digits ?? 2;
   const plus = (a: number, b: number) => addMoney(a, b, digits);
-  const add = (b: { n: number; wins: number; losses: number; pnl: number }, pnl: number) => {
+  // A bucket's money is the exact sum of what it holds, at the minor unit; wins and losses read the row as shown.
+  const unrounded = new Map<object, number>();
+  const add = (b: { n: number; wins: number; losses: number; pnl: number }, pnl: number, exact: number) => {
     b.n++;
-    b.pnl = plus(b.pnl, pnl);
+    const sum = (unrounded.get(b) ?? 0) + exact;
+    unrounded.set(b, sum);
+    b.pnl = roundMoney(sum, digits);
     if (pnl > 0) b.wins++;
     else if (pnl < 0) b.losses++;
   };
+  const exactOf = (t: { pnl: number | null; pnlExact?: number | null }) => t.pnlExact ?? t.pnl ?? 0;
   const closed = rows
     .filter((r): r is Closed => r.status === "closed" && r.pnl != null && r.exitTs != null)
     .sort((a, b) => a.exitTs - b.exitTs || (a.id < b.id ? -1 : a.id > b.id ? 1 : 0));
-  const pnl = rows.reduce((a, r) => plus(a, r.pnl ?? 0), 0);
+  const pnl = roundMoney(rows.reduce((a, r) => a + exactOf(r), 0), digits);
   let grossWin = 0, grossLoss = 0, wins = 0, losses = 0, breakeven = 0;
   let rN = 0, rSum = 0, holdN = 0, holdSum = 0;
-  let cum = 0, peak = 0, maxDd = 0;
+  let cumExact = 0, peak = 0, maxDd = 0;
   let peakTs: number | null = null;
   let maxDdWindow: TripAnalytics["maxDdWindow"] = null;
   let runW = 0, runL = 0, maxWin = 0, maxLoss = 0;
@@ -176,7 +181,9 @@ export function analyzeTrips(rows: readonly TripRow[], counts: { total: number; 
     if (t.holdMs != null) { holdN++; holdSum += t.holdMs; }
     if (!best || p > best.pnl) best = t;
     if (!worst || p < worst.pnl) worst = t;
-    cum = plus(cum, p);
+    const exact = exactOf(t);
+    cumExact += exact;
+    const cum = roundMoney(cumExact, digits);
     if (cum > peak) { peak = cum; peakTs = t.exitTs; }
     if (peak - cum > maxDd) {
       maxDd = roundMoney(peak - cum, digits);
@@ -184,39 +191,41 @@ export function analyzeTrips(rows: readonly TripRow[], counts: { total: number; 
     }
     points.push({ id: t.id, exitTs: t.exitTs, pnl: p, cum });
 
-    add(side[t.side], p);
+    add(side[t.side], p, exact);
     // one bucket per venue for an instrument traded on several (TripRow.venue); its filter still selects every venue's
     const key = t.venue ? `${t.venue}:${t.instrument}` : t.instrument;
     const inst = instrument.get(key) ?? bucket(key, key, `symbol:${t.instrument}`);
-    add(inst, p);
+    add(inst, p, exact);
     instrument.set(key, inst);
-    if (t.ended) add(ended.get(t.ended)!, p);
-    if (t.holdMs != null) add(hold.find((_, i) => t.holdMs! >= HOLD_BUCKETS[i]!.min && t.holdMs! < HOLD_BUCKETS[i]!.max) ?? hold[0]!, p);
+    if (t.ended) add(ended.get(t.ended)!, p, exact);
+    if (t.holdMs != null) add(hold.find((_, i) => t.holdMs! >= HOLD_BUCKETS[i]!.min && t.holdMs! < HOLD_BUCKETS[i]!.max) ?? hold[0]!, p, exact);
     if (t.entryTs != null) {
       const e = new Date(t.entryTs);
-      add(weekday[(e.getUTCDay() + 6) % 7]!, p);
-      add(hour[e.getUTCHours()]!, p);
+      add(weekday[(e.getUTCDay() + 6) % 7]!, p, exact);
+      add(hour[e.getUTCHours()]!, p, exact);
     }
   }
 
   // days and months: each trip's closing legs summed per UTC day (month), one count per trip there
   for (const t of rows) {
     const legs = opts.legs?.get(t.id);
-    const parts: readonly TripLeg[] = legs ?? (t.status === "closed" && t.pnl != null && t.exitTs != null ? [{ ts: t.exitTs, realized: t.pnl }] : []);
+    const parts: readonly TripLeg[] = legs ?? (t.status === "closed" && t.pnl != null && t.exitTs != null ? [{ ts: t.exitTs, realized: exactOf(t) }] : []);
     const perDay = new Map<string, number>(), perMonth = new Map<string, number>();
     for (const l of parts) {
       const day = utcDay(l.ts);
-      perDay.set(day, plus(perDay.get(day) ?? 0, l.realized));
-      perMonth.set(day.slice(0, 7), plus(perMonth.get(day.slice(0, 7)) ?? 0, l.realized));
+      perDay.set(day, (perDay.get(day) ?? 0) + l.realized);
+      perMonth.set(day.slice(0, 7), (perMonth.get(day.slice(0, 7)) ?? 0) + l.realized);
     }
-    for (const [day, p] of perDay) {
+    for (const [day, exact] of perDay) {
+      const p = roundMoney(exact, digits);
       const d = days.get(day) ?? { day, n: 0, wins: 0, losses: 0, pnl: 0 };
-      add(d, p);
+      add(d, p, exact);
       days.set(day, d);
     }
-    for (const [month, p] of perMonth) {
+    for (const [month, exact] of perMonth) {
+      const p = roundMoney(exact, digits);
       const m = months.get(month) ?? { day: month, n: 0, wins: 0, losses: 0, pnl: 0, grossWin: 0, grossLoss: 0 };
-      add(m, p);
+      add(m, p, exact);
       if (p > 0) m.grossWin = plus(m.grossWin, p);
       else m.grossLoss = plus(m.grossLoss, p);
       months.set(month, m);
@@ -309,7 +318,7 @@ function closingLegs(db: Db, instanceId: string, rows: readonly TripRow[], exit:
   const out = new Map<string, TripLeg[]>(ids.map((id) => [id, []]));
   if (ids.length === 0) return out;
   const legs = db.prepare(
-    `SELECT ct.position_ticket id, ct.ts, ct.realized FROM closed_trades ct
+    `SELECT ct.position_ticket id, ct.ts, COALESCE(ct.realized_exact, ct.realized) realized FROM closed_trades ct
      WHERE ct.instance_id=@instanceId AND ct.position_ticket IN (SELECT value FROM json_each(@ids))
        ${exit?.from !== undefined ? "AND ct.ts>=@from" : ""} ${exit?.to !== undefined ? "AND ct.ts<@to" : ""}
      ORDER BY ct.ts, ct.deal_rowid`,

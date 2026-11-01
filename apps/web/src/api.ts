@@ -330,6 +330,8 @@ export interface StrategyConfigVersion {
 export interface StrategyConfigView {
   running: string | null;
   versions: StrategyConfigVersion[];
+  /** What the running configuration's accounts report at the venue; empty until each has reported. */
+  accountCurrencies: string[];
 }
 
 /** One symbol a strategy traded, as its newest deal there states it (store queries.ts StrategyInstrument). */
@@ -457,6 +459,8 @@ export interface ClosedTradeRow {
   qty: number;
   price: number;
   realized: number;
+  /** Unrounded: what a total adds. A public view does not send it. */
+  realizedExact?: number;
   entryTs: number | null;
   orderId: string | null;
   /** Engine orders linked through broker tickets; only on deals-backed closes. */

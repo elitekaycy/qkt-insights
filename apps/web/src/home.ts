@@ -1,6 +1,6 @@
 import type { AccountRiskRow, LiveAccount, LivePositionRow, StrategyRow } from "./api";
 import { age, DASH, DAY_MS, instrumentOf, money, openPnl, pctValue, signedMoney, ts } from "./format";
-import { roundMoney } from "@qkt-insights/contract/money";
+import { exactMoney, roundMoney } from "@qkt-insights/contract/money";
 
 /*
  * Home's figures, as pure functions over what the API already returns: the account's live state,
@@ -431,18 +431,18 @@ function sevenDayStart(now: number): number {
  * Today; a strategy with only an open position gets a row.
  */
 export function strategyPeriods(
-  closes: ReadonlyArray<{ strategyId: string | null; ts: number; realized: number }>,
+  closes: ReadonlyArray<{ strategyId: string | null; ts: number; realized: number; realizedExact?: number }>,
   opts: { now: number; dayStart: number; floating?: ReadonlyMap<string | null, number>; digits?: number },
 ): Map<string | null, StrategyPeriods> {
   const digits = opts.digits ?? 2;
   const plus = (a: number, b: number) => roundMoney(a + b, digits);
   const weekStart = sevenDayStart(opts.now);
   const monthStart = utcMonthStart(opts.now);
-  const out = new Map<string | null, StrategyPeriods & { cum: number; peak: number }>();
+  const out = new Map<string | null, StrategyPeriods & { cum: number; peak: number; exact: { all: number; today: number; d7: number; mtd: number } }>();
   const row = (key: string | null) => {
     let r = out.get(key);
     if (!r) {
-      r = { key, today: 0, todayRealized: 0, floating: 0, d7: 0, mtd: 0, all: 0, maxDd: 0, trades: 0, wins: 0, losses: 0, winRate: null, lastTs: null, cum: 0, peak: 0 };
+      r = { key, today: 0, todayRealized: 0, floating: 0, d7: 0, mtd: 0, all: 0, maxDd: 0, trades: 0, wins: 0, losses: 0, winRate: null, lastTs: null, cum: 0, peak: 0, exact: { all: 0, today: 0, d7: 0, mtd: 0 } };
       out.set(key, r);
     }
     return r;
@@ -450,21 +450,23 @@ export function strategyPeriods(
   const ordered = [...closes].filter((c) => c.ts <= opts.now).sort((a, b) => a.ts - b.ts);
   for (const c of ordered) {
     const r = row(c.strategyId);
-    r.all = plus(r.all, c.realized);
+    const amount = exactMoney(c);
+    r.exact.all += amount;
+    r.all = roundMoney(r.exact.all, digits);
     r.trades++;
     if (c.realized > 0) r.wins++;
     else if (c.realized < 0) r.losses++;
-    if (c.ts >= opts.dayStart) r.todayRealized = plus(r.todayRealized, c.realized);
-    if (c.ts >= weekStart) r.d7 = plus(r.d7, c.realized);
-    if (c.ts >= monthStart) r.mtd = plus(r.mtd, c.realized);
+    if (c.ts >= opts.dayStart) { r.exact.today += amount; r.todayRealized = roundMoney(r.exact.today, digits); }
+    if (c.ts >= weekStart) { r.exact.d7 += amount; r.d7 = roundMoney(r.exact.d7, digits); }
+    if (c.ts >= monthStart) { r.exact.mtd += amount; r.mtd = roundMoney(r.exact.mtd, digits); }
     r.lastTs = c.ts;
-    r.cum = plus(r.cum, c.realized);
+    r.cum = r.all;
     r.peak = Math.max(r.peak, r.cum);
     r.maxDd = Math.max(r.maxDd, plus(r.peak, -r.cum));
   }
   for (const [key, value] of opts.floating ?? []) row(key).floating = plus(row(key).floating, value);
   const result = new Map<string | null, StrategyPeriods>();
-  for (const [key, { cum: _cum, peak: _peak, ...r }] of out) {
+  for (const [key, { cum: _cum, peak: _peak, exact: _exact, ...r }] of out) {
     const decided = r.wins + r.losses;
     result.set(key, { ...r, today: plus(r.todayRealized, r.floating), winRate: decided > 0 ? r.wins / decided : null });
   }

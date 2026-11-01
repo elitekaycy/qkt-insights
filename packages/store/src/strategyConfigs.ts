@@ -1,5 +1,6 @@
 import { EffectiveConfigSchema, type EffectiveConfig, type Envelope } from "@qkt-insights/contract";
 import type { Db } from "./db.js";
+import { brokerCurrency } from "./currencies.js";
 import { statement } from "./statements.js";
 
 /*
@@ -28,6 +29,11 @@ export interface StrategyConfigView {
   running: string | null;
   /** Newest first by last start. */
   versions: StrategyConfigVersion[];
+  /**
+   * The currencies the running configuration's accounts report at the venue, A to Z. Empty until every
+   * one of them has reported: the configured currency is then all that is known.
+   */
+  accountCurrencies: string[];
 }
 
 /** `e` without its effective config, for every store but strategy_configs: events, metadata, the live bus. */
@@ -70,7 +76,14 @@ export function strategyConfigs(db: Db, instanceId: string, strategyId: string):
     state: r.config == null ? "not-received" : "stored",
     config: r.config == null ? null : JSON.parse(r.config) as EffectiveConfig,
   }));
-  return { running: runningSha(db, instanceId, strategyId), versions };
+  const running = runningSha(db, instanceId, strategyId);
+  const config = versions.find((v) => v.sha256 === running)?.config;
+  return { running, versions, accountCurrencies: venueCurrencies(db, instanceId, config?.accounts ?? []) };
+}
+
+function venueCurrencies(db: Db, instanceId: string, accounts: ReadonlyArray<{ name?: string | null }>): string[] {
+  const found = accounts.map((a) => (a.name ? brokerCurrency(db, instanceId, a.name) : null));
+  return found.length === 0 || found.includes(null) ? [] : [...new Set(found as string[])].sort();
 }
 
 /** The sha the latest start stated: none after a downgrade to a qkt that does not state one. */

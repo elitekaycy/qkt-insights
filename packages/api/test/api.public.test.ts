@@ -259,6 +259,15 @@ describe("public links", () => {
     expectNoSecrets(res.body);
   });
 
+  it("never sends a row's unrounded money", async () => {
+    const token = (await share("overview", "", "public")).overview.token!;
+    for (const path of ["/account/summary", "/round-trips", "/round-trips/analytics", "/strategies", "/performance?strategy=gold"]) {
+      const res = await pub(token, path);
+      expect(res.body, path).not.toContain("realizedExact");
+      expect(res.body, path).not.toContain("pnlExact");
+    }
+  });
+
   it("keeps a strategy's live halt state off shared links", async () => {
     ingestEvents(db, "i1", [{
       v: 1, instanceId: "i1", id: "halt-gold", seq: 2, ts: BEFORE, strategyId: "gold", type: "risk.halted",

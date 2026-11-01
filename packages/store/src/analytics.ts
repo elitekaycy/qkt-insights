@@ -2,7 +2,7 @@ import type { Db } from "./db.js";
 import { OUT_LEGS } from "./closedTrades.js";
 import { refreshProjections } from "./projections.js";
 import { statement } from "./statements.js";
-import { addMoney, instanceMoneyDigits, roundMoney } from "./money.js";
+import { exactMoney, instanceMoneyDigits, roundMoney } from "./money.js";
 import { curveAnchor, dailyRows, strategyTotals, type DailyRow } from "./strategyDaily.js";
 import { excursionsOf } from "./excursions.js";
 
@@ -187,7 +187,10 @@ export interface ClosedTradeRow {
   side: string;
   qty: number;
   price: number;
+  /** At the account currency's minor unit: what the row shows and counts as a win or a loss. */
   realized: number;
+  /** Unrounded: what a total adds (exactMoney). */
+  realizedExact?: number;
   entryTs: number | null;
   orderId: string | null;
 }
@@ -340,7 +343,7 @@ export function closedTradeRows(db: Db, f: CloseRowFilter): Array<DealClosedTrad
   if (f.accountLabels != null) cl.push(`EXISTS (SELECT 1 FROM deals d WHERE d.rowid=ct.deal_rowid AND ${dealOnAccount("d")})`);
   const rows = statement(db,
     `SELECT ct.deal_rowid dealRowid, ct.position_ticket orderId, ct.symbol, ct.out_side outSide, ct.in_side inSide, ct.qty,
-            ct.strategy_id owner, ct.entry_price entryPrice, ct.exit_price exitPrice, ct.entry_ts entryTs, ct.ts, ct.realized,
+            ct.strategy_id owner, ct.entry_price entryPrice, ct.exit_price exitPrice, ct.entry_ts entryTs, ct.ts, ct.realized, ct.realized_exact realizedExact,
             (SELECT eo.order_id FROM orders eo
               WHERE eo.instance_id=ct.instance_id AND eo.broker_order_id=ct.entry_order_ticket
               ORDER BY eo.created_ts ASC LIMIT 1) entryOrderId,
@@ -363,6 +366,7 @@ export function closedTradeRows(db: Db, f: CloseRowFilter): Array<DealClosedTrad
       entryTs: r.entryTs ?? null,
       ts: r.ts,
       realized: r.realized,
+      realizedExact: r.realizedExact ?? r.realized,
       holdMs: r.entryTs != null ? r.ts - r.entryTs : null,
       entryOrderId: r.entryOrderId ?? null,
       exitOrderId: r.exitOrderId ?? null,
@@ -374,7 +378,7 @@ export function closedTradeRows(db: Db, f: CloseRowFilter): Array<DealClosedTrad
 }
 
 /** A venue booking that is no trade (a stock CFD's dividend, a charge, a correction): money on its day. */
-export interface AdjustmentRow { ts: number; realized: number; symbol: string; strategyId: string | null }
+export interface AdjustmentRow { ts: number; realized: number; realizedExact: number; symbol: string; strategyId: string | null }
 
 /**
  * The canonical adjustment deals (qkt's `broker.deal` entry `ADJUSTMENT`) on the instance, or of one strategy or a
@@ -399,12 +403,16 @@ export function adjustmentRows(db: Db, f: CloseRowFilter): AdjustmentRow[] {
               d.strategy_id strategyId
        FROM deals d WHERE ${cl.join(" AND ")} ORDER BY d.ts ASC, d.rowid ASC`,
     ).all({ instanceId: f.instanceId, strategyId: f.strategyId, from: f.from, to: f.to, ids: f.strategyIds, ...accountBinds(f) }) as AdjustmentRow[])
-      .map((r) => ({ ...r, realized: roundMoney(r.realized, digits) }));
+      .map((r) => ({ ...r, realized: roundMoney(r.realized, digits), realizedExact: r.realized }));
   });
 }
 
 /** One row of a strategy's money over time: a close (`trade`) or an adjustment. */
-export interface MoneyRow { ts: number; realized: number; entryTs: number | null; trade: boolean }
+export interface MoneyRow { ts: number; realized: number; realizedExact: number; entryTs: number | null; trade: boolean }
+
+function moneyOf(r: { ts: number; realized: number; realizedExact?: number }): { ts: number; realized: number; realizedExact: number } {
+  return { ts: r.ts, realized: r.realized, realizedExact: exactMoney(r) };
+}
 
 /**
  * Closes and adjustments as one series, oldest first; at one timestamp the closes come first, the order the
@@ -415,12 +423,12 @@ export function adjustmentsMerged(closes: readonly ClosedTradeRow[], adjustments
   let a = 0;
   for (const c of closes) {
     while (a < adjustments.length && adjustments[a]!.ts < c.ts) {
-      out.push({ ts: adjustments[a]!.ts, realized: adjustments[a]!.realized, entryTs: null, trade: false });
+      out.push({ ...moneyOf(adjustments[a]!), entryTs: null, trade: false });
       a++;
     }
-    out.push({ ts: c.ts, realized: c.realized, entryTs: c.entryTs, trade: true });
+    out.push({ ...moneyOf(c), entryTs: c.entryTs, trade: true });
   }
-  for (; a < adjustments.length; a++) out.push({ ts: adjustments[a]!.ts, realized: adjustments[a]!.realized, entryTs: null, trade: false });
+  for (; a < adjustments.length; a++) out.push({ ...moneyOf(adjustments[a]!), entryTs: null, trade: false });
   return out;
 }
 
@@ -430,7 +438,7 @@ export function adjustmentsMerged(closes: readonly ClosedTradeRow[], adjustments
  */
 function moneyRows(db: Db, f: AnalyticsFilter): MoneyRow[] {
   const rows = closes(db, f);
-  if (!dealBacked(db, f)) return rows.map((c) => ({ ts: c.ts, realized: c.realized, entryTs: c.entryTs, trade: true }));
+  if (!dealBacked(db, f)) return rows.map((c) => ({ ...moneyOf(c), entryTs: c.entryTs, trade: true }));
   return adjustmentsMerged(rows, adjustmentRows(db, { instanceId: f.instanceId, strategyId: f.strategyId, from: f.from, to: f.to, closedPositionsOnly: f.closedPositionsOnly }));
 }
 
@@ -466,8 +474,9 @@ function strategyEquityPoints(
   const digits = instanceMoneyDigits(db, f.instanceId);
   let cum = 0;
   for (const r of rows) {
-    cum = addMoney(cum, r.realized, digits);
-    pts.push({ ts: r.ts, equity: sb + cum, realized: cum, unrealized: 0 });
+    cum += r.realizedExact;
+    const realized = roundMoney(cum, digits);
+    pts.push({ ts: r.ts, equity: sb + realized, realized, unrealized: 0 });
   }
   if (f.from == null && f.to == null) return pts;
   return pts.filter((p) => (f.from == null || p.ts >= f.from) && (f.to == null || p.ts <= f.to));
@@ -483,7 +492,7 @@ function ledgerCloses(db: Db, f: AnalyticsFilter): ClosedTradeRow[] {
     const digits = instanceMoneyDigits(db, f.instanceId);
     return (db.prepare(
       `SELECT ts, symbol, side, qty, price, realized, entry_ts entryTs, order_id orderId FROM trade_closes WHERE ${cl.join(" AND ")} ORDER BY ts ASC`,
-    ).all(f) as ClosedTradeRow[]).map((r) => ({ ...r, realized: roundMoney(r.realized, digits) }));
+    ).all(f) as ClosedTradeRow[]).map((r) => ({ ...r, realized: roundMoney(r.realized, digits), realizedExact: r.realized }));
   });
 }
 
@@ -521,19 +530,21 @@ export function closedTrades(db: Db, f: AnalyticsFilter): ClosedTradeRow[] {
  * approximation over snapshots. Range filters self-heal: a window that starts
  * after the first close is fully covered and reports exact.
  */
-export function tradePnls(db: Db, f: AnalyticsFilter): { pnls: number[]; exact: boolean } {
+export function tradePnls(db: Db, f: AnalyticsFilter): { pnls: number[]; net: number; exact: boolean } {
   return memo(db, "tradePnls", f, () => tradePnlSeries(db, f));
 }
 
-function tradePnlSeries(db: Db, f: AnalyticsFilter): { pnls: number[]; exact: boolean } {
-  if (dealBacked(db, f)) {
-    return { pnls: dealClosedTrades(db, f).map((c) => c.realized).filter((r) => r !== 0), exact: true };
-  }
+function tradePnlSeries(db: Db, f: AnalyticsFilter): { pnls: number[]; net: number; exact: boolean } {
+  const fromRows = (rows: readonly ClosedTradeRow[]) => ({
+    pnls: rows.map((c) => c.realized).filter((r) => r !== 0),
+    net: rows.reduce((a, c) => a + exactMoney(c), 0),
+    exact: true,
+  });
+  if (dealBacked(db, f)) return fromRows(dealClosedTrades(db, f));
   const exact = ledgerCloses(db, f);
-  if (exact.length > 0 && closesCoverRange(db, f, exact[0]!.ts)) {
-    return { pnls: exact.map((c) => c.realized).filter((r) => r !== 0), exact: true };
-  }
-  return { pnls: realizedDeltas(snapshots(db, f)), exact: false };
+  if (exact.length > 0 && closesCoverRange(db, f, exact[0]!.ts)) return fromRows(exact);
+  const pnls = realizedDeltas(snapshots(db, f));
+  return { pnls, net: pnls.reduce((a, b) => a + b, 0), exact: false };
 }
 
 /** True when no realized P&L moved before the first stored close — nothing traded before trade.closed coverage began. */
@@ -594,11 +605,11 @@ function dayNets(db: Db, f: AnalyticsFilter): DayNet[] {
     for (const c of trades) {
       const day = utcDay(c.ts);
       const cur = byDay.get(day) ?? { day, net: 0, trades: 0 };
-      cur.net = addMoney(cur.net, c.realized, digits);
+      cur.net += c.realizedExact;
       if (c.trade) cur.trades++;
       byDay.set(day, cur);
     }
-    return [...byDay.values()].sort((a, b) => (a.day < b.day ? -1 : 1));
+    return [...byDay.values()].sort((a, b) => (a.day < b.day ? -1 : 1)).map((d) => ({ ...d, net: roundMoney(d.net, digits) }));
   }
   const snaps = snapshots(db, f);
   if (snaps.length === 0) return [];
@@ -671,7 +682,7 @@ export function postLossStats(db: Db, f: AnalyticsFilter): PostLossRow[] {
 
 export function performanceReport(db: Db, f: AnalyticsFilter): PerformanceReport {
   const snaps = series(db, f);
-  const { pnls: deltas, exact } = tradePnls(db, f);
+  const { pnls: deltas, net: tradesNet, exact } = tradePnls(db, f);
   const wins = deltas.filter((d) => d > 0);
   const losses = deltas.filter((d) => d < 0);
   const grossProfit = wins.reduce((a, b) => a + b, 0);
@@ -679,13 +690,12 @@ export function performanceReport(db: Db, f: AnalyticsFilter): PerformanceReport
   // Summed from the same series the trade counts come from — never mix the
   // snapshot span (numerator) with the close count (denominator). In the
   // approximate mode the delta sum telescopes to last - first anyway.
-  const tradesNet = deltas.reduce((a, b) => a + b, 0);
   // Venue adjustments (a stock CFD's dividend, a charge) are money but no trade: in the net and its ratios, never
   // in a per-trade figure. Only an exact (deal-backed) report has them beside its trades.
   const adjustments = exact && dealBacked(db, f)
     ? adjustmentRows(db, { instanceId: f.instanceId, strategyId: f.strategyId, from: f.from, to: f.to, closedPositionsOnly: f.closedPositionsOnly })
     : [];
-  const totalNet = adjustments.reduce((a, r) => a + r.realized, tradesNet);
+  const totalNet = roundMoney(adjustments.reduce((a, r) => a + r.realizedExact, tradesNet), instanceMoneyDigits(db, f.instanceId));
 
   const avgWin = wins.length > 0 ? grossProfit / wins.length : null;
   const avgLoss = losses.length > 0 ? grossLoss / losses.length : null;
@@ -818,7 +828,7 @@ export function tradeBreakdowns(db: Db, f: AnalyticsFilter): TradeBreakdowns | n
   const samples = new Map<string, number[]>();
   const acc = (map: Map<string, BreakdownRow>, key: string, r: ClosedTradeRow) => {
     const cur = map.get(key) ?? { key, net: 0, trades: 0, wins: 0, se: null, ...(map === bySymbol ? { venues: [] } : {}) };
-    cur.net += r.realized;
+    cur.net += exactMoney(r);
     cur.trades++;
     if (r.realized > 0) cur.wins++;
     map.set(key, cur);
@@ -922,7 +932,7 @@ export function dowHourMatrix(db: Db, f: AnalyticsFilter): DowHourCell[] | null 
     const k = dow * 24 + hour;
     const cur = cells.get(k) ?? { dow, hour, n: 0, net: 0, mean: 0, winRate: null, wins: 0, losses: 0 };
     cur.n++;
-    cur.net += r.realized;
+    cur.net += exactMoney(r);
     if (r.realized > 0) cur.wins++;
     else if (r.realized < 0) cur.losses++;
     cells.set(k, cur);
@@ -1094,13 +1104,14 @@ export interface ContributionRanking {
 export function contributionRanking(db: Db, f: AnalyticsFilter): ContributionRanking | null {
   const rows = closes(db, f);
   if (rows.length === 0) return null;
-  const totalNet = rows.reduce((a, r) => a + r.realized, 0);
+  const digits = instanceMoneyDigits(db, f.instanceId);
+  const totalNet = roundMoney(rows.reduce((a, r) => a + exactMoney(r), 0), digits);
   const build = (key: (r: ClosedTradeRow) => string, venues: boolean): ContributionRow[] => {
     const m = new Map<string, { net: number; trades: number; wins: number; losses: number; venues: Set<string> }>();
     for (const r of rows) {
       const k = key(r);
       const cur = m.get(k) ?? { net: 0, trades: 0, wins: 0, losses: 0, venues: new Set<string>() };
-      cur.net += r.realized;
+      cur.net += exactMoney(r);
       cur.trades++;
       if (r.realized > 0) cur.wins++;
       else if (r.realized < 0) cur.losses++;
@@ -1111,7 +1122,7 @@ export function contributionRanking(db: Db, f: AnalyticsFilter): ContributionRan
       .map(([k, v]) => ({
         key: k,
         ...(venues ? { venues: [...v.venues] } : {}),
-        net: v.net,
+        net: roundMoney(v.net, digits),
         trades: v.trades,
         winRate: winRatePct(v.wins, v.losses),
         expectancy: v.net / v.trades,

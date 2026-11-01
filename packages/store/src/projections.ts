@@ -28,7 +28,7 @@ export interface Projection {
 
 export const PROJECTIONS: Record<string, Projection> = {
   closed_trades: {
-    version: 8,
+    version: 9,
     clear: clearClosedTrades,
     step: (db, cursor, batch) => {
       const after = cursor == null ? null : (JSON.parse(cursor) as { instanceId: string; key: string });
@@ -39,7 +39,7 @@ export const PROJECTIONS: Record<string, Projection> = {
     },
   },
   strategy_daily: {
-    version: 3,
+    version: 4,
     clear: clearDaily,
     step: (db, cursor, batch) => {
       const after = cursor == null ? null : (JSON.parse(cursor) as { source: CloseSource; instanceId: string; strategyId: string });

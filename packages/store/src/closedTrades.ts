@@ -94,8 +94,8 @@ export function recomputePosition(db: Db, instanceId: string, key: string): { be
 function roundToMinorUnit(db: Db, instanceId: string, rows: ClosedTradeKey[]): void {
   const digits = instanceMoneyDigits(db, instanceId);
   const rounded = cumulativeRounding(rows.map((r) => r.realized ?? 0), digits);
-  const set = statement(db, "UPDATE closed_trades SET realized=? WHERE deal_rowid=?");
-  rows.forEach((r, i) => { if (r.realized != null && r.realized !== rounded[i]) set.run(rounded[i], r.dealRowid); });
+  const set = statement(db, "UPDATE closed_trades SET realized_exact=realized, realized=? WHERE deal_rowid=?");
+  rows.forEach((r, i) => { if (r.realized != null) set.run(rounded[i], r.dealRowid); });
 }
 
 function writeClosures(db: Db, instanceId: string, position: string): void {
