@@ -105,11 +105,25 @@ function present(rows: Array<ConfigRow | null>): ConfigRow[] {
   return rows.filter((r): r is ConfigRow => r != null);
 }
 
-function accountGroup(c: EffectiveConfig): ConfigGroup {
+const configuredCurrency = (c: EffectiveConfig) => (typeof c.currency?.value === "string" ? c.currency.value : null);
+
+/**
+ * What the header says the amounts are in. They are the numbers of qkt's config, so they are in the configured
+ * currency; only when the venue states that same currency is it simply "the" currency.
+ */
+export function currencyHint(c: EffectiveConfig, accountCurrencies: readonly string[] = []): string | undefined {
+  const configured = configuredCurrency(c);
+  if (!configured) return undefined;
+  return accountCurrencies.length === 1 && accountCurrencies[0] === configured ? `amounts in ${configured}` : `amounts as configured, in ${configured}`;
+}
+
+function accountGroup(c: EffectiveConfig, accountCurrencies: readonly string[]): ConfigGroup {
+  const agreed = accountCurrencies.length === 1 && accountCurrencies[0] === configuredCurrency(c);
   return { title: "Account", rows: present([
     ...accountRows(c.accounts ?? []),
     fact("tradingMode", "Trading mode", c.tradingMode ? TRADING_MODE[c.tradingMode] : NOT_STATED, "Paper fills are simulated; demo and live orders go to the venue. Demo and live are as the venue states them."),
-    row("currency", "Account currency", c.currency, String, "The currency every money figure below is in.", "account.currency", NOT_STATED),
+    accountCurrencies.length > 0 ? fact("accountCurrency", "Account currency", accountCurrencies.join(", "), "The currency the venue reports this account in.") : null,
+    agreed ? null : row("currency", "Configured currency", c.currency, String, "The currency qkt's config names for the amounts below. The account's own currency, when it has reported one, is the row above.", "account.currency", NOT_STATED),
     row("startingBalance", "Starting balance", c.startingBalance, amount, "The base static drawdown and percent sizing are measured on.", "starting_balance"),
     row("runtimeMode", "qkt runtime mode", c.runtimeMode, String, "Production mode refuses to start without its safety checks; the others do not enforce them.", "runtime.mode"),
   ]) };
@@ -194,8 +208,8 @@ function marketGroup(c: EffectiveConfig): ConfigGroup {
 }
 
 /** The config as the page reads it: Account, Risk limits, Book when it has one, Orders, Market data. */
-export function configGroups(c: EffectiveConfig): ConfigGroup[] {
-  return [accountGroup(c), riskGroup(c), bookGroup(c), ordersGroup(c), marketGroup(c)].filter((g): g is ConfigGroup => g != null && g.rows.length > 0);
+export function configGroups(c: EffectiveConfig, accountCurrencies: readonly string[] = []): ConfigGroup[] {
+  return [accountGroup(c, accountCurrencies), riskGroup(c), bookGroup(c), ordersGroup(c), marketGroup(c)].filter((g): g is ConfigGroup => g != null && g.rows.length > 0);
 }
 
 export interface ConfigChange {

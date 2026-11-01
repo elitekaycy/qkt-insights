@@ -1,6 +1,6 @@
 import { describe, it, expect } from "vitest";
 import type { EffectiveConfig } from "../../api";
-import { configChanges, configGroups, duration, percentOf } from "./rows";
+import { configChanges, configGroups, currencyHint, duration, percentOf } from "./rows";
 
 const set = (value: number | string, source: "configured" | "default" = "configured") => ({ value, source });
 
@@ -51,6 +51,29 @@ describe("configGroups", () => {
     expect(value(CONFIG, "Account type")).toBe("MT5");
     expect(percentOf(0.07)).toBe("7%");
     expect(duration(600_000)).toBe("10 min");
+  });
+
+  it("reads the account's own currency beside a configured one that differs, and says which amounts are which", () => {
+    const venue = (currencies: string[]) => configGroups(CONFIG, currencies).flatMap((g) => g.rows);
+    const of = (rs: ReturnType<typeof venue>, label: string) => rs.find((r) => r.label === label)?.value;
+    // the reported case: a USDC paper account under a qkt configured in USD
+    expect(of(venue(["USDC"]), "Account currency")).toBe("USDC");
+    expect(of(venue(["USDC"]), "Configured currency")).toBe("USD");
+    expect(currencyHint(CONFIG, ["USDC"])).toBe("amounts as configured, in USD");
+    // they agree: one row, plain
+    expect(of(venue(["USD"]), "Account currency")).toBe("USD");
+    expect(of(venue(["USD"]), "Configured currency")).toBeUndefined();
+    expect(currencyHint(CONFIG, ["USD"])).toBe("amounts in USD");
+    // accounts in several currencies: each named
+    expect(of(venue(["USD", "USDC"]), "Account currency")).toBe("USD, USDC");
+    expect(of(venue(["USD", "USDC"]), "Configured currency")).toBe("USD");
+    expect(currencyHint(CONFIG, ["USD", "USDC"])).toBe("amounts as configured, in USD");
+    // Insights never heard from the account: never stated as the account's
+    expect(of(venue([]), "Account currency")).toBeUndefined();
+    expect(of(venue([]), "Configured currency")).toBe("USD");
+    expect(currencyHint(CONFIG, [])).toBe("amounts as configured, in USD");
+    // no configured currency to state
+    expect(currencyHint({ ...CONFIG, currency: undefined }, ["USDC"])).toBeUndefined();
   });
 
   it("names this strategy's own limits, or says it has none", () => {

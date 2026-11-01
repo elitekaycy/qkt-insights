@@ -330,6 +330,8 @@ export interface StrategyConfigVersion {
 export interface StrategyConfigView {
   running: string | null;
   versions: StrategyConfigVersion[];
+  /** What the running configuration's accounts report at the venue; empty until each has reported. */
+  accountCurrencies: string[];
 }
 
 /** One symbol a strategy traded, as its newest deal there states it (store queries.ts StrategyInstrument). */

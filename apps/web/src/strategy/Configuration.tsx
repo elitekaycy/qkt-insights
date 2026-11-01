@@ -2,7 +2,7 @@ import { useQuery } from "@tanstack/react-query";
 import { get, type StrategyConfigVersion, type StrategyConfigView } from "../api";
 import { Loadable, Popover } from "../components/ui";
 import { tsDay } from "../format";
-import { configChanges, configGroups, type ConfigRow } from "./config/rows";
+import { configChanges, configGroups, currencyHint, type ConfigRow } from "./config/rows";
 import { Widget } from "./widgets";
 
 /*
@@ -70,17 +70,17 @@ export default function ConfigurationSection({ instanceId, strategyId }: { insta
   const versions = q.data?.versions ?? [];
   const running = q.data?.running ? versions.find((v) => v.sha256 === q.data!.running) : undefined;
   const config = running?.config ?? null;
-  const currency = typeof config?.currency?.value === "string" ? config.currency.value : null;
+  const accountCurrencies = q.data?.accountCurrencies ?? [];
   return (
     <Widget
       title="Configuration"
-      hint={config ? (currency ? `amounts in ${currency}` : undefined) : undefined}
+      hint={config ? currencyHint(config, accountCurrencies) : undefined}
       explain="What this strategy runs on, as qkt resolved it when the strategy started: the config file, its environment and qkt's defaults together. Secrets are never sent."
     >
       <Loadable loading={q.isPending} error={q.isError} retry={() => q.refetch()} what="the strategy's configuration" shape="lines" lines={8}>
         <div className="grid gap-3">
           {config ? (
-            configGroups(config).map((g) => (
+            configGroups(config, accountCurrencies).map((g) => (
               <section key={g.title}>
                 <h4 className="border-b border-line pb-1 text-xs font-medium text-bright">{g.title}</h4>
                 <dl className="pt-1">{g.rows.map((r) => <Row key={r.id} row={r} />)}</dl>
