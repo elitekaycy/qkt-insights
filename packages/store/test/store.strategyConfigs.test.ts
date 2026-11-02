@@ -119,6 +119,16 @@ describe("strategy configs", () => {
     expect(JSON.parse(stored.config)).toMatchObject({ currency: { source: "configured" }, risk: { maxDailyLoss: { value: 500 } }, accounts: [{ name: "EXNESS", type: "mt5" }] });
   });
 
+  it("keeps the shared daily limits when qkt states them, and a config without them unchanged", () => {
+    const db = fresh([
+      started(T0, "aa", { effectiveConfig: CONFIG }),
+      started(T0 + 1000, "bb", { effectiveConfig: { ...CONFIG, risk: { ...CONFIG.risk, maxDailyLossAppliesTo: "book", hardDailyLoss: { value: 750.5, source: "configured" } } } }),
+    ]);
+    const [withLimits, without] = strategyConfigs(db, I, "gold").versions;
+    expect(withLimits!.config!.risk).toMatchObject({ maxDailyLossAppliesTo: "book", hardDailyLoss: { value: 750.5, source: "configured" } });
+    expect(without!.config!.risk).toEqual(CONFIG.risk);
+  });
+
   it("is per instance and per strategy", () => {
     const db = fresh([started(T0, "aa", { effectiveConfig: CONFIG })]);
     expect(strategyConfigs(db, "other", "gold").versions).toEqual([]);

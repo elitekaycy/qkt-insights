@@ -332,6 +332,16 @@ describe("enriched qkt payloads", () => {
     expect(parsed).toEqual({ schema: 1, currency: { source: "configured" }, orders: { maxOrderQty: { value: 2, source: "default" } } });
   });
 
+  it("reads the shared daily limits when qkt states them, and a config without them as it was", () => {
+    const risk = (r: Record<string, unknown>) => EffectiveConfigSchema.parse({ schema: 1, risk: r }).risk;
+    expect(risk({ maxDailyLossAppliesTo: "daemon", hardDailyLoss: { value: 12.5, source: "configured" } }))
+      .toEqual({ maxDailyLossAppliesTo: "daemon", hardDailyLoss: { value: 12.5, source: "configured" } });
+    expect(risk({ maxDailyLossAppliesTo: "book", hardDailyLoss: { source: "default" } }))
+      .toEqual({ maxDailyLossAppliesTo: "book", hardDailyLoss: { source: "default" } });
+    expect(risk({ maxDailyLoss: { value: 500, source: "configured" } })).toEqual({ maxDailyLoss: { value: 500, source: "configured" } });
+    expect(risk({ maxDailyLossAppliesTo: "account", hardDailyLoss: "12" })).toEqual({});
+  });
+
   it("reads the account's trade mode on the venue of a venue envelope", () => {
     const r = EnvelopeSchema.safeParse({ ...base, type: "state.account", payload: {
       broker: "EXNESS_O12", currency: "USD", balance: 1, equity: 1, accountId: "mt5:0123456789abcdef",
