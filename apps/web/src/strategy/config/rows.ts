@@ -129,17 +129,34 @@ function accountGroup(c: EffectiveConfig, accountCurrencies: readonly string[]):
   ]) };
 }
 
+type DailyLossScope = NonNullable<NonNullable<EffectiveConfig["risk"]>["maxDailyLossAppliesTo"]>;
+
+function standaloneLimitsExplain(reported: DailyLossScope | undefined, active: DailyLossScope | undefined): string {
+  if (!reported) return "The day's loss adds up every strategy this qkt runs, and any breach stops them all.";
+  const drawdown = "A drawdown breach blocks new entries in every strategy running on its own here.";
+  if (!active) return `${drawdown} Positions stay and exits pass.`;
+  return `The day's realized loss adds up everything this qkt runs, any book included, and crossing it blocks new entries everywhere. ${drawdown} Either way positions stay and exits pass.`;
+}
+
+function maxDailyLossExplain(scope: DailyLossScope | undefined): string {
+  if (scope === "daemon") return "Realized loss in one day, across everything this qkt runs, that blocks new entries until the next UTC day. Exits pass and positions stay.";
+  if (scope === "book") return "Realized loss in one day on this book that flattens and halts it until the next UTC day.";
+  return "Realized loss in one day that halts trading until the next day.";
+}
+
 function riskGroup(c: EffectiveConfig): ConfigGroup {
   const r = c.risk ?? {};
   const s = c.strategyRisk;
   // A bot session runs alone: no daemon totals its loss, and it does not apply the hard limit it reports.
   const inDaemon = c.kind !== "bot_session";
-  const dailyLossScope = inDaemon && r.maxDailyLoss?.value != null ? r.maxDailyLossAppliesTo : undefined;
+  // Absent from a qkt older than the shared limits, whose daily loss behaves as the fallback wording says.
+  const reportedScope = inDaemon ? r.maxDailyLossAppliesTo : undefined;
+  const dailyLossScope = r.maxDailyLoss?.value != null ? reportedScope : undefined;
   const own = "A cap on this strategy alone, on top of the limits above.";
   const key = (k: string) => `risk.per_strategy.<strategy>.${k}`;
   return { title: "Risk limits", rows: present([
-    r.appliesTo ? fact("appliesTo", "These limits watch", r.appliesTo === "book" ? "The whole book" : "Every strategy in this qkt", r.appliesTo === "book" ? (r.maxDailyLossAppliesTo === "daemon" ? "A book's drawdown halts add up all its strategies and stop them together. Its daily loss is the total below." : "A book's loss and drawdown halts add up all its strategies and stop them together.") : "The day's loss adds up every strategy this qkt runs, and any breach stops them all.") : null,
-    row("maxDailyLoss", "Max daily loss", r.maxDailyLoss, amount, "Realized loss in one day that halts trading until the next day.", "risk.max_daily_loss"),
+    r.appliesTo ? fact("appliesTo", "These limits watch", r.appliesTo === "book" ? "The whole book" : "Every strategy in this qkt", r.appliesTo === "book" ? (r.maxDailyLossAppliesTo === "daemon" ? "A book's drawdown halts add up all its strategies and stop them together. Its daily loss is the total below." : "A book's loss and drawdown halts add up all its strategies and stop them together.") : standaloneLimitsExplain(reportedScope, dailyLossScope)) : null,
+    row("maxDailyLoss", "Max daily loss", r.maxDailyLoss, amount, maxDailyLossExplain(reportedScope), "risk.max_daily_loss"),
     dailyLossScope ? fact("maxDailyLossScope", "Max daily loss covers", dailyLossScope === "book" ? "The whole book" : "Every strategy in this qkt", dailyLossScope === "book" ? "This book's own realized total: crossing it flattens and halts the book until the next UTC day. As of this strategy's start." : "One realized total across everything this qkt runs: crossing it blocks new entries until the next UTC day, while exits pass and positions stay. As of this strategy's start.") : null,
     inDaemon ? row("hardDailyLoss", "Hard daily loss", r.hardDailyLoss, amount, "Realized plus open loss across everything this qkt runs: crossing it flattens every strategy and halts until the next UTC day.", "risk.hard_daily_loss") : null,
     row("maxDrawdown", "Max drawdown", r.maxDrawdownFraction, percentOf, "Total drawdown that halts trading.", "risk.max_drawdown_pct"),
