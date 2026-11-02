@@ -132,11 +132,16 @@ function accountGroup(c: EffectiveConfig, accountCurrencies: readonly string[]):
 function riskGroup(c: EffectiveConfig): ConfigGroup {
   const r = c.risk ?? {};
   const s = c.strategyRisk;
+  // A bot session runs alone: no daemon totals its loss, and it does not apply the hard limit it reports.
+  const inDaemon = c.kind !== "bot_session";
+  const dailyLossScope = inDaemon && r.maxDailyLoss?.value != null ? r.maxDailyLossAppliesTo : undefined;
   const own = "A cap on this strategy alone, on top of the limits above.";
   const key = (k: string) => `risk.per_strategy.<strategy>.${k}`;
   return { title: "Risk limits", rows: present([
-    r.appliesTo ? fact("appliesTo", "These limits watch", r.appliesTo === "book" ? "The whole book" : "Every strategy in this qkt", r.appliesTo === "book" ? "A book's loss and drawdown halts add up all its strategies and stop them together." : "The day's loss adds up every strategy this qkt runs, and any breach stops them all.") : null,
+    r.appliesTo ? fact("appliesTo", "These limits watch", r.appliesTo === "book" ? "The whole book" : "Every strategy in this qkt", r.appliesTo === "book" ? (r.maxDailyLossAppliesTo === "daemon" ? "A book's drawdown halts add up all its strategies and stop them together. Its daily loss is the total below." : "A book's loss and drawdown halts add up all its strategies and stop them together.") : "The day's loss adds up every strategy this qkt runs, and any breach stops them all.") : null,
     row("maxDailyLoss", "Max daily loss", r.maxDailyLoss, amount, "Realized loss in one day that halts trading until the next day.", "risk.max_daily_loss"),
+    dailyLossScope ? fact("maxDailyLossScope", "Max daily loss covers", dailyLossScope === "book" ? "The whole book" : "Every strategy in this qkt", dailyLossScope === "book" ? "This book's own realized total: crossing it flattens and halts the book until the next UTC day. As of this strategy's start." : "One realized total across everything this qkt runs: crossing it blocks new entries until the next UTC day, while exits pass and positions stay. As of this strategy's start.") : null,
+    inDaemon ? row("hardDailyLoss", "Hard daily loss", r.hardDailyLoss, amount, "Realized plus open loss across everything this qkt runs: crossing it flattens every strategy and halts until the next UTC day.", "risk.hard_daily_loss") : null,
     row("maxDrawdown", "Max drawdown", r.maxDrawdownFraction, percentOf, "Total drawdown that halts trading.", "risk.max_drawdown_pct"),
     // A book's static drawdown is measured on the book's capital, which qkt states under the same basis.
     r.appliesTo === "book" && r.totalDdBasis?.value === "STATIC"

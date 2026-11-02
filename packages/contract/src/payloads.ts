@@ -322,7 +322,7 @@ export type EventType = keyof typeof payloadByType;
  * The contract this collector speaks, as semver. Minor: a new type or a new optional field. Major: a rename, a
  * removal or a change of meaning, which also takes a new envelope `v` (envelope.ts `SUPPORTED_MAJORS`).
  */
-export const CONTRACT_VERSION = "1.5.0";
+export const CONTRACT_VERSION = "1.6.0";
 
 /** When a type joined the contract and, once it is on its way out, what replaces it. */
 export interface EventTypeMeta {
