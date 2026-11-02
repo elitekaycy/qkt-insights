@@ -107,6 +107,32 @@ describe("configGroups", () => {
     expect(value(mixedChild, "Max daily loss covers")).toBe("Every strategy in this qkt");
   });
 
+  it("explains a breach by what this qkt says the daily loss applies to", () => {
+    const explain = (config: EffectiveConfig, label: string) => rows(config).find((r) => r.label === label)!.explain;
+    const risk = (r: NonNullable<EffectiveConfig["risk"]>, kind: EffectiveConfig["kind"] = "standalone"): EffectiveConfig => ({ ...CONFIG, kind, risk: { ...CONFIG.risk, ...r } });
+
+    // A qkt older than the shared limits states no scope: a breach there still stops its standalones.
+    expect(CONFIG.risk?.maxDailyLossAppliesTo).toBeUndefined();
+    expect(explain(CONFIG, "These limits watch")).toBe("The day's loss adds up every strategy this qkt runs, and any breach stops them all.");
+    expect(explain(CONFIG, "Max daily loss")).toBe("Realized loss in one day that halts trading until the next day.");
+
+    const daemon = risk({ maxDailyLossAppliesTo: "daemon" });
+    expect(explain(daemon, "These limits watch")).toContain("blocks new entries everywhere");
+    expect(explain(daemon, "These limits watch")).toContain("positions stay");
+    expect(explain(daemon, "These limits watch")).not.toContain("stops them all");
+    expect(explain(daemon, "Max daily loss")).toContain("blocks new entries");
+    expect(explain(daemon, "Max daily loss")).not.toContain("halts trading");
+
+    const off = risk({ maxDailyLoss: { source: "default" }, maxDailyLossAppliesTo: "daemon" });
+    expect(explain(off, "These limits watch")).toBe("A drawdown breach blocks new entries in every strategy running on its own here. Positions stay and exits pass.");
+
+    const child = risk({ appliesTo: "book", maxDailyLossAppliesTo: "book" }, "portfolio_child");
+    expect(explain(child, "Max daily loss")).toContain("flattens and halts it");
+
+    // A bot session runs alone, so what it reports of the daemon's total does not reach its rows.
+    expect(explain(risk({ maxDailyLossAppliesTo: "daemon" }, "bot_session"), "Max daily loss")).toBe("Realized loss in one day that halts trading until the next day.");
+  });
+
   it("reads a hard limit that is off as None set, as qkt states it", () => {
     const off = { ...CONFIG, risk: { ...CONFIG.risk, hardDailyLoss: { source: "default" as const } } };
     expect(value(off, "Hard daily loss")).toBe("None set");
