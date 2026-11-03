@@ -7,6 +7,9 @@ import type { Envelope } from "@qkt-insights/contract";
 import { registerAuth } from "../src/auth.js";
 import { registerPublic, registerShares } from "../src/public.js";
 import { TtlCache } from "../src/cache.js";
+import { strategyPeriods } from "../../../apps/web/src/home";
+import { realizedCurves } from "../../../apps/web/src/strategyCards";
+import type { AccountSummary, StrategyRow, StrategyStats } from "../../../apps/web/src/api";
 
 const MIN = 60_000;
 const NOW = Date.UTC(2026, 8, 15, 12, 0);
@@ -266,6 +269,39 @@ describe("public links", () => {
       expect(res.body, path).not.toContain("realizedExact");
       expect(res.body, path).not.toContain("pnlExact");
     }
+  });
+
+  it("gives a shared card the exact total of its closes and venue adjustments, the one /strategies and /stats state", async () => {
+    // a paper venue's sub-cent closes and charge on positions closed before the cutoff: exact 25 - 0.042 - 0.006, as printed 25 - 0.03 - 0.01
+    const open = BEFORE - 40 * MIN;
+    const sub = (i: number) => [
+      deal("gold", `sc${i}a`, `pos-sc${i}`, "IN", open + i * MIN), deal("gold", `sc${i}b`, `pos-sc${i}`, "OUT", open + 10 * MIN + i * MIN, -0.014),
+    ];
+    ingestEvents(db, "i1", [...sub(0), ...sub(1), ...sub(2), {
+      v: 1, instanceId: "i1", id: "deal-charge", seq: 1, ts: BEFORE - 5 * MIN, type: "broker.deal",
+      payload: { broker: "EXNESS_P549", dealTicket: "charge", positionTicket: "pos-sc0", symbol: "EXNESS_P549:GBPUSD", entry: "ADJUSTMENT", qty: 0, price: 0, profit: -0.006, strategyId: "gold", ts: BEFORE - 5 * MIN },
+    } as Envelope]);
+    const token = (await share("overview", "", "public")).overview.token!;
+    const [rows, summary, stats] = await Promise.all([
+      pub(token, "/strategies"), pub(token, "/account/summary"), pub(token, "/stats?strategy=gold"),
+    ]);
+    for (const res of [rows, summary, stats]) {
+      expect(res.statusCode).toBe(200);
+      expect(res.body).not.toContain("realizedExact");
+      expectNoSecrets(res.body);
+    }
+    const s = summary.json() as AccountSummary;
+    const now = NOW - DELAY;
+    const card = strategyPeriods(s.closes, { now, dayStart: Date.UTC(2026, 8, 15), adjustments: s.adjustments }).get("gold")!;
+    expect(card).toMatchObject({ all: 24.95, todayRealized: 24.95, d7: 24.95, mtd: 24.95, adjustments: -0.01, trades: 4 });
+    expect(realizedCurves(s.closes, { now, adjustments: s.adjustments }).get("gold")!.at(-1)).toBe(24.95);
+    expect((rows.json() as StrategyRow[]).find((r) => r.strategyId === "gold")!.realizedNet).toBe(24.95);
+    const st = stats.json() as StrategyStats;
+    expect(st).toMatchObject({ realizedPnl: 24.95, adjustmentNet: -0.01, tradeCount: 4 });
+    // /stats is rebuilt from its allow-list like every other public response
+    expect(Object.keys(st).sort()).toEqual([
+      "adjustmentNet", "buyCount", "equity", "maxDrawdownPct", "ratioDays", "realizedPnl", "returnPct", "sellCount", "sharpe", "startingBalance", "tradeCount", "volume", "winRate",
+    ]);
   });
 
   it("keeps a strategy's live halt state off shared links", async () => {

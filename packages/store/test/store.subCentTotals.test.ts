@@ -123,6 +123,20 @@ describe("a strategy of sub-cent positions", () => {
     expect(roundTripAnalytics(db, q).pnl).toBe(-4.37);
   });
 
+  it("totals its wins and its losses from their exact amounts, classing each close as it prints", () => {
+    const db = seeded();
+    const rows = closedTrades(db, { instanceId: I, strategyId: S });
+    const exactOf = (keep: (printed: number) => boolean) => Number(rows.filter((r) => keep(r.realized)).reduce((a, r) => a + r.realizedExact!, 0).toFixed(2));
+    const account = accountSummary(db, { instanceId: I });
+    expect(account.sumWins).toBe(exactOf((p) => p > 0));
+    expect(account.sumLosses).toBe(-exactOf((p) => p < 0));
+    const a = roundTripAnalytics(db, { instanceId: I, filter: parseQuery("").filter });
+    expect(a.grossWin).toBe(exactOf((p) => p > 0));
+    expect(a.grossLoss).toBe(exactOf((p) => p < 0));
+    // a month's split is the same split over the month's trips
+    expect(a.monthly.map((m) => [m.grossWin, m.grossLoss])).toEqual([[a.grossWin, a.grossLoss]]);
+  });
+
   it("gives a day its exact net, from the projection and from the closes alike", () => {
     const db = seeded();
     const F = { instanceId: I, strategyId: S };

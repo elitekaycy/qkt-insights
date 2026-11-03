@@ -117,7 +117,8 @@ export default function Strategies({ instanceId }: { instanceId: string | null }
     : floatingByStrategy(positions);
   const unpriced = unpricedStrategies(positions);
   const closes = summary.data?.closes ?? [];
-  const periods = summary.data ? strategyPeriods(closes, { now, dayStart, floating }) : null;
+  const adjustments = summary.data?.adjustments ?? [];
+  const periods = summary.data ? strategyPeriods(closes, { now, dayStart, floating, adjustments }) : null;
   // an account's tab lists the strategies that traded on it (a close, or an open position there)
   const lines: StrategyLine[] = periods ? strategyLines(rows.filter((r) => !scoped || periods.has(r.strategyId)), periods) : [];
   const halted = rows.filter((r) => r.active && r.halted).length;
@@ -151,7 +152,7 @@ export default function Strategies({ instanceId }: { instanceId: string | null }
         {rows.length === 0 && lines.length === 0 ? (
           <Card className="p-8 text-center text-muted">No strategies yet. They show up here when qkt starts one.</Card>
         ) : (
-          <StrategyCardList lines={lines} closes={closes} now={now} instanceId={instanceId} noStop={noStop} mix={scoped ? null : mix} unpriced={view.public ? new Set() : unpriced} />
+          <StrategyCardList lines={lines} closes={closes} adjustments={adjustments} now={now} instanceId={instanceId} noStop={noStop} mix={scoped ? null : mix} unpriced={view.public ? new Set() : unpriced} />
         )}
       </Loadable>
     </div>
@@ -159,8 +160,8 @@ export default function Strategies({ instanceId }: { instanceId: string | null }
 }
 
 /** Portfolios first (each with its sleeves beneath), then standalone strategies, filtered by the search and in the chosen order. */
-function StrategyCardList({ lines, closes, now, instanceId, noStop, mix, unpriced }: {
-  lines: StrategyLine[]; closes: AccountSummary["closes"]; now: number; instanceId: string | null; noStop: ReadonlySet<string>;
+function StrategyCardList({ lines, closes, adjustments, now, instanceId, noStop, mix, unpriced }: {
+  lines: StrategyLine[]; closes: AccountSummary["closes"]; adjustments: AccountSummary["adjustments"]; now: number; instanceId: string | null; noStop: ReadonlySet<string>;
   /** Strategies whose open positions have no venue price. */
   unpriced: ReadonlySet<string | null>;
   /** Set when the cards add accounts in different currencies. */
@@ -171,7 +172,7 @@ function StrategyCardList({ lines, closes, now, instanceId, noStop, mix, unprice
   const [sortParam] = useSearchParam("sort", "attention");
   const [showAll, setShowAll] = useState(false);
   const sort = (CARD_SORTS.find((o) => o.key === sortParam)?.key ?? "attention") as CardSort;
-  const curves = useMemo(() => realizedCurves(closes, { now }), [closes, now]);
+  const curves = useMemo(() => realizedCurves(closes, { now, adjustments }), [closes, adjustments, now]);
   const all = showAll || asksForRetired(find);
   const matched = lines.filter((l) => matchesStrategy(l.row, find));
   const shown = matched.filter((l) => all || !isFolded(l));
@@ -200,7 +201,7 @@ function StrategyCardList({ lines, closes, now, instanceId, noStop, mix, unprice
         <PortfolioGroup
           key={g.id}
           group={g}
-          curve={mergeCurves(closes, new Set(g.children.map((c) => c.key)), { now })}
+          curve={mergeCurves(closes, new Set(g.children.map((c) => c.key)), { now, adjustments })}
           to={routePath({ page: "strategies", portfolio: g.id })}
           origin="Strategies"
         >

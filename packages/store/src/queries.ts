@@ -11,7 +11,7 @@ import { exactMoney, instanceMoneyDigits, roundMoney } from "./money.js";
 import { statement } from "./statements.js";
 import { quantityUnitOf } from "./instrumentKind.js";
 import { searchLogs } from "./logSearch.js";
-import { closedTrades, hasClosingDeals, MIN_RATIO_DAYS, SNAPSHOT_EQUITY, SWAP_ONLY, strategyBase, strategyEquityCurve, tradePnls, withAnalyticsScope, type StrategyEquityPoint } from "./analytics.js";
+import { closedTrades, hasClosingDeals, MIN_RATIO_DAYS, SNAPSHOT_EQUITY, SWAP_ONLY, strategyBase, strategyAdjustments, strategyEquityCurve, tradePnls, withAnalyticsScope, type StrategyEquityPoint } from "./analytics.js";
 
 // A strategy stays "active" while its roster bump is within this window of the
 // instance's newest bump. Comfortably exceeds the state-poll cadence (~30s) times the
@@ -28,7 +28,9 @@ export interface InstanceRow {
   /** The currencies its venue accounts book in (currencies.ts), A to Z; more than one means money is split by currency. */
   currencies: string[];
 }
-export interface StrategyRow { strategyId: string; firstSeen: number; lastSeen: number; startingBalance: number | null; /** Operator-declared capital (STRATEGY_CAPITAL); wins over startingBalance as the strategy's base. */ definedCapital: number | null; metadata: Record<string, unknown> | null; realizedNet: number | null; dealCount: number; active: boolean;
+export interface StrategyRow { strategyId: string; firstSeen: number; lastSeen: number; startingBalance: number | null; /** Operator-declared capital (STRATEGY_CAPITAL); wins over startingBalance as the strategy's base. */ definedCapital: number | null; metadata: Record<string, unknown> | null;
+  /** Closed trades plus venue adjustments (dividends, charges), exact and rounded once: the strategy's one realized total, as strategyStats' realizedPnl. */
+  realizedNet: number | null; dealCount: number; active: boolean;
   /** What the strategy has traded, one entry per venue symbol, as its newest deal there states it; admin reads only. */
   instruments?: StrategyInstrument[] }
 /** One symbol a strategy traded: its broker label, kind, venue folder, contract size and the unit of its quantity (instrumentKind.ts). */
@@ -726,7 +728,13 @@ export interface StrategyStats {
   buyCount: number;
   sellCount: number;
   volume: number;
+  /**
+   * The strategy's realized total: its closed trades plus its venue adjustments (dividends, charges), summed exactly
+   * and rounded once. The same total as its list row (realizedNet), its equity curve and its performance report.
+   */
   realizedPnl: number | null;
+  /** The venue adjustments inside realizedPnl; 0 without any. They are money but no trade, so no count reads them. */
+  adjustmentNet: number;
   equity: number | null;
   startingBalance: number | null;
   returnPct: number | null;
@@ -744,6 +752,7 @@ export interface StrategyStats {
  * - tradeCount/realizedPnl/winRate: from closedTrades (deals or trade.closed) — the same rows the
  *   performance report uses, so the overview and performance tabs must never
  *   disagree on the same number. winRate skips zero-P&L closes, like the report.
+ *   realizedPnl (and so equity) adds the venue adjustments, as the report's net does.
  * - maxDrawdownPct/sharpe: over the deals-rebuilt equity curve (else snapshots);
  *   sharpe is annualized from end-of-day returns (sqrt(252)), null under
  *   MIN_RATIO_DAYS daily points — too little data to pretend.
@@ -793,7 +802,9 @@ function statsOf(db: Db, f: { instanceId: string; strategyId: string; to?: numbe
   const wins = pnls.filter((x) => x > 0).length;
   const winRate = pnls.length > 0 ? wins / pnls.length : null;
   const extra = engineClosedTrips(db, f);
-  const dealRealized = roundMoney((extra.n > 0 && !hasClosingDeals(db, f) ? 0 : dealRows.reduce((a, c) => a + exactMoney(c), 0)) + extra.realized, instanceMoneyDigits(db, f.instanceId));
+  const digits = instanceMoneyDigits(db, f.instanceId);
+  const adjustments = fromDeals ? strategyAdjustments(db, f).reduce((a, r) => a + r.realizedExact, 0) : 0;
+  const dealRealized = roundMoney((extra.n > 0 && !hasClosingDeals(db, f) ? 0 : dealRows.reduce((a, c) => a + exactMoney(c), 0)) + extra.realized + adjustments, digits);
 
   let peak = -Infinity, maxDd = 0;
   for (const s of snaps) {
@@ -826,6 +837,7 @@ function statsOf(db: Db, f: { instanceId: string; strategyId: string; to?: numbe
     sellCount: fromDeals ? dealRows.filter((c) => c.side === "SELL").length : t?.sells ?? 0,
     volume: fromDeals ? dealRows.reduce((a, c) => a + (c.qty ?? 0), 0) : t?.vol ?? 0,
     realizedPnl: fromDeals ? dealRealized : (last as { realized: number } | undefined)?.realized ?? null,
+    adjustmentNet: roundMoney(adjustments, digits),
     equity,
     startingBalance: sb,
     returnPct: sb && equity != null && sb !== 0 ? (equity - sb) / sb : null,

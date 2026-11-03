@@ -10,7 +10,7 @@ import type { TtlCache } from "./cache.js";
 import { WindowCounter } from "./limits.js";
 import { performanceBundle } from "./performance.js";
 import { ACCOUNT_EQUITY_POINTS } from "./rest.js";
-import { accountLabeller, publicAccountSummary, publicBundle, publicDeal, publicRoundTrip, publicStrategy, publicTrade, publicTripAnalytics } from "./publicView.js";
+import { accountLabeller, publicAccountSummary, publicBundle, publicDeal, publicRoundTrip, publicStats, publicStrategy, publicTrade, publicTripAnalytics } from "./publicView.js";
 import { parseFor } from "./roundTrips.js";
 
 export const PUBLIC_REQUESTS_PER_MINUTE = 240;
@@ -413,12 +413,12 @@ export function registerPublic(app: FastifyInstance, deps: PublicDeps): void {
       const stats = strategyStats(deps.db, f, cutoff);
       // Engine fill counts and snapshot equity would include positions still open at the cutoff.
       if (closes.length === 0) {
-        return { ...stats, tradeCount: 0, buyCount: 0, sellCount: 0, volume: 0, realizedPnl: null, equity: null, returnPct: null, winRate: null, maxDrawdownPct: null, sharpe: null };
+        return publicStats({ ...stats, tradeCount: 0, buyCount: 0, sellCount: 0, volume: 0, realizedPnl: null, adjustmentNet: 0, equity: null, returnPct: null, winRate: null, maxDrawdownPct: null, sharpe: null });
       }
-      return {
+      return publicStats({
         ...stats, tradeCount: closes.length, buyCount: closes.filter((c) => c.side === "BUY").length,
         sellCount: closes.filter((c) => c.side === "SELL").length, volume: closes.reduce((a, c) => a + Math.abs(c.qty), 0),
-      };
+      });
     },
   });
 

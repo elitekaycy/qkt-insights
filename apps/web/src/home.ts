@@ -412,8 +412,10 @@ export interface StrategyPeriods {
   d7: number;
   /** Realized since the UTC month began. */
   mtd: number;
-  /** Realized over every stored close. */
+  /** Realized over every stored close and venue adjustment: the strategy's one realized total. */
   all: number;
+  /** The venue adjustments (dividends, charges) inside `all`: money, but no trade. */
+  adjustments: number;
   /** Deepest fall of the cumulative realized P&L from its running peak (starting at 0), as money. */
   maxDd: number;
   trades: number;
@@ -435,50 +437,80 @@ function sevenDayStart(now: number): number {
 }
 
 /**
- * Per-strategy period sums over every close on the account, keyed by strategy id (null for closes
- * no strategy claimed), at the account currency's minor unit (`digits`, default 2). 7D is today
- * and the six UTC days before (sevenDayStart), as the P&L chart's 7D. `floating` adds open P&L to
- * Today; a strategy with only an open position gets a row.
+ * A row of money the periods and curves read: a close, or a venue adjustment. `cum` is the strategy's realized total
+ * after it as the server states it (exact, rounded once); a shared view sends that and no unrounded amount.
+ */
+export interface MoneyLine { strategyId: string | null; ts: number; realized: number; realizedExact?: number; cum?: number }
+
+/**
+ * Closes and adjustments up to `now` in time order, closes first at one timestamp (the server's order), each with its
+ * strategy's realized total after it: the stated `cum`, else the exact running sum rounded once.
+ */
+export function moneyLines(
+  closes: ReadonlyArray<MoneyLine>, adjustments: ReadonlyArray<MoneyLine>, opts: { now: number; digits?: number },
+): Array<MoneyLine & { trade: boolean; total: number; amount: number }> {
+  const digits = opts.digits ?? 2;
+  const rows = [...closes.map((c) => ({ ...c, trade: true })), ...adjustments.map((a) => ({ ...a, trade: false }))]
+    .filter((r) => r.ts <= opts.now)
+    .sort((a, b) => a.ts - b.ts || Number(b.trade) - Number(a.trade));
+  const running = new Map<string | null, number>();
+  return rows.map((r) => {
+    const amount = exactMoney(r);
+    const sum = (running.get(r.strategyId) ?? 0) + amount;
+    running.set(r.strategyId, sum);
+    return { ...r, amount, total: r.cum ?? roundMoney(sum, digits) };
+  });
+}
+
+/**
+ * Per-strategy period sums over every close and venue adjustment on the account, keyed by strategy id (null for
+ * money no strategy claimed), at the account currency's minor unit (`digits`, default 2). `all` is the strategy's
+ * realized total; a period is how far that total moved in it, so the periods, the total and the sparkline agree, and
+ * a shared view (running totals, no unrounded rows) gives the signed-in view's figures. 7D is today and the six UTC
+ * days before (sevenDayStart), as the P&L chart's 7D. An adjustment is money but no trade: it moves the totals, never
+ * a count or a win. `floating` adds open P&L to Today; a strategy with only an open position gets a row.
  */
 export function strategyPeriods(
-  closes: ReadonlyArray<{ strategyId: string | null; ts: number; realized: number; realizedExact?: number }>,
-  opts: { now: number; dayStart: number; floating?: ReadonlyMap<string | null, number>; digits?: number },
+  closes: ReadonlyArray<MoneyLine>,
+  opts: { now: number; dayStart: number; floating?: ReadonlyMap<string | null, number>; digits?: number; adjustments?: ReadonlyArray<MoneyLine> },
 ): Map<string | null, StrategyPeriods> {
   const digits = opts.digits ?? 2;
   const plus = (a: number, b: number) => roundMoney(a + b, digits);
-  const weekStart = sevenDayStart(opts.now);
-  const monthStart = utcMonthStart(opts.now);
-  const out = new Map<string | null, StrategyPeriods & { cum: number; peak: number; exact: { all: number; today: number; d7: number; mtd: number } }>();
+  const starts = { today: opts.dayStart, d7: sevenDayStart(opts.now), mtd: utcMonthStart(opts.now) };
+  type Running = StrategyPeriods & { peak: number; adjustmentsExact: number; before: { today: number | null; d7: number | null; mtd: number | null } };
+  const out = new Map<string | null, Running>();
   const row = (key: string | null) => {
     let r = out.get(key);
     if (!r) {
-      r = { key, today: 0, todayRealized: 0, floating: 0, d7: 0, mtd: 0, all: 0, maxDd: 0, trades: 0, wins: 0, losses: 0, winRate: null, lastTs: null, cum: 0, peak: 0, exact: { all: 0, today: 0, d7: 0, mtd: 0 } };
+      r = { ...emptyPeriods(key), peak: 0, adjustmentsExact: 0, before: { today: null, d7: null, mtd: null } };
       out.set(key, r);
     }
     return r;
   };
-  const ordered = [...closes].filter((c) => c.ts <= opts.now).sort((a, b) => a.ts - b.ts);
-  for (const c of ordered) {
-    const r = row(c.strategyId);
-    const amount = exactMoney(c);
-    r.exact.all += amount;
-    r.all = roundMoney(r.exact.all, digits);
-    r.trades++;
-    if (c.realized > 0) r.wins++;
-    else if (c.realized < 0) r.losses++;
-    if (c.ts >= opts.dayStart) { r.exact.today += amount; r.todayRealized = roundMoney(r.exact.today, digits); }
-    if (c.ts >= weekStart) { r.exact.d7 += amount; r.d7 = roundMoney(r.exact.d7, digits); }
-    if (c.ts >= monthStart) { r.exact.mtd += amount; r.mtd = roundMoney(r.exact.mtd, digits); }
-    r.lastTs = c.ts;
-    r.cum = r.all;
-    r.peak = Math.max(r.peak, r.cum);
-    r.maxDd = Math.max(r.maxDd, plus(r.peak, -r.cum));
+  for (const m of moneyLines(closes, opts.adjustments ?? [], { now: opts.now, digits })) {
+    const r = row(m.strategyId);
+    // the total before the first row of each period is where that period starts from
+    for (const k of ["today", "d7", "mtd"] as const) if (m.ts >= starts[k] && r.before[k] == null) r.before[k] = r.all;
+    r.all = m.total;
+    if (m.trade) {
+      r.trades++;
+      if (m.realized > 0) r.wins++;
+      else if (m.realized < 0) r.losses++;
+      r.lastTs = m.ts;
+    } else {
+      r.adjustmentsExact += m.amount;
+      r.adjustments = roundMoney(r.adjustmentsExact, digits);
+    }
+    r.peak = Math.max(r.peak, r.all);
+    r.maxDd = Math.max(r.maxDd, plus(r.peak, -r.all));
   }
   for (const [key, value] of opts.floating ?? []) row(key).floating = plus(row(key).floating, value);
   const result = new Map<string | null, StrategyPeriods>();
-  for (const [key, { cum: _cum, peak: _peak, exact: _exact, ...r }] of out) {
+  for (const [key, { peak: _peak, adjustmentsExact: _adjustments, before, ...r }] of out) {
+    const moved = (from: number | null) => (from == null ? 0 : plus(r.all, -from));
     const decided = r.wins + r.losses;
-    result.set(key, { ...r, today: plus(r.todayRealized, r.floating), winRate: decided > 0 ? r.wins / decided : null });
+    const todayRealized = moved(before.today);
+    result.set(key, { ...r, todayRealized, d7: moved(before.d7), mtd: moved(before.mtd), today: plus(todayRealized, r.floating), winRate: decided > 0 ? r.wins / decided : null });
   }
   return result;
 }
@@ -518,7 +550,7 @@ export function rangeFirstDay(range: HomeRange, now: number): string | null {
 
 /** A strategy with no close and no open position yet: every period at zero. */
 export function emptyPeriods(key: string | null): StrategyPeriods {
-  return { key, today: 0, todayRealized: 0, floating: 0, d7: 0, mtd: 0, all: 0, maxDd: 0, trades: 0, wins: 0, losses: 0, winRate: null, lastTs: null };
+  return { key, today: 0, todayRealized: 0, floating: 0, d7: 0, mtd: 0, all: 0, adjustments: 0, maxDd: 0, trades: 0, wins: 0, losses: 0, winRate: null, lastTs: null };
 }
 
 /**

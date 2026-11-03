@@ -433,13 +433,20 @@ export function adjustmentsMerged(closes: readonly ClosedTradeRow[], adjustments
 }
 
 /**
- * A strategy's money rows: its closes (closes()) with its adjustments when its figures come from broker deals.
- * Engine trade.closed rows have no venue adjustments beside them.
+ * A strategy's venue adjustments when its figures come from broker deals, else none: engine trade.closed rows have
+ * no venue adjustments beside them. Every figure of the strategy that is a sum of money adds these.
  */
+export function strategyAdjustments(db: Db, f: AnalyticsFilter): AdjustmentRow[] {
+  return dealBacked(db, f)
+    ? adjustmentRows(db, { instanceId: f.instanceId, strategyId: f.strategyId, from: f.from, to: f.to, closedPositionsOnly: f.closedPositionsOnly })
+    : [];
+}
+
+/** A strategy's money rows: its closes (closes()) with its adjustments (strategyAdjustments). */
 function moneyRows(db: Db, f: AnalyticsFilter): MoneyRow[] {
   const rows = closes(db, f);
   if (!dealBacked(db, f)) return rows.map((c) => ({ ...moneyOf(c), entryTs: c.entryTs, trade: true }));
-  return adjustmentsMerged(rows, adjustmentRows(db, { instanceId: f.instanceId, strategyId: f.strategyId, from: f.from, to: f.to, closedPositionsOnly: f.closedPositionsOnly }));
+  return adjustmentsMerged(rows, strategyAdjustments(db, f));
 }
 
 export interface StrategyEquityPoint { ts: number; equity: number; realized: number; unrealized: number }
@@ -692,9 +699,7 @@ export function performanceReport(db: Db, f: AnalyticsFilter): PerformanceReport
   // approximate mode the delta sum telescopes to last - first anyway.
   // Venue adjustments (a stock CFD's dividend, a charge) are money but no trade: in the net and its ratios, never
   // in a per-trade figure. Only an exact (deal-backed) report has them beside its trades.
-  const adjustments = exact && dealBacked(db, f)
-    ? adjustmentRows(db, { instanceId: f.instanceId, strategyId: f.strategyId, from: f.from, to: f.to, closedPositionsOnly: f.closedPositionsOnly })
-    : [];
+  const adjustments = exact ? strategyAdjustments(db, f) : [];
   const totalNet = roundMoney(adjustments.reduce((a, r) => a + r.realizedExact, tradesNet), instanceMoneyDigits(db, f.instanceId));
 
   const avgWin = wins.length > 0 ? grossProfit / wins.length : null;

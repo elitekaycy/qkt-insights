@@ -1,5 +1,5 @@
 import { createHmac, randomBytes } from "node:crypto";
-import type { AccountSummary, AdjustmentRow, ClosedTradeRow, DealRow, StrategyRow, TripAnalytics, TripBucket, TripRow, TradeRow } from "@qkt-insights/store";
+import type { AccountSummary, AdjustmentRow, ClosedTradeRow, DealRow, StrategyRow, StrategyStats, TripAnalytics, TripBucket, TripRow, TradeRow } from "@qkt-insights/store";
 import { exactMoney, roundMoney } from "@qkt-insights/contract/money";
 import type { PerformanceBundle } from "./performance.js";
 
@@ -61,6 +61,15 @@ export function publicStrategy(row: StrategyRow, closes: ClosedTradeRow[], adjus
   };
 }
 
+/** A strategy's stats on a shared link: its realized total is closes plus venue adjustments, as on its card. */
+export function publicStats(s: StrategyStats): StrategyStats {
+  return {
+    tradeCount: s.tradeCount, buyCount: s.buyCount, sellCount: s.sellCount, volume: s.volume, realizedPnl: s.realizedPnl, adjustmentNet: s.adjustmentNet,
+    equity: s.equity, startingBalance: s.startingBalance, returnPct: s.returnPct, winRate: s.winRate, maxDrawdownPct: s.maxDrawdownPct, sharpe: s.sharpe,
+    ratioDays: s.ratioDays,
+  };
+}
+
 function publicClose(c: ClosedTradeRow & { entryOrderId?: string | null; exitOrderId?: string | null; entryPrice?: number | null; exitPrice?: number; holdMs?: number | null }) {
   return {
     ts: c.ts, symbol: publicSymbol(c.symbol), side: c.side, qty: c.qty, price: c.price, realized: c.realized, entryTs: c.entryTs,
@@ -99,11 +108,15 @@ export function publicBundle(b: PerformanceBundle) {
   };
 }
 
-/** The account roll-up of a shared overview: built from its public strategies only, ids opaque. */
+/**
+ * The account roll-up of a shared overview: built from its public strategies only, ids opaque. No row carries its
+ * unrounded amount; each carries its strategy's running total at the minor unit (`cum`), which the totals read.
+ */
 export function publicAccountSummary(s: AccountSummary) {
   return {
     ...s,
-    closes: s.closes.map((c) => ({ ...publicClose(c), strategyId: c.strategyId, instrument: c.instrument })),
+    closes: s.closes.map((c) => ({ ...publicClose(c), strategyId: c.strategyId, instrument: c.instrument, cum: c.cum })),
+    adjustments: s.adjustments.map((a) => ({ ts: a.ts, strategyId: a.strategyId, instrument: publicSymbol(a.instrument), realized: a.realized, cum: a.cum })),
     byInstrument: relabelKeys(s.byInstrument.map((b) => ({ ...b, key: b.key ?? "" }))),
   };
 }

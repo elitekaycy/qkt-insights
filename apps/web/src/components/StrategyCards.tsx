@@ -1,5 +1,5 @@
 import type { ReactNode } from "react";
-import { age, count, money, signedPct, ts } from "../format";
+import { age, count, money, signedMoney, signedPct, ts } from "../format";
 import { haltWords } from "../halt";
 import { Link } from "../router";
 import { cardFigures, cardName, sparkPath, thinCurve, type CardLine, type PortfolioCard } from "../strategyCards";
@@ -72,7 +72,8 @@ export function StrategyCard({ line, curve, name, origin, legs = [], mix = null,
   const halt = line.row != null && !retired ? haltWords(line.row) : null;
   const to = line.key ? `/s/${encodeURIComponent(line.key)}` : null;
   const ret = f.base ? `Return ${signedPct((f.net / f.base) * 100, 1)} on the strategy's ${BASE_WORD[f.baseSource ?? ""] ?? "base"} of ${money(f.base, 0)}` : "Return: no capital known";
-  const tip = [ret, `${count(f.trades)} trades`, f.lastTs == null ? "no close yet" : `last close ${age(f.lastTs)} (${ts(f.lastTs)} UTC)`, mix?.title].filter(Boolean).join(" · ");
+  const tip = [ret, `${count(f.trades)} trades`, f.adjustments !== 0 ? `realized incl. venue adjustments ${signedMoney(f.adjustments)}` : null,
+    f.lastTs == null ? "no close yet" : `last close ${age(f.lastTs)} (${ts(f.lastTs)} UTC)`, mix?.title].filter(Boolean).join(" · ");
   const trades = legs.length > 0 ? legsLine(legs).title.replace(/\n/g, " · ") : undefined;
   return (
     <LinkCard to={to} origin={origin} label={label} className="h-full">
