@@ -3,11 +3,11 @@ import type { StrategyRow } from "../api";
 import { age, count, DASH, money, pct, signedMoney, ts } from "../format";
 import { haltSummary } from "../halt";
 import { strategyTotal, type StrategyPeriods, type TodaySplit } from "../home";
-import { strategyDisplayName } from "../portfolio";
+import { strategyCapital, strategyDisplayName } from "../portfolio";
 import { asksForRetired, matchesStrategy } from "../strategyFilter";
 import { notTradedYet } from "../strategyCards";
 import { Link, useRoute, useSearchParam } from "../router";
-import { Card, CurrencyMix, Pill, Pnl, Popover, RowChevron } from "./ui";
+import { Card, CurrencyMix, PctOf, Pill, Pnl, Popover, RowChevron } from "./ui";
 
 /*
  * The strategy table: one line per strategy with Today, Open, 7D and all-time P&L, win rate and last close; month to
@@ -109,11 +109,13 @@ export function StrategyTable({
 
   const cell = (l: StrategyLine, k: SortKey) => {
     const p = l.periods;
+    // each figure's return on the strategy's own base (portfolio allocation, defined capital or starting balance)
+    const base = l.row ? strategyCapital(l.row).amount : null;
     switch (k) {
-      case "today": return <Pnl value={p.todayRealized} />;
-      case "open": return unpriced.has(l.key) ? <span className="text-muted" title="No price from the venue for its open position">—</span> : <Pnl value={p.floating} />;
-      case "d7": return <Pnl value={p.d7} />;
-      case "all": return <span title={`${signedMoney(p.mtd)} month to date · ${count(p.trades)} trades · deepest fall ${money(-p.maxDd)}`}><Pnl value={p.all} className="font-medium" /></span>;
+      case "today": return <><Pnl value={p.todayRealized} /><PctOf value={p.todayRealized} base={base} /></>;
+      case "open": return unpriced.has(l.key) ? <span className="text-muted" title="No price from the venue for its open position">—</span> : <><Pnl value={p.floating} /><PctOf value={p.floating} base={base} /></>;
+      case "d7": return <><Pnl value={p.d7} /><PctOf value={p.d7} base={base} /></>;
+      case "all": return <span title={`${signedMoney(p.mtd)} month to date · ${count(p.trades)} trades · deepest fall ${money(-p.maxDd)}${base ? ` · on a base of ${money(base, 0)}` : ""}`}><Pnl value={p.all} className="font-medium" /><PctOf value={p.all} base={base} /></span>;
       case "winRate": return pct(p.winRate);
       case "lastTs": return p.lastTs == null ? DASH : <span title={`${ts(p.lastTs)} UTC`}>{age(p.lastTs)}</span>;
       default: return null;

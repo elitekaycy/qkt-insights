@@ -50,6 +50,39 @@ describe("spine e2e", () => {
     expect((await search.json()).length).toBeGreaterThanOrEqual(1);
   });
 
+  it("ingests a config from a qkt that states the shared daily limits and one that does not, over real HTTP", async () => {
+    const started = (id: string, sha: string, ts: number, risk: Record<string, unknown>) => ({
+      v: 1, instanceId: "qkt-limits", id, seq: 1, ts, strategyId: "gold", type: "strategy.started",
+      payload: { strategyId: "gold", ts, effectiveConfigSha256: sha, effectiveConfig: { schema: 1, kind: "portfolio_child", risk } },
+    });
+    const dailyLoss = { value: 8, source: "configured" };
+    const ingest = await fetch(`${base}/ingest`, {
+      method: "POST",
+      headers: { "content-type": "application/json", authorization: `Bearer ${token}` },
+      body: JSON.stringify({ instanceId: "qkt-limits", events: [
+        started("older", "aa", 1718000000000, { appliesTo: "book", maxDailyLoss: dailyLoss }),
+        started("off", "bb", 1718000001000, { appliesTo: "book", maxDailyLoss: dailyLoss, maxDailyLossAppliesTo: "book", hardDailyLoss: { source: "default" } }),
+        started("on", "cc", 1718000002000, { appliesTo: "book", maxDailyLoss: dailyLoss, maxDailyLossAppliesTo: "daemon", hardDailyLoss: { value: 12.5, source: "configured" } }),
+      ] }),
+    });
+    expect(ingest.status).toBe(200);
+    expect(await ingest.json()).toMatchObject({ accepted: 3 });
+
+    const login = await fetch(`${base}/auth/login`, {
+      method: "POST", headers: { "content-type": "application/json" },
+      body: JSON.stringify({ username: process.env.ADMIN_USERNAME, password: process.env.ADMIN_PASSWORD }),
+    });
+    const session = String(login.headers.get("set-cookie")).split(";")[0]!;
+    const res = await fetch(`${base}/strategy-config?instance=qkt-limits&strategy=gold`, { headers: { cookie: session } });
+    expect(res.status).toBe(200);
+    const view = await res.json() as { running: string; versions: Array<{ sha256: string; config: { risk: Record<string, unknown> } }> };
+    expect(view.running).toBe("cc");
+    const risk = (sha: string) => view.versions.find((v) => v.sha256 === sha)!.config.risk;
+    expect(risk("aa")).toEqual({ appliesTo: "book", maxDailyLoss: dailyLoss });
+    expect(risk("bb")).toEqual({ appliesTo: "book", maxDailyLoss: dailyLoss, maxDailyLossAppliesTo: "book", hardDailyLoss: { source: "default" } });
+    expect(risk("cc")).toEqual({ appliesTo: "book", maxDailyLoss: dailyLoss, maxDailyLossAppliesTo: "daemon", hardDailyLoss: { value: 12.5, source: "configured" } });
+  });
+
   it("rejects API access without a session", async () => {
     const res = await fetch(`${base}/instances`);
     expect(res.status).toBe(401);

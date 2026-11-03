@@ -44,6 +44,10 @@ export const EffectiveConfigSchema = z.object({
   risk: optional(z.object({
     appliesTo: optional(z.enum(["strategy", "book"])),
     maxDailyLoss: setting,
+    /** What maxDailyLoss totals, at the strategy's start (1.6.0): the book that owns it, or the whole daemon. */
+    maxDailyLossAppliesTo: optional(z.enum(["daemon", "book"])),
+    /** Realized plus open loss across the daemon that flattens it (1.6.0). */
+    hardDailyLoss: setting,
     maxDrawdownFraction: setting,
     totalDdBasis: setting,
     maxDailyDrawdownFraction: setting,

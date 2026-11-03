@@ -85,6 +85,73 @@ describe("configGroups", () => {
     expect(value(own, "This strategy's open positions")).toBe("3");
   });
 
+  it("states the shared daily limits only when this qkt reports them", () => {
+    expect(value(CONFIG, "Hard daily loss")).toBeUndefined();
+    expect(value(CONFIG, "Max daily loss covers")).toBeUndefined();
+
+    const shared = (risk: NonNullable<EffectiveConfig["risk"]>, kind: EffectiveConfig["kind"] = "standalone") => ({ ...CONFIG, kind, risk: { ...CONFIG.risk, ...risk } });
+    const daemon = shared({ maxDailyLossAppliesTo: "daemon", hardDailyLoss: set(1500) });
+    expect(value(daemon, "Hard daily loss")).toBe("1,500");
+    expect(rows(daemon).find((r) => r.label === "Hard daily loss")).toMatchObject({ isDefault: false, yaml: "risk.hard_daily_loss" });
+    expect(value(daemon, "Max daily loss covers")).toBe("Every strategy in this qkt");
+    expect(rows(daemon).find((r) => r.label === "Max daily loss covers")!.explain).toContain("blocks new entries");
+
+    const book = shared({ appliesTo: "book", maxDailyLossAppliesTo: "book" }, "portfolio_child");
+    expect(value(book, "Max daily loss covers")).toBe("The whole book");
+    expect(rows(book).find((r) => r.label === "Max daily loss covers")!.explain).toContain("flattens and halts the book");
+    expect(rows(book).find((r) => r.label === "These limits watch")!.explain).toContain("loss and drawdown halts");
+
+    const mixedChild = shared({ appliesTo: "book", maxDailyLossAppliesTo: "daemon" }, "portfolio_child");
+    expect(value(mixedChild, "These limits watch")).toBe("The whole book");
+    expect(rows(mixedChild).find((r) => r.label === "These limits watch")!.explain).not.toContain("loss and drawdown halts");
+    expect(value(mixedChild, "Max daily loss covers")).toBe("Every strategy in this qkt");
+  });
+
+  it("explains a breach by what this qkt says the daily loss applies to", () => {
+    const explain = (config: EffectiveConfig, label: string) => rows(config).find((r) => r.label === label)!.explain;
+    const risk = (r: NonNullable<EffectiveConfig["risk"]>, kind: EffectiveConfig["kind"] = "standalone"): EffectiveConfig => ({ ...CONFIG, kind, risk: { ...CONFIG.risk, ...r } });
+
+    // A qkt older than the shared limits states no scope: a breach there still stops its standalones.
+    expect(CONFIG.risk?.maxDailyLossAppliesTo).toBeUndefined();
+    expect(explain(CONFIG, "These limits watch")).toBe("The day's loss adds up every strategy this qkt runs, and any breach stops them all.");
+    expect(explain(CONFIG, "Max daily loss")).toBe("Realized loss in one day that halts trading until the next day.");
+
+    const daemon = risk({ maxDailyLossAppliesTo: "daemon" });
+    expect(explain(daemon, "These limits watch")).toContain("blocks new entries everywhere");
+    expect(explain(daemon, "These limits watch")).toContain("positions stay");
+    expect(explain(daemon, "These limits watch")).not.toContain("stops them all");
+    expect(explain(daemon, "Max daily loss")).toContain("blocks new entries");
+    expect(explain(daemon, "Max daily loss")).not.toContain("halts trading");
+
+    const off = risk({ maxDailyLoss: { source: "default" }, maxDailyLossAppliesTo: "daemon" });
+    expect(explain(off, "These limits watch")).toBe("A drawdown breach blocks new entries in every strategy running on its own here. Positions stay and exits pass.");
+
+    const child = risk({ appliesTo: "book", maxDailyLossAppliesTo: "book" }, "portfolio_child");
+    expect(explain(child, "Max daily loss")).toContain("flattens and halts it");
+
+    // A bot session runs alone, so what it reports of the daemon's total does not reach its rows.
+    expect(explain(risk({ maxDailyLossAppliesTo: "daemon" }, "bot_session"), "Max daily loss")).toBe("Realized loss in one day that halts trading until the next day.");
+  });
+
+  it("reads a hard limit that is off as None set, as qkt states it", () => {
+    const off = { ...CONFIG, risk: { ...CONFIG.risk, hardDailyLoss: { source: "default" as const } } };
+    expect(value(off, "Hard daily loss")).toBe("None set");
+    expect(rows(off).find((r) => r.label === "Hard daily loss")!.isDefault).toBe(true);
+  });
+
+  it("says nothing of what an unset max daily loss covers", () => {
+    const unset = { ...CONFIG, risk: { ...CONFIG.risk, maxDailyLoss: { source: "default" as const }, maxDailyLossAppliesTo: "daemon" as const } };
+    expect(value(unset, "Max daily loss")).toBe("None set");
+    expect(value(unset, "Max daily loss covers")).toBeUndefined();
+  });
+
+  it("shows neither shared limit on a bot session, which runs alone and does not apply them", () => {
+    const bot: EffectiveConfig = { ...CONFIG, kind: "bot_session", risk: { ...CONFIG.risk, maxDailyLossAppliesTo: "daemon", hardDailyLoss: set(1500) } };
+    expect(value(bot, "Hard daily loss")).toBeUndefined();
+    expect(value(bot, "Max daily loss covers")).toBeUndefined();
+    expect(value(bot, "Max daily loss")).toBe("1,000");
+  });
+
   it("states a book's caps as multiples of its capital", () => {
     const book = { ...CONFIG, book: { name: "b", capital: set(80000), weight: 0.6, allocatedCapital: 48000, maxGrossExposure: set(2.5), maxNetExposure: { source: "default" as const }, deRiskSteps: [{ drawdown: 0.03, factor: 0.5 }] } };
     expect(value(book, "Book capital")).toBe("80,000");
@@ -102,6 +169,13 @@ describe("configChanges", () => {
     expect(configChanges(CONFIG, after)).toEqual([
       { label: "Max daily loss", from: "1,000", to: "500" },
       { label: "Measured-usage window", from: "None set", to: "24 h" },
+    ]);
+  });
+
+  it("names a move of the max daily loss from a book to the whole qkt", () => {
+    const child = (scope: "book" | "daemon") => ({ ...CONFIG, risk: { ...CONFIG.risk, appliesTo: "book" as const, maxDailyLossAppliesTo: scope } });
+    expect(configChanges(child("book"), child("daemon"))).toEqual([
+      { label: "Max daily loss covers", from: "The whole book", to: "Every strategy in this qkt" },
     ]);
   });
 

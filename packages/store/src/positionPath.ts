@@ -49,8 +49,21 @@ export interface PositionPath {
   side: "long" | "short";
   entry: { ts: number; price: number | null } | null;
   exit: { ts: number; price: number | null } | null;
+  /** The initial stop and target: the entry order's, else the first the venue held on the position. */
   stopPrice: number | null;
   targetPrice: number | null;
+  /** Where the initial levels come from: the entry order, or the venue's position (an order never linked to the trade). */
+  levelSource: "order" | "venue" | null;
+  /** Each change of the venue's stop and target while the position was held, in time order (null is none). */
+  levelSteps: Array<{ ts: number; stop: number | null; target: number | null }>;
+  /** How the entry order's stop behaves, as qkt submitted it; null when no order is linked or it stated none. */
+  stopStyle: StopStyle | null;
+  /** Closes of part of the position before its final exit, from the venue's deals. */
+  partials: Array<{ ts: number; price: number; qty: number }>;
+  /** Account money per one price unit of the whole position (P&L = move × this), from the marks; null without a move. */
+  moneyPerPoint: number | null;
+  /** Money at risk to the initial stop as the engine stated it at entry; null when not stated. */
+  riskAmount: number | null;
   bucketMs: number;
   /** Sizes that draw between 2 and MAX_CANDLES candles over the held window. */
   buckets: number[];
@@ -74,6 +87,70 @@ export interface PositionPath {
   gaps: number;
 }
 
+/** The entry order's stop as qkt submitted it: fixed, or one that moves (trailing, stepped, tightening on a clock). */
+export interface StopStyle {
+  kind: "fixed" | "trailing" | "stepped" | "tightening";
+  /** Price distance a trailing stop keeps behind the best price. */
+  trailDistance?: number | null;
+  /** Profit (price distance) the trade must reach before a trailing or stepped stop starts to move. */
+  armAt?: number | null;
+  /** How often a tightening stop moves, ms. */
+  intervalMs?: number | null;
+  /** How many profit steps a stepped stop has. */
+  steps?: number | null;
+}
+
+const STOP_KIND: Record<string, StopStyle["kind"]> = { Fixed: "fixed", ArmedTrail: "trailing", SteppedStop: "stepped", TimeTighten: "tightening" };
+
+const finiteNum = (v: unknown): number | null => {
+  const n = typeof v === "number" ? v : typeof v === "string" && v.trim() !== "" ? Number(v) : Number.NaN;
+  return Number.isFinite(n) ? n : null;
+};
+
+/** The stop style a submit payload states under `stopLoss` (qkt OrderRequestEvidence); null for a bare price or none. */
+export function stopStyleOf(payload: Record<string, unknown> | null | undefined): StopStyle | null {
+  const sl = payload?.stopLoss;
+  if (sl == null || typeof sl !== "object") return null;
+  const o = sl as Record<string, unknown>;
+  const kind = STOP_KIND[String(o.type)];
+  if (!kind) return null;
+  const out: StopStyle = { kind };
+  if (kind === "trailing") { out.trailDistance = finiteNum(o.trailDistance); out.armAt = finiteNum(o.mfeThreshold); }
+  if (kind === "stepped") {
+    const steps = Array.isArray(o.steps) ? (o.steps as Array<Record<string, unknown>>) : [];
+    out.steps = steps.length;
+    out.armAt = steps.length > 0 ? finiteNum(steps[0]!.mfeThreshold) : null;
+  }
+  if (kind === "tightening") out.intervalMs = finiteNum(o.intervalMs);
+  return out;
+}
+
+/** The submit of order `orderId` near the entry: where the stop's style is stated. */
+function entrySubmit(db: Db, instanceId: string, orderId: string | null, entryTs: number | null): Record<string, unknown> | null {
+  if (orderId == null || entryTs == null) return null;
+  const rows = statement(db, `SELECT payload FROM events WHERE instance_id=? AND type='order.submit' AND ts BETWEEN ? AND ?
+      AND json_extract(payload,'$.orderId')=? ORDER BY ts LIMIT 1`).all(instanceId, entryTs - 10 * MIN, entryTs + 2 * MIN, orderId) as Array<{ payload: string }>;
+  try { return rows[0] ? (JSON.parse(rows[0].payload) as Record<string, unknown>) : null; } catch { return null; }
+}
+
+/**
+ * Money per price unit of the whole position, read from the marks: the mark furthest from the entry (largest move,
+ * least rounding) divided into its P&L. Null when no mark moved off the entry.
+ */
+export function moneyPerPointOf(side: "long" | "short", entryPrice: number | null, marks: ReadonlyArray<{ price: number | null; pnl: number | null }>): number | null {
+  if (entryPrice == null) return null;
+  const dir = side === "long" ? 1 : -1;
+  let best: { move: number; pnl: number } | null = null;
+  for (const m of marks) {
+    if (m.price == null || m.pnl == null || !Number.isFinite(m.price) || !Number.isFinite(m.pnl)) continue;
+    const move = (m.price - entryPrice) * dir;
+    if (move !== 0 && (!best || Math.abs(move) > Math.abs(best.move))) best = { move, pnl: m.pnl };
+  }
+  if (!best) return null;
+  const v = best.pnl / best.move;
+  return Number.isFinite(v) && v > 0 ? v : null;
+}
+
 interface MarkRow { ts: number; price: number | null; pnl: number | null; swap: number | null }
 
 /** The automatic candle size for a held window of `spanMs`, and the sizes offered. */
@@ -88,10 +165,10 @@ export function pathBuckets(spanMs: number): { auto: number; offered: number[] }
 export function positionPath(db: Db, instanceId: string, ticket: string, bucketMs?: number, now = Date.now()): PositionPath | null {
   refreshProjections(db);
   const trip = statement(db, `SELECT side, open, entry_ts entryTs, entry_price entryPrice, exit_ts exitTs, exit_price exitPrice,
-      stop_price stopPrice, target_price targetPrice
+      stop_price stopPrice, target_price targetPrice, entry_order_id entryOrderId, risk_amount riskAmount
     FROM round_trips WHERE instance_id=? AND position_ticket=?`).get(instanceId, ticket) as {
     side: "long" | "short"; open: number; entryTs: number | null; entryPrice: number | null; exitTs: number | null; exitPrice: number | null;
-    stopPrice: number | null; targetPrice: number | null;
+    stopPrice: number | null; targetPrice: number | null; entryOrderId: string | null; riskAmount: number | null;
   } | undefined;
   if (!trip) return null;
   const open = trip.open === 1;
@@ -178,14 +255,34 @@ export function positionPath(db: Db, instanceId: string, ticket: string, bucketM
   closeFlat();
 
   const lastRow = [...rows].reverse().find((r) => r.pnl != null && Number.isFinite(r.pnl));
+
+  // the venue's stop/target as it changed; the initial levels fall back to the first the venue held
+  const levelSteps = statement(db, "SELECT ts, stop, target FROM position_levels WHERE instance_id=? AND ticket=? AND ts<=? ORDER BY ts")
+    .all(instanceId, ticket, to) as Array<{ ts: number; stop: number | null; target: number | null }>;
+  const pos = (v: number | null) => (v != null && Number.isFinite(v) && v > 0 ? v : null);
+  const orderStop = pos(trip.stopPrice), orderTarget = pos(trip.targetPrice);
+  const venueStop = levelSteps.find((l) => l.stop != null)?.stop ?? null;
+  const venueTarget = levelSteps.find((l) => l.target != null)?.target ?? null;
+  const fromOrder = orderStop != null || orderTarget != null;
+  const fromVenue = !fromOrder && (venueStop != null || venueTarget != null);
+  // partial closes: OUT deals before the final exit (each deal once: a venue can report one deal more than once)
+  const partials = (statement(db, `SELECT MIN(ts) ts, price, qty FROM deals WHERE instance_id=? AND position_ticket=? AND entry='OUT' AND ts<?
+      GROUP BY deal_ticket ORDER BY ts`).all(instanceId, ticket, open ? Number.MAX_SAFE_INTEGER : (trip.exitTs ?? Number.MAX_SAFE_INTEGER)) as Array<{ ts: number; price: number | null; qty: number | null }>)
+    .filter((d): d is { ts: number; price: number; qty: number } => d.price != null && d.qty != null);
   return {
     ticket,
     status: open ? "open" : "closed",
     side: trip.side,
     entry: from == null ? null : { ts: from, price: trip.entryPrice },
     exit: open || trip.exitTs == null ? null : { ts: trip.exitTs, price: trip.exitPrice },
-    stopPrice: trip.stopPrice,
-    targetPrice: trip.targetPrice,
+    stopPrice: fromOrder ? orderStop : fromVenue ? venueStop : null,
+    targetPrice: fromOrder ? orderTarget : fromVenue ? venueTarget : null,
+    levelSource: fromOrder ? "order" : fromVenue ? "venue" : null,
+    levelSteps,
+    stopStyle: stopStyleOf(entrySubmit(db, instanceId, trip.entryOrderId, from)),
+    partials,
+    moneyPerPoint: moneyPerPointOf(trip.side, trip.entryPrice, rows),
+    riskAmount: trip.riskAmount,
     bucketMs: bucket,
     buckets: offered,
     candles,

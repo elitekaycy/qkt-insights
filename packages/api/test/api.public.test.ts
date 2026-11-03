@@ -18,7 +18,7 @@ const AFTER = NOW - 5 * MIN;
 /** The strategy's code: admin-only, never on a shared link. */
 const SOURCE_MARKER = "ProprietaryEdge_7731";
 /** What a strategy runs on: admin-only, never on a shared link. */
-const CONFIG_MARKERS = ["effectiveConfig", "maxOrderNotional", "4242.5", "cfgsha999"];
+const CONFIG_MARKERS = ["effectiveConfig", "maxOrderNotional", "4242.5", "cfgsha999", "hardDailyLoss", "maxDailyLossAppliesTo", "7373.5"];
 const SECRETS = [...CONFIG_MARKERS, SOURCE_MARKER, "EXNESS", "exness_p549", "/strategies/gold.qkt", "deadbeefsha", "stopAtr", "476422618", "Exness-MT5Trial9", "forward-test", "dsl-", "777123", "ticket-before", "pos-before"];
 
 let hash: string;
@@ -63,7 +63,7 @@ async function build(opts: { publicRequestsPerMinute?: number } = {}) {
     trade("gold", "before", BEFORE), trade("gold", "open", BEFORE + 10 * MIN), trade("gold", "after", AFTER), trade("secret", "secret-trade", BEFORE),
     { v: 1, instanceId: "i1", id: "started-gold", seq: 1, ts: BEFORE - MIN, strategyId: "gold", type: "strategy.started",
       payload: { strategyId: "gold", ...goldMeta, sourceText: `STRATEGY gold_breakout VERSION 1\n-- ${SOURCE_MARKER}\n`, sourceTruncated: false,
-        effectiveConfigSha256: "cfgsha999", effectiveConfig: { schema: 1, orders: { maxOrderNotional: { value: 4242.5, source: "configured" } } } } } as Envelope,
+        effectiveConfigSha256: "cfgsha999", effectiveConfig: { schema: 1, risk: { maxDailyLossAppliesTo: "daemon", hardDailyLoss: { value: 7373.5, source: "configured" } }, orders: { maxOrderNotional: { value: 4242.5, source: "configured" } } } } } as Envelope,
   ]);
   // Engine orders linked to broker tickets: the close of pos-before, and the entry of pos-after (still open at the cutoff).
   const order = db.prepare("INSERT INTO orders (instance_id, order_id, strategy_id, symbol, side, type, state, qty, cum_qty, created_ts, updated_ts, broker_order_id) VALUES ('i1', ?, 'gold', 'EXNESS_P549:GBPUSD', 'BUY', 'MARKET', 'FILLED', 1, 1, ?, ?, ?)");

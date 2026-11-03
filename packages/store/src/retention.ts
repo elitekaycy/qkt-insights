@@ -173,6 +173,13 @@ export function* pruneRetentionSteps(db: Database, now: number, retentionDays = 
   const logs = yield* sweepWithFts(db, { table: "logs", fts: "logs_fts", link: "log_rowid", match: "t.ts < @cutoff", params: { cutoff } });
   const events = yield* sweepWithFts(db, { table: "events", fts: "events_fts", link: "event_rowid", match: "t.ts < @cutoff AND t.type <> 'trade'", params: { cutoff } });
   const valuations = yield* sweepMarks(db, "1", {}, cutoff);
+  // the venue's stop/target steps follow their position's marks: closed and older than the window
+  for (const instanceId of distinctLeading(db, "position_levels", "instance_id")) {
+    yield* deleteInSteps(db, "position_levels",
+      `SELECT l.rowid id FROM position_levels l WHERE l.instance_id=@instanceId AND l.ts < @cutoff
+         AND (l.instance_id, l.broker, l.ticket) NOT IN (SELECT instance_id, broker, ticket FROM positions_current) LIMIT @limit`,
+      { instanceId, cutoff });
+  }
 
   let monitors = 0;
   for (const monitor of distinctLeading(db, "monitor_minutes", "monitor")) {

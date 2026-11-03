@@ -105,7 +105,7 @@ its way out, what to send instead (`deprecated`). A type without an entry fails 
 
 ```json
 {
-  "contractVersion": "1.5.0",
+  "contractVersion": "1.6.0",
   "majors": [1],
   "types": [{ "type": "balances.updated", "since": "1.0.0" }, "..."],
   "maxBatch": null,
@@ -246,7 +246,7 @@ web bar (`@qkt-insights/contract/query`) and compiled to bound SQL; tokens it ca
 | `GET /round-trips/facets?instance&strategy` | strategies, instruments, exit days and common sizes, for completions |
 | `GET /round-trips/export?…` | the whole match as CSV, streamed page by page |
 | `GET /round-trips/:ticket?instance` | the trade drawer: legs, timeline with latencies, slippage, MAE/MFE, raw events |
-| `GET /round-trips/:ticket/path?instance&bucket` | the drawer's position map: the position's venue marks between entry and exit as UTC candles (`bucket` ms, one of 1m 5m 15m 30m 1h 4h 1d; automatic when absent), the P&L line keeping each bucket's first, lowest, highest and last mark, the best, worst and latest marks, and the stretches without marks or without a price change |
+| `GET /round-trips/:ticket/path?instance&bucket` | the drawer's position map: the position's venue marks between entry and exit as UTC candles (`bucket` ms, one of 1m 5m 15m 30m 1h 4h 1d; automatic when absent), the P&L line keeping each bucket's first, lowest, highest and last mark, the best, worst and latest marks, and the stretches without marks or without a price change; the trade's plan: the initial stop and target (the entry order's, else the first the venue held, `levelSource`), every change of the venue's stop and target while held (`levelSteps`, from `position_levels`), the entry order's stop style (`stopStyle`: fixed, trailing, stepped, tightening), partial closes, and the money per price unit read from the marks |
 | `GET /public/:token/round-trips`, `…/analytics`, `…/facets` | a shared link's closed round trips and their aggregates, without tickets, profiles or stops |
 
 `/logs` takes `level` as one level or several (`level=WARN,ERROR`), and `orLogger` (logger last names, comma-separated)

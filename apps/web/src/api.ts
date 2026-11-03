@@ -296,6 +296,8 @@ export interface EffectiveConfig {
   risk?: {
     appliesTo?: "strategy" | "book";
     maxDailyLoss?: EffectiveSetting;
+    maxDailyLossAppliesTo?: "daemon" | "book";
+    hardDailyLoss?: EffectiveSetting;
     maxDrawdownFraction?: EffectiveSetting;
     totalDdBasis?: EffectiveSetting;
     maxDailyDrawdownFraction?: EffectiveSetting;
