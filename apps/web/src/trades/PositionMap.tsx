@@ -4,6 +4,7 @@ import { EChart, useNarrowChart } from "../components/EChart";
 import { Freshness, Segmented } from "../components/ui";
 import { usePositionPath, type PositionPath } from "./data";
 import { latency, preciseClock, px } from "./format";
+import { PlanStrip } from "./PlanStrip";
 import { bucketLabel, markerIndex, moments, pathOption, type Moment, type MomentKey, type PathView } from "./positionMap";
 
 /*
@@ -114,6 +115,8 @@ function PathChart({ path, view, digits, realized, narrow, hover, setHover, pinn
           }}
         />
       </div>
+
+      <PlanStrip path={path} digits={digits} realized={realized} />
 
       <ul className="divide-y divide-line" aria-label="Key moments">
         {ms.map((m) => (

@@ -4,7 +4,7 @@ import { get, type AccountRiskRow, type AccountSummary, type StrategyRow } from 
 import { useMemo, useState } from "react";
 import { StrategySearch, type StrategyLine } from "../components/HomeStrategies";
 import { CardGrid, PortfolioGroup, StrategyCard } from "../components/StrategyCards";
-import { Card, Cell, CurrencyMix, Empty, Loadable, PageHeader, Panel, Pill, Pnl, Popover, Row, Select, Stat, Table } from "../components/ui";
+import { Card, Cell, CurrencyMix, Empty, Loadable, PageHeader, Panel, PctOf, Pill, Pnl, Popover, Row, Select, Stat, Table } from "../components/ui";
 import { age, count, DAY_MS, money, openPnl, pct, signedMoney } from "../format";
 import { emptyPeriods, floatingByStrategy, positionRisks, riskRowFor, strategyLines, strategyPeriods, unpricedStrategies } from "../home";
 import { Link, routePath, useRoute, useSearchParam } from "../router";
@@ -375,12 +375,15 @@ function PortfolioDetail({
                     <Cell>{pct(weight)}</Cell>
                     <Cell>
                       <Pnl value={child.realizedNet ?? 0} />
+                      <PctOf value={child.realizedNet ?? 0} base={allocation} />
                     </Cell>
                     <Cell>
                       <Pnl value={open} />
+                      <PctOf value={open} base={allocation} />
                     </Cell>
                     <Cell className="font-semibold">
                       <Pnl value={net} />
+                      <PctOf value={net} base={allocation} />
                     </Cell>
                     <Cell>{count(child.dealCount)}</Cell>
                     <Cell className="whitespace-nowrap text-muted">

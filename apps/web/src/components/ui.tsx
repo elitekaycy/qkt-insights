@@ -3,7 +3,7 @@ import { useView } from "../view";
 import { useEffect, useLayoutEffect, useRef, useState, type ReactNode } from "react";
 import { createPortal } from "react-dom";
 import { useOrigin, useSearchParam } from "../router";
-import { DASH, DAY_MS, elapsed, signedMoney, signedPct, toneClass, tsDay, tsShort } from "../format";
+import { DASH, DAY_MS, elapsed, returnOn, returnPct, signedMoney, signedPct, toneClass, tsDay, tsShort } from "../format";
 
 /*
  * The component kit every page is built from. Pages compose these and never
@@ -485,6 +485,17 @@ export function Pill({ tone = "neutral", children }: { tone?: Tone; children: Re
 /** Signed money, "+1,234.50" / "−56.00", in the gain or loss tone. Every P&L figure renders through this. */
 export function Pnl({ value, className = "" }: { value: number | null | undefined; className?: string }) {
   return <span className={`whitespace-nowrap ${toneClass(value)} ${className}`}>{signedMoney(value)}</span>;
+}
+
+/**
+ * A money figure's return beside it, small and muted so the amount stays the headline: "+2.06%".
+ * Nothing when the base is unknown or not positive (a percentage is never guessed) or the figure is zero.
+ */
+export function PctOf({ value, base, className = "", title }: { value: number | null | undefined; base: number | null | undefined; className?: string; title?: string }) {
+  const r = returnOn(value, base);
+  // a zero figure needs no "0.00%" beside it
+  if (r == null || value === 0) return null;
+  return <span className={`ml-1 whitespace-nowrap text-[0.85em] font-normal tabular-nums text-muted ${className}`} title={title}>{returnPct(r)}</span>;
 }
 
 /** The grey "USD+USDC" after a total that adds currencies 1:1; what that means on hover or focus. */

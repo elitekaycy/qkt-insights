@@ -6,7 +6,7 @@ import { get, type LogRow, type StrategyRow, type StrategyStats } from "../api";
 import { LogLine } from "../components/LogLine";
 import { groupLogs } from "../logs";
 import { ShareControl } from "../components/ShareControl";
-import { Card, Icon, Loadable, OriginBack, PageFallback, Pill, Popover, RangeChips, rangeStart, ReturnPct, Segmented, Skeleton, useRangeParam } from "../components/ui";
+import { Card, Icon, Loadable, OriginBack, PageFallback, PctOf, Pill, Popover, RangeChips, rangeStart, ReturnPct, Segmented, Skeleton, useRangeParam } from "../components/ui";
 import { age, DASH, money, openPnl, signedMoney, toneClass } from "../format";
 import { haltSince, haltWords, resumeCommand } from "../halt";
 import { metaString, strategyCapital, strategyDisplayName } from "../portfolio";
@@ -200,6 +200,7 @@ function StrategyBody({ instanceId, strategyId }: { instanceId: string; strategy
           <Status row={row} />
           <span className={`ml-auto shrink-0 text-sm font-semibold tabular-nums ${toneClass(net)}`}>
             {net == null ? DASH : signedMoney(net)}
+            <PctOf value={net} base={capital.amount} />
           </span>
           <button
             type="button"

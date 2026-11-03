@@ -189,6 +189,15 @@ export interface PathMark {
   pnl: number;
 }
 
+/** How the entry order's stop behaves, as qkt submitted it. */
+export interface StopStyle {
+  kind: "fixed" | "trailing" | "stepped" | "tightening";
+  trailDistance?: number | null;
+  armAt?: number | null;
+  intervalMs?: number | null;
+  steps?: number | null;
+}
+
 /** The path a position took while held, from the broker poll's marks. */
 export interface PositionPath {
   ticket: string;
@@ -196,8 +205,17 @@ export interface PositionPath {
   side: "long" | "short";
   entry: { ts: number; price: number | null } | null;
   exit: { ts: number; price: number | null } | null;
+  /** The initial stop and target: the entry order's, else the first the venue held. */
   stopPrice: number | null;
   targetPrice: number | null;
+  levelSource: "order" | "venue" | null;
+  /** Each change of the venue's stop and target while held (null: none at the venue). */
+  levelSteps: Array<{ ts: number; stop: number | null; target: number | null }>;
+  stopStyle: StopStyle | null;
+  partials: Array<{ ts: number; price: number; qty: number }>;
+  /** Account money per one price unit of the whole position; null without a move off the entry. */
+  moneyPerPoint: number | null;
+  riskAmount: number | null;
   bucketMs: number;
   buckets: number[];
   candles: PathCandle[];

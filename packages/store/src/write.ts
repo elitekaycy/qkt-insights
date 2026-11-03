@@ -112,6 +112,11 @@ function withCredentialsRemoved(e: Envelope): Envelope {
   return payload === e.payload ? e : ({ ...e, payload } as Envelope);
 }
 
+/** A venue stop or target: absent, zero or not finite is none. */
+function venueLevel(v: number | undefined): number | null {
+  return v != null && Number.isFinite(v) && v > 0 ? v : null;
+}
+
 export function persistStateEvent(db: Db, instanceId: string, e: Envelope): void {
   if (e.type === "state.account") {
     setInstanceCurrency(db, instanceId, e.payload.currency);
@@ -142,6 +147,12 @@ export function persistStateEvent(db: Db, instanceId: string, e: Envelope): void
     `INSERT OR IGNORE INTO position_valuations
        (instance_id, broker, ticket, ts, symbol, side, qty, entry_price, current_price, profit, swap, strategy_id)
      VALUES (@instanceId,@broker,@ticket,@ts,@symbol,@side,@qty,@entryPrice,@currentPrice,@profit,@swap,@strategyId)`,
+  );
+  const lastLevel = statement(db,
+    "SELECT stop, target FROM position_levels WHERE instance_id=? AND broker=? AND ticket=? ORDER BY ts DESC LIMIT 1",
+  );
+  const insLevel = statement(db,
+    "INSERT OR IGNORE INTO position_levels (instance_id, broker, ticket, ts, stop, target) VALUES (?,?,?,?,?,?)",
   );
   let marked = false;
   const tx = db.transaction(() => {
@@ -180,6 +191,13 @@ export function persistStateEvent(db: Db, instanceId: string, e: Envelope): void
         seq: e.seq,
       };
       upCurrent.run(row);
+      // the venue's protective levels, kept only when they change: a trailing stop becomes a few steps, not a row per poll
+      const stop = venueLevel(pos.stopLoss), target = venueLevel(pos.takeProfit);
+      const was = lastLevel.get(instanceId, p.broker, pos.ticket) as { stop: number | null; target: number | null } | undefined;
+      if ((was == null && (stop != null || target != null)) || (was != null && (was.stop !== stop || was.target !== target))) {
+        // a moved stop changes the trade's chart even when the price did not: it counts as a new mark
+        marked = insLevel.run(instanceId, p.broker, pos.ticket, e.ts, stop, target).changes > 0 || marked;
+      }
       // A valuation row per poll per position was the largest table by far, and most
       // rows repeated the previous one. Keep the ones that move the excursion curve,
       // plus a heartbeat so a flat position still shows it was held.

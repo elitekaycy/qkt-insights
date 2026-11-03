@@ -6,14 +6,18 @@ bottom. Every page, strategy, tab, instance, date range and filter is in the URL
 Back and reload work; shared links nest their pages under `/p/<token>/`. Dark is the default
 theme; a light theme is one click away and remembered per device. All times are UTC. Screenshots are from a demo collector: a paper account named
 `DEMO` (10,000 USD) holding three strategies (`btc_trend`, `eth_revert`, `gold_breakout`) whose
-seven weeks of qkt 0.61.0 backtests on Binance USD-M 15m bars (1 September to 20 October 2026)
-were replayed into it as the envelopes qkt sends. Every trade, price and result is the backtests'
+seven weeks of qkt backtests on Binance USD-M 15m bars (1 September to 20 October 2026)
+were replayed into it as the envelopes qkt sends, with the broker poll's marks for each trade priced
+from the same symbols' 5m bars (`marks.mjs`). Every trade, price and result is the backtests'
 own, losses included; no real account or money is shown. How it was made:
 `scripts/export/insights-demo/` in [qkt-site](https://github.com/solol3veling/qkt.platform).
 
 ## Home
 
-Am I safe right now, on one screen. Per venue account: balance, equity, **Today** (realized
+Am I safe right now, on one screen. Money figures carry their return beside them, small and muted:
+open P&L on the balance, Today on the equity the day began with (else the balance before today's
+closes), and every strategy figure on that strategy's base (its portfolio allocation, defined capital or
+starting balance). A figure with no known base, or zero, shows no percent. Per venue account: balance, equity, **Today** (realized
 since the account's trading day began plus floating, the day basis printed), open risk to the
 stops in money (positions without a stop are counted and flagged, never summed), and gauges for
 daily loss and max drawdown against the account's own limits with their basis. Then the open
@@ -166,10 +170,21 @@ the entry's submit event); the Risk card says how many of the closed trades that
 net of the legs (unrounded, incl. costs) over the stated risk, so a trip worth a fraction of a cent
 keeps its true R (-0.0056 over a 0.005 risk is -1.12R) while its money prints and filters as -0.01.
 
-A row opens the trade drawer (`?trade=<ticket>`, so it can be linked): the timeline from the rule
-and signal through submit, venue accept, fills, stop/target changes and the close, with the time
-between steps; slippage against the engine's reference price, stop or target in price and money;
-MAE/MFE from the position's marks; the venue's deals; and the raw events as copyable JSON.
+A row opens the trade drawer (`?trade=<ticket>`, so it can be linked). Its header has the P&L (floating
+for an open trade), the R and the price move in percent for the side. Then the story (opened, stop and
+target, closed and how), and the position map: the venue's marks as candles or the P&L line with the
+entry, the best and the worst mark and the exit (or the latest mark) placed exactly; the stop and target
+as lines, drawn as steps when the venue moved them (a trailing or break-even stop), and partial closes
+as rings. Under the chart, the plan: one bar from the stop to the target with the entry, the best mark
+and the price now or the exit on it, what each level pays in money and R, and one line of what is left
+(room to the stop and the target in price and percent, how far along the way) or how it ended (where the
+exit landed, how close the best mark came to the target, the share of the best profit kept). A stop
+that moves is named (trailing, stepped, tightening, as qkt submitted it) with the times the venue moved
+it; a target set far beyond reach (20× the stop's distance) is called a placeholder, not drawn as the
+bar's end; a trade no engine order is linked to (an order qkt thought failed but the venue filled) takes
+its levels from the venue's position, and says so; a trade with neither reads "No stop or target on
+record". Under Details: ids, slippage against the engine's reference price, stop or target in price and
+money; MAE/MFE; the venue's deals; the engine timeline; and the raw events as copyable JSON.
 
 ![Trades](assets/screenshots/trades.png)
 

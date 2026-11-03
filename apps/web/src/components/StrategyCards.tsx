@@ -4,7 +4,7 @@ import { haltWords } from "../halt";
 import { Link } from "../router";
 import { cardFigures, cardName, sparkPath, thinCurve, type CardLine, type PortfolioCard } from "../strategyCards";
 import { legsLine, type Leg } from "../instruments";
-import { Pill, Pnl, ReturnPct } from "./ui";
+import { PctOf, Pill, Pnl, ReturnPct } from "./ui";
 
 /*
  * The Strategies page's cards: one per strategy (name with what it trades on its tooltip, net incl. open, a line of
@@ -83,7 +83,7 @@ export function StrategyCard({ line, curve, name, origin, legs = [], mix = null,
           {retired && <span className="ml-auto shrink-0 text-xs text-muted">Retired</span>}
         </div>
         <div className="flex items-center justify-between gap-3">
-          <span className="pointer-events-auto min-w-0 whitespace-nowrap" title={tip}><Pnl value={f.net} className="text-xl font-headline" /></span>
+          <span className="pointer-events-auto min-w-0 whitespace-nowrap" title={tip}><Pnl value={f.net} className="text-xl font-headline" /><PctOf value={f.net} base={f.base} className="text-sm" /></span>
           {f.trades >= SPARK_MIN_CLOSES && (
             <span title={`cumulative realized P&L over ${count(f.trades)} closes`} className="pointer-events-auto shrink-0">
               <Sparkline points={curve} className="h-7 w-20" />
@@ -91,11 +91,11 @@ export function StrategyCard({ line, curve, name, origin, legs = [], mix = null,
           )}
         </div>
         <div className="truncate text-xs text-muted">
-          <span title="realized since the account's trading day began">Today <Pnl value={f.today} /></span>
+          <span title="realized since the account's trading day began">Today <Pnl value={f.today} /><PctOf value={f.today} base={f.base} /></span>
           {" · "}
           {unpriced
             ? <span title="No price from the venue for its open position">Open —</span>
-            : <span title="floating on its open positions now">Open <Pnl value={f.floating} /></span>}
+            : <span title="floating on its open positions now">Open <Pnl value={f.floating} /><PctOf value={f.floating} base={f.base} /></span>}
         </div>
       </div>
     </LinkCard>

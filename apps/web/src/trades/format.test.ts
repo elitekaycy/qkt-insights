@@ -37,3 +37,11 @@ describe("tradeStory", () => {
     expect(tradeStory({ ...trip, stopPrice: null, targetPrice: null, ended: null })[1]!.label).toBe("Closed");
   });
 });
+
+describe("latency rounding", () => {
+  it("never prints 60 seconds", async () => {
+    const { latency } = await import("./format");
+    expect(latency(19 * 60_000 + 59_900)).toBe("+20m 0s");
+    expect(latency(125_000)).toBe("+2m 5s");
+  });
+});

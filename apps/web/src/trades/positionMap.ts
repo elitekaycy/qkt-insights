@@ -69,6 +69,16 @@ export function priceRange(path: PositionPath): { min: number; max: number } | n
   for (const c of path.candles) values.push(c.l, c.h);
   for (const v of [path.entry?.price, path.exit?.price, path.best?.price, path.worst?.price, path.last?.price]) if (v != null && Number.isFinite(v)) values.push(v);
   if (values.length === 0) return null;
+  // a stop the venue moved is drawn as steps: its levels near the path widen the range so no step enters off the edge
+  const pathLo = Math.min(...values), pathHi = Math.max(...values);
+  const reach = pathHi - pathLo || Math.abs(pathHi) * 0.0005 || 1;
+  for (const key of ["stop", "target"] as const) {
+    if (new Set(path.levelSteps.map((s) => s[key]).filter((v) => v != null)).size < 2) continue;
+    for (const st of path.levelSteps) {
+      const v = st[key];
+      if (v != null && v >= pathLo - reach && v <= pathHi + reach) values.push(v);
+    }
+  }
   const lo = Math.min(...values), hi = Math.max(...values);
   const span = hi - lo || Math.abs(hi) * 0.0005 || 1;
   // room above and below the extremes for the markers' labels
@@ -252,6 +262,35 @@ export function pathOption({ path, moments: ms, view, digits, narrow }: PathOpti
     emphasis: { scale: 1.45, label: { show: true } },
     cursor: "pointer",
   });
+  if (view === "price") {
+    for (const key of ["stop", "target"] as const) {
+      const data = levelStepLine(path, key, xMax ?? undefined);
+      if (!data) continue;
+      const color = key === "stop" ? tok("loss-fill", 0.85) : tok("gain-fill", 0.85);
+      const last = data.at(-1)![1];
+      series.push({
+        name: key === "stop" ? "stop (moved)" : "target (moved)",
+        type: "line",
+        step: "end",
+        silent: true,
+        showSymbol: false,
+        connectNulls: false,
+        z: 3,
+        data,
+        lineStyle: { color, type: "dotted", width: 1.25 },
+        endLabel: { show: !narrow && last != null, formatter: last != null ? `${key}\n${px(last, digits)}` : "", color, fontSize: 10, lineHeight: 13 },
+      });
+    }
+    if (path.partials.length > 0) {
+      series.push({
+        name: "partial closes",
+        type: "scatter",
+        z: 4,
+        silent: true,
+        data: path.partials.map((p) => ({ value: [p.ts, p.price], symbol: "circle", symbolSize: 8, itemStyle: { color: tok("panel"), borderColor: tok("bright"), borderWidth: 1.5 } })),
+      });
+    }
+  }
 
   return {
     grid: { ...qktChartGrid, left: Math.max(44, Math.round(yLabelWidth * 6.6) + 14), right: narrow ? 12 : 64, top: 22 },
@@ -298,7 +337,8 @@ export function labelPlacements(points: Array<{ key: MomentKey; ts: number; y: n
   let prev: { ts: number; side: LabelPosition } | null = null;
   for (const p of labelled) {
     let side: LabelPosition = p.y >= mid ? "top" : "bottom";
-    if (prev && prev.side === side && frac(p.ts) - frac(prev.ts) < 0.125) side = frac(p.ts) > 0.8 ? "left" : "right";
+    // too close to the previous label on the same side: flip to the other side of the marker, then beside it
+    if (prev && prev.side === side && frac(p.ts) - frac(prev.ts) < 0.125) side = side === "top" ? "bottom" : side === "bottom" ? "top" : frac(p.ts) > 0.8 ? "left" : "right";
     out.set(p.key, side);
     prev = { ts: p.ts, side };
   }
@@ -322,6 +362,20 @@ export function timeTick(v: number): string {
   return stamp.endsWith(" 00:00") ? stamp.slice(0, -6) : stamp.slice(-5);
 }
 
+/**
+ * A level the venue moved while the trade was held, as a step line from its first report to the chart's end; null
+ * when it never changed (a flat level stays a mark line). Gaps where the venue held none stay unbroken: null breaks it.
+ */
+export function levelStepLine(path: PositionPath, key: "stop" | "target", xMax: number | undefined): Array<[number, number | null]> | null {
+  const steps = path.levelSteps.map((s) => [s.ts, s[key]] as [number, number | null]);
+  const distinct = new Set(steps.map(([, v]) => v).filter((v) => v != null));
+  if (distinct.size < 2) return null;
+  const out = [...steps];
+  const last = steps.at(-1)!;
+  if (xMax != null && xMax > last[0]) out.push([xMax, last[1]]);
+  return out;
+}
+
 function priceLevelLines(path: PositionPath, digits: number, narrow: boolean): Array<Record<string, unknown>> {
   const line = (y: number, name: string, color: string, type: "dashed" | "dotted") => ({
     yAxis: y,
@@ -332,7 +386,8 @@ function priceLevelLines(path: PositionPath, digits: number, narrow: boolean): A
   const out: Array<Record<string, unknown>> = [];
   if (path.entry?.price != null) out.push(line(path.entry.price, "entry", tok("accent-hi"), "dashed"));
   for (const l of levels(path)) {
-    if (!l.inView) continue;
+    // a level the venue moved is drawn as its steps instead
+    if (!l.inView || levelStepLine(path, l.key, undefined) != null) continue;
     out.push(l.key === "stop" ? line(l.price, "stop", tok("loss-fill", 0.85), "dotted") : line(l.price, "target", tok("gain-fill", 0.85), "dotted"));
   }
   return out;
@@ -364,6 +419,9 @@ export function pathTip(params: unknown, ctx: { path: PositionPath; moments: Mom
     const rows: Array<[string, string]> = [["Open", px(o, digits)], ["High", px(h, digits)], ["Low", px(l, digits)], ["Close", px(cl, digits)]];
     if (candle) rows.push(["Marks", String(candle.marks)]);
     for (const m of within(ctx.moments, t, t + bucket)) rows.push(momentRow(m, digits));
+    for (const p of path.partials) if (p.ts >= t && p.ts < t + bucket) rows.push([`Part closed ${preciseClock(p.ts).slice(0, 8)}`, `${quantityWords(p.qty)} @ ${px(p.price, digits)}`]);
+    const step = [...path.levelSteps].reverse().find((s) => s.ts < t + bucket);
+    if (step && path.levelSteps.length > 1) rows.push(["Venue stop · target", `${step.stop == null ? "none" : px(step.stop, digits)} · ${step.target == null ? "none" : px(step.target, digits)}`]);
     return tipHtml(`${tsShort(t)} UTC · ${bucketLabel(bucket)} candle`, null, rows);
   }
   const line = list.find((p) => p.seriesType === "line");
@@ -384,6 +442,11 @@ function momentTip(m: Moment, digits: number): string {
   if (m.afterEntryMs != null && m.key !== "entry") rows.push(["After entry", duration(m.afterEntryMs)]);
   const note = m.key === "exit" ? "realized, after costs" : m.key === "entry" ? undefined : "P&L at the mark, excluding swap";
   return tipHtml(`${m.label} · ${tsShort(m.ts)}:${preciseClock(m.ts).slice(6, 8)} UTC`, headline, rows, note);
+}
+
+/** A partial close's size: "0.4". */
+function quantityWords(q: number): string {
+  return String(Number(q.toFixed(8)));
 }
 
 function within(ms: Moment[], from: number, to: number): Moment[] {

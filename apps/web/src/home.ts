@@ -69,6 +69,16 @@ export function todaySplit(account: { balance: number; equity: number; stopped?:
   return { basis: "open", total, qkt, other, unassigned: roundMoney(total - qkt - (other ?? 0), 2) };
 }
 
+/**
+ * What today's return is measured on: the account's equity when its day began, as the venue rollup stated it;
+ * else the balance before today's closes (cash moves today are then inside it). Null when neither is positive.
+ */
+export function todayBase(account: { balance: number }, realizedToday: number, day?: DayStart | null): { amount: number; words: string } | null {
+  if (day?.dayStartEquity != null && day.dayStartEquity > 0) return { amount: day.dayStartEquity, words: "the equity the day began with" };
+  const before = account.balance - realizedToday;
+  return before > 0 ? { amount: before, words: "the balance before today's closes" } : null;
+}
+
 /** What a split's own figure is, for a label: only the "day" basis is the account's day. */
 export function splitTotalWords(split: Pick<TodaySplit, "basis">): string {
   return split.basis === "day" ? "Account today" : "Account closes plus open";
