@@ -1,6 +1,6 @@
-import { exactMoney, roundMoney } from "@qkt-insights/contract/money";
+import { roundMoney } from "@qkt-insights/contract/money";
 import type { StrategyRow } from "./api";
-import type { StrategyPeriods } from "./home";
+import { moneyLines, type MoneyLine, type StrategyPeriods } from "./home";
 import { portfolioGroupId, strategyCapital, strategyDisplayName, summarizePortfolio } from "./portfolio";
 
 /*
@@ -16,9 +16,12 @@ export interface CardLine {
 }
 
 export interface CardFigures {
-  /** Realized over every close plus open P&L now. */
+  /** Realized plus open P&L now. */
   net: number;
+  /** Closed trades plus venue adjustments: the strategy's one realized total, as /strategies and /stats state it. */
   realized: number;
+  /** The venue adjustments inside `realized`. */
+  adjustments: number;
   floating: number;
   /** Realized since the account's trading day began; open P&L is `floating`. */
   today: number;
@@ -38,6 +41,7 @@ export function cardFigures(line: CardLine, digits = 2): CardFigures {
   return {
     net: roundMoney(p.all + p.floating, digits),
     realized: p.all,
+    adjustments: p.adjustments,
     floating: p.floating,
     today: p.todayRealized,
     base: capital.amount,
@@ -151,35 +155,40 @@ export function cardGroups<T extends CardLine>(lines: readonly T[], digits = 2):
 }
 
 /**
- * Cumulative realized P&L per strategy key from every close, starting at 0 before the first: the
- * sparkline's points. Same closes and order as strategyPeriods, so the last point equals `all`.
+ * Cumulative realized P&L per strategy key from every close and venue adjustment, starting at 0 before the first:
+ * the sparkline's points. The same rows and totals as strategyPeriods, so the last point equals `all`.
  */
 export function realizedCurves(
-  closes: ReadonlyArray<{ strategyId: string | null; ts: number; realized: number; realizedExact?: number }>,
-  opts: { now: number; digits?: number },
+  closes: ReadonlyArray<MoneyLine>,
+  opts: { now: number; digits?: number; adjustments?: ReadonlyArray<MoneyLine> },
 ): Map<string | null, number[]> {
-  const digits = opts.digits ?? 2;
   const out = new Map<string | null, number[]>();
-  const running = new Map<string | null, number>();
-  const ordered = [...closes].filter((c) => c.ts <= opts.now).sort((a, b) => a.ts - b.ts);
-  for (const c of ordered) {
-    let curve = out.get(c.strategyId);
-    if (!curve) out.set(c.strategyId, (curve = [0]));
-    const sum = (running.get(c.strategyId) ?? 0) + exactMoney(c);
-    running.set(c.strategyId, sum);
-    curve.push(roundMoney(sum, digits));
+  for (const m of moneyLines(closes, opts.adjustments ?? [], opts)) {
+    let curve = out.get(m.strategyId);
+    if (!curve) out.set(m.strategyId, (curve = [0]));
+    curve.push(m.total);
   }
   return out;
 }
 
-/** Several curves added point by point in close order, for a portfolio's combined line. */
+/**
+ * Several strategies' curves as one, for a portfolio's combined line: at each row the sum of every strategy's total
+ * so far, so it ends at the sum of the sleeves' realized figures, as the portfolio card's net adds them.
+ */
 export function mergeCurves(
-  closes: ReadonlyArray<{ strategyId: string | null; ts: number; realized: number; realizedExact?: number }>,
+  closes: ReadonlyArray<MoneyLine>,
   keys: ReadonlySet<string | null>,
-  opts: { now: number; digits?: number },
+  opts: { now: number; digits?: number; adjustments?: ReadonlyArray<MoneyLine> },
 ): number[] {
-  const mine = closes.filter((c) => keys.has(c.strategyId)).map((c) => ({ ...c, strategyId: null }));
-  return realizedCurves(mine, opts).get(null) ?? [];
+  const digits = opts.digits ?? 2;
+  const mine = (rows: ReadonlyArray<MoneyLine>) => rows.filter((r) => keys.has(r.strategyId));
+  const latest = new Map<string | null, number>();
+  const curve = [0];
+  for (const m of moneyLines(mine(closes), mine(opts.adjustments ?? []), opts)) {
+    latest.set(m.strategyId, m.total);
+    curve.push([...latest.values()].reduce((a, v) => roundMoney(a + v, digits), 0));
+  }
+  return curve.length > 1 ? curve : [];
 }
 
 /**

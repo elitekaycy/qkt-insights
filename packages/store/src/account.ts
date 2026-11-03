@@ -1,9 +1,9 @@
 import type { Db } from "./db.js";
 import {
   accountBinds, adjustmentRows, canonicalDeal, dealOnAccount, SWAP_ONLY, closeDealOf, closedTradeRows, fullyClosedPosition, instrumentOf, OUT_LEGS,
-  type DayNet, type DealClosedTrade,
+  type AdjustmentRow, type DayNet, type DealClosedTrade,
 } from "./analytics.js";
-import { addMoney, exactMoney, instanceMoneyDigits, roundMoney } from "./money.js";
+import { exactMoney, instanceMoneyDigits, roundMoney } from "./money.js";
 
 /**
  * Account-level figures: every closed trade on the instance's account, whichever strategy owned it.
@@ -118,9 +118,24 @@ export interface AccountBucket {
   venues?: string[];
 }
 
+/** A venue adjustment on the account (a stock CFD's dividend, a charge): money on its strategy, but no close. */
+export interface AccountAdjustment {
+  ts: number;
+  strategyId: string | null;
+  instrument: string;
+  realized: number;
+  realizedExact: number;
+  cum: number;
+}
+
 export interface AccountSummary {
-  /** Newest first. */
-  closes: AccountClose[];
+  /**
+   * Newest first. `cum` is the owning strategy's running total after the close (its closes and adjustments in time
+   * order, closes first at one timestamp), summed exactly and rounded once: the strategy's total at that close.
+   */
+  closes: Array<AccountClose & { cum: number }>;
+  /** The venue adjustments, newest first, each with its strategy's running total as on the closes. */
+  adjustments: AccountAdjustment[];
   /**
    * Net per UTC close day: the realized of every closing leg booked that day. `trades` counts the
    * round trips (positions) with a closing leg that day, the ones the day's `exit:<day>` drill lists.
@@ -162,10 +177,11 @@ export function accountSummary(db: Db, f: AccountFilter): AccountSummary {
   const tripsByDay = new Map<string, Set<string>>();
   const byInstrument = new Map<string | null, AccountBucket>();
   const byStrategy = new Map<string | null, AccountBucket>();
+  // wins and losses class each close as it prints; their sums, like every total, add the exact amounts and round once
   let totalNet = 0, wins = 0, losses = 0, sumWins = 0, sumLosses = 0;
   closes.forEach((c, i) => {
     totalNet += exactMoney(c);
-    if (c.realized > 0) { wins++; sumWins = addMoney(sumWins, c.realized, digits); } else if (c.realized < 0) { losses++; sumLosses = addMoney(sumLosses, -c.realized, digits); }
+    if (c.realized > 0) { wins++; sumWins += exactMoney(c); } else if (c.realized < 0) { losses++; sumLosses -= exactMoney(c); }
     const day = new Date(c.ts).toISOString().slice(0, 10);
     const d = byDay.get(day) ?? { day, net: 0, trades: 0 };
     d.net += exactMoney(c);
@@ -184,7 +200,8 @@ export function accountSummary(db: Db, f: AccountFilter): AccountSummary {
   // and its strategy's and instrument's buckets, never in a trade count or a win.
   const ids = f.strategyIds ? JSON.stringify([...f.strategyIds]) : null;
   const account = accountFilter(db, f.instanceId, f.account);
-  for (const a of adjustmentRows(db, { instanceId: f.instanceId, from: f.from, to: f.to, closedPositionsOnly: f.closedPositionsOnly, strategyIds: ids, ...account })) {
+  const adjustments = adjustmentRows(db, { instanceId: f.instanceId, from: f.from, to: f.to, closedPositionsOnly: f.closedPositionsOnly, strategyIds: ids, ...account });
+  for (const a of adjustments) {
     totalNet += a.realizedExact;
     const day = new Date(a.ts).toISOString().slice(0, 10);
     const d = byDay.get(day) ?? { day, net: 0, trades: 0 };
@@ -197,20 +214,44 @@ export function accountSummary(db: Db, f: AccountFilter): AccountSummary {
     }
   }
   for (const b of [...byInstrument.values(), ...byStrategy.values()]) b.net = roundMoney(b.net, digits);
+  const running = runningTotals(closes, adjustments, digits);
   return {
-    closes: [...closes].reverse(),
+    closes: closes.map((c) => ({ ...c, cum: running.get(c)! })).reverse(),
+    adjustments: adjustments.map((a) => ({ ts: a.ts, strategyId: a.strategyId, instrument: instrumentOf(a.symbol), realized: a.realized, realizedExact: a.realizedExact, cum: running.get(a)! })).reverse(),
     dailyNets: [...byDay.values()].sort((a, b) => (a.day < b.day ? -1 : 1)).map((d) => ({ ...d, net: roundMoney(d.net, digits) })),
     totalNet: roundMoney(totalNet, digits),
     trades: closes.length,
     wins,
     losses,
     breakeven: closes.length - wins - losses,
-    sumWins,
-    sumLosses,
+    sumWins: roundMoney(sumWins, digits),
+    sumLosses: roundMoney(sumLosses, digits),
     costs: accountCosts(db, f),
     byInstrument: [...byInstrument.values()].sort((a, b) => b.trades - a.trades),
     byStrategy: [...byStrategy.values()].sort((a, b) => b.net - a.net),
   };
+}
+
+/**
+ * Each money row's strategy total after it, at the minor unit: closes and adjustments (both oldest first) walked in
+ * time order, closes first at one timestamp as adjustmentsMerged orders them, each strategy's exact sum rounded once.
+ * A shared view sends no row's unrounded amount, so these are what its totals are read from.
+ */
+function runningTotals(closes: readonly AccountClose[], adjustments: readonly AdjustmentRow[], digits: number): Map<object, number> {
+  const out = new Map<object, number>();
+  const sums = new Map<string | null, number>();
+  const add = (row: object, strategyId: string | null, amount: number) => {
+    const sum = (sums.get(strategyId) ?? 0) + amount;
+    sums.set(strategyId, sum);
+    out.set(row, roundMoney(sum, digits));
+  };
+  let a = 0;
+  for (const c of closes) {
+    for (; a < adjustments.length && adjustments[a]!.ts < c.ts; a++) add(adjustments[a]!, adjustments[a]!.strategyId, adjustments[a]!.realizedExact);
+    add(c, c.strategyId, exactMoney(c));
+  }
+  for (; a < adjustments.length; a++) add(adjustments[a]!, adjustments[a]!.strategyId, adjustments[a]!.realizedExact);
+  return out;
 }
 
 /** Commission, swap, funding and fee across every leg (The5ers books commission on the entry leg too). */

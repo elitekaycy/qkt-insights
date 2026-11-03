@@ -154,7 +154,9 @@ function StrategyBody({ instanceId, strategyId }: { instanceId: string; strategy
   const legs = strategyLegs(row, liveAccounts, instanceId);
   // the figure the Realized card shows at All with no search; the engine's own only when it differs
   const allTime = useTripAnalytics(useMemo<TripScope>(() => ({ instanceId, strategy: strategyId }), [instanceId, strategyId]), "");
-  const { realized, ledger } = pageRealized(allTime.data ?? null, stats.data?.realizedPnl ?? row?.realizedNet ?? null);
+  // venue adjustments (dividends, charges) are money but no trade: in the realized total, never in the trade figures
+  const adjustments = stats.data?.adjustmentNet ?? 0;
+  const { realized, ledger } = pageRealized(allTime.data ?? null, stats.data?.realizedPnl ?? row?.realizedNet ?? null, adjustments);
   const net = realized == null && open.pnl == null ? null : (realized ?? 0) + (open.pnl ?? 0);
 
   const goTab = (t: StrategyTab, nextQ?: string, view?: PeriodView) => {
@@ -230,7 +232,13 @@ function StrategyBody({ instanceId, strategyId }: { instanceId: string; strategy
               <BigPnl value={net} className="max-sm:hidden" />
               <span title={capital.amount == null ? "no capital known" : `Return ${capitalLabel}`}><ReturnPct net={net} base={capital.amount} /></span>
               <span className="text-sm text-muted">
-                net incl. open · realized {signedMoney(realized)} · open {open.pnl == null ? DASH : signedMoney(open.pnl)}
+                net incl. open · realized {signedMoney(realized)}
+                {adjustments !== 0 && (
+                  <span className="cursor-help underline decoration-line-strong decoration-dotted underline-offset-4" title="Money the venue booked that is no trade (a dividend, a charge). It is in the realized total, as on the strategy's card, and in no trade count or win rate.">
+                    {" "}incl. venue adjustments {signedMoney(adjustments)}
+                  </span>
+                )}
+                {" "}· open {open.pnl == null ? DASH : signedMoney(open.pnl)}
                 {open.positions > 0 && ` on ${open.positions} position${open.positions === 1 ? "" : "s"}`}
                 {open.unpriced > 0 && open.pnl != null && ` (${open.unpriced} not priced)`}
                 {ledger != null && (

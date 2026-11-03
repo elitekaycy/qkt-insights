@@ -11,6 +11,11 @@ describe("the page's one realized figure", () => {
     expect(pageRealized({ closed: 1, pnl: 3.01 }, 3.014)).toEqual({ realized: 3.01, ledger: null });
   });
 
+  it("adds the venue adjustments, which are money but no trade, to the closed trades' figure", () => {
+    expect(pageRealized({ closed: 2, pnl: 0.75 }, 1.01, 0.26)).toEqual({ realized: 1.01, ledger: null });
+    expect(pageRealized({ closed: 2, pnl: 0.75 }, 1.5, 0.26)).toEqual({ realized: 1.01, ledger: 1.5 });
+  });
+
   it("falls back to the engine before the trades load, and stays unknown with neither", () => {
     expect(pageRealized(null, -0.4)).toEqual({ realized: -0.4, ledger: null });
     expect(pageRealized(null, null)).toEqual({ realized: null, ledger: null });

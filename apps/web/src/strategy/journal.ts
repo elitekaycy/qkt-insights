@@ -1,4 +1,5 @@
 import { parseQuery, withoutKeys, withTokens, type QueryKey } from "@qkt-insights/contract/query";
+import { roundMoney } from "@qkt-insights/contract/money";
 import type { TripBucket, TripDay } from "../trades/analytics";
 import { signedMoney } from "../format";
 
@@ -119,11 +120,13 @@ export function todayParts(today: { closed: number; wins: number; ended: readonl
 
 
 /**
- * The one realized figure of a strategy's page: its closed trades at All with no search, what the Realized card shows
- * there. `ledger` is the engine's own figure (stats) only when it differs from that by a cent or more, so a difference
- * is stated rather than hidden. Before the trades load, or with no closed trade and no figure, it falls back to stats.
+ * The one realized figure of a strategy's page: its closed trades at All with no search plus its venue adjustments
+ * (`adjustments`, money but no trade), the total its card, /strategies and /stats state. `ledger` is the stated total
+ * (stats) only when it differs from that by a cent or more, so a difference is stated rather than hidden. Before the
+ * trades load, or with no closed trade and no figure, it falls back to stats.
  */
-export function pageRealized(trades: { closed: number; pnl: number } | null, engine: number | null): { realized: number | null; ledger: number | null } {
+export function pageRealized(trades: { closed: number; pnl: number } | null, engine: number | null, adjustments = 0, digits = 2): { realized: number | null; ledger: number | null } {
   if (trades == null || (trades.closed === 0 && engine == null)) return { realized: engine, ledger: null };
-  return { realized: trades.pnl, ledger: engine != null && Math.abs(engine - trades.pnl) >= 0.005 ? engine : null };
+  const realized = roundMoney(trades.pnl + adjustments, digits);
+  return { realized, ledger: engine != null && Math.abs(engine - realized) >= 0.005 ? engine : null };
 }

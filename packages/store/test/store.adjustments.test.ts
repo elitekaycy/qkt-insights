@@ -1,7 +1,7 @@
 import { describe, it, expect } from "vitest";
 import {
   openDb, ingestEvents, dailyNets, listStrategies, strategyEquityCurve, performanceReport, costDecomposition,
-  accountSummary, rebuildProjection, closedTrades, adjustmentRows, type Db,
+  accountSummary, rebuildProjection, closedTrades, adjustmentRows, strategyStats, type Db,
 } from "../src/index.js";
 import type { Envelope } from "@qkt-insights/contract";
 
@@ -78,6 +78,30 @@ describe("venue adjustments", () => {
     expect(account.trades).toBe(2);
     expect(account.costs!.net).toBe(account.totalNet);
     expect(account.byStrategy.find((b) => b.key === "a")).toMatchObject({ net: 1.01, trades: 2 });
+  });
+
+  it("are in the strategy's stats: realized, equity and return state the same net as its list row and its curve", () => {
+    const db = seeded();
+    trades(db);
+    const stats = strategyStats(db, F);
+    expect(stats.realizedPnl).toBe(net(db).realizedNet);
+    expect(stats.realizedPnl).toBe(1.01);
+    // the adjustments' share of it, so a page can say what the closed trades alone add to
+    expect(stats.adjustmentNet).toBe(0.26);
+    expect(stats.equity).toBe(strategyEquityCurve(db, F).at(-1)!.equity);
+    expect(stats.returnPct).toBeCloseTo(1.01 / 10_000, 12);
+    expect(stats.tradeCount).toBe(2);
+    expect(stats.winRate).toBe(0.5);
+  });
+
+  it("carry the account summary's running total per strategy on every money row, at the cent", () => {
+    const db = seeded();
+    trades(db);
+    const account = accountSummary(db, { instanceId: I });
+    expect(account.adjustments).toEqual([{ ts: T0 + DAY - 4 * H, strategyId: "a", instrument: "AAPL", realized: 0.26, realizedExact: 0.26, cum: 0.26 }]);
+    // newest first, as the closes are listed: the last running total is the strategy's net
+    expect(account.closes.map((c) => c.cum)).toEqual([1.01, 1.76]);
+    expect(account.closes[0]!.cum).toBe(account.byStrategy.find((b) => b.key === "a")!.net);
   });
 
   it("count once when several broker profiles report the same booking", () => {
