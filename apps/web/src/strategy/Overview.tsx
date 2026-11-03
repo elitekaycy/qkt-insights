@@ -107,7 +107,7 @@ export function OverviewSection({ instanceId, strategyId, scope, q, toggle, a, b
           explain={`Closed trades in the range that match the search, after commission, swap and fees.${base ? ` ${signedMoney(a.pnl)} is ${pctValue((a.pnl / base) * 100, 2)} ${capital.label}.` : ""}`}
         >
           <button type="button" onClick={() => goTab("trades")} className="block w-full text-left">
-            <BigPnl value={a.pnl} />
+            <BigPnl value={a.pnl} base={base} />
             <div className="mt-1 text-sm text-muted">
               {count(a.closed)} closed{a.open > 0 ? ` · ${count(a.open)} open` : ""}
             </div>

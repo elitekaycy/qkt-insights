@@ -1,9 +1,9 @@
 import type { ReactNode } from "react";
 import type { AccountRiskRow, LiveAccount } from "../api";
 import { clock, count, money, pctValue, signedMoney, signedPct, toneClass } from "../format";
-import { dailyMeasured, floatingNoteText, type FloatingNote, dailyReferenceLabel, dayBasisLabel, limitLine, drawdownMeasured, limitUse, splitOtherWords, splitTotalWords, todaySplit, type AttentionItem, type LimitUse, type OpenRisk, type TodayPart, type TodaySplit } from "../home";
+import { dailyMeasured, floatingNoteText, type FloatingNote, dailyReferenceLabel, dayBasisLabel, limitLine, drawdownMeasured, limitUse, splitOtherWords, splitTotalWords, todayBase, todaySplit, type AttentionItem, type LimitUse, type OpenRisk, type TodayPart, type TodaySplit } from "../home";
 import { accountName, accountProfiles, accountTitle } from "../accounts";
-import { Card, FlashValue, Freshness, Pill, Pnl, Popover } from "./ui";
+import { Card, FlashValue, Freshness, PctOf, Pill, Pnl, Popover } from "./ui";
 
 /*
  * Home's account strip: what the account has, what today did, what the stops put at risk, and how
@@ -111,6 +111,7 @@ export function AccountStrip({
   const today = todaySplit(account, realizedToday, note, isPublic ? null : risk?.dailyLoss);
   const split = today.other != null || today.unassigned !== 0;
   const use = risk ? limitUse(risk, account.equity) : null;
+  const dayBase = todayBase(account, realizedToday, isPublic ? null : risk?.dailyLoss);
   const openCount = open ? open.priced + open.noStop + open.unpriced : 0;
   const title = accountName(account, isPublic, peers);
   const profiles = isPublic ? [] : accountProfiles(account, labels);
@@ -129,7 +130,7 @@ export function AccountStrip({
         </Kpi>
         <Kpi
           label="Equity"
-          sub={<>open <Pnl value={account.equity - account.balance} /></>}
+          sub={<>open <Pnl value={account.equity - account.balance} /><PctOf value={account.equity - account.balance} base={account.balance} title="of the balance" /></>}
           info={
             <>
               <p>Balance plus what open trades are worth now.</p>
@@ -153,7 +154,7 @@ export function AccountStrip({
             </>
           }
         >
-          <FlashValue value={today.qkt}><Pnl value={today.qkt} /></FlashValue>
+          <FlashValue value={today.qkt}><Pnl value={today.qkt} /><PctOf value={today.qkt} base={dayBase?.amount} className="text-sm" title={dayBase ? `of ${dayBase.words}` : undefined} /></FlashValue>
         </Kpi>
         {open && (
           <Kpi

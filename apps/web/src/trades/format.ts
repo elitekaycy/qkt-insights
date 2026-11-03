@@ -37,8 +37,10 @@ export function latency(ms: number | null): string {
   if (ms == null) return "";
   if (ms < 1000) return `+${ms} ms`;
   if (ms < 60_000) return `+${(ms / 1000).toFixed(1)} s`;
-  const m = Math.floor(ms / 60_000);
-  if (m < 60) return `+${m}m ${Math.round((ms % 60_000) / 1000)}s`;
+  // round to the second first, so 19m 59.9s reads 20m 0s, never 19m 60s
+  const secs = Math.round(ms / 1000);
+  const m = Math.floor(secs / 60);
+  if (m < 60) return `+${m}m ${secs % 60}s`;
   const h = Math.floor(m / 60);
   return h < 24 ? `+${h}h ${m % 60}m` : `+${Math.floor(h / 24)}d ${h % 24}h`;
 }

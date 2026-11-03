@@ -1,6 +1,6 @@
 import { describe, it, expect } from "vitest";
 import type { PositionPath } from "./data";
-import { bucketLabel, labelPlacements, levels, markerIndex, priceAxisDigits, priceTick, shadedSpans, timeTick, moments, pathOption, pathTip, pnlLine, priceRange } from "./positionMap";
+import { bucketLabel, labelPlacements, levelStepLine, levels, markerIndex, priceAxisDigits, priceTick, shadedSpans, timeTick, moments, pathOption, pathTip, pnlLine, priceRange } from "./positionMap";
 
 const M = 60_000;
 const T0 = Date.UTC(2026, 9, 20, 8);
@@ -10,7 +10,7 @@ function path(over: Partial<PositionPath> = {}): PositionPath {
   return {
     ticket: "P1", status: "open", side: "short",
     entry: { ts: T0, price: 1.1 }, exit: null,
-    stopPrice: 1.103, targetPrice: 1.05,
+    stopPrice: 1.103, targetPrice: 1.05, levelSource: "order", levelSteps: [], stopStyle: null, partials: [], moneyPerPoint: 100_000, riskAmount: null,
     bucketMs: 5 * M, buckets: [M, 5 * M, 15 * M],
     candles: [
       { t: T0, o: 1.1002, h: 1.1002, l: 1.099, c: 1.099, marks: 2 },
@@ -42,6 +42,27 @@ describe("position map moments", () => {
   it("shows one mark that is both best and worst once", () => {
     const one = { ts: T0 + M, price: 1.1, pnl: 0 };
     expect(moments(path({ best: one, worst: one, last: { ...one, swap: 0 } }), null).map((m) => m.key)).toEqual(["entry", "best", "now"]);
+  });
+});
+
+describe("position map level steps", () => {
+  const moved = { levelSteps: [{ ts: T0, stop: 1.104, target: 1.05 }, { ts: T0 + 5 * M, stop: 1.1015, target: 1.05 }, { ts: T0 + 9 * M, stop: 1.1, target: 1.05 }] };
+
+  it("draws a stop the venue moved as steps to the chart's end, and a flat level as none", () => {
+    expect(levelStepLine(path(moved), "stop", T0 + 18 * M)).toEqual([[T0, 1.104], [T0 + 5 * M, 1.1015], [T0 + 9 * M, 1.1], [T0 + 18 * M, 1.1]]);
+    expect(levelStepLine(path(moved), "target", T0 + 18 * M)).toBeNull();
+  });
+
+  it("widens the price range to the moved stop's steps near the path", () => {
+    expect(priceRange(path(moved))!.max).toBeGreaterThan(1.104);
+    expect(priceRange(path())!.max).toBeLessThan(1.103);
+  });
+
+  it("puts a moved stop on its own step series and keeps it off the mark lines", () => {
+    const o = pathOption({ path: path(moved), moments: moments(path(moved), null), view: "price", digits: 5, narrow: false });
+    const series = o.series as Array<{ name: string; markLine?: { data: Array<{ name: string }> } }>;
+    expect(series.map((x) => x.name)).toEqual(["price", "moments", "stop (moved)"]);
+    expect(series[0]!.markLine!.data.map((d) => d.name)).toEqual(["entry"]);
   });
 });
 
@@ -116,13 +137,13 @@ describe("position map option", () => {
     expect(html).not.toContain("Worst");
   });
 
-  it("moves a label that would collide beside its marker", () => {
+  it("flips a label that would collide to the other side of its marker", () => {
     const at = (key: "best" | "worst" | "now", f: number, y: number) => ({ key, ts: T0 + f * 1000, y });
-    // best and latest both low and close together near the right edge: the later one goes left
-    expect([...labelPlacements([at("worst", 600, 9), at("best", 880, 1), at("now", 970, 2)], 5, T0, T0 + 1000_000)]).toEqual([["worst", "top"], ["best", "bottom"], ["now", "left"]]);
+    // best and latest both low and close together: the later one flips above its marker
+    expect([...labelPlacements([at("worst", 600, 9), at("best", 880, 1), at("now", 970, 2)], 5, T0, T0 + 1000_000)]).toEqual([["worst", "top"], ["best", "bottom"], ["now", "top"]]);
     // far apart, each keeps its side
     expect([...labelPlacements([at("best", 100, 1), at("now", 600, 2)], 5, T0, T0 + 1000_000)]).toEqual([["best", "bottom"], ["now", "bottom"]]);
-    expect([...labelPlacements([at("best", 100, 1), at("now", 150, 2)], 5, T0, T0 + 1000_000)]).toEqual([["best", "bottom"], ["now", "right"]]);
+    expect([...labelPlacements([at("best", 100, 1), at("now", 150, 2)], 5, T0, T0 + 1000_000)]).toEqual([["best", "bottom"], ["now", "top"]]);
   });
 
   it("shades flat stretches lighter than gaps and labels only the wide ones", () => {

@@ -1,6 +1,6 @@
 import type { ReactNode } from "react";
 import { DASH, signedMoney, toneClass } from "../format";
-import { Popover } from "../components/ui";
+import { PctOf, Popover } from "../components/ui";
 
 /*
  * The journal's widget kit for the strategy page: a titled card whose title opens its explanation,
@@ -51,10 +51,10 @@ export function Widget({
 }
 
 /** The page's hero money figure: "−1,002.40", 24px/650, tabular. */
-export function BigPnl({ value, className = "" }: { value: number | null | undefined; className?: string }) {
+export function BigPnl({ value, base, className = "" }: { value: number | null | undefined; base?: number | null; className?: string }) {
   if (value == null) return <div className={`text-2xl font-headline text-muted ${className}`}>{DASH}</div>;
   return (
-    <div className={`text-2xl font-headline ${toneClass(value)} ${className}`}>{signedMoney(value)}</div>
+    <div className={`text-2xl font-headline ${toneClass(value)} ${className}`}>{signedMoney(value)}<PctOf value={value} base={base} className="text-base" /></div>
   );
 }
 

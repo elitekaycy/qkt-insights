@@ -117,6 +117,12 @@ export function compactPnl(v: number): string {
   return `${v > 0 ? "+" : MINUS}${body}`;
 }
 
+/** `value` as a percent of `base` (percent units); null when either is missing or the base is not positive. */
+export function returnOn(value: number | null | undefined, base: number | null | undefined): number | null {
+  if (value == null || base == null || !Number.isFinite(value) || !Number.isFinite(base) || base <= 0) return null;
+  return (value / base) * 100;
+}
+
 /** A signed return in percent units that never prints a non-zero return as "0.00%": "−0.06%", "<0.01%", "−<0.01%". */
 export function returnPct(v: number | null | undefined): string {
   if (missing(v)) return DASH;
