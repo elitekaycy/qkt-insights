@@ -1,5 +1,6 @@
 import { describe, expect, it } from "vitest";
 import type { AccountRiskRow, LivePositionRow } from "./api";
+import { realizedCurves } from "./strategyCards";
 import { splitOtherWords, splitTotalWords, dailyMeasured, drawdownMeasured, emptyPeriods, floatingNote, floatingNoteText, limitLine, limitUse, noAccountMessage, openRisk, positionRisks, rangeFirstDay, riskRowFor, strategyLines, strategyPeriods, strategyTotal, todayHeadline, todaySplit, attentionItems, unpricedStrategies, sharedFloatingNote } from "./home";
 
 function position(p: Partial<LivePositionRow> & Pick<LivePositionRow, "ticket">): LivePositionRow {
@@ -71,9 +72,31 @@ describe("strategyPeriods", () => {
     const closes = [-0.014, -0.014, -0.014].map((realizedExact, i) => ({ strategyId: "a", ts: 1000 + i, realized: -0.01, realizedExact }));
     const a = strategyPeriods(closes, { now: 2000, dayStart: 0 }).get("a")!;
     expect(a).toMatchObject({ all: -0.04, todayRealized: -0.04, losses: 3, maxDd: 0.04 });
-    // a public view sends no exact amount: its rows add as they print
-    const shared = strategyPeriods(closes.map(({ realizedExact: _e, ...c }) => c), { now: 2000, dayStart: 0 }).get("a")!;
-    expect(shared.all).toBe(-0.03);
+    // rows with neither an exact amount nor a running total add as they print
+    const printed = strategyPeriods(closes.map(({ realizedExact: _e, ...c }) => c), { now: 2000, dayStart: 0 }).get("a")!;
+    expect(printed.all).toBe(-0.03);
+  });
+
+  it("reads a shared view's running totals: no row's unrounded amount, yet the signed-in view's figures", () => {
+    const exact = [-0.014, -0.014, -0.014, 0.006].map((realizedExact, i) => ({ strategyId: "a", ts: 1000 + i, realized: Number(realizedExact.toFixed(2)), realizedExact }));
+    // what the server states on every row: the strategy's running total at the cent
+    const cum = [-0.01, -0.03, -0.04, -0.04];
+    const signedIn = strategyPeriods(exact.map((c, i) => ({ ...c, cum: cum[i]! })), { now: 2000, dayStart: 1002 }).get("a")!;
+    const shared = strategyPeriods(exact.map(({ realizedExact: _e, ...c }, i) => ({ ...c, cum: cum[i]! })), { now: 2000, dayStart: 1002 }).get("a")!;
+    expect(shared).toEqual(signedIn);
+    // a period is how far the running total moved in it, so the periods and the total always agree
+    expect(shared).toMatchObject({ all: -0.04, todayRealized: -0.01, maxDd: 0.04, trades: 4, wins: 1, losses: 3 });
+  });
+
+  it("puts a venue adjustment in the totals, the period and the curve, but in no trade", () => {
+    const closes = [{ strategyId: "a", ts: 1000, realized: 1.5, cum: 1.5 }, { strategyId: "a", ts: 3000, realized: -0.75, cum: 1.01 }];
+    const adjustments = [{ strategyId: "a", ts: 2000, realized: 0.26, cum: 1.76 }];
+    const a = strategyPeriods(closes, { now: 4000, dayStart: 1500, adjustments }).get("a")!;
+    expect(a).toMatchObject({ all: 1.01, todayRealized: -0.49, adjustments: 0.26, trades: 2, wins: 1, losses: 1, lastTs: 3000, maxDd: 0.75 });
+    expect(realizedCurves(closes, { now: 4000, adjustments }).get("a")).toEqual([0, 1.5, 1.76, 1.01]);
+    // a strategy whose only money is an adjustment still gets its row, with no trade
+    const only = strategyPeriods([], { now: 4000, dayStart: 0, adjustments: [{ strategyId: "b", ts: 2000, realized: -0.4 }] }).get("b")!;
+    expect(only).toMatchObject({ all: -0.4, adjustments: -0.4, trades: 0, lastTs: null });
   });
 
   it("gives a strategy with only an open position a row, and ignores closes after now", () => {

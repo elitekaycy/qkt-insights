@@ -106,7 +106,7 @@ export default function Home({ instanceId }: { instanceId: string | null }) {
   const floating = view.public
     ? new Map<string | null, number>(Object.entries(liveState.data?.openByStrategy ?? {}))
     : floatingByStrategy(positions);
-  const periods = summary.data ? strategyPeriods(summary.data.closes, { now, dayStart, floating: scoped && view.public ? scopedFloating(floating, summary.data) : floating }) : null;
+  const periods = summary.data ? strategyPeriods(summary.data.closes, { now, dayStart, floating: scoped && view.public ? scopedFloating(floating, summary.data) : floating, adjustments: summary.data.adjustments }) : null;
   // an account's tab lists the strategies that traded on it (a close, or an open position there)
   const onAccount = (row: StrategyRow) => !scoped || (periods?.has(row.strategyId) ?? false);
   const lines: StrategyLine[] = periods ? strategyLines(rows.filter(onAccount), periods) : [];

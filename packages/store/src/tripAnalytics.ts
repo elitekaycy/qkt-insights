@@ -1,6 +1,6 @@
 import type { Db } from "./db.js";
 import { winRatePct } from "./analytics.js";
-import { addMoney, instanceMoneyDigits, roundMoney } from "./money.js";
+import { instanceMoneyDigits, roundMoney } from "./money.js";
 import { refreshProjections } from "./projections.js";
 import { roundTripPages, roundTripTotals, type RoundTripQuery, type TripEnded, type TripRow } from "./tripQueries.js";
 import type { CurrencyNet } from "./currencies.js";
@@ -137,7 +137,6 @@ export interface AnalyzeOptions {
  */
 export function analyzeTrips(rows: readonly TripRow[], counts: { total: number; matched: number }, opts: AnalyzeOptions = {}): Omit<TripAnalytics, "currencies"> {
   const digits = opts.digits ?? 2;
-  const plus = (a: number, b: number) => addMoney(a, b, digits);
   // A bucket's money is the exact sum of what it holds, at the minor unit; wins and losses read the row as shown.
   const unrounded = new Map<object, number>();
   const add = (b: { n: number; wins: number; losses: number; pnl: number }, pnl: number, exact: number) => {
@@ -172,8 +171,10 @@ export function analyzeTrips(rows: readonly TripRow[], counts: { total: number; 
 
   for (const t of closed) {
     const p = t.pnl;
-    if (p > 0) { wins++; grossWin = plus(grossWin, p); runW++; runL = 0; }
-    else if (p < 0) { losses++; grossLoss = plus(grossLoss, p); runL++; runW = 0; }
+    const exact = exactOf(t);
+    // a trip is a win or a loss as it prints; the gross sums add the exact amounts, rounded once below
+    if (p > 0) { wins++; grossWin += exact; runW++; runL = 0; }
+    else if (p < 0) { losses++; grossLoss += exact; runL++; runW = 0; }
     else breakeven++;
     maxWin = Math.max(maxWin, runW);
     maxLoss = Math.max(maxLoss, runL);
@@ -181,7 +182,6 @@ export function analyzeTrips(rows: readonly TripRow[], counts: { total: number; 
     if (t.holdMs != null) { holdN++; holdSum += t.holdMs; }
     if (!best || p > best.pnl) best = t;
     if (!worst || p < worst.pnl) worst = t;
-    const exact = exactOf(t);
     cumExact += exact;
     const cum = roundMoney(cumExact, digits);
     if (cum > peak) { peak = cum; peakTs = t.exitTs; }
@@ -206,7 +206,10 @@ export function analyzeTrips(rows: readonly TripRow[], counts: { total: number; 
     }
   }
 
+  grossWin = roundMoney(grossWin, digits);
+  grossLoss = roundMoney(grossLoss, digits);
   // days and months: each trip's closing legs summed per UTC day (month), one count per trip there
+  const monthGross = new Map<TripMonth, { win: number; loss: number }>();
   for (const t of rows) {
     const legs = opts.legs?.get(t.id);
     const parts: readonly TripLeg[] = legs ?? (t.status === "closed" && t.pnl != null && t.exitTs != null ? [{ ts: t.exitTs, realized: exactOf(t) }] : []);
@@ -226,8 +229,12 @@ export function analyzeTrips(rows: readonly TripRow[], counts: { total: number; 
       const p = roundMoney(exact, digits);
       const m = months.get(month) ?? { day: month, n: 0, wins: 0, losses: 0, pnl: 0, grossWin: 0, grossLoss: 0 };
       add(m, p, exact);
-      if (p > 0) m.grossWin = plus(m.grossWin, p);
-      else m.grossLoss = plus(m.grossLoss, p);
+      const gross = monthGross.get(m) ?? { win: 0, loss: 0 };
+      if (p > 0) gross.win += exact;
+      else gross.loss += exact;
+      monthGross.set(m, gross);
+      m.grossWin = roundMoney(gross.win, digits);
+      m.grossLoss = roundMoney(gross.loss, digits);
       months.set(month, m);
     }
   }

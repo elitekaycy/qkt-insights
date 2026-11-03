@@ -356,6 +356,7 @@ export interface StrategyRow {
   /** Operator-declared capital (STRATEGY_CAPITAL); wins over startingBalance as the strategy's base. */
   definedCapital: number | null;
   metadata: Record<string, unknown> | null;
+  /** Closed trades plus venue adjustments (dividends, charges), exact and rounded once: the strategy's one realized total. */
   realizedNet: number | null;
   dealCount: number;
   /** In the instance's latest deployed roster. False = lingering from a prior bench topology. */
@@ -384,7 +385,10 @@ export interface StrategyStats {
   buyCount: number;
   sellCount: number;
   volume: number;
+  /** Closed trades plus venue adjustments: the strategy's one realized total. */
   realizedPnl: number | null;
+  /** The venue adjustments inside realizedPnl; 0 without any. */
+  adjustmentNet: number;
   equity: number | null;
   startingBalance: number | null;
   returnPct: number | null;
@@ -488,6 +492,19 @@ export interface AccountClose extends ClosedTradeRow {
   strategyId: string | null;
   /** The symbol without its broker-profile prefix. */
   instrument: string;
+  /** The strategy's realized total after this row (closes and venue adjustments), exact and rounded once. */
+  cum: number;
+}
+/** A venue adjustment (a dividend, a charge): money on its strategy, but no trade. */
+export interface AccountAdjustment {
+  ts: number;
+  strategyId: string | null;
+  instrument: string;
+  realized: number;
+  /** Unrounded; a public view does not send it. */
+  realizedExact?: number;
+  /** The strategy's realized total after this row, as on the closes. */
+  cum: number;
 }
 export interface AccountBucket {
   key: string | null;
@@ -499,7 +516,10 @@ export interface AccountBucket {
 }
 /** Every close on the account: retired strategies and unattributed deals included. */
 export interface AccountSummary {
+  /** Newest first. */
   closes: AccountClose[];
+  /** Newest first. */
+  adjustments: AccountAdjustment[];
   dailyNets: DayNet[];
   totalNet: number;
   trades: number;

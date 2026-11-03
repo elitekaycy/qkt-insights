@@ -35,6 +35,7 @@ function roundTrip(strategyId: string | null, closeTs: number, profit: number, c
 }
 
 beforeEach(async () => {
+  seq = 0;
   now = Date.now();
   db = openDb(":memory:");
   const add = db.prepare("INSERT INTO strategies (instance_id, strategy_id, first_seen, last_seen, metadata) VALUES (?, ?, ?, ?, ?)");
@@ -83,12 +84,52 @@ async function cards() {
     get<StrategyRow[]>(`/strategies?instance=${I}`), get<AccountSummary>(`/account/summary?instance=${I}`), get<LiveStateSnapshot>("/live/state"),
   ]);
   const positions = state.positions.filter((g) => g.instanceId === I).flatMap((g) => g.list);
-  const periods = strategyPeriods(summary.closes, { now, dayStart: tradingDayStart(now, 0, "UTC"), floating: floatingByStrategy(positions) });
-  return { rows, summary, positions, lines: strategyLines(rows, periods), curves: realizedCurves(summary.closes, { now }) };
+  const periods = strategyPeriods(summary.closes, { now, dayStart: tradingDayStart(now, 0, "UTC"), floating: floatingByStrategy(positions), adjustments: summary.adjustments });
+  return { rows, summary, positions, lines: strategyLines(rows, periods), curves: realizedCurves(summary.closes, { now, adjustments: summary.adjustments }) };
+}
+
+/** Each card against /strategies, /stats and the live positions: realized, net, trades, win rate and the curve's end. */
+async function expectCardsMatchTheStrategyPage(): Promise<void> {
+  const { rows, lines, positions, curves } = await cards();
+  for (const row of rows) {
+    const line = lines.find((l) => l.key === row.strategyId)!;
+    const card = cardFigures(line);
+    const stats = await get<StrategyStats>(`/stats?instance=${I}&strategy=${encodeURIComponent(row.strategyId)}`);
+    const open = positions.filter((p) => p.strategyId === row.strategyId).reduce((a, p) => a + (p.profit ?? 0) + (p.swap ?? 0), 0);
+    expect(card.realized, row.strategyId).toBe(row.realizedNet ?? 0);
+    expect(card.realized, row.strategyId).toBe(stats.realizedPnl ?? 0);
+    expect(card.floating).toBeCloseTo(open, 9);
+    expect(card.net).toBeCloseTo((stats.realizedPnl ?? 0) + open, 9);
+    expect(card.trades).toBe(stats.tradeCount);
+    expect(card.winRate).toBe(stats.winRate);
+    // the sparkline ends where the realized figure does
+    expect(curves.get(row.strategyId)!.at(-1)).toBe(card.realized);
+  }
 }
 
 describe("Strategy cards over the real API", () => {
+  it("counts a venue adjustment in the card, /strategies, /stats and the sparkline alike, and in no trade", async () => {
+    // a 0.37 charge booked on gold's first position after it closed, and a sub-cent one on its last
+    ingestEvents(db, I, [
+      { v: 1, instanceId: I, id: "deal-adj-1", seq: ++seq, ts: now - 8 * DAY, type: "broker.deal",
+        payload: { broker: "ICM", dealTicket: "adj-1", positionTicket: "p1", symbol: "ICM:XAUUSD", entry: "ADJUSTMENT", qty: 0, price: 0, profit: -0.37, strategyId: "gold", ts: now - 8 * DAY } },
+      { v: 1, instanceId: I, id: "deal-adj-2", seq: ++seq, ts: now - HOUR / 2, type: "broker.deal",
+        payload: { broker: "ICM", dealTicket: "adj-2", positionTicket: "p10", symbol: "ICM:XAUUSD", entry: "ADJUSTMENT", qty: 0, price: 0, profit: -0.004, strategyId: "gold", ts: now - HOUR / 2 } },
+    ] as unknown as Envelope[]);
+    await expectCardsMatchTheStrategyPage();
+    const { lines } = await cards();
+    const gold = lines.find((l) => l.key === "gold")!;
+    // 140.25 from the closes, -0.374 from the venue: one total, rounded once
+    expect(cardFigures(gold).realized).toBe(139.88);
+    expect(gold.periods.adjustments).toBe(-0.37);
+    expect(gold.periods.trades).toBe(4);
+    const stats = await get<StrategyStats>(`/stats?instance=${I}&strategy=gold`);
+    expect(stats.adjustmentNet).toBe(-0.37);
+    expect(stats.tradeCount).toBe(4);
+  });
+
   it("shows each strategy's figures exactly as /strategies, /stats and the live positions give them", async () => {
+    await expectCardsMatchTheStrategyPage();
     const { rows, lines, positions, curves } = await cards();
     for (const row of rows) {
       const line = lines.find((l) => l.key === row.strategyId)!;

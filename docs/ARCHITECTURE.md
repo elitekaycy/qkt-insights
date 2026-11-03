@@ -230,6 +230,14 @@ most 2,000 points by default (the last stored minute of each time bucket), `?poi
 account's closes when the instance reports several (404 for an account it does not know), and `/account/risk` counts
 each account's own closes in its realized today.
 
+A strategy has one realized total: its closed trades plus its venue adjustments (a stock CFD's dividend, a charge),
+summed from their exact amounts and rounded once to the minor unit. `/strategies` (`realizedNet`), `/stats`
+(`realizedPnl`, with the adjustments' share in `adjustmentNet`), the equity curve, the performance report and the
+cards all state it; adjustments are in no trade count or win rate. `/account/summary` lists the adjustments beside the
+closes, and every row carries `cum`, its strategy's total after it at the minor unit: a shared link sends no row's
+unrounded amount, so the cards read their totals, periods and sparklines from `cum`, and a shared card shows the
+signed-in figures. A period (Today, 7D, MTD) is how far that total moved in it.
+
 ### Round trips and the query language
 
 `/round-trips` serves one row per position from the `round_trips` projection (see
