@@ -40,6 +40,12 @@ qkt instance(s) ──POST /ingest──▶ qkt-insights (SQLite) ──▶ dash
 It stays off the trading hot path: qkt ships events from a background thread, and if the collector is slow or
 down, events are dropped and the engine keeps trading.
 
+<p align="center">
+  <img alt="qkt-insights Home: balance, equity, today, risk to stops, daily loss and drawdown, the realized P&L chart and trading calendar, open positions and the strategies table, for a demo account" src="docs/assets/screenshots/home.png" width="840">
+</p>
+
+<p align="center"><sub>Home on the demo account: where the account stands right now, what it made, and what needs you.<br/><a href="docs/PAGES.md">Every page</a></sub></p>
+
 <br/>
 
 ## Quick start
