@@ -32,6 +32,8 @@ export interface RoundTrip {
   exitPrice: number | null;
   qty: number;
   pnl: number | null;
+  /** The unrounded net (pnl is at the minor unit); absent from an older collector. */
+  pnlExact?: number | null;
   /** With an `exit:` window: what the closing legs inside it realized, when others closed outside it; else null. */
   pnlInExit: number | null;
   holdMs: number | null;

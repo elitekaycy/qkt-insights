@@ -1,13 +1,13 @@
 import { useCallback, useEffect, useMemo, useRef, useState, type ReactNode } from "react";
 import { accountName, accountOfLabel } from "../accounts";
-import { DASH, duration, openPnl, quantity, signedMoney, toneClass } from "../format";
+import { DASH, duration, moneyToneClass, openPnl, quantity, signedMoney } from "../format";
 import { instrumentType, optionFromSymbol, optionLine, shortInstrument, sizeInWords, TYPE_LABEL } from "../instruments";
 import { Pill, RowChevron, SideWord, Skeleton, Spinner } from "../components/ui";
 import { useStrategyNames } from "../hooks/useStrategies";
 import { useView } from "../view";
 import { useLiveState } from "../useLiveState";
 import { useRoundTrips, type RoundTrip, type RoundTripTotals, type SortKey, type TripScope } from "./data";
-import { minuteStamp, px, rMultiple, tableStamp, tripInstrument } from "./format";
+import { minuteStamp, px, rMultiple, shownPnl, tableStamp, tripInstrument } from "./format";
 import { EndedWord } from "./bits";
 import { TradeDrawer, useOpenTrade } from "./TradeDrawer";
 import { TradeSheet } from "./TradeSheet";
@@ -57,9 +57,9 @@ function Cell({ children, right, className = "" }: { children: ReactNode; right?
  * with the whole position's P&L in the tooltip.
  */
 function TripPnl({ t }: { t: RoundTrip }) {
-  if (t.pnlInExit == null) return <>{signedMoney(t.pnl)}</>;
+  if (t.pnlInExit == null) return <>{signedMoney(shownPnl(t))}</>;
   return (
-    <span title={`${signedMoney(t.pnlInExit)} closed in this range; the position's other closing legs fell on other days (whole position ${signedMoney(t.pnl)})`}>
+    <span title={`${signedMoney(t.pnlInExit)} closed in this range; the position's other closing legs fell on other days (whole position ${signedMoney(shownPnl(t))})`}>
       <span className="mr-1 font-sans text-xs font-normal text-muted">part</span>{signedMoney(t.pnlInExit)}
     </span>
   );
@@ -97,7 +97,7 @@ function cells(t: RoundTrip, hide: ReadonlySet<string>, strategyName: (id: strin
     strategy: <Cell><StrategyName id={t.strategyId} name={strategyName} /></Cell>,
     side: <Cell><SideWord side={t.side} /></Cell>,
     size: <Cell right className="font-mono text-muted"><span title={sizeInWords(t.qty, t)}>{quantity(t.qty)}</span></Cell>,
-    pnl: <Cell right className={`font-mono font-medium ${toneClass(t.pnlInExit ?? t.pnl)}`}>{t.pnl == null ? (t.status === "open" ? <OpenPnl value={floating.get(t.id)} /> : DASH) : <TripPnl t={t} />}</Cell>,
+    pnl: <Cell right className={`font-mono font-medium ${moneyToneClass(t.pnlInExit ?? shownPnl(t))}`}>{t.pnl == null ? (t.status === "open" ? <OpenPnl value={floating.get(t.id)} /> : DASH) : <TripPnl t={t} />}</Cell>,
     ended: <Cell>{t.status === "open" ? <Pill tone="info">Open</Pill> : <EndedWord ended={t.ended} />}</Cell>,
   };
   return COLUMNS.filter((c) => !hide.has(c.key)).map((c) => <span key={c.key} className="contents">{all[c.key]}</span>);
@@ -295,7 +295,7 @@ export function RoundTripTable({ scope, q, sort, dir, onSort, hide = [], height 
       <div key={t.id} {...common} className={`group absolute inset-x-0 flex flex-col justify-center gap-1 border-b border-line pl-3 pr-1.5 text-sm cursor-pointer active:bg-press ${selected ? "bg-accent-soft" : ""}`}>
         <div className="flex items-center gap-2">
           <span className="min-w-0 truncate font-medium text-bright">{shortInstrument(t.instrument, tripType(t))}</span>
-          <span className={`ml-auto shrink-0 font-mono font-medium ${toneClass(t.pnlInExit ?? t.pnl)}`}>{t.status === "open" ? <OpenPnl value={floating.get(t.id)} /> : <TripPnl t={t} />}</span>
+          <span className={`ml-auto shrink-0 font-mono font-medium ${moneyToneClass(t.pnlInExit ?? shownPnl(t))}`}>{t.status === "open" ? <OpenPnl value={floating.get(t.id)} /> : <TripPnl t={t} />}</span>
           <RowChevron />
         </div>
         <div className="flex items-center gap-2 text-xs text-muted">

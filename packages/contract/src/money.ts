@@ -26,6 +26,20 @@ export function exactMoney(row: { realized: number; realizedExact?: number | nul
   return row.realizedExact ?? row.realized;
 }
 
+/** Decimals an unrounded amount's sign is read at: finer than any venue books, coarser than float noise. */
+const SIGN_DIGITS = 8;
+
+/**
+ * Whether an unrounded amount made money (1), lost it (-1) or neither (0). A trade is a win or a loss by what it
+ * actually booked, not by its figure at the minor unit: a venue can book finer than a cent (a small contract's fee is
+ * 0.0001), so a close of +0.0045 is a win though it prints +0.00 at cents. Float noise from summing amounts
+ * (0.1 + -0.1) reads as breakeven. SQL reads the same with `round(x, 8)`.
+ */
+export function moneySign(v: number): -1 | 0 | 1 {
+  const r = Number(v.toFixed(SIGN_DIGITS));
+  return r > 0 ? 1 : r < 0 ? -1 : 0;
+}
+
 /**
  * `v` at `digits` decimals, halves away from zero, read at 15 significant digits first so float
  * noise cannot move it across a half (1.005 is 1.01, -280.34999999999997 is -280.35). Never -0.

@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { axisTick, compact, compactPnl, returnPct, dealNet, duration, fixed, human, instrumentOf, money, num, openPnl, pct, price, signedMoney, signedPct, toneClass, ts, tsShort } from "./format";
+import { axisTick, compact, compactPnl, returnPct, dealNet, duration, fixed, human, instrumentOf, money, moneyToneClass, num, openPnl, pct, price, signedMoney, signedPct, toneClass, ts, tsShort } from "./format";
 import { tableStamp } from "./trades/format";
 
 describe("price", () => {
@@ -53,14 +53,29 @@ describe("signed money", () => {
   it("always carries a sign and a true minus", () => {
     expect(signedMoney(1234.5)).toBe("+1,234.50");
     expect(signedMoney(-56)).toBe("\u221256.00");
-    expect(signedMoney(-0.004)).toBe("0.00");
     expect(signedMoney(null)).toBe("\u2014");
+  });
+
+  it("shows an amount booked finer than the minor unit instead of a zero it is not, and never float noise", () => {
+    expect(signedMoney(-0.004)).toBe("\u22120.004");
+    expect(signedMoney(0.0045)).toBe("+0.0045");
+    expect(signedMoney(-0.0007)).toBe("\u22120.0007");
+    expect(signedMoney(1.004)).toBe("+1.00");
+    expect(signedMoney(0)).toBe("0.00");
+    expect(signedMoney(2.7e-17)).toBe("0.00");
+    expect(signedMoney(0.004, 0)).toBe("+0.004");
+    expect(signedMoney(0.0007)).toBe("+0.0007");
+    expect(moneyToneClass(0.0045)).toBe("text-gain");
+    expect(moneyToneClass(-0.004)).toBe("text-loss");
+    expect(moneyToneClass(1e-12)).toBe("text-muted");
+    expect(moneyToneClass(null)).toBe("text-muted");
+    expect(toneClass(-0.001)).toBe("text-muted");
   });
 
   it("signs money so colour is never the only signal", () => {
     expect(signedMoney(1002.4)).toBe("+1,002.40");
     expect(signedMoney(-1002.4)).toBe("\u22121,002.40");
-    expect(signedMoney(0.001)).toBe("0.00");
+    expect(signedMoney(0.001)).toBe("+0.001");
   });
 
   it("maps polarity to the gain and loss text tones", () => {

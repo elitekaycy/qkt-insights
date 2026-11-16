@@ -3,7 +3,7 @@ import {
   accountBinds, adjustmentRows, canonicalDeal, dealOnAccount, SWAP_ONLY, closeDealOf, closedTradeRows, fullyClosedPosition, instrumentOf, OUT_LEGS,
   type AdjustmentRow, type DayNet, type DealClosedTrade,
 } from "./analytics.js";
-import { exactMoney, instanceMoneyDigits, roundMoney } from "./money.js";
+import { exactMoney, instanceMoneyDigits, moneySign, roundMoney } from "./money.js";
 
 /**
  * Account-level figures: every closed trade on the instance's account, whichever strategy owned it.
@@ -142,7 +142,7 @@ export interface AccountSummary {
    */
   dailyNets: DayNet[];
   totalNet: number;
-  /** Closes (one per closing leg); wins, losses and breakeven classify each close at the minor unit. */
+  /** Closes (one per closing leg); wins, losses and breakeven classify each close by what it booked (moneySign). */
   trades: number;
   wins: number;
   losses: number;
@@ -163,8 +163,9 @@ function bucket(map: Map<string | null, AccountBucket>, key: string | null, c: A
   const b = map.get(key) ?? { key, net: 0, trades: 0, wins: 0, losses: 0 };
   b.net += exactMoney(c);
   b.trades++;
-  if (c.realized > 0) b.wins++;
-  else if (c.realized < 0) b.losses++;
+  const sign = moneySign(exactMoney(c));
+  if (sign > 0) b.wins++;
+  else if (sign < 0) b.losses++;
   map.set(key, b);
   return b;
 }
@@ -177,11 +178,13 @@ export function accountSummary(db: Db, f: AccountFilter): AccountSummary {
   const tripsByDay = new Map<string, Set<string>>();
   const byInstrument = new Map<string | null, AccountBucket>();
   const byStrategy = new Map<string | null, AccountBucket>();
-  // wins and losses class each close as it prints; their sums, like every total, add the exact amounts and round once
+  // wins and losses class each close by what it booked (moneySign); their sums, like every total, add the exact amounts
+  // and round once
   let totalNet = 0, wins = 0, losses = 0, sumWins = 0, sumLosses = 0;
   closes.forEach((c, i) => {
     totalNet += exactMoney(c);
-    if (c.realized > 0) { wins++; sumWins += exactMoney(c); } else if (c.realized < 0) { losses++; sumLosses -= exactMoney(c); }
+    const sign = moneySign(exactMoney(c));
+    if (sign > 0) { wins++; sumWins += exactMoney(c); } else if (sign < 0) { losses++; sumLosses -= exactMoney(c); }
     const day = new Date(c.ts).toISOString().slice(0, 10);
     const d = byDay.get(day) ?? { day, net: 0, trades: 0 };
     d.net += exactMoney(c);

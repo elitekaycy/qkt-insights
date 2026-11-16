@@ -40,7 +40,7 @@ function trip(n: number, t0: number, p: { entry: number; exit: number; stop: num
 
 /**
  * - 1 tiny: -0.0046 profit, 2 x -0.0005 commission: exact -0.0056 over 0.005 is R -1.12 (money -0.01)
- * - 2 tiny, under half a cent: exact -0.004 over 0.005 is R -0.8 (money 0.00, breakeven)
+ * - 2 tiny, under half a cent: exact -0.004 over 0.005 is R -0.8 (money 0.00, a loss)
  * - 3 cent-sized: +0.02 profit, 2 x -0.005 commission: exact +0.01 over 0.01 is R 1
  * - 4 large: +1234.5678 profit, no cost: exact over 500 is R 2.4691356 (money 1234.57)
  */
@@ -77,10 +77,11 @@ describe("R from the exact realized, money at the minor unit", () => {
     [-0.0056, -0.004, 0.01, 1234.5678].forEach((v, i) => expect(rows[i]!.realizedExact).toBeCloseTo(v, 12));
   });
 
-  it("win, loss and pnl: read the cents; r: reads the exact R at its boundaries", () => {
+  it("win and loss: read what was booked; pnl: reads the cents; r: reads the exact R at its boundaries", () => {
     const db = fixture();
-    expect(ids(db, "loss")).toEqual(["1"]);
-    expect(ids(db, "breakeven")).toEqual(["2"]);
+    // trip 2 booked -0.004: it prints 0.00 at cents, but it lost money (R -0.8), so it is a loss, not breakeven
+    expect(ids(db, "loss")).toEqual(["1", "2"]);
+    expect(ids(db, "breakeven")).toEqual([]);
     expect(ids(db, "win")).toEqual(["3", "4"]);
     expect(ids(db, "pnl:=-0.01")).toEqual(["1"]);
     expect(ids(db, "pnl:=0")).toEqual(["2"]);

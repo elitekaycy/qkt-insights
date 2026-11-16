@@ -34,6 +34,17 @@ describe("analyzeTrips: the journal aggregates over round trips", () => {
     expect(a.winRate).toBe(50);
   });
 
+  it("classes a trip by what it booked, so a sub-cent close is a win or a loss though it prints 0.00", () => {
+    const small = analyzeTrips([
+      trip("a", { pnl: 0, pnlExact: 0.0045, entryTs: MON }),
+      trip("b", { pnl: 0, pnlExact: -0.0001, entryTs: MON + H, side: "short" }),
+      trip("c", { pnl: 0, pnlExact: 0.1 + -0.1, entryTs: MON + 2 * H }),
+    ], { total: 3, matched: 3 });
+    expect([small.wins, small.losses, small.breakeven]).toEqual([1, 1, 1]);
+    expect(small.winRate).toBe(50);
+    expect(small.side.find((b) => b.key === "long")).toMatchObject({ wins: 1, losses: 0 });
+  });
+
   it("derives profit factor, payoff and expectancy from the same trades", () => {
     expect(a.grossWin).toBe(180);
     expect(a.grossLoss).toBe(-80);

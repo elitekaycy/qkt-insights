@@ -2,7 +2,7 @@ import type { Db } from "./db.js";
 import { OUT_LEGS } from "./closedTrades.js";
 import { refreshProjections } from "./projections.js";
 import { statement } from "./statements.js";
-import { exactMoney, instanceMoneyDigits, roundMoney } from "./money.js";
+import { exactMoney, instanceMoneyDigits, moneySign, roundMoney } from "./money.js";
 import { curveAnchor, dailyRows, strategyTotals, type DailyRow } from "./strategyDaily.js";
 import { excursionsOf } from "./excursions.js";
 
@@ -543,7 +543,7 @@ export function tradePnls(db: Db, f: AnalyticsFilter): { pnls: number[]; net: nu
 
 function tradePnlSeries(db: Db, f: AnalyticsFilter): { pnls: number[]; net: number; exact: boolean } {
   const fromRows = (rows: readonly ClosedTradeRow[]) => ({
-    pnls: rows.map((c) => c.realized).filter((r) => r !== 0),
+    pnls: rows.map((c) => exactMoney(c)).filter((r) => moneySign(r) !== 0),
     net: rows.reduce((a, c) => a + exactMoney(c), 0),
     exact: true,
   });
@@ -682,7 +682,7 @@ export function postLossStats(db: Db, f: AnalyticsFilter): PostLossRow[] {
     .map(([n, nexts]) => ({
       n,
       sample: nexts.length,
-      nextWinRate: (nexts.filter((x) => x > 0).length / nexts.length) * 100,
+      nextWinRate: (nexts.filter((x) => moneySign(x) > 0).length / nexts.length) * 100,
       nextAvg: nexts.reduce((a, b) => a + b, 0) / nexts.length,
     }));
 }
@@ -690,8 +690,8 @@ export function postLossStats(db: Db, f: AnalyticsFilter): PostLossRow[] {
 export function performanceReport(db: Db, f: AnalyticsFilter): PerformanceReport {
   const snaps = series(db, f);
   const { pnls: deltas, net: tradesNet, exact } = tradePnls(db, f);
-  const wins = deltas.filter((d) => d > 0);
-  const losses = deltas.filter((d) => d < 0);
+  const wins = deltas.filter((d) => moneySign(d) > 0);
+  const losses = deltas.filter((d) => moneySign(d) < 0);
   const grossProfit = wins.reduce((a, b) => a + b, 0);
   const grossLoss = Math.abs(losses.reduce((a, b) => a + b, 0));
   // Summed from the same series the trade counts come from — never mix the
@@ -712,7 +712,7 @@ export function performanceReport(db: Db, f: AnalyticsFilter): PerformanceReport
 
   let maxWinStreak = 0, maxLossStreak = 0, runW = 0, runL = 0;
   for (const d of deltas) {
-    if (d > 0) { runW++; runL = 0; } else { runL++; runW = 0; }
+    if (moneySign(d) > 0) { runW++; runL = 0; } else { runL++; runW = 0; }
     maxWinStreak = Math.max(maxWinStreak, runW);
     maxLossStreak = Math.max(maxLossStreak, runL);
   }
@@ -835,11 +835,11 @@ export function tradeBreakdowns(db: Db, f: AnalyticsFilter): TradeBreakdowns | n
     const cur = map.get(key) ?? { key, net: 0, trades: 0, wins: 0, se: null, ...(map === bySymbol ? { venues: [] } : {}) };
     cur.net += exactMoney(r);
     cur.trades++;
-    if (r.realized > 0) cur.wins++;
+    if (moneySign(exactMoney(r)) > 0) cur.wins++;
     map.set(key, cur);
     const id = `${map === byHour ? "h" : map === byDow ? "d" : map === bySymbol ? "s" : map === byVolume ? "v" : "t"}:${key}`;
     const arr = samples.get(id) ?? [];
-    arr.push(r.realized);
+    arr.push(exactMoney(r));
     samples.set(id, arr);
   };
   const fillSe = (map: Map<string, BreakdownRow>, prefix: string) => {
@@ -938,8 +938,9 @@ export function dowHourMatrix(db: Db, f: AnalyticsFilter): DowHourCell[] | null 
     const cur = cells.get(k) ?? { dow, hour, n: 0, net: 0, mean: 0, winRate: null, wins: 0, losses: 0 };
     cur.n++;
     cur.net += exactMoney(r);
-    if (r.realized > 0) cur.wins++;
-    else if (r.realized < 0) cur.losses++;
+    const sign = moneySign(exactMoney(r));
+    if (sign > 0) cur.wins++;
+    else if (sign < 0) cur.losses++;
     cells.set(k, cur);
   }
   return [...cells.values()]
@@ -1118,8 +1119,9 @@ export function contributionRanking(db: Db, f: AnalyticsFilter): ContributionRan
       const cur = m.get(k) ?? { net: 0, trades: 0, wins: 0, losses: 0, venues: new Set<string>() };
       cur.net += exactMoney(r);
       cur.trades++;
-      if (r.realized > 0) cur.wins++;
-      else if (r.realized < 0) cur.losses++;
+      const sign = moneySign(exactMoney(r));
+      if (sign > 0) cur.wins++;
+      else if (sign < 0) cur.losses++;
       cur.venues.add(r.symbol);
       m.set(k, cur);
     }
