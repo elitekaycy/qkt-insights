@@ -5,6 +5,7 @@ import { statement } from "./statements.js";
 import { exactMoney, instanceMoneyDigits, moneySign, roundMoney } from "./money.js";
 import { curveAnchor, dailyRows, strategyTotals, type DailyRow } from "./strategyDaily.js";
 import { excursionsOf } from "./excursions.js";
+import { instrumentKeys, instrumentOf } from "./instrumentFamily.js";
 
 export { OUT_LEGS };
 
@@ -564,16 +565,7 @@ function closesCoverRange(db: Db, f: AnalyticsFilter, firstCloseTs: number): boo
   return true;
 }
 
-/**
- * The traded instrument behind a venue symbol: qkt prefixes each symbol with the broker profile
- * that saw it ("ICM_S05:XAUUSD"), so one instrument on one account arrives under several names.
- * e.g. "ICM_S05:XAUUSD" -> "XAUUSD", "XAUUSD" -> "XAUUSD".
- */
-export function instrumentOf(symbol: string | null | undefined): string {
-  if (!symbol) return "";
-  const i = symbol.lastIndexOf(":");
-  return i >= 0 ? symbol.slice(i + 1) : symbol;
-}
+export { instrumentOf };
 
 function utcDay(ts: number): string {
   return new Date(ts).toISOString().slice(0, 10);
@@ -829,6 +821,7 @@ const HOLD_BINS: { key: string; maxMs: number }[] = [
 export function tradeBreakdowns(db: Db, f: AnalyticsFilter): TradeBreakdowns | null {
   const rows = closes(db, f);
   if (rows.length === 0) return null;
+  const keyOf = instrumentKeys(db, f.instanceId);
 
   const samples = new Map<string, number[]>();
   const acc = (map: Map<string, BreakdownRow>, key: string, r: ClosedTradeRow) => {
@@ -854,8 +847,8 @@ export function tradeBreakdowns(db: Db, f: AnalyticsFilter): TradeBreakdowns | n
   let withEntry = 0;
   for (const r of rows) {
     const d = new Date(r.ts);
-    acc(bySymbol, instrumentOf(r.symbol), r);
-    const row = bySymbol.get(instrumentOf(r.symbol))!;
+    acc(bySymbol, keyOf(r.symbol), r);
+    const row = bySymbol.get(keyOf(r.symbol))!;
     if (!row.venues!.includes(r.symbol)) row.venues!.push(r.symbol);
     acc(byHour, String(d.getUTCHours()).padStart(2, "0"), r);
     acc(byDow, DOW[(d.getUTCDay() + 6) % 7]!, r);
@@ -1137,7 +1130,8 @@ export function contributionRanking(db: Db, f: AnalyticsFilter): ContributionRan
       }))
       .sort((a, b) => b.net - a.net);
   };
-  return { bySymbol: build((r) => instrumentOf(r.symbol), true), byDirection: build((r) => r.side, false), totalNet };
+  const keyOf = instrumentKeys(db, f.instanceId);
+  return { bySymbol: build((r) => keyOf(r.symbol), true), byDirection: build((r) => r.side, false), totalNet };
 }
 
 export interface ExcursionRow {

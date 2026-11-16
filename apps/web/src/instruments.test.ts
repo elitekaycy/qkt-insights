@@ -133,6 +133,9 @@ describe("short instrument names", () => {
     expect(shortInstrument("BTC_USDC_29OCT26_80500_C", "option")).toBe("BTC option");
     expect(shortInstrument("EXNESS_O12:XAUUSD", "cfd")).toBe("XAUUSD");
     expect(shortInstrument("XAUUSD", null)).toBe("XAUUSD");
+    // a family the store folds a roll's contracts under
+    expect(shortInstrument("KALSHI:KXINXU@EVENT", "event")).toBe("KXINXU event");
+    expect(shortInstrument("CME:ES@FUTURE", "future")).toBe("ES future");
   });
 
   it("says what a strategy trades in one short line, every leg in full in the title", () => {

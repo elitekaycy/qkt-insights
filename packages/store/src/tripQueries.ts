@@ -398,7 +398,11 @@ function filterSql(f: QueryFilter | undefined, sql: Sql, hideIds = false): void 
       OR coalesce(${ENDED},'') LIKE ${p} ESCAPE '\\'${ids})`);
   }
   if (f.strategy !== undefined) sql.where.push(f.strategy === null ? "t.strategy_id IS NULL" : `t.strategy_id=${sql.bind(f.strategy)}`);
-  if (f.symbol) sql.where.push(`t.instrument=${sql.bind(f.symbol.toUpperCase())}`);
+  // an instrument (a family such as ES@FUTURE folds every contract of it) or one contract by its own name
+  if (f.symbol) {
+    const name = sql.bind(f.symbol.toUpperCase());
+    sql.where.push(`(t.instrument=${name} OR upper(substr(coalesce(t.symbol,''), instr(coalesce(t.symbol,''), ':') + 1))=${name})`);
+  }
   if (f.side) sql.where.push(`t.side=${sql.bind(f.side)}`);
   switch (f.outcome) {
     case "win": sql.where.push(`t.open=0 AND ${EXACT_SIGN}>0`); break;
