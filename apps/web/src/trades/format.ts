@@ -45,12 +45,21 @@ export function latency(ms: number | null): string {
   return h < 24 ? `+${h}h ${m % 60}m` : `+${Math.floor(h / 24)}d ${h % 24}h`;
 }
 
-export const ENDED_LABEL: Record<string, string> = { stop: "stop", tp: "target", signal: "signal", venue: "venue", manual: "manual" };
+/**
+ * A trip's P&L as it shows: at the minor unit, or what it booked when that rounds to zero but is not (a close of
+ * +0.0045 on a small contract shows +0.0045, and counts as the win it is).
+ */
+export function shownPnl(t: { pnl: number | null; pnlExact?: number | null }): number | null {
+  return t.pnl === 0 && t.pnlExact != null ? t.pnlExact : t.pnl;
+}
+
+export const ENDED_LABEL: Record<string, string> = { stop: "stop", tp: "target", signal: "signal", venue: "venue", settled: "settled", manual: "manual" };
 export const ENDED_TITLE: Record<string, string> = {
   stop: "The venue filled the stop-loss",
   tp: "The venue filled the take-profit",
   signal: "The strategy sent the close",
   venue: "The venue closed it (stop-out)",
+  settled: "The venue settled it at expiry (a dated future, an option or an event contract)",
   manual: "Closed by hand (qkt bot close)",
 };
 
@@ -78,6 +87,7 @@ const ENDED_STORY: Record<string, string> = {
   tp: "Hit the target",
   signal: "Closed by the strategy",
   venue: "Closed by the venue",
+  settled: "Settled at expiry",
   manual: "Closed by hand",
 };
 

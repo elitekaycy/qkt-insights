@@ -3,6 +3,7 @@ import { statement } from "./statements.js";
 import { refreshProjections } from "./projections.js";
 import { instanceMoneyDigits, roundMoney } from "./money.js";
 import { endedFromDealComment, endedFromEngineEvents, entryOrderByTicket, type Ended, type EventsNear } from "./inferredVenueFacts.js";
+import { familyKey, instrumentKeys } from "./instrumentFamily.js";
 
 /** Window around a leg in which the engine events that explain it are looked for. */
 const BEFORE_MS = 10 * 60_000;
@@ -14,6 +15,7 @@ interface Leg {
   broker: string; symbol: string | null; side: string | null; entry: string | null; qty: number | null; price: number | null;
   profit: number | null; commission: number | null; swap: number | null; fee: number | null; comment: string | null;
   strategyId: string | null; orderTicket: string | null; closeReason: string | null; attribution: string | null; ts: number;
+  kind?: string | null; root?: string | null;
 }
 
 export interface RoundTripRow {
@@ -35,11 +37,12 @@ export interface RoundTripRow {
 }
 
 /**
- * The `ended` code of each close reason qkt states: a stop or target, the venue (a stop-out, a
- * liquidation, an expiry), a person, or the strategy's own exit (its signal or its timed hold).
+ * The `ended` code of each close reason qkt states: a stop or target, the venue forcing it (a stop-out, a
+ * liquidation), the venue settling it at expiry (a dated future, an option, an event contract), a person, or the
+ * strategy's own exit (its signal or its timed hold).
  */
 const ENDED_BY_REASON: Record<string, Ended> = {
-  STOP: "stop", TAKE_PROFIT: "tp", STOP_OUT: "so", LIQUIDATION: "so", EXPIRY: "so", MANUAL: "manual", SIGNAL: "signal", TIMED: "signal",
+  STOP: "stop", TAKE_PROFIT: "tp", STOP_OUT: "so", LIQUIDATION: "so", EXPIRY: "settled", MANUAL: "manual", SIGNAL: "signal", TIMED: "signal",
 };
 
 /** The `ended` code of a stated close reason; null for none or one this release does not know. */
@@ -47,11 +50,6 @@ export function endedByReason(reason: string | null | undefined): Ended | null {
   return reason == null ? null : ENDED_BY_REASON[reason.toUpperCase()] ?? null;
 }
 
-function instrument(symbol: string | null): string {
-  if (!symbol) return "";
-  const i = symbol.lastIndexOf(":");
-  return i >= 0 ? symbol.slice(i + 1) : symbol;
-}
 
 const num = (v: unknown): number | null => (typeof v === "number" && Number.isFinite(v) ? v : null);
 /** A stop or target as qkt sends it: a bare price, or `{type: "Fixed", price}`. */
@@ -99,7 +97,7 @@ export const ENGINE_CLOSED_TRIP = `rt.open=0 AND rt.source='deal' AND NOT EXISTS
 export function recomputeRoundTrip(db: Db, instanceId: string, position: string): void {
   const legs = statement(db,
     `SELECT broker, symbol, side, entry, qty, price, profit, commission, swap, fee, comment, strategy_id strategyId, order_ticket orderTicket,
-       close_reason closeReason, attribution, ts
+       close_reason closeReason, attribution, ts, instrument_kind kind, instrument_root root
      FROM deals WHERE instance_id=? AND position_ticket=? AND canonical=1 ORDER BY ts, rowid`,
   ).all(instanceId, position) as Leg[];
   const prior = statement(db,
@@ -144,7 +142,7 @@ export function recomputeRoundTrip(db: Db, instanceId: string, position: string)
     positionTicket: position,
     broker: first.broker,
     strategyId: ins.find((l) => l.strategyId != null)?.strategyId ?? legs.find((l) => l.strategyId != null)?.strategyId ?? null,
-    instrument: instrument(first.symbol),
+    instrument: familyKey(first.symbol, legs.find((l) => l.root)?.kind, legs.find((l) => l.root)?.root),
     symbol: first.symbol,
     side: inSide === "SELL" ? "short" : "long",
     entryTs,
@@ -230,7 +228,7 @@ export function recomputeLedgerTrip(db: Db, instanceId: string, closeId: string)
        exit_ts, exit_price, qty, realized, gross, commission, swap, fee, legs, entry_order_id, entry_order_ticket, stop_price,
        target_price, ended, hold_ms, open, source, close_reason, realized_exact)
      VALUES (?, ?, NULL, ?, ?, ?, ?, ?, NULL, ?, ?, ?, ?, ?, 0, 0, 0, 1, NULL, NULL, NULL, NULL, ?, ?, 0, 'ledger', ?, ?)`,
-  ).run(instanceId, closeId, c.strategyId, instrument(c.symbol), c.symbol, c.side === "BUY" ? "short" : "long", c.entryTs,
+  ).run(instanceId, closeId, c.strategyId, instrumentKeys(db, instanceId)(c.symbol), c.symbol, c.side === "BUY" ? "short" : "long", c.entryTs,
     c.ts, c.price, c.qty, realized, realized, endedByReason(c.closeReason), c.entryTs != null ? c.ts - c.entryTs : null, c.closeReason, c.realized);
 }
 

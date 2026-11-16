@@ -32,6 +32,8 @@ export interface RoundTrip {
   exitPrice: number | null;
   qty: number;
   pnl: number | null;
+  /** The unrounded net (pnl is at the minor unit); absent from an older collector. */
+  pnlExact?: number | null;
   /** With an `exit:` window: what the closing legs inside it realized, when others closed outside it; else null. */
   pnlInExit: number | null;
   holdMs: number | null;
@@ -39,7 +41,7 @@ export interface RoundTrip {
   targetPrice: number | null;
   risk: number | null;
   r: number | null;
-  ended: "stop" | "tp" | "signal" | "venue" | "manual" | null;
+  ended: "stop" | "tp" | "signal" | "venue" | "settled" | "manual" | null;
   legs: number;
   entryOrderId: string | null;
   /** "deal": a venue position; "ledger": one engine close no broker deal stands for (paper). */

@@ -133,6 +133,9 @@ describe("short instrument names", () => {
     expect(shortInstrument("BTC_USDC_29OCT26_80500_C", "option")).toBe("BTC option");
     expect(shortInstrument("EXNESS_O12:XAUUSD", "cfd")).toBe("XAUUSD");
     expect(shortInstrument("XAUUSD", null)).toBe("XAUUSD");
+    // a family the store folds a roll's contracts under
+    expect(shortInstrument("KALSHI:KXINXU@EVENT", "event")).toBe("KXINXU event");
+    expect(shortInstrument("CME:ES@FUTURE", "future")).toBe("ES future");
   });
 
   it("says what a strategy trades in one short line, every leg in full in the title", () => {
@@ -149,6 +152,10 @@ describe("short instrument names", () => {
     expect(legsLine([leg("BTC_USDC_29OCT26_80500_C", "option", null), leg("BTC_USDC_29OCT26_80000_P", "option", null)]).text).toBe("BTC options");
     expect(legsLine([leg("AAPL", "stock-cfd", "Exness"), leg("XAUUSD", "cfd", "Exness")]).text).toBe("AAPL, XAUUSD · Exness");
     expect(legsLine([]).text).toBe("");
+    // a slot's selector (`@front.atm`, `@next.p70`) is not a coin: the family before `@` names it
+    expect(legsLine([leg("KXINXU@front.atm", null, "Kalshi")]).text).toBe("KXINXU@front.atm · Kalshi");
+    expect(legsLine([leg("BTC_USDC@front", null, null)]).text).toBe("BTC");
+    expect(legsLine([leg("KXHIGHNY_26NOV06_T74", "event", "Kalshi")]).text).toBe("KXHIGHNY event · Kalshi");
     for (const l of [expiry.text, legsLine([leg("BTC_USDC@front", "future", "Paper (Deribit prices)")]).text]) expect(l).not.toMatch(/PAPER_|_USDC|\(|more/u);
   });
 });

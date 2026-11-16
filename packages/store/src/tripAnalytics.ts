@@ -1,6 +1,6 @@
 import type { Db } from "./db.js";
 import { winRatePct } from "./analytics.js";
-import { instanceMoneyDigits, roundMoney } from "./money.js";
+import { instanceMoneyDigits, moneySign, roundMoney } from "./money.js";
 import { refreshProjections } from "./projections.js";
 import { roundTripPages, roundTripTotals, type RoundTripQuery, type TripEnded, type TripRow } from "./tripQueries.js";
 import type { CurrencyNet } from "./currencies.js";
@@ -137,15 +137,16 @@ export interface AnalyzeOptions {
  */
 export function analyzeTrips(rows: readonly TripRow[], counts: { total: number; matched: number }, opts: AnalyzeOptions = {}): Omit<TripAnalytics, "currencies"> {
   const digits = opts.digits ?? 2;
-  // A bucket's money is the exact sum of what it holds, at the minor unit; wins and losses read the row as shown.
+  // A bucket's money is the exact sum of what it holds, at the minor unit; wins and losses read what the trip booked.
   const unrounded = new Map<object, number>();
   const add = (b: { n: number; wins: number; losses: number; pnl: number }, pnl: number, exact: number) => {
     b.n++;
     const sum = (unrounded.get(b) ?? 0) + exact;
     unrounded.set(b, sum);
     b.pnl = roundMoney(sum, digits);
-    if (pnl > 0) b.wins++;
-    else if (pnl < 0) b.losses++;
+    const sign = moneySign(exact);
+    if (sign > 0) b.wins++;
+    else if (sign < 0) b.losses++;
   };
   const exactOf = (t: { pnl: number | null; pnlExact?: number | null }) => t.pnlExact ?? t.pnl ?? 0;
   const closed = rows
@@ -172,9 +173,10 @@ export function analyzeTrips(rows: readonly TripRow[], counts: { total: number; 
   for (const t of closed) {
     const p = t.pnl;
     const exact = exactOf(t);
-    // a trip is a win or a loss as it prints; the gross sums add the exact amounts, rounded once below
-    if (p > 0) { wins++; grossWin += exact; runW++; runL = 0; }
-    else if (p < 0) { losses++; grossLoss += exact; runL++; runW = 0; }
+    // a trip is a win or a loss by what it booked (moneySign); the gross sums add the exact amounts, rounded once below
+    const sign = moneySign(exact);
+    if (sign > 0) { wins++; grossWin += exact; runW++; runL = 0; }
+    else if (sign < 0) { losses++; grossLoss += exact; runL++; runW = 0; }
     else breakeven++;
     maxWin = Math.max(maxWin, runW);
     maxLoss = Math.max(maxLoss, runL);
@@ -276,7 +278,7 @@ export function analyzeTrips(rows: readonly TripRow[], counts: { total: number; 
     maxDd,
     maxDdWindow,
     streaks: { current, maxWin, maxLoss },
-    postLoss: postLoss(closed.map((t) => t.pnl)),
+    postLoss: postLoss(closed.map((t) => exactOf(t))),
     trades: points.slice(-TRIP_SERIES_MAX),
     tradesTruncated: points.length > TRIP_SERIES_MAX,
     daily: [...days.values()].sort(byKey),
@@ -295,13 +297,13 @@ export function postLoss(pnls: readonly number[]): TripAnalytics["postLoss"] {
   const next = new Map<number, number[]>();
   let run = 0;
   for (let i = 0; i < pnls.length - 1; i++) {
-    run = pnls[i]! < 0 ? run + 1 : 0;
+    run = moneySign(pnls[i]!) < 0 ? run + 1 : 0;
     for (let k = 1; k <= Math.min(run, POST_LOSS_MAX); k++) next.set(k, [...(next.get(k) ?? []), pnls[i + 1]!]);
   }
   return [...next.entries()].sort((a, b) => a[0] - b[0]).map(([k, xs]) => ({
     n: k,
     sample: xs.length,
-    nextWinRate: (xs.filter((x) => x > 0).length / xs.length) * 100,
+    nextWinRate: (xs.filter((x) => moneySign(x) > 0).length / xs.length) * 100,
     nextAvg: xs.reduce((a, b) => a + b, 0) / xs.length,
   }));
 }
