@@ -12,6 +12,7 @@ import { statement } from "./statements.js";
 import { quantityUnitOf } from "./instrumentKind.js";
 import { searchLogs } from "./logSearch.js";
 import { closedTrades, hasClosingDeals, MIN_RATIO_DAYS, SNAPSHOT_EQUITY, SWAP_ONLY, strategyBase, strategyAdjustments, strategyEquityCurve, tradePnls, withAnalyticsScope, type StrategyEquityPoint } from "./analytics.js";
+import { familyKey, instrumentOf } from "./instrumentFamily.js";
 
 // A strategy stays "active" while its roster bump is within this window of the
 // instance's newest bump. Comfortably exceeds the state-poll cadence (~30s) times the
@@ -89,19 +90,32 @@ export function listStrategies(db: Db, instanceId: string, now = Date.now()): Ar
   });
 }
 
-/** Per strategy, each venue symbol it traded with the instrument facts of its newest deal there that states any. */
+/**
+ * Per strategy, each instrument it traded with the facts of its newest deal there that states any. The contracts of
+ * one family (a dated future's expiries, an hourly event series) are one instrument, named by the family
+ * (`KALSHI:KXINXU@EVENT`), with the facts of the newest contract traded (instrumentFamily.ts).
+ */
 function strategyInstruments(db: Db, instanceId: string): Map<string, StrategyInstrument[]> {
   // SQLite takes the bare columns from the row holding max(ts) in each group
   const rows = statement(db,
-    `SELECT strategy_id s, symbol, broker, instrument_kind kind, instrument_category category, contract_size contractSize, quantity_unit stated, max(ts) ts
+    `SELECT strategy_id s, symbol, broker, instrument_kind kind, instrument_category category, contract_size contractSize, quantity_unit stated,
+            instrument_root root, max(ts) ts
        FROM deals WHERE instance_id=? AND strategy_id IS NOT NULL AND symbol IS NOT NULL AND instrument_kind IS NOT NULL
       GROUP BY strategy_id, symbol ORDER BY strategy_id, symbol`,
-  ).all(instanceId) as Array<{ s: string; symbol: string; broker: string; kind: string; category: string | null; contractSize: number | null; stated: string | null }>;
-  const out = new Map<string, StrategyInstrument[]>();
+  ).all(instanceId) as Array<{ s: string; symbol: string; broker: string; kind: string; category: string | null; contractSize: number | null; stated: string | null; root: string | null; ts: number }>;
+  const newest = new Map<string, { s: string; symbol: string; row: (typeof rows)[number] }>();
   for (const r of rows) {
-    const list = out.get(r.s) ?? [];
-    list.push({ symbol: r.symbol, broker: r.broker, kind: r.kind, category: r.category, contractSize: r.contractSize, unit: quantityUnitOf(r.kind, r.stated) });
-    out.set(r.s, list);
+    const family = familyKey(r.symbol, r.kind, r.root);
+    const folded = family === instrumentOf(r.symbol) ? r.symbol : `${r.symbol.slice(0, r.symbol.lastIndexOf(":") + 1)}${family}`;
+    const key = `${r.s}\u0000${folded}`;
+    const seen = newest.get(key);
+    if (!seen || r.ts > seen.row.ts) newest.set(key, { s: r.s, symbol: folded, row: r });
+  }
+  const out = new Map<string, StrategyInstrument[]>();
+  for (const { s, symbol, row: r } of newest.values()) {
+    const list = out.get(s) ?? [];
+    list.push({ symbol, broker: r.broker, kind: r.kind, category: r.category, contractSize: r.contractSize, unit: quantityUnitOf(r.kind, r.stated) });
+    out.set(s, list);
   }
   return out;
 }

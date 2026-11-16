@@ -1,9 +1,10 @@
 import type { Db } from "./db.js";
 import {
-  accountBinds, adjustmentRows, canonicalDeal, dealOnAccount, SWAP_ONLY, closeDealOf, closedTradeRows, fullyClosedPosition, instrumentOf, OUT_LEGS,
+  accountBinds, adjustmentRows, canonicalDeal, dealOnAccount, SWAP_ONLY, closeDealOf, closedTradeRows, fullyClosedPosition, OUT_LEGS,
   type AdjustmentRow, type DayNet, type DealClosedTrade,
 } from "./analytics.js";
 import { exactMoney, instanceMoneyDigits, moneySign, roundMoney } from "./money.js";
+import { instrumentKeys } from "./instrumentFamily.js";
 
 /**
  * Account-level figures: every closed trade on the instance's account, whichever strategy owned it.
@@ -70,8 +71,9 @@ export function accountCloses(db: Db, f: AccountFilter): AccountClose[] {
   const dealBacked = new Set(account.accountLabels == null ? deals.map((d) => d.strategyId)
     : (db.prepare("SELECT DISTINCT strategy_id s FROM closed_trades WHERE instance_id=?").all(f.instanceId) as Array<{ s: string | null }>).map((r) => r.s));
 
+  const keyOf = instrumentKeys(db, f.instanceId);
   const out: AccountClose[] = deals.map((d) => {
-    const row = { ...d, instrument: instrumentOf(d.symbol) };
+    const row = { ...d, instrument: keyOf(d.symbol) };
     tripOf.set(row, d.orderId != null ? `p:${d.orderId}` : `d:${closeDealOf(d)}`);
     return row;
   });
@@ -93,7 +95,7 @@ export function accountCloses(db: Db, f: AccountFilter): AccountClose[] {
       if (dealBacked.has(r.strategyId)) continue;
       out.push({
         ...r, realized: roundMoney(r.realized, digits), realizedExact: r.realized, entryPrice: null, exitPrice: r.price, holdMs: r.entryTs != null ? r.ts - r.entryTs : null,
-        entryOrderId: null, exitOrderId: null, instrument: instrumentOf(r.symbol),
+        entryOrderId: null, exitOrderId: null, instrument: keyOf(r.symbol),
       });
     }
     out.sort((a, b) => a.ts - b.ts);
@@ -204,13 +206,14 @@ export function accountSummary(db: Db, f: AccountFilter): AccountSummary {
   const ids = f.strategyIds ? JSON.stringify([...f.strategyIds]) : null;
   const account = accountFilter(db, f.instanceId, f.account);
   const adjustments = adjustmentRows(db, { instanceId: f.instanceId, from: f.from, to: f.to, closedPositionsOnly: f.closedPositionsOnly, strategyIds: ids, ...account });
+  const keyOf = instrumentKeys(db, f.instanceId);
   for (const a of adjustments) {
     totalNet += a.realizedExact;
     const day = new Date(a.ts).toISOString().slice(0, 10);
     const d = byDay.get(day) ?? { day, net: 0, trades: 0 };
     d.net += a.realizedExact;
     byDay.set(day, d);
-    for (const [map, key] of [[byStrategy, a.strategyId], [byInstrument, instrumentOf(a.symbol)]] as const) {
+    for (const [map, key] of [[byStrategy, a.strategyId], [byInstrument, keyOf(a.symbol)]] as const) {
       const b = map.get(key) ?? { key, net: 0, trades: 0, wins: 0, losses: 0 };
       b.net += a.realizedExact;
       map.set(key, b);
@@ -220,7 +223,7 @@ export function accountSummary(db: Db, f: AccountFilter): AccountSummary {
   const running = runningTotals(closes, adjustments, digits);
   return {
     closes: closes.map((c) => ({ ...c, cum: running.get(c)! })).reverse(),
-    adjustments: adjustments.map((a) => ({ ts: a.ts, strategyId: a.strategyId, instrument: instrumentOf(a.symbol), realized: a.realized, realizedExact: a.realizedExact, cum: running.get(a)! })).reverse(),
+    adjustments: adjustments.map((a) => ({ ts: a.ts, strategyId: a.strategyId, instrument: keyOf(a.symbol), realized: a.realized, realizedExact: a.realizedExact, cum: running.get(a)! })).reverse(),
     dailyNets: [...byDay.values()].sort((a, b) => (a.day < b.day ? -1 : 1)).map((d) => ({ ...d, net: roundMoney(d.net, digits) })),
     totalNet: roundMoney(totalNet, digits),
     trades: closes.length,
