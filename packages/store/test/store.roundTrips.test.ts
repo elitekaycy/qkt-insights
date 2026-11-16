@@ -1,6 +1,10 @@
 import { describe, it, expect } from "vitest";
+import { mkdtempSync, rmSync } from "node:fs";
+import { tmpdir } from "node:os";
+import { join } from "node:path";
 import { openDb, ingestEvents, listStrategies, strategyStats, storedRoundTrips, rebuildProjection, refreshProjections, listRoundTrips, type Db } from "../src/index.js";
 import type { Envelope } from "@qkt-insights/contract";
+import { parseQuery } from "@qkt-insights/contract/query";
 
 const M = 60_000;
 const T0 = Date.UTC(2026, 3, 6, 8);
@@ -11,6 +15,7 @@ let seq = 0;
 function deal(p: {
   ticket: string; position?: string; entry: "IN" | "OUT" | "OUT_BY"; side: "BUY" | "SELL"; ts: number; qty: number; price: number;
   profit?: number; commission?: number; swap?: number; order?: string; comment?: string; strategyId?: string | null; broker?: string; id?: string;
+  closeReason?: string;
 }): Envelope {
   return {
     v: 1, instanceId: I, id: p.id ?? `deal-${p.ticket}`, seq: seq++, ts: p.ts, type: "broker.deal",
@@ -18,7 +23,7 @@ function deal(p: {
       broker: p.broker ?? "ICM", dealTicket: p.ticket, positionTicket: p.position ?? "P1", ...(p.order ? { orderTicket: p.order } : {}),
       symbol: "ICM_S05:XAUUSD", side: p.side, entry: p.entry, qty: p.qty, price: p.price, profit: p.profit ?? 0,
       commission: p.commission ?? 0, swap: p.swap ?? 0, comment: p.comment ?? "dsl-alpha",
-      ...(p.strategyId === null ? {} : { strategyId: p.strategyId ?? S }), ts: p.ts,
+      ...(p.strategyId === null ? {} : { strategyId: p.strategyId ?? S }), ...(p.closeReason ? { closeReason: p.closeReason } : {}), ts: p.ts,
     },
   } as Envelope;
 }
@@ -50,6 +55,44 @@ describe("round_trips projection", () => {
     ingestEvents(db, I, [deal({ ticket: "2", entry: "OUT", side: "SELL", ts: T0 + M, qty: 1, price: 1, profit: -39, commission: -0.5 })]);
     expect(trip(db)).toMatchObject({ open: false, exitPrice: 1, realized: -40 });
     expect(strategyStats(db, { instanceId: I, strategyId: S }).realizedPnl).toBe(-40);
+  });
+
+  it("ends a position the venue settled at expiry as settled, apart from a stop-out", () => {
+    const db = seeded();
+    ingestEvents(db, I, [
+      deal({ ticket: "1", entry: "IN", side: "BUY", ts: T0, qty: 1, price: 40 }),
+      deal({ ticket: "2", entry: "OUT", side: "SELL", ts: T0 + M, qty: 1, price: 100, profit: 60, closeReason: "EXPIRY" }),
+      deal({ ticket: "3", entry: "IN", side: "BUY", ts: T0, qty: 1, price: 40, position: "P2" }),
+      deal({ ticket: "4", entry: "OUT", side: "SELL", ts: T0 + M, qty: 1, price: 10, profit: -30, closeReason: "STOP_OUT", position: "P2" }),
+    ]);
+    expect(trip(db)).toMatchObject({ open: false, ended: "settled", realized: 60 });
+    expect(trip(db, "P2")).toMatchObject({ open: false, ended: "so" });
+    expect(listRoundTrips(db, { instanceId: I, filter: parseQuery("ended:settled").filter }).rows.map((r) => [r.id, r.ended])).toEqual([["P1", "settled"]]);
+    expect(listRoundTrips(db, { instanceId: I, filter: parseQuery("ended:venue").filter }).rows.map((r) => [r.id, r.ended])).toEqual([["P2", "venue"]]);
+  });
+
+  it("relabels a trip an earlier release ended 'so' for an expiry as settled, and leaves a stop-out", () => {
+    const dir = mkdtempSync(join(tmpdir(), "insights-settled-"));
+    try {
+      const file = join(dir, "insights.db");
+      const before = openDb(file);
+      before.prepare("INSERT INTO strategies (instance_id, strategy_id, first_seen, last_seen) VALUES (?,?,?,?)").run(I, S, T0, T0);
+      ingestEvents(before, I, [
+        deal({ ticket: "1", entry: "IN", side: "BUY", ts: T0, qty: 1, price: 40 }),
+        deal({ ticket: "2", entry: "OUT", side: "SELL", ts: T0 + M, qty: 1, price: 100, profit: 60, closeReason: "EXPIRY" }),
+        deal({ ticket: "3", entry: "IN", side: "BUY", ts: T0, qty: 1, price: 40, position: "P2" }),
+        deal({ ticket: "4", entry: "OUT", side: "SELL", ts: T0 + M, qty: 1, price: 10, profit: -30, closeReason: "STOP_OUT", position: "P2" }),
+      ]);
+      before.prepare("UPDATE round_trips SET ended='so' WHERE ended='settled'").run();
+      before.prepare("DELETE FROM _migrations WHERE name='053_round_trips_settled.sql'").run();
+      before.close();
+      const after = openDb(file);
+      expect(trip(after)?.ended).toBe("settled");
+      expect(trip(after, "P2")?.ended).toBe("so");
+      after.close();
+    } finally {
+      rmSync(dir, { recursive: true, force: true });
+    }
   });
 
   it("folds a scale-in and a scale-out into one round trip with size-weighted prices and every cost", () => {

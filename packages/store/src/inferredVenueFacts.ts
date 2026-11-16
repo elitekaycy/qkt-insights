@@ -60,7 +60,7 @@ export function strategyFromDealComment(db: Db, instanceId: string, comment: str
 }
 
 /** How the round trip ended, as the projection names it. */
-export type Ended = "stop" | "tp" | "so" | "manual" | "signal";
+export type Ended = "stop" | "tp" | "so" | "settled" | "manual" | "signal";
 
 /** MT5 rewrites the comment of a deal its stop, target or stop-out closed: "[sl 4120.0]", "[tp ...]", "[so ...]". */
 export function endedFromDealComment(comment: string | null): Ended | null {

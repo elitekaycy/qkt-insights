@@ -254,7 +254,7 @@ describe("venue facts: one shape for every connector", () => {
   });
 
   it("maps every stated close reason to how the round trip ended", async () => {
-    const reasons = { STOP: "stop", TAKE_PROFIT: "tp", SIGNAL: "signal", TIMED: "signal", MANUAL: "manual", STOP_OUT: "so", LIQUIDATION: "so", EXPIRY: "so" };
+    const reasons = { STOP: "stop", TAKE_PROFIT: "tp", SIGNAL: "signal", TIMED: "signal", MANUAL: "manual", STOP_OUT: "so", LIQUIDATION: "so", EXPIRY: "settled" };
     const events: Raw[] = [];
     Object.keys(reasons).forEach((reason, i) => {
       const pos = `R${i}`;

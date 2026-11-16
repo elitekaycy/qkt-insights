@@ -35,11 +35,12 @@ export interface RoundTripRow {
 }
 
 /**
- * The `ended` code of each close reason qkt states: a stop or target, the venue (a stop-out, a
- * liquidation, an expiry), a person, or the strategy's own exit (its signal or its timed hold).
+ * The `ended` code of each close reason qkt states: a stop or target, the venue forcing it (a stop-out, a
+ * liquidation), the venue settling it at expiry (a dated future, an option, an event contract), a person, or the
+ * strategy's own exit (its signal or its timed hold).
  */
 const ENDED_BY_REASON: Record<string, Ended> = {
-  STOP: "stop", TAKE_PROFIT: "tp", STOP_OUT: "so", LIQUIDATION: "so", EXPIRY: "so", MANUAL: "manual", SIGNAL: "signal", TIMED: "signal",
+  STOP: "stop", TAKE_PROFIT: "tp", STOP_OUT: "so", LIQUIDATION: "so", EXPIRY: "settled", MANUAL: "manual", SIGNAL: "signal", TIMED: "signal",
 };
 
 /** The `ended` code of a stated close reason; null for none or one this release does not know. */

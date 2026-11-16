@@ -39,7 +39,7 @@ export interface RoundTrip {
   targetPrice: number | null;
   risk: number | null;
   r: number | null;
-  ended: "stop" | "tp" | "signal" | "venue" | "manual" | null;
+  ended: "stop" | "tp" | "signal" | "venue" | "settled" | "manual" | null;
   legs: number;
   entryOrderId: string | null;
   /** "deal": a venue position; "ledger": one engine close no broker deal stands for (paper). */
