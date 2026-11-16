@@ -7,7 +7,7 @@ import {
 } from "./accountProjection.js";
 import { refreshProjections } from "./projections.js";
 import { ENGINE_CLOSED_TRIP } from "./roundTrips.js";
-import { exactMoney, instanceMoneyDigits, roundMoney } from "./money.js";
+import { exactMoney, instanceMoneyDigits, moneySign, roundMoney } from "./money.js";
 import { statement } from "./statements.js";
 import { quantityUnitOf } from "./instrumentKind.js";
 import { searchLogs } from "./logSearch.js";
@@ -797,9 +797,9 @@ function statsOf(db: Db, f: { instanceId: string; strategyId: string; to?: numbe
       ).all({ ...f, to: f.to ?? Number.MAX_SAFE_INTEGER, base: base ?? 0 }) as { ts: number; equity: number; realized: number }[];
 
   const pnls = fromDeals
-    ? dealRows.map((c) => c.realized).filter((r) => r !== 0)
+    ? dealRows.map((c) => exactMoney(c)).filter((r) => moneySign(r) !== 0)
     : tradePnls(db, f).pnls;
-  const wins = pnls.filter((x) => x > 0).length;
+  const wins = pnls.filter((x) => moneySign(x) > 0).length;
   const winRate = pnls.length > 0 ? wins / pnls.length : null;
   const extra = engineClosedTrips(db, f);
   const digits = instanceMoneyDigits(db, f.instanceId);

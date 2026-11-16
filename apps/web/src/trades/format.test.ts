@@ -1,5 +1,15 @@
 import { describe, it, expect } from "vitest";
-import { legCosts, tradeStory, tripInstrument } from "./format";
+import { legCosts, shownPnl, tradeStory, tripInstrument } from "./format";
+
+describe("shownPnl", () => {
+  it("shows the minor-unit P&L, or what the trip booked when that rounds to zero but is not", () => {
+    expect(shownPnl({ pnl: 12.35, pnlExact: 12.3449 })).toBe(12.35);
+    expect(shownPnl({ pnl: 0, pnlExact: 0.0045 })).toBe(0.0045);
+    expect(shownPnl({ pnl: 0, pnlExact: null })).toBe(0);
+    expect(shownPnl({ pnl: 0 })).toBe(0);
+    expect(shownPnl({ pnl: null, pnlExact: 0.5 })).toBeNull();
+  });
+});
 
 describe("legCosts", () => {
   it("totals a leg's costs and names each kind it booked, funding apart from swap", () => {

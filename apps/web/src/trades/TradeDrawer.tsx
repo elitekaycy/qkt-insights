@@ -1,12 +1,12 @@
 import { useEffect, useRef, useState, type ReactNode } from "react";
 import { createPortal } from "react-dom";
-import { DASH, duration, money, quantity, returnPct, signedMoney, toneClass, ts, tsShort } from "../format";
+import { DASH, duration, money, moneyToneClass, quantity, returnPct, signedMoney, toneClass, ts, tsShort } from "../format";
 import { CostTerm } from "../components/InstrumentType";
 import { IconButton } from "../components/ui";
 import { instrumentType, shortInstrument, sizeInWords, TYPE_LABEL, type CostKind } from "../instruments";
 import { PAGE_PATHS, useSearchParam } from "../router";
 import { usePositionPath, useTripDetail, type RoundTripDetail, type Slippage, type TimelineStep } from "./data";
-import { latency, legCosts, preciseClock, px, rMultiple, tradeStory, tripInstrument } from "./format";
+import { latency, legCosts, preciseClock, px, rMultiple, shownPnl, tradeStory, tripInstrument } from "./format";
 import { PositionMap } from "./PositionMap";
 import { movePct } from "./tradePlan";
 import { useStrategyNames } from "../hooks/useStrategies";
@@ -324,7 +324,7 @@ export function TradeDrawer({ instanceId, order = [] }: { instanceId: string | n
                 {open_ ? (
                   <span className={`text-2xl font-headline ${toneClass(floating)}`} title={lastMark ? `Open, as the venue priced it at ${preciseClock(lastMark.ts).slice(0, 8)} UTC (swap included)` : undefined}>{floating == null ? DASH : signedMoney(floating)}</span>
                 ) : (
-                  <span className={`text-2xl font-headline ${toneClass(t.pnl)}`} title="After commission, swap and fees">{signedMoney(t.pnl)}</span>
+                  <span className={`text-2xl font-headline ${moneyToneClass(shownPnl(t))}`} title="After commission, swap and fees">{signedMoney(shownPnl(t))}</span>
                 )}
                 {t.r != null && <span className={`text-sm font-medium ${toneClass(t.r)}`} title="P&L over the money at risk to the initial stop">{rMultiple(t.r)}</span>}
                 {(() => {

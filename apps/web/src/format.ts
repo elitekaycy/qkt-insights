@@ -31,10 +31,29 @@ export function money(v: number | null | undefined, digits = 2): string {
   return num(v, digits);
 }
 
-/** A money change (P&L, cost, delta): always signed, "+1,234.50" / "−56.00", unsigned when it rounds to zero. */
+/** The most decimals a money amount finer than its minor unit is shown at (a fee of 0.0001 shows; float noise does not). */
+const FINEST_MONEY_DIGITS = 6;
+
+/**
+ * `digits`, or more when `abs` is not zero but prints as zero at `digits`: two significant digits (0.0045, not a
+ * rounded 0.005), at most 6. signedMoney drops the trailing zeros that adds (0.0040 prints 0.004).
+ */
+function visibleDigits(abs: number, digits: number): number {
+  if (Number(abs.toFixed(digits)) !== 0) return digits;
+  for (let d = digits + 1; d <= FINEST_MONEY_DIGITS; d++) {
+    if (Number(abs.toFixed(d)) !== 0) return Math.min(d + 1, FINEST_MONEY_DIGITS);
+  }
+  return digits;
+}
+
+/**
+ * A money change (P&L, cost, delta): always signed, "+1,234.50" / "−56.00", unsigned when it is zero. An amount a
+ * venue booked finer than the minor unit that rounds to zero there shows its own digits ("+0.0045", "−0.0007").
+ */
 export function signedMoney(v: number | null | undefined, digits = 2): string {
   if (missing(v)) return DASH;
-  const s = grouped(Math.abs(v), digits);
+  const shown = visibleDigits(Math.abs(v), digits);
+  const s = shown > digits ? grouped(Math.abs(v), shown).replace(/0+$/u, "") : grouped(Math.abs(v), digits);
   if (/^[0.,]*$/.test(s)) return s;
   return v > 0 ? `+${s}` : `${MINUS}${s}`;
 }
@@ -53,6 +72,11 @@ export function toneClass(v: number | null | undefined, digits = 2): string {
   if (missing(v)) return "text-muted";
   const p = polarity(v, digits);
   return p === "gain" ? "text-gain" : p === "loss" ? "text-loss" : "text-muted";
+}
+
+/** toneClass for money as signedMoney prints it: a sub-unit amount it shows ("+0.0045") is a gain, not flat. */
+export function moneyToneClass(v: number | null | undefined, digits = 2): string {
+  return toneClass(v, missing(v) ? digits : visibleDigits(Math.abs(v), digits));
 }
 
 /**

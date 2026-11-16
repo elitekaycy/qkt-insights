@@ -96,6 +96,8 @@ const RISK = `(CASE WHEN t.open = 0 AND t.risk_amount > 0 THEN t.risk_amount
  * money is a fraction of a cent of a small risk keeps its true R (-0.0056 over 0.005 is -1.12, not -2).
  */
 const EXACT = "coalesce(t.realized_exact, t.realized)";
+/** A trip's win, loss or breakeven, read from its unrounded net as moneySign reads it (contract money.ts). */
+const EXACT_SIGN = `round(${EXACT}, 8)`;
 /** P&L over that risk; without a stated risk or a venue price per point, the move over the points to the stop. */
 const R = `(CASE WHEN t.open = 0 AND t.risk_amount > 0 AND t.exit_price IS NOT NULL THEN ${EXACT} / t.risk_amount
   WHEN t.open = 0 AND ${STOP} IS NOT NULL AND t.entry_price IS NOT NULL AND t.exit_price IS NOT NULL
@@ -399,9 +401,9 @@ function filterSql(f: QueryFilter | undefined, sql: Sql, hideIds = false): void 
   if (f.symbol) sql.where.push(`t.instrument=${sql.bind(f.symbol.toUpperCase())}`);
   if (f.side) sql.where.push(`t.side=${sql.bind(f.side)}`);
   switch (f.outcome) {
-    case "win": sql.where.push("t.open=0 AND t.realized>0"); break;
-    case "loss": sql.where.push("t.open=0 AND t.realized<0"); break;
-    case "breakeven": sql.where.push("t.open=0 AND t.realized=0"); break;
+    case "win": sql.where.push(`t.open=0 AND ${EXACT_SIGN}>0`); break;
+    case "loss": sql.where.push(`t.open=0 AND ${EXACT_SIGN}<0`); break;
+    case "breakeven": sql.where.push(`t.open=0 AND ${EXACT_SIGN}=0`); break;
     case "open": sql.where.push("t.open=1"); break;
     case "closed": sql.where.push("t.open=0"); break;
   }
@@ -495,7 +497,7 @@ export function roundTripTotals(db: Db, q: RoundTripQuery): RoundTripTotals {
   const a = db.prepare(
     `SELECT COUNT(*) matched, COALESCE(SUM(t.open=0),0) closed, COALESCE(SUM(t.open=1),0) open,
        COALESCE(SUM(${exit ? realizedInExit(exit, sql) : EXACT}),0) net,
-       COALESCE(SUM(t.open=0 AND t.realized>0),0) wins, COALESCE(SUM(t.open=0 AND t.realized<0),0) losses,
+       COALESCE(SUM(t.open=0 AND ${EXACT_SIGN}>0),0) wins, COALESCE(SUM(t.open=0 AND ${EXACT_SIGN}<0),0) losses,
        AVG(CASE WHEN t.open=0 THEN t.realized END) avg,
        MAX(CASE WHEN t.open=0 THEN t.realized END) best, MIN(CASE WHEN t.open=0 THEN t.realized END) worst
      FROM round_trips t WHERE ${sql.where.join(" AND ")}`,
