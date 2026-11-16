@@ -102,18 +102,23 @@ describe("query tags", () => {
     expect(instrumentType("perpetual", null)).toBe("perpetual");
     expect(instrumentType("future", null)).toBe("future");
     expect(instrumentType("option", null)).toBe("option");
+    expect(instrumentType("event", null)).toBe("event");
+    expect(instrumentType("EVENT", "Economics")).toBe("event");
     expect(instrumentType("warrant", null)).toBeNull();
     expect(instrumentType(null, "Stocks")).toBeNull();
     expect(isStockCategory("Metals")).toBe(false);
   });
 
-  it("ended: stop, tp, signal, venue or manual", () => {
+  it("ended: stop, tp, signal, venue, settled or manual", () => {
     expect(one("ended:sl").filter.ended).toBe("stop");
     expect(one("ended:target").filter.ended).toBe("tp");
     expect(one("ended:signal").filter.ended).toBe("signal");
     expect(one("ended:stopout").filter.ended).toBe("venue");
     expect(one("ended:manual").filter.ended).toBe("manual");
-    expect(one("ended:expiry").errors[0]).toMatch(/ended: stop, tp, signal, venue or manual/);
+    expect(one("ended:expiry").filter.ended).toBe("settled");
+    expect(one("ended:settlement").chips[0]!.text).toBe("ended:settled");
+    expect(one("ended:rolled").errors[0]).toMatch(/ended: stop, tp, signal, venue, settled or manual/);
+    expect(one("type:events").filter.type).toBe("event");
   });
 
   it("size: lot comparisons", () => {

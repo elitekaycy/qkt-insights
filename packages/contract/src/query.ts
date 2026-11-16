@@ -20,22 +20,23 @@ export interface Window { from?: number; to?: number }
 
 export type Side = "long" | "short";
 export type Outcome = "win" | "loss" | "breakeven" | "open" | "closed";
-export type Ended = "stop" | "tp" | "signal" | "venue" | "manual";
+export type Ended = "stop" | "tp" | "signal" | "venue" | "settled" | "manual";
 export type Level = "ERROR" | "WARN" | "INFO" | "DEBUG" | "TRACE";
 
 /**
  * What a position is, in one word a filter and a badge share: a CFD (a stock CFD is one whose venue files it
- * under stocks or shares), a share, a coin bought spot, a perpetual future, a dated future, or an option.
+ * under stocks or shares), a share, a coin bought spot, a perpetual future, a dated future, an option, or an event
+ * contract (a binary contract on an outcome, priced as its probability).
  */
-export type InstrumentType = "stock-cfd" | "cfd" | "share" | "coin" | "perpetual" | "future" | "option";
-export const INSTRUMENT_TYPES: readonly InstrumentType[] = ["cfd", "stock-cfd", "share", "coin", "perpetual", "future", "option"];
+export type InstrumentType = "stock-cfd" | "cfd" | "share" | "coin" | "perpetual" | "future" | "option" | "event";
+export const INSTRUMENT_TYPES: readonly InstrumentType[] = ["cfd", "stock-cfd", "share", "coin", "perpetual", "future", "option", "event"];
 
 /** Whether a venue folder holds shares: MT5 files stock CFDs under `Stocks` (`Standard\Stocks\AAPLm`) or `Shares`. */
 export function isStockCategory(category: string | null | undefined): boolean {
   return category != null && /stock|share|equit/iu.test(category);
 }
 
-/** The type of an instrument of qkt `kind` (cfd, equity, spot, perpetual, future, option) filed under `category`; null when unknown. */
+/** The type of an instrument of qkt `kind` (cfd, equity, spot, perpetual, future, option, event) filed under `category`; null when unknown. */
 export function instrumentType(kind: string | null | undefined, category?: string | null): InstrumentType | null {
   switch (kind?.toLowerCase()) {
     case "cfd": return isStockCategory(category) ? "stock-cfd" : "cfd";
@@ -44,6 +45,7 @@ export function instrumentType(kind: string | null | undefined, category?: strin
     case "perpetual": return "perpetual";
     case "future": return "future";
     case "option": return "option";
+    case "event": return "event";
     default: return null;
   }
 }
@@ -162,15 +164,17 @@ const TYPES: Record<string, InstrumentType> = {
   perpetual: "perpetual", perpetuals: "perpetual", perp: "perpetual", perps: "perpetual",
   future: "future", futures: "future", dated: "future",
   option: "option", options: "option",
+  event: "event", events: "event", prediction: "event", binary: "event",
 };
 const TYPE_LABEL: Record<InstrumentType, string> = {
-  cfd: "CFDs", "stock-cfd": "Stock CFDs", share: "Shares", coin: "Coins (spot)", perpetual: "Perpetual futures", future: "Dated futures", option: "Options",
+  cfd: "CFDs", "stock-cfd": "Stock CFDs", share: "Shares", coin: "Coins (spot)", perpetual: "Perpetual futures", future: "Dated futures", option: "Options", event: "Event contracts",
 };
 const ENDED: Record<string, Ended> = {
   stop: "stop", sl: "stop", stopped: "stop", stop_loss: "stop", stoploss: "stop",
   tp: "tp", target: "tp", take_profit: "tp", takeprofit: "tp",
   signal: "signal", rule: "signal", strategy: "signal",
   venue: "venue", stopout: "venue", stop_out: "venue", margin: "venue", liquidation: "venue",
+  settled: "settled", settlement: "settled", settle: "settled", expiry: "settled", expired: "settled",
   manual: "manual", bot: "manual", hand: "manual",
 };
 /** Weekday names to 0 (Monday) .. 6 (Sunday), the week the calendar draws. */
@@ -313,7 +317,7 @@ const HINT: Partial<Record<QueryKey, string>> = {
   entry: "entry: a UTC date or month like 2026-10-21, 2026-10, >=2026-10-15, 2026-10-01..2026-10-15, today or 7d",
   exit: "exit: a UTC date or month like 2026-10-21, 2026-10, >=2026-10-15, 2026-10-01..2026-10-15, today or 7d",
   time: "time: a UTC date or span like 2026-10-21, >=2026-10-15, today, 1h or 7d",
-  ended: "ended: stop, tp, signal, venue or manual",
+  ended: "ended: stop, tp, signal, venue, settled or manual",
   type: "type: cfd, stock-cfd, share, coin, perpetual, future or option",
   size: "size: lots like >=0.5, <1 or 0.1..0.5",
   weekday: "weekday: the UTC entry day, mon to sun",
@@ -368,7 +372,7 @@ function interpret(key: QueryKey, value: string, ctx: QueryContext): Interpreted
     }
     case "ended": {
       const e = ENDED[lv];
-      const label = { stop: "Hit the stop", tp: "Hit the target", signal: "Closed by the strategy", venue: "Closed by the venue", manual: "Closed by hand" };
+      const label = { stop: "Hit the stop", tp: "Hit the target", signal: "Closed by the strategy", venue: "Closed by the venue", settled: "Settled at expiry", manual: "Closed by hand" };
       return e ? { key, text: `ended:${e}`, label: label[e], apply: (f) => { f.ended = e; } } : HINT.ended!;
     }
     case "type": {

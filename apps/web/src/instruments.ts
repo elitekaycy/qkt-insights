@@ -19,6 +19,7 @@ export const TYPE_LABEL: Record<InstrumentType, string> = {
   perpetual: "Perpetual future",
   future: "Dated future",
   option: "Option",
+  event: "Event contract",
 };
 
 export type CostKind = "commission" | "swap" | "funding" | "fee" | "dividend" | "adjustment" | "settlement" | "premium";
@@ -52,6 +53,10 @@ export const GLOSSARY: Record<InstrumentType | CostKind, { term: string; text: s
   option: {
     term: "Option",
     text: "The right, not the obligation, to buy (call) or sell (put) at the strike price until expiry. The buyer pays a premium; at expiry it settles for what it is worth, or expires worthless.",
+  },
+  event: {
+    term: "Event contract",
+    text: "A contract on whether an event happens. It pays 1 per contract if it does and 0 if it does not, so its price is the market's probability of the outcome. It settles once the result is known; selling it is buying the opposite outcome.",
   },
   commission: { term: "Commission", text: "What the venue charges per trade, usually on both the entry and the exit." },
   swap: {
@@ -104,7 +109,7 @@ export function sizeInWords(qty: number | null | undefined, f: SizeFacts): strin
       return `${n} ${plural(qty, "lot", "lots")}`;
     case "coin":
       return f.unit && f.unit !== "coins" ? `${n} ${f.unit}` : `${n} ${plural(qty, "coin", "coins")}`;
-    case "perpetual": case "future": case "option": {
+    case "perpetual": case "future": case "option": case "event": {
       const c = `${n} ${plural(qty, "contract", "contracts")}`;
       return cs != null && cs !== 1 ? `${c} × ${quantity(cs)}` : c;
     }
@@ -162,7 +167,7 @@ export function legLabel(leg: Leg, now = Date.now()): string {
   return [leg.type ? TYPE_LABEL[leg.type] : null, legInstrument(leg, now), leg.venue].filter((p): p is string => !!p).join(" · ");
 }
 
-const KIND_WORD: Partial<Record<InstrumentType, [string, string]>> = { perpetual: ["perp", "perps"], future: ["future", "futures"], option: ["option", "options"] };
+const KIND_WORD: Partial<Record<InstrumentType, [string, string]>> = { perpetual: ["perp", "perps"], future: ["future", "futures"], option: ["option", "options"], event: ["event", "events"] };
 
 const KIND_ORDER = Object.keys(KIND_WORD);
 
@@ -199,7 +204,9 @@ export function legsLine(legs: readonly Leg[], now = Date.now()): { text: string
   for (const l of legs) {
     const word = l.type ? KIND_WORD[l.type] : undefined;
     if (!word) {
-      const feed = /[_.]/u.test(l.name) ? baseOf(l.name.slice(l.name.lastIndexOf(".") + 1)) : null;
+      // a slot (`ROOT@front`, `ROOT@front.p70`) names its family before the `@`; what follows selects a contract
+      const bare = l.name.split("@")[0]!;
+      const feed = /[_.]/u.test(bare) ? baseOf(bare.slice(bare.lastIndexOf(".") + 1)) : null;
       if (feed) feeds.push(feed);
       else if (!names.includes(l.name)) names.push(l.name);
       continue;

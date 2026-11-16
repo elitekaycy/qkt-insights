@@ -18,7 +18,7 @@ import { instanceCurrencies, TRIP_CURRENCY, type CurrencyNet } from "./currencie
 
 export type TripSide = "long" | "short";
 /** How a position ended, as the Trades page names it (the projection's `so` is `venue`). */
-export type TripEnded = "stop" | "tp" | "signal" | "venue" | "manual";
+export type TripEnded = "stop" | "tp" | "signal" | "venue" | "settled" | "manual";
 
 export interface TripRow {
   /** The venue position ticket. */
@@ -138,6 +138,7 @@ const TYPE_SQL: Record<InstrumentType, string> = {
   perpetual: "d.instrument_kind='perpetual'",
   future: "d.instrument_kind='future'",
   option: "d.instrument_kind='option'",
+  event: "d.instrument_kind='event'",
 };
 
 const ENTRY_WINDOW_MS = 10 * 60_000;
