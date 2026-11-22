@@ -24,6 +24,7 @@ import { usePublicPageView, useView } from "../view";
 import { CalendarSection, DailySection, MonthlySection } from "./Days";
 import { chipOf, pageRealized, toggleToken, without } from "./journal";
 import { OverviewSection } from "./Overview";
+import { SetMembershipSection } from "./SetMembership";
 import { TimeRiskSection } from "./TimeRisk";
 import { BigPnl, Widget } from "./widgets";
 import { useStrategies } from "../hooks/useStrategies";
@@ -344,6 +345,9 @@ function StrategyBody({ instanceId, strategyId }: { instanceId: string; strategy
           {tab === "time" && <TimeRiskSection {...props} />}
         </Loadable>
       )}
+
+      {/* moving symbol sets: signed-in only, and only for a strategy that has one */}
+      {tab === "overview" && !view.public && <SetMembershipSection instanceId={instanceId} strategyId={strategyId} />}
 
       {/* sections without a round-trip list still open trades from their bars and rows */}
       {!view.public && (tab === "overview" || tab === "time") && <TradeDrawer instanceId={instanceId} order={(a?.trades ?? []).map((t) => t.id).reverse()} />}

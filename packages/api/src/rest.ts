@@ -1,5 +1,5 @@
 import type { FastifyInstance } from "fastify";
-import { listInstances, listStrategies, listTrades, searchEvents, equityCurve, instanceHealth, searchLogs, logPage, strategyStats, listDeals, accountEquity, accountDrawdown, accountPerformance, accountRisk, accountScope, monitorSummaries, withJournalStrategies, withStoppedAccounts, listMonitorEvents, reconciliation, strategyConfigs, strategySources, strategySourceText, type AccountLimits, type Db, type LiveStateStore, type Monitors } from "@qkt-insights/store";
+import { listInstances, listStrategies, listTrades, searchEvents, equityCurve, instanceHealth, searchLogs, logPage, strategyStats, listDeals, accountEquity, accountDrawdown, accountPerformance, accountRisk, accountScope, monitorSummaries, withJournalStrategies, withStoppedAccounts, listMonitorEvents, reconciliation, strategyConfigs, strategySetMembership, strategySources, strategySourceText, type AccountLimits, type Db, type LiveStateStore, type Monitors } from "@qkt-insights/store";
 import { CONTRACT_VERSION, SUPPORTED_MAJORS } from "@qkt-insights/contract";
 import { UNATTRIBUTED_STRATEGY } from "@qkt-insights/contract/query";
 import { requireSession } from "./auth.js";
@@ -81,6 +81,14 @@ export function registerRest(app: FastifyInstance, deps: RestDeps): void {
     if (!need(reply, q.instance, "instance") || !need(reply, q.strategy, "strategy")) return;
     reply.header("cache-control", "private, no-store");
     return strategyConfigs(deps.db, q.instance, q.strategy);
+  });
+
+  // The strategy's moving symbol sets (store setMembership.ts): who is in now and the latest changes. Behind the
+  // session only: no /public route reads it, since it names what the strategy trades and when it picks it.
+  app.get<{ Querystring: Record<string, string> }>("/set-membership", guard, async (req, reply) => {
+    const q = req.query;
+    if (!need(reply, q.instance, "instance") || !need(reply, q.strategy, "strategy")) return;
+    return cache.get(req.url, () => strategySetMembership(deps.db, q.instance!, q.strategy!, Number(q.limit ?? 50) || 50));
   });
 
   // Also the one WS reconciliation misses: a fill lands on the wire the instant it

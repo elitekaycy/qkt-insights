@@ -20,9 +20,11 @@ const AFTER = NOW - 5 * MIN;
 /** Values that must never reach a public response. */
 /** The strategy's code: admin-only, never on a shared link. */
 const SOURCE_MARKER = "ProprietaryEdge_7731";
+/** Who is in a strategy's moving symbol set: admin-only, never on a shared link. */
+const MEMBER_MARKER = "MemberCoin_5150";
 /** What a strategy runs on: admin-only, never on a shared link. */
 const CONFIG_MARKERS = ["effectiveConfig", "maxOrderNotional", "4242.5", "cfgsha999", "hardDailyLoss", "maxDailyLossAppliesTo", "7373.5"];
-const SECRETS = [...CONFIG_MARKERS, SOURCE_MARKER, "EXNESS", "exness_p549", "/strategies/gold.qkt", "deadbeefsha", "stopAtr", "476422618", "Exness-MT5Trial9", "forward-test", "dsl-", "777123", "ticket-before", "pos-before"];
+const SECRETS = [...CONFIG_MARKERS, SOURCE_MARKER, MEMBER_MARKER, "EXNESS", "exness_p549", "/strategies/gold.qkt", "deadbeefsha", "stopAtr", "476422618", "Exness-MT5Trial9", "forward-test", "dsl-", "777123", "ticket-before", "pos-before"];
 
 let hash: string;
 let app: FastifyInstance;
@@ -67,6 +69,8 @@ async function build(opts: { publicRequestsPerMinute?: number } = {}) {
     { v: 1, instanceId: "i1", id: "started-gold", seq: 1, ts: BEFORE - MIN, strategyId: "gold", type: "strategy.started",
       payload: { strategyId: "gold", ...goldMeta, sourceText: `STRATEGY gold_breakout VERSION 1\n-- ${SOURCE_MARKER}\n`, sourceTruncated: false,
         effectiveConfigSha256: "cfgsha999", effectiveConfig: { schema: 1, risk: { maxDailyLossAppliesTo: "daemon", hardDailyLoss: { value: 7373.5, source: "configured" } }, orders: { maxOrderNotional: { value: 4242.5, source: "configured" } } } } } as Envelope,
+    { v: 1, instanceId: "i1", id: "membership-gold", seq: 1, ts: BEFORE - MIN, strategyId: "gold", type: "set.membership",
+      payload: { strategyId: "gold", set: "movers", member: `EXNESS_P549:${MEMBER_MARKER}`, change: "join", rank: 1, closeTs: BEFORE - 2 * MIN } } as Envelope,
   ]);
   // Engine orders linked to broker tickets: the close of pos-before, and the entry of pos-after (still open at the cutoff).
   const order = db.prepare("INSERT INTO orders (instance_id, order_id, strategy_id, symbol, side, type, state, qty, cum_qty, created_ts, updated_ts, broker_order_id) VALUES ('i1', ?, 'gold', 'EXNESS_P549:GBPUSD', 'BUY', 'MARKET', 'FILLED', 1, 1, ?, ?, ?)");
@@ -201,6 +205,23 @@ describe("public links", () => {
         "/equity?strategy=gold", "/round-trips", "/round-trips/facets", "/round-trips/analytics", "/account/summary", "/live/state"]) {
         const res = await pub(token, path);
         for (const marker of CONFIG_MARKERS) expect(res.body, `${path} leaked ${marker}`).not.toContain(marker);
+      }
+    }
+  });
+
+  it("never shows a strategy's set members: no public route serves them and no public response carries them", async () => {
+    expect((await app.inject({ method: "GET", url: "/set-membership?instance=i1&strategy=gold" })).statusCode).toBe(404);
+    const tokens = [
+      (await share("overview", "", "public")).overview.token!,
+      (await share("strategy", "gold", "public")).strategies.find((s) => s.id === "gold")!.token!,
+    ];
+    for (const token of tokens) {
+      for (const path of ["/set-membership?strategy=gold", "/set-membership?instance=i1&strategy=gold"]) {
+        expect((await pub(token, path)).statusCode).toBe(404);
+      }
+      for (const path of ["/meta", "/strategies", "/stats?strategy=gold", "/performance?strategy=gold", "/trades?limit=100", "/deals?limit=100",
+        "/equity?strategy=gold", "/round-trips", "/round-trips/facets", "/round-trips/analytics", "/account/summary", "/live/state"]) {
+        expect((await pub(token, path)).body, `${path} leaked a set member`).not.toContain(MEMBER_MARKER);
       }
     }
   });

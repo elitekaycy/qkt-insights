@@ -165,7 +165,7 @@ export async function buildServer(mode: Mode) {
     try {
       const now = Date.now();
       const { value: r, longestStepMs } = await runSteps(pruneRetentionSteps(db, now));
-      if (r.logs || r.events || r.valuations || r.views || r.quarantined)
+      if (r.logs || r.events || r.valuations || r.views || r.quarantined || r.membership)
         app.log.info({ ...r, longestStepMs: Math.round(longestStepMs) }, "retention prune");
       if (r.monitors) app.log.info({ monitors: r.monitors }, "monitor history pruned");
       // Strategies that stopped reporting (a swapped-out book) lose their operational rows only;

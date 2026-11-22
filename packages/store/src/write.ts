@@ -11,6 +11,7 @@ import { strategyFromOrderComment } from "./retiredStrategies.js";
 import { isIgnoredMagic, recordIgnoredDeal } from "./ignoredMagics.js";
 import { recordStrategyConfig, withoutEffectiveConfig } from "./strategyConfigs.js";
 import { recordStrategySource, withoutSourceText } from "./strategySources.js";
+import { recordSetMembership } from "./setMembership.js";
 
 /** A flat position still records one valuation this often so its holding period is visible. */
 /** A flat position is still re-marked this often, so a stored mark proves it was held. */
@@ -407,6 +408,17 @@ export function ingestEnvelopes(db: Db, instanceId: string, events: Envelope[], 
         accepted++;
         upHealth.run({ i: instanceId, ts: e.ts, seq: e.seq, payload: JSON.stringify(e.payload) });
         upInstance.run({ id: instanceId, ts: e.ts, seq: e.seq , heardAt });
+        continue;
+      }
+      // Set membership changes have their own table only (setMembership.ts), like deals: no events row, no FTS row.
+      if (e.type === "set.membership") {
+        if (!recordSetMembership(db, instanceId, e)) {
+          duplicate();
+          continue;
+        }
+        accepted++;
+        upInstance.run({ id: instanceId, ts: e.ts, seq: e.seq, heardAt });
+        upStrategy.run({ i: instanceId, s: e.payload.strategyId, ts: e.ts });
         continue;
       }
       // A strategy's source text and config are kept in their own tables only (strategySources.ts, strategyConfigs.ts).
