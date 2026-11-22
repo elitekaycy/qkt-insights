@@ -105,7 +105,7 @@ its way out, what to send instead (`deprecated`). A type without an entry fails 
 
 ```json
 {
-  "contractVersion": "1.6.0",
+  "contractVersion": "1.7.0",
   "majors": [1],
   "types": [{ "type": "balances.updated", "since": "1.0.0" }, "..."],
   "maxBatch": null,
@@ -218,6 +218,20 @@ config never quarantines its start. The config is never written to `events`, `st
 `GET /strategy-config` answers the running sha and every version behind the session; no `/public` route reads the
 table and `publicView.ts` does not list it. A collector must accept the field before a qkt sends it: an older collector
 keeps an unknown payload field in `events` and metadata (the payload schemas pass unknown fields through).
+
+### Symbol set membership
+
+`set.membership` (1.7.0) is one change of place of a member in a strategy's moving symbol set, as qkt journals it:
+`join`, `leave`, `stick` (left the ranking while it holds), `release` (a sticky member now flat), `stay` (a sticky member
+back in the ranking), `restore` (recomputed when a run restarts) or `unavailable` (its market data could not be
+subscribed). The payload names the `strategyId`, `set`, `member` (qkt symbol), `change`, `rank` (1-based, absent when
+not ranked), `closeTs` (the close of the window whose evaluation made the change) and an optional `reason`; `change` is
+a plain string, so a kind this collector does not know yet is still kept. Each envelope is one row of `set_membership`
+(`packages/store/src/setMembership.ts`), never an `events` row. The retention prune keeps each member's latest change,
+which says where it stands now. `GET /set-membership?instance&strategy&limit` answers, behind the session, the members
+in each set now (a member whose latest change came before its set's latest `restore` was dropped across the restart)
+and the latest changes, newest first (50 by default, at most 500). No `/public` route reads the table: it names what
+the strategy trades and when it picks it.
 
 ## Reads
 

@@ -314,6 +314,18 @@ export const payloadByType = {
     callerRunsTotal: z.number().optional(),
   }),
   "instance.roster": object({ strategies: z.array(z.string()) }),
+  /*
+   * One member of a strategy's moving symbol set changed its place (1.7.0). `change` is what qkt journals, lower
+   * case: join, leave, stick (left the ranking while it holds), release (a sticky member now flat), stay (a sticky
+   * member back in the ranking), restore (a member recomputed when the run restarts) or unavailable (its market
+   * data could not be subscribed, so it never joins). A plain string, so a kind this collector does not know yet is
+   * still kept. `rank` is the member's 1-based place in the ranking, absent when it is not ranked; `closeTs` the
+   * close (UTC ms) of the window whose evaluation made the change; `reason` qkt's words for why.
+   */
+  "set.membership": object({
+    strategyId: z.string().min(1), set: z.string().min(1), member: z.string().min(1), change: z.string().min(1),
+    rank: opt(z.number().int()), closeTs: z.number(), reason: opt(z.string()),
+  }),
 } as const;
 
 export type EventType = keyof typeof payloadByType;
@@ -322,7 +334,7 @@ export type EventType = keyof typeof payloadByType;
  * The contract this collector speaks, as semver. Minor: a new type or a new optional field. Major: a rename, a
  * removal or a change of meaning, which also takes a new envelope `v` (envelope.ts `SUPPORTED_MAJORS`).
  */
-export const CONTRACT_VERSION = "1.6.0";
+export const CONTRACT_VERSION = "1.7.0";
 
 /** When a type joined the contract and, once it is on its way out, what replaces it. */
 export interface EventTypeMeta {
@@ -391,4 +403,5 @@ export const eventTypeMeta: Record<EventType, EventTypeMeta> = {
   "portfolio.equity.updated": { since: "1.0.0" },
   "state.persistence": { since: "1.0.0" },
   "instance.roster": { since: "1.0.0" },
+  "set.membership": { since: "1.7.0" },
 };
