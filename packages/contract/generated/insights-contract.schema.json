@@ -1,8 +1,8 @@
 {
   "$schema": "https://json-schema.org/draft/2020-12/schema",
-  "$id": "urn:qkt-insights:contract:1.6.0",
-  "title": "qkt-insights envelope contract 1.6.0",
-  "x-contract-version": "1.6.0",
+  "$id": "urn:qkt-insights:contract:1.7.0",
+  "title": "qkt-insights envelope contract 1.7.0",
+  "x-contract-version": "1.7.0",
   "x-envelope-majors": [
     1
   ],
@@ -757,6 +757,24 @@
         },
         "payload": {
           "$ref": "#/$defs/risk.snapshot"
+        }
+      },
+      "required": [
+        "payload"
+      ]
+    },
+    {
+      "allOf": [
+        {
+          "$ref": "#/$defs/envelope"
+        }
+      ],
+      "properties": {
+        "type": {
+          "const": "set.membership"
+        },
+        "payload": {
+          "$ref": "#/$defs/set.membership"
         }
       },
       "required": [
@@ -3556,6 +3574,58 @@
         }
       },
       "x-since": "1.0.0"
+    },
+    "set.membership": {
+      "type": "object",
+      "properties": {
+        "strategyId": {
+          "type": "string",
+          "minLength": 1
+        },
+        "set": {
+          "type": "string",
+          "minLength": 1
+        },
+        "member": {
+          "type": "string",
+          "minLength": 1
+        },
+        "change": {
+          "type": "string",
+          "minLength": 1
+        },
+        "rank": {
+          "anyOf": [
+            {
+              "type": "integer"
+            },
+            {
+              "type": "null"
+            }
+          ]
+        },
+        "closeTs": {
+          "type": "number"
+        },
+        "reason": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ]
+        }
+      },
+      "required": [
+        "strategyId",
+        "set",
+        "member",
+        "change",
+        "closeTs"
+      ],
+      "x-since": "1.7.0"
     },
     "signal": {
       "type": "object",

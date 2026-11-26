@@ -336,6 +336,36 @@ export interface StrategyConfigView {
   accountCurrencies: string[];
 }
 
+/** One change of place in a strategy's moving symbol set (store setMembership.ts SetMembershipRow). */
+export interface SetMembershipChange {
+  id: string;
+  set: string;
+  member: string;
+  /** join, leave, stick, release, stay, restore or unavailable, as qkt journalled it. */
+  change: string;
+  rank: number | null;
+  /** Close (UTC ms) of the window whose evaluation made the change. */
+  closeTs: number;
+  reason: string | null;
+  ts: number;
+}
+
+/** A member in a set now: in the ranking, or sticky (out of it but kept while it holds). */
+export interface SetMember {
+  set: string;
+  member: string;
+  state: "member" | "sticky";
+  change: string;
+  rank: number | null;
+  since: number;
+}
+
+export interface SetMembershipView {
+  members: SetMember[];
+  /** Newest first. */
+  changes: SetMembershipChange[];
+}
+
 /** One symbol a strategy traded, as its newest deal there states it (store queries.ts StrategyInstrument). */
 export interface StrategyInstrument {
   symbol: string;

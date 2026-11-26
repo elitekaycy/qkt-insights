@@ -29,6 +29,8 @@ export interface RetentionResult {
   views: number;
   /** quarantined envelopes received before the cutoff removed. */
   quarantined: number;
+  /** set_membership changes removed: each member's latest change is kept, since it says where the member stands. */
+  membership: number;
 }
 
 /** A prune runs as steps, each its own short transaction; it yields between steps and returns its counts. */
@@ -158,6 +160,7 @@ function* sweepMarks(db: Database, match: string, params: Record<string, unknown
  *  - `monitor_minutes`, and `monitor_events` except each monitor's latest transition, which is
  *    what a restart restores the current status from.
  *  - `quarantined_events` by receive time: a contract that learns the type replays from what is left.
+ *  - `set_membership`, except each set member's latest change, which says where the member stands now.
  *
  * The deletes run as short steps (see pruneRetentionSteps) so ingest is never held up for long;
  * this runs them all at once. `now` is injectable so tests can pin the cutoff.
@@ -202,8 +205,17 @@ export function* pruneRetentionSteps(db: Database, now: number, retentionDays = 
   const quarantined = yield* deleteInSteps(db, "quarantined_events",
     "SELECT rowid id FROM quarantined_events WHERE received_at < @cutoff LIMIT @limit", { cutoff });
 
+  let membership = 0;
+  for (const instanceId of distinctLeading(db, "set_membership", "instance_id")) {
+    membership += yield* deleteInSteps(db, "set_membership",
+      `SELECT m.rowid id FROM set_membership m WHERE m.instance_id=@instanceId AND m.ts < @cutoff
+         AND EXISTS (SELECT 1 FROM set_membership n WHERE n.instance_id=m.instance_id AND n.strategy_id=m.strategy_id
+           AND n.set_name=m.set_name AND n.member=m.member AND (n.ts > m.ts OR (n.ts = m.ts AND n.rowid > m.rowid))) LIMIT @limit`,
+      { instanceId, cutoff });
+  }
+
   bumpEpoch(db as Parameters<typeof bumpEpoch>[0]);
-  return { logs, events, valuations, monitors, views, quarantined };
+  return { logs, events, valuations, monitors, views, quarantined, membership };
 }
 
 export interface StaleStrategyResult {
@@ -215,7 +227,7 @@ export interface StaleStrategyResult {
 
 /** Operational per-strategy tables a retired strategy no longer needs. Money history (deals,
  * trade_closes, equity_snapshots, risk_events, trade events, open positions) is never listed. */
-const RETIRED_OPERATIONAL_TABLES = ["logs", "risk_snapshots"] as const;
+const RETIRED_OPERATIONAL_TABLES = ["logs", "risk_snapshots", "set_membership"] as const;
 
 function hasStrategyScope(db: Database, table: string): boolean {
   const cols = db.prepare(`PRAGMA table_info(${table})`).all() as { name: string }[];
